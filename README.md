@@ -11,7 +11,7 @@ Floe is intentionally not a distributed engine and is not meant to replace Spark
 
 ## Scope for v0.1
 
-- Parse a YAML config describing source, sink, schema, and policy
+- Parse a YAML config describing project metadata and entities
 - Run a local CSV ingestion pipeline with schema enforcement and basic checks
 - Write accepted/rejected outputs and a JSON run report
 - Provide a minimal CLI with `validate` and `run`
@@ -25,8 +25,8 @@ Floe is intentionally not a distributed engine and is not meant to replace Spark
 
 ## Repository layout
 
-- `crates/floe-core/`: core library crate (placeholder)
-- `crates/floe-cli/`: CLI crate (placeholder)
+- `crates/floe-core/`: core library crate (types only)
+- `crates/floe-cli/`: CLI crate (skeleton)
 - `docs/`: design notes, spec, and CLI contract
 - `example/`: sample configs and input data
 

@@ -5,10 +5,21 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
 ## Top-level
 
 - `version`: Spec version string (e.g., "0.1").
-- `entity`: Logical dataset name (e.g., "customer").
-- `metadata`: Context for ownership and discoverability.
+- `metadata`: Project-level metadata.
+- `entities`: List of entity configs. v0.1 is expected to run a single entity entry.
 
-## metadata
+## metadata (project)
+
+- `project`: Project or repo name.
+- `description`: Human-readable description.
+- `owner`: Owning team.
+- `tags`: List of tags for cataloging.
+
+## entities[].name
+
+- `name`: Logical dataset name (e.g., "customer").
+
+## entities[].metadata
 
 - `data_product`: Product or domain dataset name.
 - `domain`: Business domain (e.g., sales, finance).
@@ -16,7 +27,7 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
 - `description`: Human-readable description.
 - `tags`: List of tags for cataloging.
 
-## source
+## entities[].source
 
 - `format`: Input file format. v0.1: `csv` (parquet later).
 - `path`: Input path or glob, relative to config directory.
@@ -29,7 +40,7 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
   - `strict`: reject values that cannot be parsed.
   - `coerce`: coerce invalid values to null (then apply nullable rules).
 
-## sink
+## entities[].sink
 
 - `accepted`: Output location for accepted rows.
   - `format`: `parquet` or `csv`.
@@ -40,7 +51,7 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
 - `report`:
   - `path`: Directory path for the JSON run report.
 
-## policy
+## entities[].policy
 
 - `default_severity`: Default action when a rule fails.
   - `warn`: keep row, record warning.
@@ -57,7 +68,7 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
   - `max_reject_rate`: Abort if rejected/total exceeds this ratio.
   - `max_reject_count`: Abort if rejected rows exceed this count.
 
-## schema
+## entities[].schema
 
 - `normalize_columns`:
   - `enabled`: Whether to normalize input column names.

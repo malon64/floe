@@ -8,4 +8,5 @@ name = "floe"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 floe-core = { path = "../floe-core" }

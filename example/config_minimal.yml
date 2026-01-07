@@ -1,37 +1,41 @@
 version: "0.1"
-entity: "customer"
 
-source:
-  format: "csv"
-  path: "in/customer/*.csv"
-  options:
-    header: true
-    separator: ","
-    null_values: ["", "NULL", "null"]
-  cast_mode: "coerce"
+metadata:
+  project: "floe"
 
-sink:
-  accepted:
-    format: "parquet"
-    path: "out/accepted/customer/"
-  rejected:
-    format: "parquet"
-    path: "out/rejected/customer/"
-  report:
-    path: "out/reports/customer/"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "in/customer/*.csv"
+      options:
+        header: true
+        separator: ","
+        null_values: ["", "NULL", "null"]
+      cast_mode: "coerce"
 
-policy:
-  default_severity: "reject"
-  quarantine:
-    mode: "row"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "out/accepted/customer/"
+      rejected:
+        format: "parquet"
+        path: "out/rejected/customer/"
+      report:
+        path: "out/reports/customer/"
 
-schema:
-  columns:
-    - name: "customer_id"
-      type: "string"
-      nullable: false
-      unique: true
-    - name: "created_at"
-      type: "datetime"
-      nullable: true
-      unique: false
+    policy:
+      default_severity: "reject"
+      quarantine:
+        mode: "row"
+
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: true
+        - name: "created_at"
+          type: "datetime"
+          nullable: true
+          unique: false

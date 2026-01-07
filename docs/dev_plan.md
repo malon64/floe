@@ -1,6 +1,6 @@
 # Floe v0.1 Dev Plan (Short)
 
-1) Parse YAML config and validate required fields.
+1) Parse YAML config and validate required fields (single entity from `entities`).
 2) Read CSV with header, delimiter, and null handling.
 3) Enforce schema types with `cast_mode` (strict/coerce).
 4) Implement checks: `not_null`, `unique`.

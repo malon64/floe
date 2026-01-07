@@ -1,73 +1,80 @@
 version: "0.1"
 
-entity: "customer"
-
 metadata:
-  data_product: "customer_master"
-  domain: "sales"
+  project: "floe"
+  description: "Example multi-entity technical ingestion config"
   owner: "data-platform"
-  description: "Technical ingestion contract for customer dataset"
-  tags: ["prepared", "masterdata"]
+  tags: ["v0.1", "examples"]
 
-source:
-  format: "csv"                 # csv | parquet | json
-  path: "in/customer/*.csv"     # chemin ou glob
-  options:
-    header: true
-    separator: ","
-    encoding: "utf-8"
-    null_values: ["", "NULL", "null"]
-  cast_mode: "coerce"           # strict | coerce
+entities:
+  - name: "customer"
 
-sink:
-  accepted:
-    format: "parquet"           # parquet | csv
-    path: "out/accepted/customer/"
-  rejected:
-    format: "parquet"
-    path: "out/rejected/customer/"
-  report:
-    path: "out/reports/customer/"
+    metadata:
+      data_product: "customer_master"
+      domain: "sales"
+      owner: "data-platform"
+      description: "Technical ingestion contract for customer dataset"
+      tags: ["prepared", "masterdata"]
 
-policy:
-  default_severity: "reject"    # warn | reject | abort
-  on_schema_error: "abort"
+    source:
+      format: "csv"
+      path: "in/customer/*.csv"
+      options:
+        header: true
+        separator: ","
+        encoding: "utf-8"
+        null_values: ["", "NULL", "null"]
+      cast_mode: "coerce"   # strict | coerce
 
-  quarantine:
-    mode: "row"                 # row | file
-    add_reason_columns: true
-    reason_columns:
-      rule: "__floe_rule"
-      column: "__floe_column"
-      message: "__floe_message"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "out/accepted/customer/"
+      rejected:
+        format: "parquet"
+        path: "out/rejected/customer/"
+      report:
+        path: "out/reports/customer/"
 
-  thresholds:
-    max_reject_rate: 0.05       # si >5% rejet → abort
-    max_reject_count: 100000
+    policy:
+      default_severity: "reject"   # warn | reject | abort
+      on_schema_error: "abort"
 
-schema:
-  normalize_columns:
-    enabled: true
-    strategy: "snake_case"      # snake_case | lower | none
+      quarantine:
+        mode: "row"                # row | file
+        add_reason_columns: true
+        reason_columns:
+          rule: "__floe_rule"
+          column: "__floe_column"
+          message: "__floe_message"
 
-  columns:
-    - name: "customer_id"
-      type: "string"
-      nullable: false
-      unique: true
-      unique_strategy: "reject_all"   # reject_all | keep_first | keep_last
+      thresholds:
+        max_reject_rate: 0.05
+        max_reject_count: 100000
 
-    - name: "email"
-      type: "string"
-      nullable: true
-      unique: false
+    schema:
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"     # snake_case | lower | none
 
-    - name: "country_code"
-      type: "string"
-      nullable: true
-      unique: false
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: true
+          unique_strategy: "reject_all"  # reject_all | keep_first | keep_last
 
-    - name: "created_at"
-      type: "datetime"
-      nullable: true
-      unique: false
+        - name: "email"
+          type: "string"
+          nullable: true
+          unique: false
+
+        - name: "country_code"
+          type: "string"
+          nullable: true
+          unique: false
+
+        - name: "created_at"
+          type: "datetime"
+          nullable: true
+          unique: false

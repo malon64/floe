@@ -1,0 +1,11 @@
+[package]
+name = "floe-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "floe"
+path = "src/main.rs"
+
+[dependencies]
+floe-core = { path = "../floe-core" }

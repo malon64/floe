@@ -1,0 +1,6 @@
+customer_id,email,country_code,created_at
+CUST-100,rita@example.com,US,2024-03-01T08:10:00Z
+,missing@example.com,US,2024-03-02T09:15:00Z
+NULL,should_be_null@example.com,CA,2024-03-03T10:20:00Z
+null,also_null@example.com,FR,2024-03-04T11:25:00Z
+CUST-101,,DE,2024-03-05T12:30:00Z

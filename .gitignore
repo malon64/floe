@@ -11,3 +11,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Test ouput files
+example/out/*

@@ -1,0 +1,278 @@
+$schema: https://yaml-schema.net/yaml-config.schema.yaml
+$id: https://floe.local/schema/config-v0.1
+
+title: Floe Config v0.1
+
+type: object
+additionalProperties: false
+required:
+  - version
+  - entities
+
+properties:
+  version:
+    type: string
+  metadata:
+    $ref: "#/$defs/project_metadata"
+  entities:
+    type: array
+    items:
+      $ref: "#/$defs/entity"
+
+$defs:
+  project_metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - project
+    properties:
+      project:
+        type: string
+      description:
+        type: string
+      owner:
+        type: string
+      tags:
+        type: array
+        items:
+          type: string
+
+  entity:
+    allOf:
+      - $ref: "#/$defs/entity_base"
+      - oneOf:
+          - $ref: "#/$defs/entity_reject"
+          - $ref: "#/$defs/entity_non_reject"
+
+  entity_base:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - source
+      - sink
+      - policy
+      - schema
+    properties:
+      name:
+        type: string
+      metadata:
+        $ref: "#/$defs/entity_metadata"
+      source:
+        $ref: "#/$defs/source"
+      sink:
+        $ref: "#/$defs/sink"
+      policy:
+        $ref: "#/$defs/policy"
+      schema:
+        $ref: "#/$defs/schema"
+
+  entity_reject:
+    type: object
+    properties:
+      policy:
+        type: object
+        properties:
+          severity:
+            const: reject
+      sink:
+        type: object
+        required:
+          - rejected
+
+  entity_non_reject:
+    type: object
+    properties:
+      policy:
+        type: object
+        properties:
+          severity:
+            enum: [warn, abort]
+
+  entity_metadata:
+    type: object
+    additionalProperties: false
+    properties:
+      data_product:
+        type: string
+      domain:
+        type: string
+      owner:
+        type: string
+      description:
+        type: string
+      tags:
+        type: array
+        items:
+          type: string
+
+  source:
+    type: object
+    additionalProperties: false
+    required:
+      - format
+      - path
+    properties:
+      format:
+        type: string
+        enum: [csv, parquet, json]
+      path:
+        type: string
+      options:
+        $ref: "#/$defs/source_options"
+      cast_mode:
+        type: string
+        enum: [strict, coerce]
+
+  source_options:
+    type: object
+    additionalProperties: false
+    properties:
+      header:
+        type: boolean
+      separator:
+        type: string
+      encoding:
+        type: string
+      null_values:
+        type: array
+        items:
+          type: string
+
+  sink:
+    type: object
+    additionalProperties: false
+    required:
+      - accepted
+      - report
+    properties:
+      accepted:
+        $ref: "#/$defs/sink_accepted"
+      rejected:
+        $ref: "#/$defs/sink_rejected"
+      report:
+        $ref: "#/$defs/report_target"
+
+  sink_accepted:
+    type: object
+    additionalProperties: false
+    required:
+      - format
+      - path
+    properties:
+      format:
+        type: string
+        enum: [parquet, delta]
+      path:
+        type: string
+
+  sink_rejected:
+    type: object
+    additionalProperties: false
+    required:
+      - format
+      - path
+    properties:
+      format:
+        type: string
+        enum: [csv]
+      path:
+        type: string
+
+  report_target:
+    type: object
+    additionalProperties: false
+    required:
+      - path
+    properties:
+      path:
+        type: string
+
+  policy:
+    type: object
+    additionalProperties: false
+    required:
+      - severity
+    properties:
+      severity:
+        type: string
+        enum: [warn, reject, abort]
+      quarantine:
+        $ref: "#/$defs/quarantine"
+      thresholds:
+        $ref: "#/$defs/thresholds"
+
+  quarantine:
+    type: object
+    additionalProperties: false
+    properties:
+      mode:
+        type: string
+        enum: [row, file]
+      add_reason_columns:
+        type: boolean
+      reason_columns:
+        $ref: "#/$defs/reason_columns"
+
+  reason_columns:
+    type: object
+    additionalProperties: false
+    properties:
+      rule:
+        type: string
+      column:
+        type: string
+      message:
+        type: string
+
+  thresholds:
+    type: object
+    additionalProperties: false
+    properties:
+      max_reject_rate:
+        type: number
+      max_reject_count:
+        type: integer
+
+  schema:
+    type: object
+    additionalProperties: false
+    required:
+      - columns
+    properties:
+      normalize_columns:
+        $ref: "#/$defs/normalize_columns"
+      columns:
+        type: array
+        items:
+          $ref: "#/$defs/column"
+
+  normalize_columns:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+      strategy:
+        type: string
+        enum: [snake_case, lower, none]
+
+  column:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - type
+    properties:
+      name:
+        type: string
+      type:
+        type: string
+        enum: [string, integer, number, boolean, date, datetime]
+      nullable:
+        type: boolean
+      unique:
+        type: boolean
+      unique_strategy:
+        type: string
+        enum: [reject_all, keep_first, keep_last]

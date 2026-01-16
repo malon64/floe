@@ -43,21 +43,20 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
 ## entities[].sink
 
 - `accepted`: Output location for accepted rows.
-  - `format`: `parquet` or `csv`.
+  - `format`: `parquet` or `delta`.
   - `path`: Directory path for accepted output.
 - `rejected`: Output location for rejected rows.
-  - `format`: `parquet` or `csv`.
+  - `format`: `csv` (keeps raw values on type issues).
   - `path`: Directory path for rejected output.
 - `report`:
   - `path`: Directory path for the JSON run report.
 
 ## entities[].policy
 
-- `default_severity`: Default action when a rule fails.
+- `severity`: Default action when a rule fails.
   - `warn`: keep row, record warning.
   - `reject`: quarantine row (default).
   - `abort`: stop the run.
-- `on_schema_error`: Action on schema parsing/validation errors.
 - `quarantine`:
   - `mode`: `row` (default) or `file`.
     - `row`: split accepted vs rejected rows.

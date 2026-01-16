@@ -1,13 +1,10 @@
 version: "0.1"
 
-metadata:
-  project: "floe"
-
 entities:
   - name: "customer"
     source:
       format: "csv"
-      path: "in/customer/*.csv"
+      path: "/home/alexis/floe/example/in/customer/*.csv"
       options:
         header: true
         separator: ","
@@ -17,15 +14,15 @@ entities:
     sink:
       accepted:
         format: "parquet"
-        path: "out/accepted/customer/"
+        path: "/home/alexis/floe/example/out/accepted/customer/"
       rejected:
-        format: "parquet"
-        path: "out/rejected/customer/"
+        format: "csv"
+        path: "/home/alexis/floe/example/out/rejected/customer/"
       report:
-        path: "out/reports/customer/"
+        path: "/home/alexis/floe/example/out/reports/customer/"
 
     policy:
-      default_severity: "reject"
+      severity: "reject"
       quarantine:
         mode: "row"
 

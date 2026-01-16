@@ -18,7 +18,7 @@ entities:
 
     source:
       format: "csv"
-      path: "in/customer/*.csv"
+      path: "/home/alexis/floe/example/in/customer/customers_missing.csv"
       options:
         header: true
         separator: ","
@@ -29,16 +29,15 @@ entities:
     sink:
       accepted:
         format: "parquet"
-        path: "out/accepted/customer/"
+        path: "/home/alexis/floe/example/out/accepted/customer/"
       rejected:
-        format: "parquet"
-        path: "out/rejected/customer/"
+        format: "csv"
+        path: "/home/alexis/floe/example/out/rejected/customer/"
       report:
-        path: "out/reports/customer/"
+        path: "/home/alexis/floe/example/out/reports/customer/"
 
     policy:
-      default_severity: "reject"   # warn | reject | abort
-      on_schema_error: "abort"
+      severity: "reject"   # warn | reject | abort
 
       quarantine:
         mode: "row"                # row | file

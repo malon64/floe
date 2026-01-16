@@ -7,4 +7,6 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+yaml-schema = "0.8"
 yaml-rust2 = "0.11"
+polars = { version = "0.52.0", features = ["csv", "parquet", "lazy", "timezones"] }

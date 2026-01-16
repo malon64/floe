@@ -1,3 +1,12 @@
+use std::path::Path;
+
+use polars::polars_utils::pl_str::PlSmallStr;
+use polars::prelude::{
+    CsvEncoding, CsvParseOptions, CsvReadOptions, DataType, NullValues, Schema, TimeUnit,
+};
+
+use crate::{ConfigError, FloeResult};
+
 #[derive(Debug)]
 pub struct RootConfig {
     pub version: String,
@@ -48,10 +57,80 @@ pub struct SourceOptions {
     pub null_values: Option<Vec<String>>,
 }
 
+impl Default for SourceOptions {
+    fn default() -> Self {
+        Self {
+            header: Some(true),
+            separator: Some(";".to_string()),
+            encoding: Some("UTF8".to_string()),
+            null_values: Some(Vec::new()),
+        }
+    }
+}
+
+impl SourceOptions {
+    pub fn to_csv_read_options(&self, input_path: &Path) -> FloeResult<CsvReadOptions> {
+        let header = self.header.unwrap_or(true);
+        let separator = parse_separator(self.separator.as_deref().unwrap_or(";"))?;
+        let encoding = parse_encoding(self.encoding.as_deref())?;
+        let null_values = build_null_values(self.null_values.as_ref());
+        let parse_options = CsvParseOptions::default()
+            .with_separator(separator)
+            .with_encoding(encoding)
+            .with_null_values(null_values);
+
+        Ok(CsvReadOptions::default()
+            .with_path(Some(input_path))
+            .with_has_header(header)
+            .with_parse_options(parse_options))
+    }
+}
+
+fn parse_separator(value: &str) -> FloeResult<u8> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 1 {
+        return Err(Box::new(ConfigError(format!(
+            "separator must be a single byte, got {value:?}"
+        ))));
+    }
+    Ok(bytes[0])
+}
+
+fn parse_encoding(value: Option<&str>) -> FloeResult<CsvEncoding> {
+    let normalized = value
+        .unwrap_or("utf8")
+        .to_ascii_lowercase()
+        .replace('-', "")
+        .replace('_', "");
+    match normalized.as_str() {
+        "utf8" => Ok(CsvEncoding::Utf8),
+        "lossyutf8" => Ok(CsvEncoding::LossyUtf8),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported encoding: {}",
+            value.unwrap_or("utf8")
+        )))),
+    }
+}
+
+fn build_null_values(values: Option<&Vec<String>>) -> Option<NullValues> {
+    let values = values?;
+    if values.is_empty() {
+        return None;
+    }
+    if values.len() == 1 {
+        return Some(NullValues::AllColumnsSingle(PlSmallStr::from(
+            values[0].as_str(),
+        )));
+    }
+    Some(NullValues::AllColumns(
+        values.iter().map(|value| value.as_str().into()).collect(),
+    ))
+}
+
 #[derive(Debug)]
 pub struct SinkConfig {
     pub accepted: SinkTarget,
-    pub rejected: SinkTarget,
+    pub rejected: Option<SinkTarget>,
     pub report: ReportTarget,
 }
 
@@ -68,8 +147,7 @@ pub struct ReportTarget {
 
 #[derive(Debug)]
 pub struct PolicyConfig {
-    pub default_severity: Option<String>,
-    pub on_schema_error: Option<String>,
+    pub severity: String,
     pub quarantine: Option<QuarantineConfig>,
     pub thresholds: Option<ThresholdsConfig>,
 }
@@ -100,6 +178,23 @@ pub struct SchemaConfig {
     pub columns: Vec<ColumnConfig>,
 }
 
+impl SchemaConfig {
+    pub fn to_polars_schema(&self) -> FloeResult<Schema> {
+        let mut schema = Schema::with_capacity(self.columns.len());
+        for column in &self.columns {
+            let dtype = parse_data_type(&column.column_type)?;
+            if schema.insert(column.name.as_str().into(), dtype).is_some() {
+                return Err(Box::new(ConfigError(format!(
+                    "duplicate column name in schema: {}",
+                    column.name
+                ))));
+            }
+        }
+        Ok(schema)
+    }
+}
+
+
 #[derive(Debug)]
 pub struct NormalizeColumnsConfig {
     pub enabled: Option<bool>,
@@ -109,9 +204,35 @@ pub struct NormalizeColumnsConfig {
 #[derive(Debug)]
 pub struct ColumnConfig {
     pub name: String,
-    // YAML key is `type`, map manually when parsing.
     pub column_type: String,
     pub nullable: Option<bool>,
     pub unique: Option<bool>,
     pub unique_strategy: Option<String>,
+}
+
+fn parse_data_type(value: &str) -> FloeResult<DataType> {
+    let normalized = value
+        .to_ascii_lowercase()
+        .replace('-', "")
+        .replace('_', "");
+    match normalized.as_str() {
+        "string" | "str" | "text" => Ok(DataType::String),
+        "boolean" | "bool" => Ok(DataType::Boolean),
+        "int8" => Ok(DataType::Int8),
+        "int16" => Ok(DataType::Int16),
+        "int32" => Ok(DataType::Int32),
+        "int64" | "int" | "integer" | "long" => Ok(DataType::Int64),
+        "uint8" => Ok(DataType::UInt8),
+        "uint16" => Ok(DataType::UInt16),
+        "uint32" => Ok(DataType::UInt32),
+        "uint64" => Ok(DataType::UInt64),
+        "float32" => Ok(DataType::Float32),
+        "float64" | "float" | "double" => Ok(DataType::Float64),
+        "date" => Ok(DataType::Date),
+        "datetime" | "timestamp" => Ok(DataType::Datetime(TimeUnit::Milliseconds, None)),
+        "time" => Ok(DataType::Time),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported column type: {value}"
+        )))),
+    }
 }

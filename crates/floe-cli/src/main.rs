@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use floe_core::{run, validate, FloeResult, RunOptions, ValidateOptions};
+use floe_core::{load_config, run, validate, FloeResult, RunOptions, ValidateOptions};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -35,10 +35,27 @@ fn main() -> FloeResult<()> {
             let config_path = resolve_path(config)?;
             let options = ValidateOptions { entities };
             validate(&config_path, options)?;
-            println!(
-                "Your config file at location {}, is well formatted.\n\rYou can now run 'floe run' command",
-                config_path.to_str().unwrap_or("default")
-            );
+            let config = load_config(&config_path)?;
+            println!("Config valid: {}", config_path.display());
+            println!("Version: {}", config.version);
+            println!("Entities: {}", config.entities.len());
+            for entity in &config.entities {
+                println!("Entity: {}", entity.name);
+                println!("  Source: {} ({})", entity.source.format, entity.source.path);
+                println!(
+                    "  Sink accepted: {} ({})",
+                    entity.sink.accepted.format, entity.sink.accepted.path
+                );
+                if let Some(rejected) = &entity.sink.rejected {
+                    println!(
+                        "  Sink rejected: {} ({})",
+                        rejected.format, rejected.path
+                    );
+                }
+                println!("  Report: {}", entity.sink.report.path);
+                println!("  Severity: {}", entity.policy.severity);
+            }
+            println!("Next: floe run -c {}", config_path.display());
             Ok(())
         }
         Command::Run {
@@ -52,16 +69,17 @@ fn main() -> FloeResult<()> {
                 entities,
             };
             run(&config_path, options)?;
-            println!("run accepted (not implemented yet)");
+            println!("run completed");
             Ok(())
         }
     }
 }
 
 fn resolve_path(path: PathBuf) -> FloeResult<PathBuf> {
-    if path.is_absolute() {
-        Ok(path)
+    let absolute = if path.is_absolute() {
+        path
     } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
+        std::env::current_dir()?.join(path)
+    };
+    Ok(std::fs::canonicalize(absolute)?)
 }

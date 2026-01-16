@@ -1,6 +1,6 @@
 # Design Decisions
 
-- Row-level quarantine is the default because it preserves good data while isolating bad rows.
+- Row-level rejection is the default because it preserves good data while isolating bad rows.
 - `unique` is dataset-level. Future strategies may include:
   - `reject_all`: reject all rows with duplicate keys (v0.1 default).
   - `keep_first`: keep the first occurrence and reject the rest.

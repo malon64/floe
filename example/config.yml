@@ -18,13 +18,13 @@ entities:
 
     source:
       format: "csv"
-      path: "/home/alexis/floe/example/in/customer/customers_missing.csv"
+      path: "/home/alexis/floe/example/in/customer"
       options:
         header: true
         separator: ","
         encoding: "utf-8"
         null_values: ["", "NULL", "null"]
-      cast_mode: "coerce"   # strict | coerce
+      cast_mode: "strict"   # strict | coerce
 
     sink:
       accepted:
@@ -35,17 +35,11 @@ entities:
         path: "/home/alexis/floe/example/out/rejected/customer/"
       report:
         path: "/home/alexis/floe/example/out/reports/customer/"
+      archive:
+        path: "/home/alexis/floe/example/in/customer"
 
     policy:
-      severity: "reject"   # warn | reject | abort
-
-      quarantine:
-        mode: "row"                # row | file
-        add_reason_columns: true
-        reason_columns:
-          rule: "__floe_rule"
-          column: "__floe_column"
-          message: "__floe_message"
+      severity: "abort"   # warn | reject | abort
 
       thresholds:
         max_reject_rate: 0.05
@@ -61,7 +55,6 @@ entities:
           type: "string"
           nullable: false
           unique: true
-          unique_strategy: "reject_all"  # reject_all | keep_first | keep_last
 
         - name: "email"
           type: "string"

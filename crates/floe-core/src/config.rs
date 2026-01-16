@@ -132,6 +132,7 @@ pub struct SinkConfig {
     pub accepted: SinkTarget,
     pub rejected: Option<SinkTarget>,
     pub report: ReportTarget,
+    pub archive: Option<ArchiveTarget>,
 }
 
 #[derive(Debug)]
@@ -146,24 +147,14 @@ pub struct ReportTarget {
 }
 
 #[derive(Debug)]
+pub struct ArchiveTarget {
+    pub path: String,
+}
+
+#[derive(Debug)]
 pub struct PolicyConfig {
     pub severity: String,
-    pub quarantine: Option<QuarantineConfig>,
     pub thresholds: Option<ThresholdsConfig>,
-}
-
-#[derive(Debug)]
-pub struct QuarantineConfig {
-    pub mode: Option<String>,
-    pub add_reason_columns: Option<bool>,
-    pub reason_columns: Option<ReasonColumns>,
-}
-
-#[derive(Debug)]
-pub struct ReasonColumns {
-    pub rule: Option<String>,
-    pub column: Option<String>,
-    pub message: Option<String>,
 }
 
 #[derive(Debug)]
@@ -192,6 +183,22 @@ impl SchemaConfig {
         }
         Ok(schema)
     }
+
+    pub fn to_polars_string_schema(&self) -> FloeResult<Schema> {
+        let mut schema = Schema::with_capacity(self.columns.len());
+        for column in &self.columns {
+            if schema
+                .insert(column.name.as_str().into(), DataType::String)
+                .is_some()
+            {
+                return Err(Box::new(ConfigError(format!(
+                    "duplicate column name in schema: {}",
+                    column.name
+                ))));
+            }
+        }
+        Ok(schema)
+    }
 }
 
 
@@ -207,7 +214,6 @@ pub struct ColumnConfig {
     pub column_type: String,
     pub nullable: Option<bool>,
     pub unique: Option<bool>,
-    pub unique_strategy: Option<String>,
 }
 
 fn parse_data_type(value: &str) -> FloeResult<DataType> {

@@ -5,8 +5,8 @@ use yaml_rust2::Yaml;
 
 use crate::config::{
     ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig, PolicyConfig,
-    ProjectMetadata, QuarantineConfig, ReasonColumns, ReportTarget, RootConfig, SchemaConfig,
-    SinkConfig, SinkTarget, SourceConfig, SourceOptions, ThresholdsConfig,
+    ArchiveTarget, ProjectMetadata, ReportTarget, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
+    SourceConfig, SourceOptions, ThresholdsConfig,
 };
 use crate::{ConfigError, FloeResult};
 use crate::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_number, yaml_string};
@@ -125,11 +125,16 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
         Some(value) => Some(parse_sink_target(value, "sink.rejected")?),
         None => None,
     };
+    let archive = match hash_get(hash, "archive") {
+        Some(value) => Some(parse_archive_target(value)?),
+        None => None,
+    };
 
     Ok(SinkConfig {
         accepted: parse_sink_target(get_value(hash, "accepted", "sink")?, "sink.accepted")?,
         rejected,
         report: parse_report_target(get_value(hash, "report", "sink")?)?,
+        archive,
     })
 }
 
@@ -148,12 +153,15 @@ fn parse_report_target(value: &Yaml) -> FloeResult<ReportTarget> {
     })
 }
 
+fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
+    let hash = yaml_hash(value, "sink.archive")?;
+    Ok(ArchiveTarget {
+        path: get_string(hash, "path", "sink.archive")?,
+    })
+}
+
 fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
     let hash = yaml_hash(value, "policy")?;
-    let quarantine = match hash_get(hash, "quarantine") {
-        Some(value) => Some(parse_quarantine(value)?),
-        None => None,
-    };
     let thresholds = match hash_get(hash, "thresholds") {
         Some(value) => Some(parse_thresholds(value)?),
         None => None,
@@ -161,31 +169,7 @@ fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
 
     Ok(PolicyConfig {
         severity: get_string(hash, "severity", "policy")?,
-        quarantine,
         thresholds,
-    })
-}
-
-fn parse_quarantine(value: &Yaml) -> FloeResult<QuarantineConfig> {
-    let hash = yaml_hash(value, "policy.quarantine")?;
-    let reason_columns = match hash_get(hash, "reason_columns") {
-        Some(value) => Some(parse_reason_columns(value)?),
-        None => None,
-    };
-
-    Ok(QuarantineConfig {
-        mode: opt_string(hash, "mode", "policy.quarantine")?,
-        add_reason_columns: opt_bool(hash, "add_reason_columns", "policy.quarantine")?,
-        reason_columns,
-    })
-}
-
-fn parse_reason_columns(value: &Yaml) -> FloeResult<ReasonColumns> {
-    let hash = yaml_hash(value, "policy.quarantine.reason_columns")?;
-    Ok(ReasonColumns {
-        rule: opt_string(hash, "rule", "policy.quarantine.reason_columns")?,
-        column: opt_string(hash, "column", "policy.quarantine.reason_columns")?,
-        message: opt_string(hash, "message", "policy.quarantine.reason_columns")?,
     })
 }
 
@@ -233,7 +217,6 @@ fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
         column_type: get_string(hash, "type", "schema.columns")?,
         nullable: opt_bool(hash, "nullable", "schema.columns")?,
         unique: opt_bool(hash, "unique", "schema.columns")?,
-        unique_strategy: opt_string(hash, "unique_strategy", "schema.columns")?,
     })
 }
 

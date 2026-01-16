@@ -1,9 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use polars::prelude::DataFrame;
 use yaml_schema::{Engine, RootSchema};
 
 pub mod config;
-mod check;
+pub mod check;
 mod parse;
 mod read;
 mod write;
@@ -64,6 +65,10 @@ pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> 
     Ok(())
 }
 
+pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
+    parse::parse_config(config_path)
+}
+
 pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
@@ -80,167 +85,92 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
     for entity in &config.entities {
         let input = &entity.source;
         let input_path = Path::new(&input.path);
-        let required_cols: Vec<String> = entity
-            .schema
-            .columns
-            .iter()
-            .filter(|col| col.nullable == Some(false))
-            .map(|col| col.name.clone())
-            .collect();
+        let required_cols = required_columns(entity);
 
-        let mut df = match input.format.as_str() {
-            "csv" => {
-                let default_options = config::SourceOptions::default();
-                let source_options = input.options.as_ref().unwrap_or(&default_options);
-                let schema = entity.schema.to_polars_schema()?;
-                read::read_csv(input_path, source_options, schema)?
-            }
-            format => {
-                return Err(Box::new(ConfigError(format!(
-                    "unsupported source format for now: {format}"
-                ))))
-            }
-        };
+        let inputs = read_inputs(entity, input_path)?;
 
-        let (accept_rows, errors_per_row) = check::not_null_results(&df, &required_cols)?;
-        let has_errors = errors_per_row.iter().any(|err| err.is_some());
+        let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
 
-        match entity.policy.severity.as_str() {
-            "warn" => {
-                if has_errors {
-                    let count = errors_per_row.iter().filter(|err| err.is_some()).count();
-                    eprintln!(
-                        "warn: {count} row(s) failed not_null checks for entity {}",
-                        entity.name
-                    );
+        for (source_path, raw_df, mut df) in inputs {
+            let source_stem = source_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(entity.name.as_str());
+            let (accept_rows, errors_per_row) = collect_errors(
+                &raw_df,
+                &df,
+                &required_cols,
+                &entity.schema.columns,
+                track_cast_errors,
+            )?;
+            let has_errors = errors_per_row.iter().any(|err| err.is_some());
+
+            match entity.policy.severity.as_str() {
+                "warn" => {
+                    if has_errors {
+                        let count = errors_per_row.iter().filter(|err| err.is_some()).count();
+                        eprintln!(
+                            "warn: {count} row(s) failed not_null checks for entity {} in {}",
+                            entity.name,
+                            source_path.display()
+                        );
+                    }
+                    write_accepted_output(entity, &mut df, source_stem)?;
+                    // TODO: re-enable archiving once behavior is finalized.
+                    // let archived_path = write::archive_input(&source_path, &archive_dir)?;
+                    // log_output(&entity.name, "archived", &archived_path);
                 }
-                match entity.sink.accepted.format.as_str() {
-                    "parquet" => {
-                        write::write_parquet(&mut df, &entity.sink.accepted.path, &entity.name)?
-                    }
-                    format => {
-                        return Err(Box::new(ConfigError(format!(
-                            "unsupported sink format for now: {format}"
-                        ))))
-                    }
-                }
-            }
-            "reject" => {
-                if has_errors {
-                    let rejected_target = entity.sink.rejected.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(
-                            "sink.rejected is required for reject severity".to_string(),
-                        ))
-                    })?;
-                    match rejected_target.format.as_str() {
-                        "csv" => {}
-                        format => {
-                            return Err(Box::new(ConfigError(format!(
-                                "unsupported rejected sink format for now: {format}"
-                            ))))
-                        }
-                    }
+                "reject" => {
+                    if has_errors {
+                        let rejected_target = validate_rejected_target(entity, "reject")?;
 
-                    let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
-                    let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
-                        Box::new(ConfigError(format!("failed to filter accepted rows: {err}")))
-                    })?;
-                    let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
-                        Box::new(ConfigError(format!("failed to filter rejected rows: {err}")))
-                    })?;
-                    let (row_index, errors) =
-                        check::rejected_error_columns(&errors_per_row, false);
-                    rejected_df.with_column(row_index).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to add __floe_row_index: {err}"
-                        )))
-                    })?;
-                    rejected_df.with_column(errors).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to add __floe_errors: {err}"
-                        )))
-                    })?;
+                        let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
+                        let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
+                            Box::new(ConfigError(format!("failed to filter accepted rows: {err}")))
+                        })?;
+                        let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
+                            Box::new(ConfigError(format!("failed to filter rejected rows: {err}")))
+                        })?;
+                        append_rejection_columns(&mut rejected_df, &errors_per_row, false)?;
 
-                    match entity.sink.accepted.format.as_str() {
-                        "parquet" => write::write_parquet(
-                            &mut accepted_df,
-                            &entity.sink.accepted.path,
-                            &entity.name,
-                        )?,
-                        format => {
-                            return Err(Box::new(ConfigError(format!(
-                                "unsupported sink format for now: {format}"
-                            ))))
-                        }
+                        write_accepted_output(entity, &mut accepted_df, source_stem)?;
+                        let rejected_path = write::write_rejected_csv(
+                            &mut rejected_df,
+                            &rejected_target.path,
+                            source_stem,
+                        )?;
+                        log_output(&entity.name, "rejected", &rejected_path);
+                    } else {
+                        write_accepted_output(entity, &mut df, source_stem)?;
                     }
-                    write::write_rejected_csv(
-                        &mut rejected_df,
-                        &rejected_target.path,
-                        &entity.name,
-                    )?;
-                } else {
-                    match entity.sink.accepted.format.as_str() {
-                        "parquet" => {
-                            write::write_parquet(&mut df, &entity.sink.accepted.path, &entity.name)?
-                        }
-                        format => {
-                            return Err(Box::new(ConfigError(format!(
-                                "unsupported sink format for now: {format}"
-                            ))))
-                        }
-                    }
+                    // TODO: re-enable archiving once behavior is finalized.
+                    // let archived_path = write::archive_input(&source_path, &archive_dir)?;
+                    // log_output(&entity.name, "archived", &archived_path);
                 }
-            }
-            "abort" => {
-                if has_errors {
-                    let rejected_target = entity.sink.rejected.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(
-                            "sink.rejected is required for abort severity".to_string(),
-                        ))
-                    })?;
-                    match rejected_target.format.as_str() {
-                        "csv" => {}
-                        format => {
-                            return Err(Box::new(ConfigError(format!(
-                                "unsupported rejected sink format for now: {format}"
-                            ))))
-                        }
+                "abort" => {
+                    if has_errors {
+                        let rejected_target = validate_rejected_target(entity, "abort")?;
+                        let rejected_path =
+                            write::write_rejected_raw(&source_path, &rejected_target.path)?;
+                        let report_path = write::write_error_report(
+                            &rejected_target.path,
+                            source_stem,
+                            &errors_per_row,
+                        )?;
+                        log_output(&entity.name, "rejected", &rejected_path);
+                        log_output(&entity.name, "reject report", &report_path);
+                    } else {
+                        write_accepted_output(entity, &mut df, source_stem)?;
                     }
-                    let (row_index, errors) =
-                        check::rejected_error_columns(&errors_per_row, true);
-                    df.with_column(row_index).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to add __floe_row_index: {err}"
-                        )))
-                    })?;
-                    df.with_column(errors).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to add __floe_errors: {err}"
-                        )))
-                    })?;
-                    write::write_rejected_csv(&mut df, &rejected_target.path, &entity.name)?;
-                    write::write_error_report(
-                        &rejected_target.path,
-                        &entity.name,
-                        &errors_per_row,
-                    )?;
-                } else {
-                    match entity.sink.accepted.format.as_str() {
-                        "parquet" => {
-                            write::write_parquet(&mut df, &entity.sink.accepted.path, &entity.name)?
-                        }
-                        format => {
-                            return Err(Box::new(ConfigError(format!(
-                                "unsupported sink format for now: {format}"
-                            ))))
-                        }
-                    }
+                    // TODO: re-enable archiving once behavior is finalized.
+                    // let archived_path = write::archive_input(&source_path, &archive_dir)?;
+                    // log_output(&entity.name, "archived", &archived_path);
                 }
-            }
-            severity => {
-                return Err(Box::new(ConfigError(format!(
-                    "unsupported policy severity: {severity}"
-                ))))
+                severity => {
+                    return Err(Box::new(ConfigError(format!(
+                        "unsupported policy severity: {severity}"
+                    ))))
+                }
             }
         }
     }
@@ -261,5 +191,118 @@ fn validate_entities(config: &config::RootConfig, selected: &[String]) -> FloeRe
             missing.join(", ")
         ))));
     }
+    Ok(())
+}
+
+fn log_output(entity_name: &str, label: &str, path: &Path) {
+    println!("entity {}: {} -> {}", entity_name, label, path.display());
+}
+
+fn required_columns(entity: &config::EntityConfig) -> Vec<String> {
+    entity
+        .schema
+        .columns
+        .iter()
+        .filter(|col| col.nullable == Some(false))
+        .map(|col| col.name.clone())
+        .collect()
+}
+
+fn read_inputs(
+    entity: &config::EntityConfig,
+    input_path: &Path,
+) -> FloeResult<Vec<(PathBuf, DataFrame, DataFrame)>> {
+    let input = &entity.source;
+    match input.format.as_str() {
+        "csv" => {
+            let default_options = config::SourceOptions::default();
+            let source_options = input.options.as_ref().unwrap_or(&default_options);
+            let typed_schema = entity.schema.to_polars_schema()?;
+            let raw_schema = entity.schema.to_polars_string_schema()?;
+            let files = read::list_csv_files(input_path)?;
+            let mut inputs = Vec::with_capacity(files.len());
+            let raw_plan = read::CsvReadPlan::strict(raw_schema);
+            let typed_plan = read::CsvReadPlan::permissive(typed_schema);
+            for path in files {
+                let raw_df = read::read_csv_file(&path, source_options, &raw_plan)?;
+                let typed_df = read::read_csv_file(&path, source_options, &typed_plan)?;
+                inputs.push((path, raw_df, typed_df));
+            }
+            Ok(inputs)
+        }
+        format => Err(Box::new(ConfigError(format!(
+            "unsupported source format for now: {format}"
+        )))),
+    }
+}
+
+fn collect_errors(
+    raw_df: &DataFrame,
+    typed_df: &DataFrame,
+    required_cols: &[String],
+    columns: &[config::ColumnConfig],
+    track_cast_errors: bool,
+) -> FloeResult<(Vec<bool>, Vec<Option<String>>)> {
+    let mut error_lists = check::not_null_errors(typed_df, required_cols)?;
+    if track_cast_errors {
+        let cast_errors = check::cast_error_errors(raw_df, typed_df, columns)?;
+        for (errors, cast) in error_lists.iter_mut().zip(cast_errors) {
+            errors.extend(cast);
+        }
+    }
+    Ok(check::build_error_state(error_lists))
+}
+
+fn write_accepted_output(
+    entity: &config::EntityConfig,
+    df: &mut DataFrame,
+    source_stem: &str,
+) -> FloeResult<()> {
+    match entity.sink.accepted.format.as_str() {
+        "parquet" => {
+            let output_path =
+                write::write_parquet(df, &entity.sink.accepted.path, source_stem)?;
+            log_output(&entity.name, "accepted", &output_path);
+            Ok(())
+        }
+        format => Err(Box::new(ConfigError(format!(
+            "unsupported sink format for now: {format}"
+        )))),
+    }
+}
+
+fn validate_rejected_target<'a>(
+    entity: &'a config::EntityConfig,
+    severity: &str,
+) -> FloeResult<&'a config::SinkTarget> {
+    let rejected_target = entity.sink.rejected.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "sink.rejected is required for {severity} severity"
+        )))
+    })?;
+    match rejected_target.format.as_str() {
+        "csv" => Ok(rejected_target),
+        format => Err(Box::new(ConfigError(format!(
+            "unsupported rejected sink format for now: {format}"
+        )))),
+    }
+}
+
+fn append_rejection_columns(
+    df: &mut DataFrame,
+    errors_per_row: &[Option<String>],
+    include_all_rows: bool,
+) -> FloeResult<()> {
+    let (row_index, errors) = check::rejected_error_columns(errors_per_row, include_all_rows);
+    df.with_column(row_index).map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to add __floe_row_index: {err}"
+        )))
+    })?;
+    df.with_column(errors).map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to add __floe_errors: {err}"
+        )))
+    })?;
     Ok(())
 }

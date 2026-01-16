@@ -50,22 +50,43 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
   - `path`: Directory path for rejected output.
 - `report`:
   - `path`: Directory path for the JSON run report.
+- `archive`:
+  - `path`: Directory path for archived input files.
+    - If omitted, defaults to `<sink.accepted.path>/archived`.
 
 ## entities[].policy
 
 - `severity`: Default action when a rule fails.
-  - `warn`: keep row, record warning.
-  - `reject`: quarantine row (default).
-  - `abort`: stop the run.
-- `quarantine`:
-  - `mode`: `row` (default) or `file`.
-    - `row`: split accepted vs rejected rows.
-    - `file`: reject the entire file if any row fails.
-  - `add_reason_columns`: include rule metadata in rejected outputs.
-  - `reason_columns`: column names for rule metadata.
+  - `warn`: log errors, keep rows, accepted output only.
+  - `reject`: split accepted vs rejected rows.
+  - `abort`: reject the entire file on any error.
 - `thresholds`:
   - `max_reject_rate`: Abort if rejected/total exceeds this ratio.
   - `max_reject_count`: Abort if rejected rows exceed this count.
+
+## rejection output (csv)
+
+Rejected rows are written as CSV with the original columns plus:
+- `__floe_row_index`: 0-based row index in the input file.
+- `__floe_errors`: JSON array string of error objects.
+
+Example error object:
+```json
+{"rule":"not_null","column":"customer_id","message":"required value missing"}
+```
+
+Example `__floe_errors` value (normalized JSON array string):
+```json
+[
+  {"rule":"not_null","column":"customer_id","message":"required value missing"},
+  {"rule":"cast_error","column":"created_at","message":"invalid value for target type"}
+]
+```
+
+For `abort`, the entire file is rejected and a JSON report is also written next to
+the rejected CSV:
+- `<source_stem>_reject_errors.json` containing per-row error details.
+In `abort` mode, the rejected CSV is a copy of the original input file (no extra columns).
 
 ## entities[].schema
 
@@ -77,4 +98,6 @@ This document describes the YAML fields used in `example/config.yml`. It is a fo
   - `type`: Logical type (e.g., `string`, `datetime`).
   - `nullable`: Whether nulls are allowed.
   - `unique`: Whether values must be unique across dataset.
-  - `unique_strategy`: Planned handling for duplicates (v0.1 uses `reject_all`).
+    - `warn`: log duplicates and keep all rows.
+    - `reject`: keep first occurrence, reject duplicates.
+    - `abort`: abort if duplicates are found.

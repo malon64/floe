@@ -152,6 +152,8 @@ $defs:
         $ref: "#/$defs/sink_rejected"
       report:
         $ref: "#/$defs/report_target"
+      archive:
+        $ref: "#/$defs/archive_target"
 
   sink_accepted:
     type: object
@@ -188,6 +190,15 @@ $defs:
       path:
         type: string
 
+  archive_target:
+    type: object
+    additionalProperties: false
+    required:
+      - path
+    properties:
+      path:
+        type: string
+
   policy:
     type: object
     additionalProperties: false
@@ -197,33 +208,8 @@ $defs:
       severity:
         type: string
         enum: [warn, reject, abort]
-      quarantine:
-        $ref: "#/$defs/quarantine"
       thresholds:
         $ref: "#/$defs/thresholds"
-
-  quarantine:
-    type: object
-    additionalProperties: false
-    properties:
-      mode:
-        type: string
-        enum: [row, file]
-      add_reason_columns:
-        type: boolean
-      reason_columns:
-        $ref: "#/$defs/reason_columns"
-
-  reason_columns:
-    type: object
-    additionalProperties: false
-    properties:
-      rule:
-        type: string
-      column:
-        type: string
-      message:
-        type: string
 
   thresholds:
     type: object
@@ -273,6 +259,4 @@ $defs:
         type: boolean
       unique:
         type: boolean
-      unique_strategy:
-        type: string
         enum: [reject_all, keep_first, keep_last]

@@ -1,6 +1,6 @@
-# Technical Checks v0.1
+# Technical Checks
 
-This document describes the validation checks implemented in v0.1, the supported
+This document describes the validation checks implemented in Floe, the supported
 column types for casting, and how `policy.severity` applies to each check.
 
 ## Checks
@@ -30,7 +30,7 @@ column types for casting, and how `policy.severity` applies to each check.
   - In `cast_mode: coerce`, cast errors are ignored (values become null and may
     still fail `not_null` if the column is required).
 
-## Supported column types (v0.1)
+## Supported column types
 
 Type names are case-insensitive and normalized by removing `-` and `_`.
 Examples of accepted values are listed below.
@@ -64,3 +64,14 @@ The configured `policy.severity` applies uniformly across all checks:
 
 All modes avoid logging raw row values; only rule, column, row index, and
 message are emitted in reports.
+
+## Design notes
+
+- Row-level rejection is the default because it preserves good data while isolating bad rows.
+- `unique` is dataset-level and enforced by `policy.severity`:
+  - `warn`: log duplicates and keep all rows.
+  - `reject`: keep the first occurrence, reject duplicates.
+  - `abort`: abort the file if duplicates are found.
+- `cast_mode` defines parsing behavior:
+  - `strict`: invalid values cause rejection (or abort per policy).
+  - `coerce`: invalid values become null; nullable rules decide acceptance.

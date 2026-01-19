@@ -1,7 +1,7 @@
-# Floe Run Report v0.1
+# Floe Run Report
 
-This document describes the JSON run report emitted by `floe run`.
-It focuses on the v0.1 fields and the status/exit code rules.
+This document describes the JSON run report emitted by `floe run`
+and the status/exit code rules.
 
 ## Goals
 

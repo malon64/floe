@@ -44,6 +44,7 @@ floe run -c example/config.yml --entities customer
 - Reports: `docs/report.md`
 - CLI: `docs/cli.md`
 - Features: `docs/features.md`
+- Release: `docs/release.md`
 - Docs index: see the list above for the current, version-agnostic docs set.
 
 ## License

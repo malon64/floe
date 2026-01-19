@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip publishing and Homebrew update"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - id: meta
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: meta
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify crates.io token
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "CRATES_IO_TOKEN is required to publish crates."
+            exit 1
+          fi
+      - id: check
+        name: Check published versions
+        run: |
+          python - <<'PY'
+import json
+import os
+import urllib.request
+
+version = os.environ["VERSION"]
+output = os.environ["GITHUB_OUTPUT"]
+
+def exists(crate: str) -> bool:
+    with urllib.request.urlopen(f"https://crates.io/api/v1/crates/{crate}") as resp:
+        data = json.load(resp)
+    versions = {v["num"] for v in data.get("versions", [])}
+    return version in versions
+
+core_exists = exists("floe-core")
+cli_exists = exists("floe-cli")
+
+with open(output, "a", encoding="utf-8") as fh:
+    fh.write(f"core_exists={str(core_exists).lower()}\n")
+    fh.write(f"cli_exists={str(cli_exists).lower()}\n")
+PY
+      - name: Publish floe-core
+        if: ${{ steps.check.outputs.core_exists != 'true' }}
+        run: cargo publish -p floe-core
+      - name: Wait for crates.io index
+        if: ${{ steps.check.outputs.core_exists != 'true' }}
+        run: sleep 30
+      - name: Publish floe-cli
+        if: ${{ steps.check.outputs.cli_exists != 'true' }}
+        run: cargo publish -p floe-cli
+
+  build:
+    runs-on: ${{ matrix.os }}
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build floe
+        run: cargo build -p floe-cli --release --target ${{ matrix.target }}
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          version="${VERSION}"
+          bin_path="target/${target}/release/floe"
+          if [ ! -f "${bin_path}" ]; then
+            echo "Binary not found: ${bin_path}" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          tarball="floe-v${version}-${target}.tar.gz"
+          tar -C "target/${target}/release" -czf "dist/${tarball}" floe
+          python - <<PY
+import hashlib
+from pathlib import Path
+
+tarball = Path("dist/${tarball}")
+sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+sha_path = tarball.with_suffix(tarball.suffix + ".sha256")
+sha_path.write_text(f"{sha}  {tarball.name}\n", encoding="utf-8")
+PY
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [meta, publish, build]
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Floe v${{ env.VERSION }}
+          files: dist/**
+      - id: shas
+        name: Collect checksums
+        shell: bash
+        run: |
+          version="${VERSION}"
+          linux="dist/floe-v${version}-x86_64-unknown-linux-gnu.tar.gz.sha256"
+          mac_x86="dist/floe-v${version}-x86_64-apple-darwin.tar.gz.sha256"
+          mac_arm="dist/floe-v${version}-aarch64-apple-darwin.tar.gz.sha256"
+          echo "linux_sha=$(cut -d ' ' -f1 "${linux}")" >> "$GITHUB_OUTPUT"
+          echo "mac_x86_sha=$(cut -d ' ' -f1 "${mac_x86}")" >> "$GITHUB_OUTPUT"
+          echo "mac_arm_sha=$(cut -d ' ' -f1 "${mac_arm}")" >> "$GITHUB_OUTPUT"
+      - name: Verify Homebrew tap token
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is required to update the tap repo."
+            exit 1
+          fi
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: malon64/homebrew-floe
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew
+      - name: Render Homebrew formula
+        run: |
+          python .github/scripts/render_homebrew_formula.py \
+            --version "${VERSION}" \
+            --linux-sha "${{ steps.shas.outputs.linux_sha }}" \
+            --mac-x86-sha "${{ steps.shas.outputs.mac_x86_sha }}" \
+            --mac-arm-sha "${{ steps.shas.outputs.mac_arm_sha }}" \
+            --out "homebrew/Formula/floe.rb"
+      - name: Commit and push Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd homebrew
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/floe.rb
+          if git diff --cached --quiet; then
+            echo "No Homebrew changes to commit."
+            exit 0
+          fi
+          git commit -m "bump floe to v${VERSION}"
+          git push

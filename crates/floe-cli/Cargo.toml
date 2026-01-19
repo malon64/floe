@@ -2,6 +2,13 @@
 name = "floe-cli"
 version = "0.1.0"
 edition = "2021"
+description = "CLI for Floe, a YAML-driven technical ingestion tool."
+license = "MIT"
+readme = "../../README.md"
+repository = "https://github.com/malon64/floe"
+homepage = "https://github.com/malon64/floe"
+keywords = ["ingestion", "data-quality", "csv", "polars", "yaml"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "floe"
@@ -9,4 +16,4 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-floe-core = { path = "../floe-core" }
+floe-core = { path = "../floe-core", version = "0.1.0" }

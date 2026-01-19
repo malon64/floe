@@ -230,7 +230,7 @@ $defs:
         type: boolean
       strategy:
         type: string
-        enum: [snake_case, lower, none]
+        enum: [snake_case, lower, camel_case, none]
 
   column:
     type: object

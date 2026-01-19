@@ -40,6 +40,7 @@ floe run -c example/config.yml --entities customer
 ## Docs
 
 - Checks: `docs/checks.md`
+- Config: `docs/config.md`
 - Reports: `docs/report.md`
 - CLI: `docs/cli.md`
 - Features: `docs/features.md`

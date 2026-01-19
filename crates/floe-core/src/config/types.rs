@@ -201,7 +201,7 @@ pub struct NormalizeColumnsConfig {
     pub strategy: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ColumnConfig {
     pub name: String,
     pub column_type: String,

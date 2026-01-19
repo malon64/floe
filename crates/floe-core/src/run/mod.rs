@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 
 use crate::{check, config, io, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
+mod normalize;
+use normalize::{normalize_dataframe_columns, normalize_schema_columns, resolve_normalize_strategy};
+
 const MAX_EXAMPLES_PER_RULE: u64 = 3;
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
@@ -51,9 +54,15 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
     for entity in &config.entities {
         let input = &entity.source;
         let input_path = Path::new(&input.path);
-        let required_cols = required_columns(entity);
+        let normalize_strategy = resolve_normalize_strategy(entity)?;
+        let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
+            normalize_schema_columns(&entity.schema.columns, strategy)?
+        } else {
+            entity.schema.columns.clone()
+        };
+        let required_cols = required_columns(&normalized_columns);
 
-        let inputs = read_inputs(entity, input_path)?;
+        let inputs = read_inputs(entity, input_path, &normalized_columns, normalize_strategy.as_deref())?;
         let resolved_files = inputs
             .iter()
             .map(|(path, _, _)| path.display().to_string())
@@ -101,7 +110,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
                 &raw_df,
                 &df,
                 &required_cols,
-                &entity.schema.columns,
+                &normalized_columns,
                 track_cast_errors,
             )?;
             let row_count = raw_df.height() as u64;
@@ -124,7 +133,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
             let mut errors_path = None;
             let mut archived_path = None;
             let (rules, examples) =
-                summarize_validation(&error_lists, &entity.schema.columns, severity);
+                summarize_validation(&error_lists, &normalized_columns, severity);
 
             match entity.policy.severity.as_str() {
                 "warn" => {
@@ -350,10 +359,8 @@ fn log_output(entity_name: &str, label: &str, path: &Path) {
     println!("entity {}: {} -> {}", entity_name, label, path.display());
 }
 
-fn required_columns(entity: &config::EntityConfig) -> Vec<String> {
-    entity
-        .schema
-        .columns
+fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
+    columns
         .iter()
         .filter(|col| col.nullable == Some(false))
         .map(|col| col.name.clone())
@@ -363,21 +370,31 @@ fn required_columns(entity: &config::EntityConfig) -> Vec<String> {
 fn read_inputs(
     entity: &config::EntityConfig,
     input_path: &Path,
+    columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
 ) -> FloeResult<Vec<(PathBuf, DataFrame, DataFrame)>> {
     let input = &entity.source;
     match input.format.as_str() {
         "csv" => {
             let default_options = config::SourceOptions::default();
             let source_options = input.options.as_ref().unwrap_or(&default_options);
-            let typed_schema = entity.schema.to_polars_schema()?;
-            let raw_schema = entity.schema.to_polars_string_schema()?;
+            let normalized_schema = config::SchemaConfig {
+                normalize_columns: None,
+                columns: columns.to_vec(),
+            };
+            let typed_schema = normalized_schema.to_polars_schema()?;
+            let raw_schema = normalized_schema.to_polars_string_schema()?;
             let files = io::read_csv::list_csv_files(input_path)?;
             let mut inputs = Vec::with_capacity(files.len());
             let raw_plan = io::read_csv::CsvReadPlan::strict(raw_schema);
             let typed_plan = io::read_csv::CsvReadPlan::permissive(typed_schema);
             for path in files {
-                let raw_df = io::read_csv::read_csv_file(&path, source_options, &raw_plan)?;
-                let typed_df = io::read_csv::read_csv_file(&path, source_options, &typed_plan)?;
+                let mut raw_df = io::read_csv::read_csv_file(&path, source_options, &raw_plan)?;
+                let mut typed_df = io::read_csv::read_csv_file(&path, source_options, &typed_plan)?;
+                if let Some(strategy) = normalize_strategy {
+                    normalize_dataframe_columns(&mut raw_df, strategy)?;
+                    normalize_dataframe_columns(&mut typed_df, strategy)?;
+                }
                 inputs.push((path, raw_df, typed_df));
             }
             Ok(inputs)

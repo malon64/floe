@@ -38,6 +38,7 @@ pub(crate) fn yaml_string(value: &Yaml, ctx: &str) -> FloeResult<String> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn yaml_number(value: &Yaml) -> Result<f64, ()> {
     match value {
         Yaml::Integer(raw) => Ok(*raw as f64),

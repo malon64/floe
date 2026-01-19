@@ -71,20 +71,6 @@ pub fn write_rejected_raw(
     Ok(output_path)
 }
 
-pub fn resolve_archive_dir(archive_path: Option<&str>, accepted_path: &str) -> PathBuf {
-    if let Some(path) = archive_path {
-        return Path::new(path).to_path_buf();
-    }
-    let base = Path::new(accepted_path);
-    if base.extension().is_some() {
-        base.parent()
-            .unwrap_or(base)
-            .join("archived")
-    } else {
-        base.join("archived")
-    }
-}
-
 pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathBuf> {
     if let Some(parent) = archive_dir.parent() {
         std::fs::create_dir_all(parent)?;

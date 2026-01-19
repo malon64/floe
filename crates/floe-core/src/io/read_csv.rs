@@ -85,3 +85,44 @@ pub fn read_csv_file(
         })?;
     Ok(df)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        path.push(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    #[test]
+    fn list_csv_files_filters_and_sorts() {
+        let dir = temp_dir("floe-csv-list");
+        fs::write(dir.join("b.csv"), "id\n1\n").expect("write b.csv");
+        fs::write(dir.join("a.CSV"), "id\n2\n").expect("write a.CSV");
+        fs::write(dir.join("note.txt"), "ignore").expect("write note");
+
+        let files = list_csv_files(&dir).expect("list csv files");
+        let names = files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["a.CSV", "b.csv"]);
+    }
+
+    #[test]
+    fn list_csv_files_errors_when_empty() {
+        let dir = temp_dir("floe-csv-empty");
+        let result = list_csv_files(&dir);
+        assert!(result.is_err());
+    }
+}

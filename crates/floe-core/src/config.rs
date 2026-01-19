@@ -11,6 +11,7 @@ use crate::{ConfigError, FloeResult};
 pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
+    pub report: ReportConfig,
     pub entities: Vec<EntityConfig>,
 }
 
@@ -131,7 +132,6 @@ fn build_null_values(values: Option<&Vec<String>>) -> Option<NullValues> {
 pub struct SinkConfig {
     pub accepted: SinkTarget,
     pub rejected: Option<SinkTarget>,
-    pub report: ReportTarget,
     pub archive: Option<ArchiveTarget>,
 }
 
@@ -142,7 +142,7 @@ pub struct SinkTarget {
 }
 
 #[derive(Debug)]
-pub struct ReportTarget {
+pub struct ReportConfig {
     pub path: String,
 }
 
@@ -154,13 +154,6 @@ pub struct ArchiveTarget {
 #[derive(Debug)]
 pub struct PolicyConfig {
     pub severity: String,
-    pub thresholds: Option<ThresholdsConfig>,
-}
-
-#[derive(Debug)]
-pub struct ThresholdsConfig {
-    pub max_reject_rate: Option<f64>,
-    pub max_reject_count: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -233,7 +226,7 @@ fn parse_data_type(value: &str) -> FloeResult<DataType> {
         "uint32" => Ok(DataType::UInt32),
         "uint64" => Ok(DataType::UInt64),
         "float32" => Ok(DataType::Float32),
-        "float64" | "float" | "double" => Ok(DataType::Float64),
+        "float64" | "float" | "double" | "number" | "decimal" => Ok(DataType::Float64),
         "date" => Ok(DataType::Date),
         "datetime" | "timestamp" => Ok(DataType::Datetime(TimeUnit::Milliseconds, None)),
         "time" => Ok(DataType::Time),

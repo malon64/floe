@@ -14,3 +14,4 @@ Thumbs.db
 
 # Test ouput files
 example/out/*
+example/report/*

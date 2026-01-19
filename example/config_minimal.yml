@@ -1,5 +1,8 @@
 version: "0.1"
 
+report:
+  path: "/home/alexis/floe/example/report"
+
 entities:
   - name: "customer"
     source:
@@ -18,8 +21,6 @@ entities:
       rejected:
         format: "csv"
         path: "/home/alexis/floe/example/out/rejected/customer/"
-      report:
-        path: "/home/alexis/floe/example/out/reports/customer/"
       archive:
         path: "/home/alexis/floe/example/out/accepted/customer/archived"
 

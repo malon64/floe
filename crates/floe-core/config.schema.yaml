@@ -7,6 +7,7 @@ type: object
 additionalProperties: false
 required:
   - version
+  - report
   - entities
 
 properties:
@@ -14,6 +15,8 @@ properties:
     type: string
   metadata:
     $ref: "#/$defs/project_metadata"
+  report:
+    $ref: "#/$defs/report"
   entities:
     type: array
     items:
@@ -144,14 +147,11 @@ $defs:
     additionalProperties: false
     required:
       - accepted
-      - report
     properties:
       accepted:
         $ref: "#/$defs/sink_accepted"
       rejected:
         $ref: "#/$defs/sink_rejected"
-      report:
-        $ref: "#/$defs/report_target"
       archive:
         $ref: "#/$defs/archive_target"
 
@@ -181,7 +181,7 @@ $defs:
       path:
         type: string
 
-  report_target:
+  report:
     type: object
     additionalProperties: false
     required:
@@ -208,17 +208,6 @@ $defs:
       severity:
         type: string
         enum: [warn, reject, abort]
-      thresholds:
-        $ref: "#/$defs/thresholds"
-
-  thresholds:
-    type: object
-    additionalProperties: false
-    properties:
-      max_reject_rate:
-        type: number
-      max_reject_count:
-        type: integer
 
   schema:
     type: object
@@ -254,9 +243,8 @@ $defs:
         type: string
       type:
         type: string
-        enum: [string, integer, number, boolean, date, datetime]
+        enum: [string, integer, number, float, decimal, boolean, date, datetime]
       nullable:
         type: boolean
       unique:
         type: boolean
-        enum: [reject_all, keep_first, keep_last]

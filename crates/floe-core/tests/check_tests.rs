@@ -1,4 +1,6 @@
-use floe_core::check::{build_error_state, cast_error_errors, not_null_errors, RowError};
+use floe_core::check::{
+    build_error_state, cast_error_errors, not_null_errors, unique_errors, RowError,
+};
 use floe_core::config::ColumnConfig;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use polars::df;
@@ -60,9 +62,38 @@ fn build_error_state_builds_masks() {
         vec![],
         vec![RowError::new("not_null", "customer_id", "required value missing")],
     ];
-    let (accept_rows, errors_json) = build_error_state(errors);
+    let (accept_rows, errors_json) = build_error_state(&errors);
 
     assert_eq!(accept_rows, vec![true, false]);
     assert!(errors_json[0].is_none());
     assert!(errors_json[1].as_ref().unwrap().contains("not_null"));
+}
+
+#[test]
+fn unique_errors_flags_duplicates_after_first() {
+    let df = df!(
+        "order_id" => &[Some("o-1"), Some("o-2"), Some("o-1"), None, Some("o-2")]
+    )
+    .expect("create df");
+
+    let columns = vec![ColumnConfig {
+        name: "order_id".to_string(),
+        column_type: "string".to_string(),
+        nullable: Some(true),
+        unique: Some(true),
+    }];
+
+    let errors = unique_errors(&df, &columns).expect("unique errors");
+
+    assert!(errors[0].is_empty());
+    assert!(errors[1].is_empty());
+    assert_eq!(
+        errors[2],
+        vec![RowError::new("unique", "order_id", "duplicate value")]
+    );
+    assert!(errors[3].is_empty());
+    assert_eq!(
+        errors[4],
+        vec![RowError::new("unique", "order_id", "duplicate value")]
+    );
 }

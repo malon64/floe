@@ -2,6 +2,7 @@ customer_id,email,country_code,created_at
 ,missingid@example.com,US,2024-01-05
 CUST-100,dup1@example.com,US,2024-01-07
 CUST-100,dup2@example.com,US,2024-01-07
+CUST-104,dup1@example.com,US,2024-01-08
 CUST-101,NULL,DE,2024-02-30
 CUST-102,null,FR,not-a-date
 CUST-103,,,

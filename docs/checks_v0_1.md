@@ -1,0 +1,66 @@
+# Technical Checks v0.1
+
+This document describes the validation checks implemented in v0.1, the supported
+column types for casting, and how `policy.severity` applies to each check.
+
+## Checks
+
+### not_null (missing value)
+
+- **Trigger**: `schema.columns[].nullable: false`
+- **Logic**: a row fails when the typed value is null.
+- **Notes**:
+  - Nulls include explicit nulls and any values listed in `source.options.null_values`.
+  - Applies to every column with `nullable: false`.
+
+### unique (dataset-level)
+
+- **Trigger**: `schema.columns[].unique: true`
+- **Logic**: the first occurrence is accepted; any later duplicate values are flagged.
+- **Notes**:
+  - Null values are ignored (they do not count as duplicates).
+  - Applies independently per column.
+
+### cast_error (type mismatch)
+
+- **Trigger**: any column whose logical type is not `string`.
+- **Logic**: a row fails when the raw value is present but the typed value is null.
+- **Notes**:
+  - In `cast_mode: strict`, cast errors are reported.
+  - In `cast_mode: coerce`, cast errors are ignored (values become null and may
+    still fail `not_null` if the column is required).
+
+## Supported column types (v0.1)
+
+Type names are case-insensitive and normalized by removing `-` and `_`.
+Examples of accepted values are listed below.
+
+- `string`: `string`, `str`, `text`
+- `boolean`: `boolean`, `bool`
+- `integer`:
+  - `int8`, `int16`, `int32`, `int64`
+  - `int`, `integer`, `long`
+- `unsigned integer`:
+  - `uint8`, `uint16`, `uint32`, `uint64`
+- `number` (float64):
+  - `number`, `float64`, `float`, `double`, `decimal`
+- `float32`: `float32`
+- `date`: `date`
+- `datetime`: `datetime`, `timestamp`
+- `time`: `time`
+
+## Severity behavior
+
+The configured `policy.severity` applies uniformly across all checks:
+
+- `warn`
+  - Rows are kept.
+  - Errors are logged for each failed check.
+- `reject`
+  - Rows with any check failure are rejected.
+  - For `unique`, the first occurrence is kept, duplicates are rejected.
+- `abort`
+  - Any check failure aborts the entire file (file-level rejection).
+
+All modes avoid logging raw row values; only rule, column, row index, and
+message are emitted in reports.

@@ -5,11 +5,11 @@ use yaml_rust2::Yaml;
 
 use crate::config::{
     ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig, PolicyConfig,
-    ArchiveTarget, ProjectMetadata, ReportTarget, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
-    SourceConfig, SourceOptions, ThresholdsConfig,
+    ArchiveTarget, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
+    SourceConfig, SourceOptions,
 };
 use crate::{ConfigError, FloeResult};
-use crate::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_number, yaml_string};
+use crate::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_string};
 
 pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     let docs = load_yaml(path)?;
@@ -33,6 +33,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         None => None,
     };
 
+    let report = parse_report_config(get_value(root, "report", "root")?)?;
     let entities_yaml = get_array(root, "entities", "root")?;
     let mut entities = Vec::with_capacity(entities_yaml.len());
     for (index, entity_yaml) in entities_yaml.iter().enumerate() {
@@ -44,6 +45,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     Ok(RootConfig {
         version,
         metadata,
+        report,
         entities,
     })
 }
@@ -133,7 +135,6 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     Ok(SinkConfig {
         accepted: parse_sink_target(get_value(hash, "accepted", "sink")?, "sink.accepted")?,
         rejected,
-        report: parse_report_target(get_value(hash, "report", "sink")?)?,
         archive,
     })
 }
@@ -146,10 +147,10 @@ fn parse_sink_target(value: &Yaml, ctx: &str) -> FloeResult<SinkTarget> {
     })
 }
 
-fn parse_report_target(value: &Yaml) -> FloeResult<ReportTarget> {
-    let hash = yaml_hash(value, "sink.report")?;
-    Ok(ReportTarget {
-        path: get_string(hash, "path", "sink.report")?,
+fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
+    let hash = yaml_hash(value, "report")?;
+    Ok(ReportConfig {
+        path: get_string(hash, "path", "report")?,
     })
 }
 
@@ -162,22 +163,8 @@ fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
 
 fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
     let hash = yaml_hash(value, "policy")?;
-    let thresholds = match hash_get(hash, "thresholds") {
-        Some(value) => Some(parse_thresholds(value)?),
-        None => None,
-    };
-
     Ok(PolicyConfig {
         severity: get_string(hash, "severity", "policy")?,
-        thresholds,
-    })
-}
-
-fn parse_thresholds(value: &Yaml) -> FloeResult<ThresholdsConfig> {
-    let hash = yaml_hash(value, "policy.thresholds")?;
-    Ok(ThresholdsConfig {
-        max_reject_rate: opt_f64(hash, "max_reject_rate", "policy.thresholds")?,
-        max_reject_count: opt_u64(hash, "max_reject_count", "policy.thresholds")?,
     })
 }
 
@@ -265,27 +252,6 @@ fn opt_bool(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<bool>> {
             Yaml::Boolean(value) => Ok(Some(*value)),
             _ => Err(Box::new(ConfigError(format!(
                 "expected boolean at {ctx}.{key}"
-            )))),
-        },
-    }
-}
-
-fn opt_f64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<f64>> {
-    match hash_get(hash, key) {
-        None | Some(Yaml::Null) | Some(Yaml::BadValue) => Ok(None),
-        Some(value) => yaml_number(value)
-            .map(Some)
-            .map_err(|_| Box::new(ConfigError(format!("expected number at {ctx}.{key}"))) as _),
-    }
-}
-
-fn opt_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
-    match hash_get(hash, key) {
-        None | Some(Yaml::Null) | Some(Yaml::BadValue) => Ok(None),
-        Some(value) => match value {
-            Yaml::Integer(raw) if *raw >= 0 => Ok(Some(*raw as u64)),
-            _ => Err(Box::new(ConfigError(format!(
-                "expected positive integer at {ctx}.{key}"
             )))),
         },
     }

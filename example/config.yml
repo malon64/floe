@@ -6,6 +6,9 @@ metadata:
   owner: "data-platform"
   tags: ["v0.1", "examples"]
 
+report:
+  path: "/home/alexis/floe/example/report"
+
 entities:
   - name: "customer"
 
@@ -33,17 +36,10 @@ entities:
       rejected:
         format: "csv"
         path: "/home/alexis/floe/example/out/rejected/customer/"
-      report:
-        path: "/home/alexis/floe/example/out/reports/customer/"
-      archive:
-        path: "/home/alexis/floe/example/in/customer"
+
 
     policy:
       severity: "abort"   # warn | reject | abort
-
-      thresholds:
-        max_reject_rate: 0.05
-        max_reject_count: 100000
 
     schema:
       normalize_columns:
@@ -59,7 +55,7 @@ entities:
         - name: "email"
           type: "string"
           nullable: true
-          unique: false
+          unique: true
 
         - name: "country_code"
           type: "string"
@@ -68,5 +64,76 @@ entities:
 
         - name: "created_at"
           type: "datetime"
+          nullable: true
+          unique: false
+
+  - name: "orders"
+
+    metadata:
+      data_product: "order_events"
+      domain: "sales"
+      owner: "data-platform"
+      description: "Technical ingestion contract for order events"
+      tags: ["prepared", "events"]
+
+    source:
+      format: "csv"
+      path: "/home/alexis/floe/example/in/orders"
+      options:
+        header: true
+        separator: ","
+        encoding: "utf-8"
+        null_values: ["", "NULL", "null"]
+      cast_mode: "strict"   # strict | coerce
+
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/home/alexis/floe/example/out/accepted/orders/"
+      rejected:
+        format: "csv"
+        path: "/home/alexis/floe/example/out/rejected/orders/"
+
+    policy:
+      severity: "reject"   # warn | reject | abort
+
+    schema:
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"     # snake_case | lower | none
+
+      columns:
+        - name: "order_id"
+          type: "string"
+          nullable: false
+          unique: true
+
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: false
+
+        - name: "order_total"
+          type: "number"
+          nullable: false
+          unique: false
+
+        - name: "currency"
+          type: "string"
+          nullable: true
+          unique: false
+
+        - name: "created_at"
+          type: "datetime"
+          nullable: true
+          unique: false
+
+        - name: "order_date"
+          type: "date"
+          nullable: true
+          unique: false
+
+        - name: "is_expedited"
+          type: "boolean"
           nullable: true
           unique: false

@@ -38,6 +38,7 @@ fn main() -> FloeResult<()> {
             let config = load_config(&config_path)?;
             println!("Config valid: {}", config_path.display());
             println!("Version: {}", config.version);
+            println!("Report: {}", config.report.path);
             println!("Entities: {}", config.entities.len());
             for entity in &config.entities {
                 println!("Entity: {}", entity.name);
@@ -52,7 +53,6 @@ fn main() -> FloeResult<()> {
                         rejected.format, rejected.path
                     );
                 }
-                println!("  Report: {}", entity.sink.report.path);
                 println!("  Severity: {}", entity.policy.severity);
             }
             println!("Next: floe run -c {}", config_path.display());

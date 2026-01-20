@@ -85,13 +85,13 @@ jobs:
           PY
       - name: Publish floe-core
         if: ${{ steps.check.outputs.core_exists != 'true' }}
-        run: cargo publish -p floe-core
+        run: cargo publish -p floe-core --allow-dirty
       - name: Wait for crates.io index
         if: ${{ steps.check.outputs.core_exists != 'true' }}
         run: sleep 30
       - name: Publish floe-cli
         if: ${{ steps.check.outputs.cli_exists != 'true' }}
-        run: cargo publish -p floe-cli
+        run: cargo publish -p floe-cli --allow-dirty
 
   build:
     runs-on: ${{ matrix.os }}

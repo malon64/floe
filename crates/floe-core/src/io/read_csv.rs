@@ -77,12 +77,10 @@ pub fn read_csv_file(
                 input_path.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
-    let df = reader
-        .finish()
-        .map_err(|err| {
-            Box::new(ConfigError(format!("csv read failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+    let df = reader.finish().map_err(|err| {
+        Box::new(ConfigError(format!("csv read failed: {err}")))
+            as Box<dyn std::error::Error + Send + Sync>
+    })?;
     Ok(df)
 }
 

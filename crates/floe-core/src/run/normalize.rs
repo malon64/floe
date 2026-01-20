@@ -4,9 +4,7 @@ use polars::prelude::DataFrame;
 
 use crate::{config, ConfigError, FloeResult};
 
-pub fn resolve_normalize_strategy(
-    entity: &config::EntityConfig,
-) -> FloeResult<Option<String>> {
+pub fn resolve_normalize_strategy(entity: &config::EntityConfig) -> FloeResult<Option<String>> {
     let normalize = match &entity.schema.normalize_columns {
         Some(config) => config.enabled.unwrap_or(false),
         None => false,
@@ -53,10 +51,7 @@ pub fn normalize_schema_columns(
     Ok(normalized)
 }
 
-pub fn normalize_dataframe_columns(
-    df: &mut DataFrame,
-    strategy: &str,
-) -> FloeResult<()> {
+pub fn normalize_dataframe_columns(df: &mut DataFrame, strategy: &str) -> FloeResult<()> {
     let names = df.get_column_names();
     let mut normalized_names = Vec::with_capacity(names.len());
     let mut seen = HashMap::new();
@@ -70,19 +65,17 @@ pub fn normalize_dataframe_columns(
         }
         normalized_names.push(normalized);
     }
-    df.set_column_names(normalized_names.iter()).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "failed to normalize column names: {err}"
-        )))
-    })?;
+    df.set_column_names(normalized_names.iter())
+        .map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to normalize column names: {err}"
+            )))
+        })?;
     Ok(())
 }
 
 fn normalize_strategy_name(value: &str) -> String {
-    value
-        .to_ascii_lowercase()
-        .replace('-', "")
-        .replace('_', "")
+    value.to_ascii_lowercase().replace(['-', '_'], "")
 }
 
 pub fn normalize_name(value: &str, strategy: &str) -> String {
@@ -133,10 +126,10 @@ fn split_words(value: &str) -> Vec<String> {
         let prev_is_upper = prev.map(|c| c.is_ascii_uppercase()).unwrap_or(false);
         let next_is_lower = next.map(|c| c.is_ascii_lowercase()).unwrap_or(false);
 
-        if !current.is_empty() && is_upper && (prev_is_lower || prev_is_digit) {
-            words.push(current);
-            current = String::new();
-        } else if !current.is_empty() && is_upper && prev_is_upper && next_is_lower {
+        if !current.is_empty()
+            && is_upper
+            && ((prev_is_lower || prev_is_digit) || (prev_is_upper && next_is_lower))
+        {
             words.push(current);
             current = String::new();
         }

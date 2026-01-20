@@ -34,9 +34,7 @@ impl RowError {
     }
 }
 
-pub fn build_error_state(
-    errors_per_row: &[Vec<RowError>],
-) -> (Vec<bool>, Vec<Option<String>>) {
+pub fn build_error_state(errors_per_row: &[Vec<RowError>]) -> (Vec<bool>, Vec<Option<String>>) {
     let mut accept_rows = Vec::with_capacity(errors_per_row.len());
     let mut errors_json = Vec::with_capacity(errors_per_row.len());
     for errors in errors_per_row {
@@ -102,8 +100,8 @@ fn json_escape(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::config;
-    use polars::prelude::{DataFrame, NamedFrom, Series};
     use polars::df;
+    use polars::prelude::{DataFrame, NamedFrom, Series};
 
     #[test]
     fn not_null_errors_flags_missing_required_values() {
@@ -189,7 +187,11 @@ mod tests {
     fn build_error_state_builds_masks() {
         let errors = vec![
             vec![],
-            vec![RowError::new("not_null", "customer_id", "required value missing")],
+            vec![RowError::new(
+                "not_null",
+                "customer_id",
+                "required value missing",
+            )],
         ];
         let (accept_rows, errors_json) = build_error_state(&errors);
 

@@ -235,7 +235,6 @@ pub enum RuleName {
     SchemaError,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolvedInputMode {
@@ -336,19 +335,13 @@ impl ReportWriter {
 }
 
 pub fn compute_run_outcome(file_statuses: &[FileStatus]) -> (RunStatus, i32) {
-    if file_statuses.iter().any(|status| *status == FileStatus::Failed) {
+    if file_statuses.contains(&FileStatus::Failed) {
         return (RunStatus::Failed, 1);
     }
-    if file_statuses
-        .iter()
-        .any(|status| *status == FileStatus::Aborted)
-    {
+    if file_statuses.contains(&FileStatus::Aborted) {
         return (RunStatus::Aborted, 2);
     }
-    if file_statuses
-        .iter()
-        .any(|status| *status == FileStatus::Rejected)
-    {
+    if file_statuses.contains(&FileStatus::Rejected) {
         return (RunStatus::Rejected, 0);
     }
     (RunStatus::Success, 0)
@@ -419,8 +412,8 @@ mod tests {
             },
             report: ReportEcho {
                 path: "/tmp/out/reports".to_string(),
-                report_file:
-                    "/tmp/out/reports/run_2026-01-19T10-23-45Z/customer/run.json".to_string(),
+                report_file: "/tmp/out/reports/run_2026-01-19T10-23-45Z/customer/run.json"
+                    .to_string(),
             },
             policy: PolicyEcho {
                 severity: Severity::Warn,
@@ -534,13 +527,8 @@ mod tests {
         dir.push(format!("floe-report-tests-{}", unique_suffix()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
 
-        let report_path = ReportWriter::write_report(
-            &dir,
-            &report.run.run_id,
-            "customer",
-            &report,
-        )
-        .expect("write report");
+        let report_path = ReportWriter::write_report(&dir, &report.run.run_id, "customer", &report)
+            .expect("write report");
 
         assert!(report_path.exists());
         let expected = dir
@@ -549,8 +537,7 @@ mod tests {
             .join("run.json");
         assert_eq!(report_path, expected);
         let contents = std::fs::read_to_string(&report_path).expect("read report");
-        let value: serde_json::Value =
-            serde_json::from_str(&contents).expect("parse report");
+        let value: serde_json::Value = serde_json::from_str(&contents).expect("parse report");
         assert_eq!(
             value
                 .get("run")

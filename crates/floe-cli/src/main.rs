@@ -42,16 +42,16 @@ fn main() -> FloeResult<()> {
             println!("Entities: {}", config.entities.len());
             for entity in &config.entities {
                 println!("Entity: {}", entity.name);
-                println!("  Source: {} ({})", entity.source.format, entity.source.path);
+                println!(
+                    "  Source: {} ({})",
+                    entity.source.format, entity.source.path
+                );
                 println!(
                     "  Sink accepted: {} ({})",
                     entity.sink.accepted.format, entity.sink.accepted.path
                 );
                 if let Some(rejected) = &entity.sink.rejected {
-                    println!(
-                        "  Sink rejected: {} ({})",
-                        rejected.format, rejected.path
-                    );
+                    println!("  Sink rejected: {} ({})", rejected.format, rejected.path);
                 }
                 println!("  Severity: {}", entity.policy.severity);
             }
@@ -64,10 +64,7 @@ fn main() -> FloeResult<()> {
             entities,
         } => {
             let config_path = resolve_path(config)?;
-            let options = RunOptions {
-                run_id,
-                entities,
-            };
+            let options = RunOptions { run_id, entities };
             run(&config_path, options)?;
             println!("run completed");
             Ok(())

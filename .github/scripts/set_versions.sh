@@ -26,8 +26,22 @@ def replace_package_version(path: Path) -> None:
 
 def replace_dep_version(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
-    pattern = r'(floe-core\\s*=\\s*\\{[^}]*version\\s*=\\s*\")([^\"]+)(\")'
-    updated, count = re.subn(pattern, lambda m: f"{m.group(1)}{version}{m.group(3)}", content, count=1)
+    inline_pattern = r'(floe-core\s*=\s*\{[^}]*?version\s*=\s*")([^"]+)(")'
+    updated, count = re.subn(
+        inline_pattern,
+        lambda m: f"{m.group(1)}{version}{m.group(3)}",
+        content,
+        count=1,
+    )
+    if count == 0:
+        simple_pattern = r'^(floe-core\s*=\s*")([^"]+)(")'
+        updated, count = re.subn(
+            simple_pattern,
+            lambda m: f"{m.group(1)}{version}{m.group(3)}",
+            content,
+            count=1,
+            flags=re.M,
+        )
     if count == 0:
         raise SystemExit(f"no floe-core dependency version found in {path}")
     path.write_text(updated, encoding="utf-8")

@@ -20,18 +20,31 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
+      on_main: ${{ steps.guard.outputs.on_main }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: meta
         run: |
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - id: guard
+        name: Ensure tag is on main
+        run: |
+          git fetch origin main --quiet
+          if git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+          fi
 
   publish:
     runs-on: ubuntu-latest
     needs: meta
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
@@ -81,6 +94,7 @@ PY
   build:
     runs-on: ${{ matrix.os }}
     needs: meta
+    if: ${{ needs.meta.outputs.on_main == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -132,7 +146,7 @@ PY
   release:
     runs-on: ubuntu-latest
     needs: [meta, publish, build]
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       TAG: ${{ needs.meta.outputs.tag }}

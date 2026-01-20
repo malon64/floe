@@ -190,7 +190,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: malon64/homebrew-floe
-          ref: master
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew
       - name: Render Homebrew formula

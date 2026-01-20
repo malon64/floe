@@ -61,26 +61,26 @@ jobs:
         name: Check published versions
         run: |
           python - <<'PY'
-import json
-import os
-import urllib.request
+          import json
+          import os
+          import urllib.request
 
-version = os.environ["VERSION"]
-output = os.environ["GITHUB_OUTPUT"]
+          version = os.environ["VERSION"]
+          output = os.environ["GITHUB_OUTPUT"]
 
-def exists(crate: str) -> bool:
-    with urllib.request.urlopen(f"https://crates.io/api/v1/crates/{crate}") as resp:
-        data = json.load(resp)
-    versions = {v["num"] for v in data.get("versions", [])}
-    return version in versions
+          def exists(crate: str) -> bool:
+              with urllib.request.urlopen(f"https://crates.io/api/v1/crates/{crate}") as resp:
+                  data = json.load(resp)
+              versions = {v["num"] for v in data.get("versions", [])}
+              return version in versions
 
-core_exists = exists("floe-core")
-cli_exists = exists("floe-cli")
+          core_exists = exists("floe-core")
+          cli_exists = exists("floe-cli")
 
-with open(output, "a", encoding="utf-8") as fh:
-    fh.write(f"core_exists={str(core_exists).lower()}\n")
-    fh.write(f"cli_exists={str(cli_exists).lower()}\n")
-PY
+          with open(output, "a", encoding="utf-8") as fh:
+              fh.write(f"core_exists={str(core_exists).lower()}\n")
+              fh.write(f"cli_exists={str(cli_exists).lower()}\n")
+          PY
       - name: Publish floe-core
         if: ${{ steps.check.outputs.core_exists != 'true' }}
         run: cargo publish -p floe-core
@@ -129,14 +129,14 @@ PY
           tarball="floe-v${version}-${target}.tar.gz"
           tar -C "target/${target}/release" -czf "dist/${tarball}" floe
           python - <<PY
-import hashlib
-from pathlib import Path
+          import hashlib
+          from pathlib import Path
 
-tarball = Path("dist/${tarball}")
-sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
-sha_path = tarball.with_suffix(tarball.suffix + ".sha256")
-sha_path.write_text(f"{sha}  {tarball.name}\n", encoding="utf-8")
-PY
+          tarball = Path("dist/${tarball}")
+          sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+          sha_path = tarball.with_suffix(tarball.suffix + ".sha256")
+          sha_path.write_text(f"{sha}  {tarball.name}\n", encoding="utf-8")
+          PY
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

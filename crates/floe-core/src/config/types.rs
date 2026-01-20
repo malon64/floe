@@ -101,8 +101,7 @@ fn parse_encoding(value: Option<&str>) -> FloeResult<CsvEncoding> {
     let normalized = value
         .unwrap_or("utf8")
         .to_ascii_lowercase()
-        .replace('-', "")
-        .replace('_', "");
+        .replace(['-', '_'], "");
     match normalized.as_str() {
         "utf8" => Ok(CsvEncoding::Utf8),
         "lossyutf8" => Ok(CsvEncoding::LossyUtf8),
@@ -194,7 +193,6 @@ impl SchemaConfig {
     }
 }
 
-
 #[derive(Debug)]
 pub struct NormalizeColumnsConfig {
     pub enabled: Option<bool>,
@@ -210,10 +208,7 @@ pub struct ColumnConfig {
 }
 
 fn parse_data_type(value: &str) -> FloeResult<DataType> {
-    let normalized = value
-        .to_ascii_lowercase()
-        .replace('-', "")
-        .replace('_', "");
+    let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
     match normalized.as_str() {
         "string" | "str" | "text" => Ok(DataType::String),
         "boolean" | "bool" => Ok(DataType::Boolean),

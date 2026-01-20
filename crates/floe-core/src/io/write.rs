@@ -48,10 +48,7 @@ pub fn write_error_report(
     let mut items = Vec::new();
     for (idx, err) in errors_per_row.iter().enumerate() {
         if let Some(err) = err {
-            items.push(format!(
-                "{{\"row_index\":{},\"errors\":{}}}",
-                idx, err
-            ));
+            items.push(format!("{{\"row_index\":{},\"errors\":{}}}", idx, err));
         }
     }
     let content = format!("[{}]", items.join(","));
@@ -59,10 +56,7 @@ pub fn write_error_report(
     Ok(output_path)
 }
 
-pub fn write_rejected_raw(
-    source_path: &Path,
-    base_path: &str,
-) -> FloeResult<PathBuf> {
+pub fn write_rejected_raw(source_path: &Path, base_path: &str) -> FloeResult<PathBuf> {
     let output_path = build_rejected_raw_path(base_path, source_path);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -76,12 +70,10 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
         std::fs::create_dir_all(parent)?;
     }
     std::fs::create_dir_all(archive_dir)?;
-    let file_name = source_path
-        .file_name()
-        .ok_or_else(|| {
-            Box::new(ConfigError("source file name missing".to_string()))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+    let file_name = source_path.file_name().ok_or_else(|| {
+        Box::new(ConfigError("source file name missing".to_string()))
+            as Box<dyn std::error::Error + Send + Sync>
+    })?;
     let destination = archive_dir.join(file_name);
     if std::fs::rename(source_path, &destination).is_err() {
         std::fs::copy(source_path, &destination)?;

@@ -3,13 +3,13 @@ use std::path::Path;
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::Yaml;
 
+use crate::config::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_string};
 use crate::config::{
-    ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig, PolicyConfig,
-    ArchiveTarget, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
+    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
+    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
     SourceConfig, SourceOptions,
 };
 use crate::{ConfigError, FloeResult};
-use crate::config::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_string};
 
 pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     let docs = load_yaml(path)?;
@@ -117,7 +117,8 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
         header: opt_bool(hash, "header", "source.options")?.or(defaults.header),
         separator: opt_string(hash, "separator", "source.options")?.or(defaults.separator),
         encoding: opt_string(hash, "encoding", "source.options")?.or(defaults.encoding),
-        null_values: opt_vec_string(hash, "null_values", "source.options")?.or(defaults.null_values),
+        null_values: opt_vec_string(hash, "null_values", "source.options")?
+            .or(defaults.null_values),
     })
 }
 

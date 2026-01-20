@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use polars::prelude::{AnyValue, DataFrame};
 
-use crate::{config, ConfigError, FloeResult};
 use super::RowError;
+use crate::{config, ConfigError, FloeResult};
 
 pub fn unique_errors(
     df: &DataFrame,
@@ -19,16 +19,14 @@ pub fn unique_errors(
     }
 
     for column in unique_columns {
-        let series = df
-            .column(&column.name)
-            .map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "unique column {} not found: {err}",
-                    column.name
-                )))
-            })?;
+        let series = df.column(&column.name).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "unique column {} not found: {err}",
+                column.name
+            )))
+        })?;
         let mut seen = HashSet::new();
-        for row_idx in 0..df.height() {
+        for (row_idx, errors) in errors_per_row.iter_mut().enumerate() {
             let value = series.get(row_idx).map_err(|err| {
                 Box::new(ConfigError(format!(
                     "unique column {} read failed: {err}",
@@ -40,11 +38,7 @@ pub fn unique_errors(
             }
             let key = value.to_string();
             if !seen.insert(key) {
-                errors_per_row[row_idx].push(RowError::new(
-                    "unique",
-                    &column.name,
-                    "duplicate value",
-                ));
+                errors.push(RowError::new("unique", &column.name, "duplicate value"));
             }
         }
     }

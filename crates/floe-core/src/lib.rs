@@ -1,11 +1,11 @@
 use std::path::Path;
 use yaml_schema::{Engine, RootSchema};
 
-pub mod config;
 pub mod checks;
+pub mod config;
+mod io;
 pub mod report;
 pub mod run;
-mod io;
 
 pub use checks as check;
 pub use run::run;
@@ -37,12 +37,11 @@ pub struct RunOptions {
 }
 
 pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> {
-    let root_schema =
-        RootSchema::load_from_str(SCHEMA_YAML).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "failed to load embedded schema: {err}"
-            )))
-        })?;
+    let root_schema = RootSchema::load_from_str(SCHEMA_YAML).map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to load embedded schema: {err}"
+        )))
+    })?;
 
     let yaml_contents = std::fs::read_to_string(config_path)?;
     let context = Engine::evaluate(&root_schema, &yaml_contents, false)

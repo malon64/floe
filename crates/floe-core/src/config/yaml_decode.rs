@@ -14,27 +14,21 @@ pub(crate) fn load_yaml(path: &Path) -> FloeResult<Vec<Yaml>> {
 pub(crate) fn yaml_hash<'a>(value: &'a Yaml, ctx: &str) -> FloeResult<&'a Hash> {
     match value {
         Yaml::Hash(hash) => Ok(hash),
-        _ => Err(Box::new(ConfigError(format!(
-            "expected map at {ctx}"
-        )))),
+        _ => Err(Box::new(ConfigError(format!("expected map at {ctx}")))),
     }
 }
 
 pub(crate) fn yaml_array<'a>(value: &'a Yaml, ctx: &str) -> FloeResult<&'a Vec<Yaml>> {
     match value {
         Yaml::Array(values) => Ok(values),
-        _ => Err(Box::new(ConfigError(format!(
-            "expected array at {ctx}"
-        )))),
+        _ => Err(Box::new(ConfigError(format!("expected array at {ctx}")))),
     }
 }
 
 pub(crate) fn yaml_string(value: &Yaml, ctx: &str) -> FloeResult<String> {
     match value {
         Yaml::String(value) => Ok(value.clone()),
-        _ => Err(Box::new(ConfigError(format!(
-            "expected string at {ctx}"
-        )))),
+        _ => Err(Box::new(ConfigError(format!("expected string at {ctx}")))),
     }
 }
 

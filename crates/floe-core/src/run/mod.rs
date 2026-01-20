@@ -8,11 +8,15 @@ use serde_json::{Map, Value};
 use crate::{check, config, io, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod normalize;
-use normalize::{normalize_dataframe_columns, normalize_schema_columns, resolve_normalize_strategy};
+use normalize::{
+    normalize_dataframe_columns, normalize_schema_columns, resolve_normalize_strategy,
+};
 
 const MAX_EXAMPLES_PER_RULE: u64 = 3;
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
+
+type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
 pub(crate) fn validate_entities(
     config: &config::RootConfig,
@@ -62,7 +66,12 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
         };
         let required_cols = required_columns(&normalized_columns);
 
-        let inputs = read_inputs(entity, input_path, &normalized_columns, normalize_strategy.as_deref())?;
+        let inputs = read_inputs(
+            entity,
+            input_path,
+            &normalized_columns,
+            normalize_strategy.as_deref(),
+        )?;
         let resolved_files = inputs
             .iter()
             .map(|(path, _, _)| path.display().to_string())
@@ -122,10 +131,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
                 .iter()
                 .map(|errors| errors.len() as u64)
                 .sum::<u64>();
-            let accept_count = accept_rows
-                .iter()
-                .filter(|accepted| **accepted)
-                .count() as u64;
+            let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
             let reject_count = row_count.saturating_sub(accept_count);
             let has_errors = row_error_count > 0;
             let mut accepted_path = None;
@@ -153,10 +159,14 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
 
                         let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
                         let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
-                            Box::new(ConfigError(format!("failed to filter accepted rows: {err}")))
+                            Box::new(ConfigError(format!(
+                                "failed to filter accepted rows: {err}"
+                            )))
                         })?;
                         let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
-                            Box::new(ConfigError(format!("failed to filter rejected rows: {err}")))
+                            Box::new(ConfigError(format!(
+                                "failed to filter rejected rows: {err}"
+                            )))
                         })?;
                         append_rejection_columns(&mut rejected_df, &errors_json, false)?;
 
@@ -287,66 +297,71 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
         let report_path = report::ReportWriter::report_path(report_dir, &run_id, &entity.name);
         let finished_at = report::now_rfc3339();
         let duration_ms = run_timer.elapsed().as_millis() as u64;
-        let run_report = report::RunReport {
-            spec_version: config.version.clone(),
-            tool: report::ToolInfo {
-                name: "floe".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                git: None,
-            },
-            run: report::RunInfo {
-                run_id: run_id.clone(),
-                started_at: started_at.clone(),
-                finished_at,
-                duration_ms,
-                status: run_status,
-                exit_code,
-            },
-            config: report::ConfigEcho {
-                path: config_path.display().to_string(),
-                version: config.version.clone(),
-                metadata: config.metadata.as_ref().map(project_metadata_json),
-            },
-            entity: report::EntityEcho {
-                name: entity.name.clone(),
-                metadata: entity.metadata.as_ref().map(entity_metadata_json),
-            },
-            source: report::SourceEcho {
-                format: input.format.clone(),
-                path: input.path.clone(),
-                options: input.options.as_ref().map(source_options_json),
-                cast_mode: input.cast_mode.clone(),
-                read_plan: report::SourceReadPlan::RawAndTyped,
-                resolved_inputs: report::ResolvedInputs {
-                    mode: resolved_mode,
-                    file_count: resolved_files.len() as u64,
-                    files: resolved_files,
+        let run_report =
+            report::RunReport {
+                spec_version: config.version.clone(),
+                tool: report::ToolInfo {
+                    name: "floe".to_string(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    git: None,
                 },
-            },
-            sink: report::SinkEcho {
-                accepted: report::SinkTargetEcho {
-                    format: entity.sink.accepted.format.clone(),
-                    path: entity.sink.accepted.path.clone(),
+                run: report::RunInfo {
+                    run_id: run_id.clone(),
+                    started_at: started_at.clone(),
+                    finished_at,
+                    duration_ms,
+                    status: run_status,
+                    exit_code,
                 },
-                rejected: entity.sink.rejected.as_ref().map(|rejected| {
-                    report::SinkTargetEcho {
-                        format: rejected.format.clone(),
-                        path: rejected.path.clone(),
-                    }
-                }),
-                archive: report::SinkArchiveEcho {
-                    enabled: entity.sink.archive.is_some(),
-                    path: entity.sink.archive.as_ref().map(|archive| archive.path.clone()),
+                config: report::ConfigEcho {
+                    path: config_path.display().to_string(),
+                    version: config.version.clone(),
+                    metadata: config.metadata.as_ref().map(project_metadata_json),
                 },
-            },
-            report: report::ReportEcho {
-                path: config.report.path.clone(),
-                report_file: report_path.display().to_string(),
-            },
-            policy: report::PolicyEcho { severity },
-            results: totals,
-            files: file_reports,
-        };
+                entity: report::EntityEcho {
+                    name: entity.name.clone(),
+                    metadata: entity.metadata.as_ref().map(entity_metadata_json),
+                },
+                source: report::SourceEcho {
+                    format: input.format.clone(),
+                    path: input.path.clone(),
+                    options: input.options.as_ref().map(source_options_json),
+                    cast_mode: input.cast_mode.clone(),
+                    read_plan: report::SourceReadPlan::RawAndTyped,
+                    resolved_inputs: report::ResolvedInputs {
+                        mode: resolved_mode,
+                        file_count: resolved_files.len() as u64,
+                        files: resolved_files,
+                    },
+                },
+                sink: report::SinkEcho {
+                    accepted: report::SinkTargetEcho {
+                        format: entity.sink.accepted.format.clone(),
+                        path: entity.sink.accepted.path.clone(),
+                    },
+                    rejected: entity.sink.rejected.as_ref().map(|rejected| {
+                        report::SinkTargetEcho {
+                            format: rejected.format.clone(),
+                            path: rejected.path.clone(),
+                        }
+                    }),
+                    archive: report::SinkArchiveEcho {
+                        enabled: entity.sink.archive.is_some(),
+                        path: entity
+                            .sink
+                            .archive
+                            .as_ref()
+                            .map(|archive| archive.path.clone()),
+                    },
+                },
+                report: report::ReportEcho {
+                    path: config.report.path.clone(),
+                    report_file: report_path.display().to_string(),
+                },
+                policy: report::PolicyEcho { severity },
+                results: totals,
+                files: file_reports,
+            };
         let report_path =
             report::ReportWriter::write_report(report_dir, &run_id, &entity.name, &run_report)?;
         log_output(&entity.name, "report", &report_path);
@@ -411,7 +426,7 @@ fn collect_errors(
     required_cols: &[String],
     columns: &[config::ColumnConfig],
     track_cast_errors: bool,
-) -> FloeResult<(Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>)> {
+) -> FloeResult<ValidationCollect> {
     let mut error_lists = check::not_null_errors(typed_df, required_cols)?;
     if track_cast_errors {
         let cast_errors = check::cast_mismatch_errors(raw_df, typed_df, columns)?;
@@ -473,11 +488,8 @@ fn append_rejection_columns(
             "failed to add __floe_row_index: {err}"
         )))
     })?;
-    df.with_column(errors).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "failed to add __floe_errors: {err}"
-        )))
-    })?;
+    df.with_column(errors)
+        .map_err(|err| Box::new(ConfigError(format!("failed to add __floe_errors: {err}"))))?;
     Ok(())
 }
 
@@ -502,8 +514,7 @@ fn summarize_validation(
     }
 
     let mut accumulators = vec![RuleAccumulator::default(); RULE_COUNT];
-    let mut examples: Vec<Vec<report::ValidationExample>> =
-        vec![Vec::new(); RULE_COUNT];
+    let mut examples: Vec<Vec<report::ValidationExample>> = vec![Vec::new(); RULE_COUNT];
 
     for (row_idx, errors) in errors_per_row.iter().enumerate() {
         for error in errors {
@@ -536,8 +547,7 @@ fn summarize_validation(
     }
 
     let mut rules = Vec::new();
-    for idx in 0..RULE_COUNT {
-        let accumulator = &accumulators[idx];
+    for (idx, accumulator) in accumulators.iter().enumerate() {
         if accumulator.violations == 0 {
             continue;
         }
@@ -558,8 +568,8 @@ fn summarize_validation(
     }
 
     let mut items = Vec::new();
-    for idx in 0..RULE_COUNT {
-        items.extend(examples[idx].iter().cloned());
+    for example_list in &examples {
+        items.extend(example_list.iter().cloned());
     }
 
     (
@@ -606,7 +616,10 @@ fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
     let mut map = Map::new();
     map.insert("project".to_string(), Value::String(meta.project.clone()));
     if let Some(description) = &meta.description {
-        map.insert("description".to_string(), Value::String(description.clone()));
+        map.insert(
+            "description".to_string(),
+            Value::String(description.clone()),
+        );
     }
     if let Some(owner) = &meta.owner {
         map.insert("owner".to_string(), Value::String(owner.clone()));
@@ -620,7 +633,10 @@ fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
 fn entity_metadata_json(meta: &config::EntityMetadata) -> Value {
     let mut map = Map::new();
     if let Some(data_product) = &meta.data_product {
-        map.insert("data_product".to_string(), Value::String(data_product.clone()));
+        map.insert(
+            "data_product".to_string(),
+            Value::String(data_product.clone()),
+        );
     }
     if let Some(domain) = &meta.domain {
         map.insert("domain".to_string(), Value::String(domain.clone()));
@@ -629,7 +645,10 @@ fn entity_metadata_json(meta: &config::EntityMetadata) -> Value {
         map.insert("owner".to_string(), Value::String(owner.clone()));
     }
     if let Some(description) = &meta.description {
-        map.insert("description".to_string(), Value::String(description.clone()));
+        map.insert(
+            "description".to_string(),
+            Value::String(description.clone()),
+        );
     }
     if let Some(tags) = &meta.tags {
         map.insert("tags".to_string(), string_array(tags));

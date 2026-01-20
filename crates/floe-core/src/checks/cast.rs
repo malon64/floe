@@ -1,7 +1,7 @@
 use polars::prelude::{BooleanChunked, DataFrame, StringChunked};
 
-use crate::{config, ConfigError, FloeResult};
 use super::RowError;
+use crate::{config, ConfigError, FloeResult};
 
 /// Detect cast mismatches by comparing raw (string) values to typed values.
 /// If a raw value exists but the typed value is null, we treat it as a cast error.
@@ -56,11 +56,11 @@ fn append_cast_errors(
     raw: &StringChunked,
     typed_nulls: &BooleanChunked,
 ) -> FloeResult<()> {
-    for row_idx in 0..errors_per_row.len() {
+    for (row_idx, errors) in errors_per_row.iter_mut().enumerate() {
         let raw_value = raw.get(row_idx);
         let typed_is_null = typed_nulls.get(row_idx).unwrap_or(false);
         if typed_is_null && raw_value.is_some() {
-            errors_per_row[row_idx].push(RowError::new(
+            errors.push(RowError::new(
                 "cast_error",
                 column_name,
                 "invalid value for target type",
@@ -71,9 +71,6 @@ fn append_cast_errors(
 }
 
 fn is_string_type(value: &str) -> bool {
-    let normalized = value
-        .to_ascii_lowercase()
-        .replace('-', "")
-        .replace('_', "");
+    let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
     matches!(normalized.as_str(), "string" | "str" | "text")
 }

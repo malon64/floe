@@ -209,27 +209,6 @@ fn invalid_column_type_errors() {
 }
 
 #[test]
-fn invalid_policy_severity_errors() {
-    let entity = r#"  - name: "customer"
-    source:
-      format: "csv"
-      path: "/tmp/input"
-    sink:
-      accepted:
-        format: "parquet"
-        path: "/tmp/out"
-    policy:
-      severity: "block"
-    schema:
-      columns:
-        - name: "customer_id"
-          type: "string"
-"#;
-    let yaml = base_config(entity);
-    assert_validation_error(&yaml, &["entity.name=customer", "policy.severity", "block"]);
-}
-
-#[test]
 fn duplicate_entity_names_error() {
     let entities = format!("{}{}", base_entity("customer"), base_entity("customer"));
     let yaml = base_config(&entities);

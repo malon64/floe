@@ -49,6 +49,8 @@ Example:
   floe validate -c example/config.yml
 "#;
 
+mod output;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "floe",
@@ -86,6 +88,14 @@ enum Command {
             help = "Comma-separated list of entity names"
         )]
         entities: Vec<String>,
+        #[arg(
+            long,
+            conflicts_with = "verbose",
+            help = "Suppress non-essential output"
+        )]
+        quiet: bool,
+        #[arg(long, conflicts_with = "quiet", help = "Enable verbose output")]
+        verbose: bool,
     },
 }
 
@@ -124,11 +134,20 @@ fn main() -> FloeResult<()> {
             config,
             run_id,
             entities,
+            quiet,
+            verbose,
         } => {
             let config_path = resolve_path(config)?;
             let options = RunOptions { run_id, entities };
-            run(&config_path, options)?;
-            println!("run completed");
+            let outcome = run(&config_path, options)?;
+            let mode = if quiet {
+                output::OutputMode::Quiet
+            } else if verbose {
+                output::OutputMode::Verbose
+            } else {
+                output::OutputMode::Default
+            };
+            println!("{}", output::format_run_output(&outcome, mode));
             Ok(())
         }
     }

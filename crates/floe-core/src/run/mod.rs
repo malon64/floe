@@ -18,6 +18,19 @@ const CAST_ERROR_INDEX: usize = 1;
 
 type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
+#[derive(Debug, Clone)]
+pub struct RunOutcome {
+    pub run_id: String,
+    pub report_base_path: String,
+    pub entity_outcomes: Vec<EntityOutcome>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntityOutcome {
+    pub report: report::RunReport,
+    pub file_timings_ms: Vec<Option<u64>>,
+}
+
 pub(crate) fn validate_entities(
     config: &config::RootConfig,
     selected: &[String],
@@ -37,7 +50,7 @@ pub(crate) fn validate_entities(
     Ok(())
 }
 
-pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
+pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
     };
@@ -46,14 +59,14 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
     if !options.entities.is_empty() {
         validate_entities(&config, &options.entities)?;
     }
-    let version = &config.version;
-    println!("Config file version : {}", version);
+    let report_base_path = config.report.path.clone();
     let started_at = report::now_rfc3339();
     let run_id = options
         .run_id
         .clone()
         .unwrap_or_else(|| report::run_id_from_timestamp(&started_at));
     let run_timer = Instant::now();
+    let mut entity_outcomes = Vec::new();
 
     for entity in &config.entities {
         let input = &entity.source;
@@ -110,7 +123,9 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
             .as_ref()
             .map(|archive| PathBuf::from(&archive.path));
 
+        let mut file_timings_ms = Vec::with_capacity(inputs.len());
         for (source_path, raw_df, mut df) in inputs {
+            let file_timer = Instant::now();
             let source_stem = source_path
                 .file_stem()
                 .and_then(|stem| stem.to_str())
@@ -143,13 +158,6 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
 
             match entity.policy.severity.as_str() {
                 "warn" => {
-                    if has_errors {
-                        eprintln!(
-                            "warn: {row_error_count} row(s) failed validation checks for entity {} in {}",
-                            entity.name,
-                            source_path.display()
-                        );
-                    }
                     let output_path = write_accepted_output(entity, &mut df, source_stem)?;
                     accepted_path = Some(output_path.display().to_string());
                 }
@@ -178,7 +186,6 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
                             &rejected_target.path,
                             source_stem,
                         )?;
-                        log_output(&entity.name, "rejected", &rejected_path_buf);
                         rejected_path = Some(rejected_path_buf.display().to_string());
                     } else {
                         let output_path = write_accepted_output(entity, &mut df, source_stem)?;
@@ -195,8 +202,6 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
                             source_stem,
                             &errors_json,
                         )?;
-                        log_output(&entity.name, "rejected", &rejected_path_buf);
-                        log_output(&entity.name, "reject report", &report_path);
                         rejected_path = Some(rejected_path_buf.display().to_string());
                         errors_path = Some(report_path.display().to_string());
                     } else {
@@ -214,7 +219,6 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
             if archive_enabled {
                 if let Some(dir) = &archive_dir {
                     let archived_path_buf = io::write::archive_input(&source_path, dir)?;
-                    log_output(&entity.name, "archived", &archived_path_buf);
                     archived_path = Some(archived_path_buf.display().to_string());
                 }
             }
@@ -284,6 +288,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
             totals.warnings_total += warnings;
             file_statuses.push(status);
             file_reports.push(file_report);
+            file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
         }
 
         totals.files_total = file_reports.len() as u64;
@@ -362,16 +367,18 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<()> {
                 results: totals,
                 files: file_reports,
             };
-        let report_path =
-            report::ReportWriter::write_report(report_dir, &run_id, &entity.name, &run_report)?;
-        log_output(&entity.name, "report", &report_path);
+        report::ReportWriter::write_report(report_dir, &run_id, &entity.name, &run_report)?;
+        entity_outcomes.push(EntityOutcome {
+            report: run_report,
+            file_timings_ms,
+        });
     }
 
-    Ok(())
-}
-
-fn log_output(entity_name: &str, label: &str, path: &Path) {
-    println!("entity {}: {} -> {}", entity_name, label, path.display());
+    Ok(RunOutcome {
+        run_id,
+        report_base_path,
+        entity_outcomes,
+    })
 }
 
 fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
@@ -451,7 +458,6 @@ fn write_accepted_output(
         "parquet" => {
             let output_path =
                 io::write::write_parquet(df, &entity.sink.accepted.path, source_stem)?;
-            log_output(&entity.name, "accepted", &output_path);
             Ok(output_path)
         }
         format => Err(Box::new(ConfigError(format!(

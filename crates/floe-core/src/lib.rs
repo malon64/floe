@@ -8,7 +8,7 @@ pub mod report;
 pub mod run;
 
 pub use checks as check;
-pub use run::run;
+pub use run::{run, EntityOutcome, RunOutcome};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

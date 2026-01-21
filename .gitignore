@@ -15,3 +15,5 @@ Thumbs.db
 # Test ouput files
 example/out/*
 example/report/*
+!example/report/run_2026-01-19T10-23-45Z/
+!example/report/run_2026-01-19T10-23-45Z/**

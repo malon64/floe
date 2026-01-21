@@ -1,0 +1,117 @@
+{
+  "spec_version": "0.1.0",
+  "tool": {
+    "name": "floe",
+    "version": "0.1.0"
+  },
+  "run": {
+    "run_id": "2026-01-19T10-23-45Z",
+    "started_at": "2026-01-19T10-23-45Z",
+    "finished_at": "2026-01-19T10-23-48Z",
+    "duration_ms": 3000,
+    "status": "rejected",
+    "exit_code": 0
+  },
+  "config": {
+    "path": "example/config.yml",
+    "version": "0.1.0",
+    "metadata": {
+      "project": "example",
+      "owner": "data-eng"
+    }
+  },
+  "entity": {
+    "name": "customer",
+    "metadata": {
+      "domain": "sales",
+      "owner": "growth"
+    }
+  },
+  "source": {
+    "format": "csv",
+    "path": "example/in/customer",
+    "options": {
+      "header": true
+    },
+    "cast_mode": "strict",
+    "read_plan": "raw_and_typed",
+    "resolved_inputs": {
+      "mode": "directory",
+      "file_count": 1,
+      "files": [
+        "example/in/customer/customers_invalid.csv"
+      ]
+    }
+  },
+  "sink": {
+    "accepted": {
+      "format": "parquet",
+      "path": "example/out/customer/accepted"
+    },
+    "rejected": {
+      "format": "csv",
+      "path": "example/out/customer/rejected"
+    },
+    "archive": {
+      "enabled": false
+    }
+  },
+  "report": {
+    "path": "example/report",
+    "report_file": "example/report/run_2026-01-19T10-23-45Z/customer/run.json"
+  },
+  "policy": {
+    "severity": "reject"
+  },
+  "results": {
+    "files_total": 1,
+    "rows_total": 10,
+    "accepted_total": 8,
+    "rejected_total": 2,
+    "warnings_total": 0,
+    "errors_total": 2
+  },
+  "files": [
+    {
+      "input_file": "example/in/customer/customers_invalid.csv",
+      "status": "rejected",
+      "row_count": 10,
+      "accepted_count": 8,
+      "rejected_count": 2,
+      "output": {
+        "accepted_path": "example/out/customer/accepted/customers.parquet",
+        "rejected_path": "example/out/customer/rejected/customers.rejected.csv",
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 2,
+        "warnings": 0,
+        "rules": [
+          {
+            "rule": "not_null",
+            "severity": "reject",
+            "violations": 2,
+            "columns": [
+              {
+                "column": "customer_id",
+                "violations": 2
+              }
+            ]
+          }
+        ],
+        "examples": {
+          "max_examples_per_rule": 3,
+          "items": [
+            {
+              "rule": "not_null",
+              "column": "customer_id",
+              "row_index": 4,
+              "message": "value is required"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

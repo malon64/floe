@@ -18,7 +18,6 @@
   - `floe run -c example/config.yml --entities customer`
   - Report output:
     - `example/report/run_<run_id>/customer/run.json`
-    - `example/report/run_<run_id>/run.summary.json` (if enabled)
 
 - Set a run id:
   - `floe run -c example/config.yml --entities customer --run-id dev-001`

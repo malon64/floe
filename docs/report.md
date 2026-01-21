@@ -7,9 +7,12 @@ and the status/exit code rules.
 
 - Provide a deterministic, machine-readable summary of each run.
 - Avoid logging raw row values (PII risk).
-- Support multiple input files under the same run.
+- Support multiple input files and entities under the same run.
 
-## Report file naming
+Reports only include aggregate counts and row indices for examples; raw row
+values are excluded.
+
+## Report directory layout
 
 Reports are written under the configured report directory:
 
@@ -20,6 +23,10 @@ Reports are written under the configured report directory:
 `run_id` is a filename-safe ISO-like string: `YYYY-MM-DDTHH-MM-SSZ`
 (colons replaced by dashes). The report JSON must include the full
 `report_file` path.
+
+Each entity produces its own `run.json`.
+
+Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 
 ## Top-level sections
 
@@ -34,6 +41,7 @@ Reports are written under the configured report directory:
 - `policy`: Severity.
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
+
 
 ## Status and exit code rules
 

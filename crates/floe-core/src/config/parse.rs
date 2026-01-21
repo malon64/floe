@@ -61,11 +61,6 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
 
 fn parse_project_metadata(value: &Yaml) -> FloeResult<ProjectMetadata> {
     let hash = yaml_hash(value, "metadata")?;
-    validate_known_keys(
-        hash,
-        "metadata",
-        &["project", "description", "owner", "tags"],
-    )?;
     Ok(ProjectMetadata {
         project: get_string(hash, "project", "metadata")?,
         description: opt_string(hash, "description", "metadata")?,
@@ -121,11 +116,6 @@ fn format_entity_error(index: usize, name: Option<String>, err: &dyn std::error:
 
 fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {
     let hash = yaml_hash(value, "entity.metadata")?;
-    validate_known_keys(
-        hash,
-        "entity.metadata",
-        &["data_product", "domain", "owner", "description", "tags"],
-    )?;
     Ok(EntityMetadata {
         data_product: opt_string(hash, "data_product", "entity.metadata")?,
         domain: opt_string(hash, "domain", "entity.metadata")?,

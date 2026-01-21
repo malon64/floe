@@ -68,7 +68,11 @@ enum Command {
     Validate {
         #[arg(short, long, help = "Path to the Floe config file")]
         config: PathBuf,
-        #[arg(long, value_delimiter = ',', help = "Comma-separated list of entity names")]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Comma-separated list of entity names"
+        )]
         entities: Vec<String>,
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
@@ -77,7 +81,11 @@ enum Command {
         config: PathBuf,
         #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
-        #[arg(long, value_delimiter = ',', help = "Comma-separated list of entity names")]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Comma-separated list of entity names"
+        )]
         entities: Vec<String>,
     },
 }

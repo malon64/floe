@@ -9,6 +9,7 @@ const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
 const ALLOWED_ACCEPTED_FORMATS: &[&str] = &["parquet"];
 const ALLOWED_REJECTED_FORMATS: &[&str] = &["csv"];
+const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -33,6 +34,7 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
 
 fn validate_entity(entity: &EntityConfig) -> FloeResult<()> {
     validate_source(entity)?;
+    validate_policy(entity)?;
     validate_sink(entity)?;
     validate_schema(entity)?;
     Ok(())
@@ -90,6 +92,18 @@ fn validate_sink(entity: &EntityConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_policy(entity: &EntityConfig) -> FloeResult<()> {
+    if !ALLOWED_POLICY_SEVERITIES.contains(&entity.policy.severity.as_str()) {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} policy.severity={} is unsupported (allowed: {})",
+            entity.name,
+            entity.policy.severity,
+            ALLOWED_POLICY_SEVERITIES.join(", ")
+        ))));
+    }
     Ok(())
 }
 

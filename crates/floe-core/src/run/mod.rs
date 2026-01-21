@@ -528,7 +528,11 @@ fn resolve_input_columns(
 }
 
 fn headless_columns(declared_names: &[String], input_count: usize) -> Vec<String> {
-    let mut names = declared_names.iter().take(input_count).cloned().collect::<Vec<_>>();
+    let mut names = declared_names
+        .iter()
+        .take(input_count)
+        .cloned()
+        .collect::<Vec<_>>();
     if input_count > declared_names.len() {
         for index in declared_names.len()..input_count {
             names.push(format!("extra_column_{}", index + 1));

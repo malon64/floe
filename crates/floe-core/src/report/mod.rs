@@ -364,7 +364,7 @@ mod tests {
             spec_version: "0.1".to_string(),
             tool: ToolInfo {
                 name: "floe".to_string(),
-                version: "0.1.0".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
                 git: None,
             },
             run: RunInfo {

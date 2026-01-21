@@ -3,23 +3,26 @@ use floe_core::{load_config, run, validate, FloeResult, RunOptions, ValidateOpti
 use std::path::PathBuf;
 
 const VERSION: &str = env!("FLOE_VERSION");
-const ROOT_LONG_ABOUT: &str = r#"Floe is a single-node, config-driven ingestion runner. It loads one YAML config
-and executes each entity in order, producing per-entity and summary reports.
-
-Config (v0.1.0) structure:
-  version
-  metadata
-  report.path
-  entities[]
-
-entity:
-  name
-  metadata
-  source { format, path, options, cast_mode }
-  sink { accepted, rejected }
-  policy { severity }
-  schema { normalize_columns, columns[] }
-"#;
+const ROOT_LONG_ABOUT: &str = concat!(
+    "Floe is a single-node, config-driven ingestion runner. It loads one YAML config\n",
+    "and executes each entity in order, producing per-entity and summary reports.\n",
+    "\n",
+    "Config (v",
+    env!("CARGO_PKG_VERSION"),
+    ") structure:\n",
+    "  version\n",
+    "  metadata\n",
+    "  report.path\n",
+    "  entities[]\n",
+    "\n",
+    "entity:\n",
+    "  name\n",
+    "  metadata\n",
+    "  source { format, path, options, cast_mode }\n",
+    "  sink { accepted, rejected }\n",
+    "  policy { severity }\n",
+    "  schema { normalize_columns, columns[] }\n",
+);
 
 const RUN_LONG_ABOUT: &str = r#"Run all configured entities sequentially (or restrict with --entities).
 
@@ -39,15 +42,18 @@ Reports are written to:
   <report.path>/run_<run_id>/<entity.name>/run.json
 "#;
 
-const VALIDATE_LONG_ABOUT: &str = r#"Validate a configuration file before running.
-
-Validation checks:
-  - YAML parsing
-  - schema validation against the v0.1.0 structure
-
-Example:
-  floe validate -c example/config.yml
-"#;
+const VALIDATE_LONG_ABOUT: &str = concat!(
+    "Validate a configuration file before running.\n",
+    "\n",
+    "Validation checks:\n",
+    "  - YAML parsing\n",
+    "  - schema validation against the v",
+    env!("CARGO_PKG_VERSION"),
+    " structure\n",
+    "\n",
+    "Example:\n",
+    "  floe validate -c example/config.yml\n",
+);
 
 mod output;
 

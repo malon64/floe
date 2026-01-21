@@ -222,12 +222,13 @@ mod tests {
         let run_id = "run-123".to_string();
         let report_base_path = "/tmp/reports".to_string();
         let report_file = "/tmp/reports/run_run-123/customer/run.json".to_string();
+        let version = env!("CARGO_PKG_VERSION").to_string();
 
         let report = report::RunReport {
-            spec_version: "0.1.0".to_string(),
+            spec_version: version.clone(),
             tool: report::ToolInfo {
                 name: "floe".to_string(),
-                version: "0.1.0".to_string(),
+                version: version.clone(),
                 git: None,
             },
             run: report::RunInfo {
@@ -240,7 +241,7 @@ mod tests {
             },
             config: report::ConfigEcho {
                 path: "/tmp/config.yml".to_string(),
-                version: "0.1.0".to_string(),
+                version,
                 metadata: None,
             },
             entity: report::EntityEcho {

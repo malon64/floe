@@ -181,6 +181,60 @@ fn missing_columns_reject_file_rejects() {
 }
 
 #[test]
+fn headerless_csv_uses_declared_names() {
+    let root = temp_dir("floe-mismatch-headerless");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "input.csv", "1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+      options:
+        header: false
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let file = &outcome.entity_outcomes[0].report.files[0];
+    assert_eq!(file.status, FileStatus::Success);
+
+    let output_path = accepted_dir.join("input.parquet");
+    let file = std::fs::File::open(&output_path).expect("open output parquet");
+    let df = ParquetReader::new(file)
+        .finish()
+        .expect("read output parquet");
+    let id = df.column("id").expect("missing id column");
+    let name = df.column("name").expect("missing name column");
+    assert_eq!(id.null_count(), 0);
+    assert_eq!(name.null_count(), 0);
+}
+
+#[test]
 fn extra_columns_ignore_accepts() {
     let root = temp_dir("floe-mismatch-extra-ignore");
     let input_dir = root.join("in");

@@ -488,7 +488,7 @@ fn read_inputs(
             let files = io::read_csv::list_csv_files(input_path)?;
             let mut inputs = Vec::with_capacity(files.len());
             for path in files {
-                let input_columns = io::read_csv::read_csv_header(&path, source_options)?;
+                let input_columns = resolve_input_columns(&path, source_options, columns)?;
                 let raw_schema = build_raw_schema(&input_columns);
                 let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
                 let raw_plan = io::read_csv::CsvReadPlan::strict(raw_schema);
@@ -507,6 +507,34 @@ fn read_inputs(
             "unsupported source format for now: {format}"
         )))),
     }
+}
+
+fn resolve_input_columns(
+    path: &Path,
+    source_options: &config::SourceOptions,
+    declared_columns: &[config::ColumnConfig],
+) -> FloeResult<Vec<String>> {
+    let header = source_options.header.unwrap_or(true);
+    let input_columns = io::read_csv::read_csv_header(path, source_options)?;
+    if header {
+        return Ok(input_columns);
+    }
+
+    let declared_names = declared_columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    Ok(headless_columns(&declared_names, input_columns.len()))
+}
+
+fn headless_columns(declared_names: &[String], input_count: usize) -> Vec<String> {
+    let mut names = declared_names.iter().take(input_count).cloned().collect::<Vec<_>>();
+    if input_count > declared_names.len() {
+        for index in declared_names.len()..input_count {
+            names.push(format!("extra_column_{}", index + 1));
+        }
+    }
+    names
 }
 
 fn build_raw_schema(columns: &[String]) -> Schema {

@@ -2,8 +2,60 @@ use clap::{Parser, Subcommand};
 use floe_core::{load_config, run, validate, FloeResult, RunOptions, ValidateOptions};
 use std::path::PathBuf;
 
+const VERSION: &str = env!("FLOE_VERSION");
+const ROOT_LONG_ABOUT: &str = r#"Floe is a single-node, config-driven ingestion runner. It loads one YAML config
+and executes each entity in order, producing per-entity and summary reports.
+
+Config (v0.1.0) structure:
+  version
+  metadata
+  report.path
+  entities[]
+
+entity:
+  name
+  metadata
+  source { format, path, options, cast_mode }
+  sink { accepted, rejected }
+  policy { severity }
+  schema { normalize_columns, columns[] }
+"#;
+
+const RUN_LONG_ABOUT: &str = r#"Run all configured entities sequentially (or restrict with --entities).
+
+Example config snippet:
+  report:
+    path: ./reports
+  entities:
+    - name: customers
+      source: { format: csv, path: ./data/customers.csv }
+      sink:
+        accepted: { format: parquet, path: ./out/customers.parquet }
+
+Example:
+  floe run -c example/config.yml
+
+Reports are written to:
+  <report.path>/run_<run_id>/<entity.name>/run.json
+"#;
+
+const VALIDATE_LONG_ABOUT: &str = r#"Validate a configuration file before running.
+
+Validation checks:
+  - YAML parsing
+  - schema validation against the v0.1.0 structure
+
+Example:
+  floe validate -c example/config.yml
+"#;
+
 #[derive(Parser, Debug)]
-#[command(name = "floe", version, about = "YAML-driven technical ingestion tool")]
+#[command(
+    name = "floe",
+    version = VERSION,
+    about = "YAML-driven technical ingestion tool",
+    long_about = ROOT_LONG_ABOUT
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -11,18 +63,28 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    #[command(about = "Validate a config file", long_about = VALIDATE_LONG_ABOUT)]
     Validate {
-        #[arg(short, long)]
+        #[arg(short, long, help = "Path to the Floe config file")]
         config: PathBuf,
-        #[arg(long, value_delimiter = ',')]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Comma-separated list of entity names"
+        )]
         entities: Vec<String>,
     },
+    #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
-        #[arg(short, long)]
+        #[arg(short, long, help = "Path to the Floe config file")]
         config: PathBuf,
-        #[arg(long)]
+        #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
-        #[arg(long, value_delimiter = ',')]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Comma-separated list of entity names"
+        )]
         entities: Vec<String>,
     },
 }

@@ -9,6 +9,7 @@ repository = "https://github.com/malon64/floe"
 homepage = "https://github.com/malon64/floe"
 keywords = ["ingestion", "data-quality", "csv", "polars", "yaml"]
 categories = ["command-line-utilities"]
+build = "build.rs"
 
 [[bin]]
 name = "floe"

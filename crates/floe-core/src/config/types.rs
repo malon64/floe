@@ -158,6 +158,7 @@ pub struct PolicyConfig {
 #[derive(Debug)]
 pub struct SchemaConfig {
     pub normalize_columns: Option<NormalizeColumnsConfig>,
+    pub mismatch: Option<SchemaMismatchConfig>,
     pub columns: Vec<ColumnConfig>,
 }
 
@@ -199,6 +200,12 @@ pub struct NormalizeColumnsConfig {
     pub strategy: Option<String>,
 }
 
+#[derive(Debug)]
+pub struct SchemaMismatchConfig {
+    pub missing_columns: Option<String>,
+    pub extra_columns: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ColumnConfig {
     pub name: String,
@@ -207,7 +214,7 @@ pub struct ColumnConfig {
     pub unique: Option<bool>,
 }
 
-fn parse_data_type(value: &str) -> FloeResult<DataType> {
+pub(crate) fn parse_data_type(value: &str) -> FloeResult<DataType> {
     let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
     match normalized.as_str() {
         "string" | "str" | "text" => Ok(DataType::String),

@@ -8,8 +8,8 @@ use crate::config::yaml_decode::{
 };
 use crate::config::{
     ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
-    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
-    SourceConfig, SourceOptions,
+    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig,
+    SinkConfig, SinkTarget, SourceConfig, SourceOptions,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -212,9 +212,17 @@ fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
 
 fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     let hash = yaml_hash(value, "schema")?;
-    validate_known_keys(hash, "schema", &["normalize_columns", "columns"])?;
+    validate_known_keys(
+        hash,
+        "schema",
+        &["normalize_columns", "mismatch", "columns"],
+    )?;
     let normalize_columns = match hash_get(hash, "normalize_columns") {
         Some(value) => Some(parse_normalize_columns(value)?),
+        None => None,
+    };
+    let mismatch = match hash_get(hash, "mismatch") {
+        Some(value) => Some(parse_mismatch(value)?),
         None => None,
     };
     let columns_yaml = get_array(hash, "columns", "schema")?;
@@ -228,6 +236,7 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
 
     Ok(SchemaConfig {
         normalize_columns,
+        mismatch,
         columns,
     })
 }
@@ -238,6 +247,19 @@ fn parse_normalize_columns(value: &Yaml) -> FloeResult<NormalizeColumnsConfig> {
     Ok(NormalizeColumnsConfig {
         enabled: opt_bool(hash, "enabled", "schema.normalize_columns")?,
         strategy: opt_string(hash, "strategy", "schema.normalize_columns")?,
+    })
+}
+
+fn parse_mismatch(value: &Yaml) -> FloeResult<SchemaMismatchConfig> {
+    let hash = yaml_hash(value, "schema.mismatch")?;
+    validate_known_keys(
+        hash,
+        "schema.mismatch",
+        &["missing_columns", "extra_columns"],
+    )?;
+    Ok(SchemaMismatchConfig {
+        missing_columns: opt_string(hash, "missing_columns", "schema.mismatch")?,
+        extra_columns: opt_string(hash, "extra_columns", "schema.mismatch")?,
     })
 }
 

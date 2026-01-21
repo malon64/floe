@@ -2,17 +2,19 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use polars::prelude::DataFrame;
+use polars::prelude::{DataFrame, DataType, Schema, Series};
 use serde_json::{Map, Value};
 
 use crate::{check, config, io, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod normalize;
 use normalize::{
-    normalize_dataframe_columns, normalize_schema_columns, resolve_normalize_strategy,
+    normalize_dataframe_columns, normalize_name, normalize_schema_columns,
+    resolve_normalize_strategy,
 };
 
 const MAX_EXAMPLES_PER_RULE: u64 = 3;
+const MAX_MISMATCH_COLUMNS: usize = 50;
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
 
@@ -68,6 +70,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     let run_timer = Instant::now();
     let mut entity_outcomes = Vec::new();
 
+    let mut abort_run = false;
     for entity in &config.entities {
         let input = &entity.source;
         let input_path = Path::new(&input.path);
@@ -124,12 +127,89 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             .map(|archive| PathBuf::from(&archive.path));
 
         let mut file_timings_ms = Vec::with_capacity(inputs.len());
-        for (source_path, raw_df, mut df) in inputs {
+        for (source_path, mut raw_df, mut df) in inputs {
             let file_timer = Instant::now();
             let source_stem = source_path
                 .file_stem()
                 .and_then(|stem| stem.to_str())
                 .unwrap_or(entity.name.as_str());
+            let mismatch =
+                apply_schema_mismatch(entity, &normalized_columns, &mut raw_df, &mut df)?;
+            let row_count = raw_df.height() as u64;
+
+            if mismatch.rejected || mismatch.aborted {
+                let accepted_path = None;
+                let errors_path = None;
+
+                let rejected_target = validate_rejected_target(
+                    entity,
+                    if mismatch.aborted { "abort" } else { "reject" },
+                )?;
+                let rejected_path_buf =
+                    io::write::write_rejected_raw(&source_path, &rejected_target.path)?;
+                let rejected_path = Some(rejected_path_buf.display().to_string());
+
+                let archived_path = if archive_enabled {
+                    if let Some(dir) = &archive_dir {
+                        let archived_path_buf = io::write::archive_input(&source_path, dir)?;
+                        Some(archived_path_buf.display().to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let status = if mismatch.aborted {
+                    report::FileStatus::Aborted
+                } else {
+                    report::FileStatus::Rejected
+                };
+                let accepted_count = 0;
+                let rejected_count = row_count;
+                let errors = mismatch.errors;
+                let warnings = mismatch.warnings;
+
+                let file_report = report::FileReport {
+                    input_file: source_path.display().to_string(),
+                    status,
+                    row_count,
+                    accepted_count,
+                    rejected_count,
+                    mismatch: mismatch.report,
+                    output: report::FileOutput {
+                        accepted_path,
+                        rejected_path,
+                        errors_path,
+                        archived_path,
+                    },
+                    validation: report::FileValidation {
+                        errors,
+                        warnings,
+                        rules: Vec::new(),
+                        examples: report::ExampleSummary {
+                            max_examples_per_rule: MAX_EXAMPLES_PER_RULE,
+                            items: Vec::new(),
+                        },
+                    },
+                };
+
+                totals.rows_total += row_count;
+                totals.accepted_total += accepted_count;
+                totals.rejected_total += rejected_count;
+                totals.errors_total += errors;
+                totals.warnings_total += warnings;
+                file_statuses.push(status);
+                file_reports.push(file_report);
+                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+
+                if mismatch.aborted {
+                    abort_run = true;
+                    break;
+                }
+                continue;
+            }
+
             let (accept_rows, errors_json, error_lists) = collect_errors(
                 &raw_df,
                 &df,
@@ -137,7 +217,6 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 &normalized_columns,
                 track_cast_errors,
             )?;
-            let row_count = raw_df.height() as u64;
             let row_error_count = error_lists
                 .iter()
                 .filter(|errors| !errors.is_empty())
@@ -260,6 +339,8 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                     }
                     _ => unreachable!("severity validated earlier"),
                 };
+            let errors = errors + mismatch.errors;
+            let warnings = warnings + mismatch.warnings;
 
             let file_report = report::FileReport {
                 input_file: source_path.display().to_string(),
@@ -267,6 +348,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 row_count,
                 accepted_count,
                 rejected_count,
+                mismatch: mismatch.report,
                 output: report::FileOutput {
                     accepted_path,
                     rejected_path,
@@ -372,6 +454,9 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             report: run_report,
             file_timings_ms,
         });
+        if abort_run {
+            break;
+        }
     }
 
     Ok(RunOutcome {
@@ -400,17 +485,14 @@ fn read_inputs(
         "csv" => {
             let default_options = config::SourceOptions::default();
             let source_options = input.options.as_ref().unwrap_or(&default_options);
-            let normalized_schema = config::SchemaConfig {
-                normalize_columns: None,
-                columns: columns.to_vec(),
-            };
-            let typed_schema = normalized_schema.to_polars_schema()?;
-            let raw_schema = normalized_schema.to_polars_string_schema()?;
             let files = io::read_csv::list_csv_files(input_path)?;
             let mut inputs = Vec::with_capacity(files.len());
-            let raw_plan = io::read_csv::CsvReadPlan::strict(raw_schema);
-            let typed_plan = io::read_csv::CsvReadPlan::permissive(typed_schema);
             for path in files {
+                let input_columns = io::read_csv::read_csv_header(&path, source_options)?;
+                let raw_schema = build_raw_schema(&input_columns);
+                let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
+                let raw_plan = io::read_csv::CsvReadPlan::strict(raw_schema);
+                let typed_plan = io::read_csv::CsvReadPlan::permissive(typed_schema);
                 let mut raw_df = io::read_csv::read_csv_file(&path, source_options, &raw_plan)?;
                 let mut typed_df = io::read_csv::read_csv_file(&path, source_options, &typed_plan)?;
                 if let Some(strategy) = normalize_strategy {
@@ -425,6 +507,43 @@ fn read_inputs(
             "unsupported source format for now: {format}"
         )))),
     }
+}
+
+fn build_raw_schema(columns: &[String]) -> Schema {
+    let mut schema = Schema::with_capacity(columns.len());
+    for name in columns {
+        schema.insert(name.as_str().into(), DataType::String);
+    }
+    schema
+}
+
+fn build_typed_schema(
+    input_columns: &[String],
+    declared_columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+) -> FloeResult<Schema> {
+    let mut declared_types = HashMap::new();
+    for column in declared_columns {
+        declared_types.insert(
+            column.name.as_str(),
+            config::parse_data_type(&column.column_type)?,
+        );
+    }
+
+    let mut schema = Schema::with_capacity(input_columns.len());
+    for name in input_columns {
+        let normalized = if let Some(strategy) = normalize_strategy {
+            normalize_name(name, strategy)
+        } else {
+            name.to_string()
+        };
+        let dtype = declared_types
+            .get(normalized.as_str())
+            .cloned()
+            .unwrap_or(DataType::String);
+        schema.insert(name.as_str().into(), dtype);
+    }
+    Ok(schema)
 }
 
 fn collect_errors(
@@ -447,6 +566,200 @@ fn collect_errors(
     }
     let (accept_rows, errors_json) = check::build_error_state(&error_lists);
     Ok((accept_rows, errors_json, error_lists))
+}
+
+struct MismatchOutcome {
+    report: report::FileMismatch,
+    rejected: bool,
+    aborted: bool,
+    warnings: u64,
+    errors: u64,
+}
+
+fn apply_schema_mismatch(
+    entity: &config::EntityConfig,
+    declared_columns: &[config::ColumnConfig],
+    raw_df: &mut DataFrame,
+    typed_df: &mut DataFrame,
+) -> FloeResult<MismatchOutcome> {
+    let declared_names = declared_columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    let input_names = raw_df
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+
+    let declared_set = declared_names
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let input_set = input_names
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+
+    let mut missing = declared_names
+        .iter()
+        .filter(|name| !input_set.contains(*name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut extra = input_names
+        .iter()
+        .filter(|name| !declared_set.contains(*name))
+        .cloned()
+        .collect::<Vec<_>>();
+    missing.sort();
+    extra.sort();
+
+    let mismatch_config = entity.schema.mismatch.as_ref();
+    let missing_policy = mismatch_config
+        .and_then(|mismatch| mismatch.missing_columns.as_deref())
+        .unwrap_or("fill_nulls");
+    let extra_policy = mismatch_config
+        .and_then(|mismatch| mismatch.extra_columns.as_deref())
+        .unwrap_or("ignore");
+
+    let mut effective_missing = missing_policy;
+    let mut effective_extra = extra_policy;
+    let mut warning = None;
+    let rejection_requested = (effective_missing == "reject_file" && !missing.is_empty())
+        || (effective_extra == "reject_file" && !extra.is_empty());
+    if rejection_requested && entity.policy.severity == "warn" {
+        warning = Some(format!(
+            "entity.name={} schema mismatch requested reject_file but policy.severity=warn; continuing",
+            entity.name
+        ));
+        effective_missing = "fill_nulls";
+        effective_extra = "ignore";
+        eprintln!(
+            "warn: {}",
+            warning.as_deref().unwrap_or("schema mismatch override")
+        );
+    }
+
+    let mut rejected = false;
+    let mut aborted = false;
+    let mut action = report::MismatchAction::None;
+    if (effective_missing == "reject_file" && !missing.is_empty())
+        || (effective_extra == "reject_file" && !extra.is_empty())
+    {
+        if entity.policy.severity == "abort" {
+            aborted = true;
+            action = report::MismatchAction::Aborted;
+        } else if entity.policy.severity == "reject" {
+            rejected = true;
+            action = report::MismatchAction::RejectedFile;
+        }
+    }
+
+    let mut errors = 0;
+    if rejected || aborted {
+        errors = 1;
+    } else {
+        let mut filled = false;
+        let mut ignored = false;
+        if effective_missing == "fill_nulls" && !missing.is_empty() {
+            add_missing_columns(raw_df, typed_df, declared_columns, &missing)?;
+            filled = true;
+        }
+        if effective_extra == "ignore" && !extra.is_empty() {
+            drop_extra_columns(raw_df, &extra)?;
+            drop_extra_columns(typed_df, &extra)?;
+            ignored = true;
+        }
+        if filled {
+            action = report::MismatchAction::FilledNulls;
+        } else if ignored {
+            action = report::MismatchAction::IgnoredExtras;
+        }
+    }
+
+    let warnings = if warning.is_some() { 1 } else { 0 };
+    let error = if rejected || aborted {
+        Some(report::MismatchIssue {
+            rule: "schema_mismatch".to_string(),
+            message: format!(
+                "entity.name={} schema mismatch: missing={} extra={}",
+                entity.name,
+                missing.len(),
+                extra.len()
+            ),
+        })
+    } else {
+        None
+    };
+
+    let mismatch_report = report::FileMismatch {
+        declared_columns_count: declared_names.len() as u64,
+        input_columns_count: input_names.len() as u64,
+        missing_columns: missing.iter().take(MAX_MISMATCH_COLUMNS).cloned().collect(),
+        extra_columns: extra.iter().take(MAX_MISMATCH_COLUMNS).cloned().collect(),
+        mismatch_action: action,
+        error,
+        warning,
+    };
+
+    Ok(MismatchOutcome {
+        report: mismatch_report,
+        rejected,
+        aborted,
+        warnings,
+        errors,
+    })
+}
+
+fn add_missing_columns(
+    raw_df: &mut DataFrame,
+    typed_df: &mut DataFrame,
+    declared_columns: &[config::ColumnConfig],
+    missing: &[String],
+) -> FloeResult<()> {
+    let mut types = HashMap::new();
+    for column in declared_columns {
+        types.insert(
+            column.name.as_str(),
+            config::parse_data_type(&column.column_type)?,
+        );
+    }
+
+    let height = raw_df.height();
+    for name in missing {
+        let raw_series = Series::full_null(name.as_str().into(), height, &DataType::String);
+        raw_df.with_column(raw_series).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to add missing column {}: {err}",
+                name
+            )))
+        })?;
+
+        let dtype = types
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or(DataType::String);
+        let typed_series = Series::full_null(name.as_str().into(), height, &dtype);
+        typed_df.with_column(typed_series).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to add missing column {}: {err}",
+                name
+            )))
+        })?;
+    }
+    Ok(())
+}
+
+fn drop_extra_columns(df: &mut DataFrame, extra: &[String]) -> FloeResult<()> {
+    for name in extra {
+        df.drop_in_place(name).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to drop extra column {}: {err}",
+                name
+            )))
+        })?;
+    }
+    Ok(())
 }
 
 fn write_accepted_output(

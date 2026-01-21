@@ -143,8 +143,30 @@ pub struct FileReport {
     pub row_count: u64,
     pub accepted_count: u64,
     pub rejected_count: u64,
+    pub mismatch: FileMismatch,
     pub output: FileOutput,
     pub validation: FileValidation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FileMismatch {
+    pub declared_columns_count: u64,
+    pub input_columns_count: u64,
+    pub missing_columns: Vec<String>,
+    pub extra_columns: Vec<String>,
+    pub mismatch_action: MismatchAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<MismatchIssue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MismatchIssue {
+    pub rule: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +255,16 @@ pub enum RuleName {
     CastError,
     Unique,
     SchemaError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MismatchAction {
+    None,
+    FilledNulls,
+    IgnoredExtras,
+    RejectedFile,
+    Aborted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -432,6 +464,15 @@ mod tests {
                 row_count: 10,
                 accepted_count: 10,
                 rejected_count: 0,
+                mismatch: FileMismatch {
+                    declared_columns_count: 1,
+                    input_columns_count: 1,
+                    missing_columns: Vec::new(),
+                    extra_columns: Vec::new(),
+                    mismatch_action: MismatchAction::None,
+                    error: None,
+                    warning: None,
+                },
                 output: FileOutput {
                     accepted_path: Some("/tmp/out/accepted/file.parquet".to_string()),
                     rejected_path: None,

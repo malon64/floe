@@ -84,6 +84,32 @@ pub fn read_csv_file(
     Ok(df)
 }
 
+pub fn read_csv_header(
+    input_path: &Path,
+    source_options: &config::SourceOptions,
+) -> FloeResult<Vec<String>> {
+    let read_options = source_options
+        .to_csv_read_options(input_path)?
+        .with_n_rows(Some(1));
+    let reader = read_options
+        .try_into_reader_with_file_path(None)
+        .map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to open csv at {}: {err}",
+                input_path.display()
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+    let df = reader.finish().map_err(|err| {
+        Box::new(ConfigError(format!("csv header read failed: {err}")))
+            as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    Ok(df
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

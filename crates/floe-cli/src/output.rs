@@ -295,6 +295,15 @@ mod tests {
                 row_count: 10,
                 accepted_count: 8,
                 rejected_count: 2,
+                mismatch: report::FileMismatch {
+                    declared_columns_count: 2,
+                    input_columns_count: 2,
+                    missing_columns: Vec::new(),
+                    extra_columns: Vec::new(),
+                    mismatch_action: report::MismatchAction::None,
+                    error: None,
+                    warning: None,
+                },
                 output: report::FileOutput {
                     accepted_path: Some("/tmp/out/accepted/customers.parquet".to_string()),
                     rejected_path: Some("/tmp/out/rejected/customers.rejected.csv".to_string()),

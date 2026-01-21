@@ -44,3 +44,20 @@ pub(crate) fn yaml_number(value: &Yaml) -> Result<f64, ()> {
 pub(crate) fn hash_get<'a>(hash: &'a Hash, key: &str) -> Option<&'a Yaml> {
     hash.get(&Yaml::String(key.to_string()))
 }
+
+pub(crate) fn validate_known_keys(hash: &Hash, ctx: &str, allowed: &[&str]) -> FloeResult<()> {
+    for key in hash.keys() {
+        let key = match key {
+            Yaml::String(value) => value.as_str(),
+            _ => {
+                return Err(Box::new(ConfigError(format!(
+                    "expected string key at {ctx}"
+                ))))
+            }
+        };
+        if !allowed.contains(&key) {
+            return Err(Box::new(ConfigError(format!("unknown field {ctx}.{key}"))));
+        }
+    }
+    Ok(())
+}

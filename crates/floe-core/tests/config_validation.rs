@@ -261,3 +261,80 @@ fn rejected_format_errors() {
         &["entity.name=customer", "sink.rejected.format", "parquet"],
     );
 }
+
+#[test]
+fn unknown_root_field_errors() {
+    let yaml = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+extra_root: "oops"
+"#;
+    assert_validation_error(yaml, &["unknown field root.extra_root"]);
+}
+
+#[test]
+fn unknown_entity_field_errors() {
+    let entity = r#"  - name: "customer"
+    tune: "fast"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &["entity.name=customer", "unknown field entity.tune"],
+    );
+}
+
+#[test]
+fn unknown_nested_field_errors() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      options:
+        header: true
+        sep: ";"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &["entity.name=customer", "unknown field source.options.sep"],
+    );
+}

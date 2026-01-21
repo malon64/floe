@@ -13,7 +13,6 @@ keywords = ["ingestion", "data-quality", "csv", "polars", "yaml"]
 path = "src/lib.rs"
 
 [dependencies]
-yaml-schema = "0.8"
 yaml-rust2 = "0.11"
 polars = { version = "0.52.0", features = ["csv", "parquet", "lazy", "timezones"] }
 serde = { version = "1", features = ["derive"] }

@@ -59,7 +59,7 @@ fn format_entity_output(entity: &EntityOutcome, mode: OutputMode) -> Vec<String>
         if !report.source.resolved_inputs.files.is_empty() {
             lines.push("  inputs:".to_string());
             for file in &report.source.resolved_inputs.files {
-                lines.push(format!("    {}", short_path(file)));
+                lines.push(format!("    {}", file));
             }
         }
     }

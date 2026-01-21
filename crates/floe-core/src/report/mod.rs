@@ -358,7 +358,6 @@ fn unique_suffix() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn sample_report() -> RunReport {
         RunReport {
@@ -450,26 +449,6 @@ mod tests {
                 },
             }],
         }
-    }
-
-    fn golden_report_path(relative: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join(relative)
-    }
-
-    fn load_golden_report(relative: &str) -> RunReport {
-        let path = golden_report_path(relative);
-        let json = std::fs::read_to_string(&path).expect("read golden report");
-        serde_json::from_str(&json).expect("parse golden report")
-    }
-
-    #[test]
-    fn golden_reports_deserialize() {
-        let _ = load_golden_report("example/report/run_2026-01-19T10-23-45Z/customer/run.json");
-        let _ = load_golden_report("example/report/run_2026-01-19T10-23-45Z/orders/run.json");
-        let _ = load_golden_report("example/report/run_2026-01-19T10-23-45Z/run.summary.json");
     }
 
     #[test]

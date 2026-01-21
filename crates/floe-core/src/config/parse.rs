@@ -3,7 +3,9 @@ use std::path::Path;
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::Yaml;
 
-use crate::config::yaml_decode::{hash_get, load_yaml, yaml_array, yaml_hash, yaml_string};
+use crate::config::yaml_decode::{
+    hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
+};
 use crate::config::{
     ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
     PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SinkConfig, SinkTarget,
@@ -26,6 +28,7 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
 
 fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     let root = yaml_hash(doc, "root")?;
+    validate_known_keys(root, "root", &["version", "metadata", "report", "entities"])?;
     let version = get_string(root, "version", "root")?;
 
     let metadata = match hash_get(root, "metadata") {
@@ -68,6 +71,11 @@ fn parse_project_metadata(value: &Yaml) -> FloeResult<ProjectMetadata> {
 
 fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
     let hash = yaml_hash(value, "entity")?;
+    validate_known_keys(
+        hash,
+        "entity",
+        &["name", "metadata", "source", "sink", "policy", "schema"],
+    )?;
     let name = get_string(hash, "name", "entity")?;
 
     let metadata = match hash_get(hash, "metadata") {
@@ -119,6 +127,7 @@ fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {
 
 fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     let hash = yaml_hash(value, "source")?;
+    validate_known_keys(hash, "source", &["format", "path", "options", "cast_mode"])?;
     let options = match hash_get(hash, "options") {
         Some(value) => Some(parse_source_options(value)?),
         None => Some(SourceOptions::default()),
@@ -134,6 +143,11 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
 
 fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
     let hash = yaml_hash(value, "source.options")?;
+    validate_known_keys(
+        hash,
+        "source.options",
+        &["header", "separator", "encoding", "null_values"],
+    )?;
     let defaults = SourceOptions::default();
     Ok(SourceOptions {
         header: opt_bool(hash, "header", "source.options")?.or(defaults.header),
@@ -146,6 +160,7 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
 
 fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     let hash = yaml_hash(value, "sink")?;
+    validate_known_keys(hash, "sink", &["accepted", "rejected", "archive"])?;
     let rejected = match hash_get(hash, "rejected") {
         Some(value) => Some(parse_sink_target(value, "sink.rejected")?),
         None => None,
@@ -164,6 +179,7 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
 
 fn parse_sink_target(value: &Yaml, ctx: &str) -> FloeResult<SinkTarget> {
     let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["format", "path"])?;
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
@@ -172,6 +188,7 @@ fn parse_sink_target(value: &Yaml, ctx: &str) -> FloeResult<SinkTarget> {
 
 fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     let hash = yaml_hash(value, "report")?;
+    validate_known_keys(hash, "report", &["path"])?;
     Ok(ReportConfig {
         path: get_string(hash, "path", "report")?,
     })
@@ -179,6 +196,7 @@ fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
 
 fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
     let hash = yaml_hash(value, "sink.archive")?;
+    validate_known_keys(hash, "sink.archive", &["path"])?;
     Ok(ArchiveTarget {
         path: get_string(hash, "path", "sink.archive")?,
     })
@@ -186,6 +204,7 @@ fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
 
 fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
     let hash = yaml_hash(value, "policy")?;
+    validate_known_keys(hash, "policy", &["severity"])?;
     Ok(PolicyConfig {
         severity: get_string(hash, "severity", "policy")?,
     })
@@ -193,6 +212,7 @@ fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
 
 fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     let hash = yaml_hash(value, "schema")?;
+    validate_known_keys(hash, "schema", &["normalize_columns", "columns"])?;
     let normalize_columns = match hash_get(hash, "normalize_columns") {
         Some(value) => Some(parse_normalize_columns(value)?),
         None => None,
@@ -214,6 +234,7 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
 
 fn parse_normalize_columns(value: &Yaml) -> FloeResult<NormalizeColumnsConfig> {
     let hash = yaml_hash(value, "schema.normalize_columns")?;
+    validate_known_keys(hash, "schema.normalize_columns", &["enabled", "strategy"])?;
     Ok(NormalizeColumnsConfig {
         enabled: opt_bool(hash, "enabled", "schema.normalize_columns")?,
         strategy: opt_string(hash, "strategy", "schema.normalize_columns")?,
@@ -222,6 +243,11 @@ fn parse_normalize_columns(value: &Yaml) -> FloeResult<NormalizeColumnsConfig> {
 
 fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
     let hash = yaml_hash(value, "schema.columns")?;
+    validate_known_keys(
+        hash,
+        "schema.columns",
+        &["name", "type", "nullable", "unique"],
+    )?;
     Ok(ColumnConfig {
         name: get_string(hash, "name", "schema.columns")?,
         column_type: get_string(hash, "type", "schema.columns")?,

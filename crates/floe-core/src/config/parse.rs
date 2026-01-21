@@ -37,8 +37,14 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     let entities_yaml = get_array(root, "entities", "root")?;
     let mut entities = Vec::with_capacity(entities_yaml.len());
     for (index, entity_yaml) in entities_yaml.iter().enumerate() {
-        let entity = parse_entity(entity_yaml)
-            .map_err(|err| Box::new(ConfigError(format!("entities[{index}]: {err}"))))?;
+        let name_hint = entity_name_hint(entity_yaml);
+        let entity = parse_entity(entity_yaml).map_err(|err| {
+            Box::new(ConfigError(format_entity_error(
+                index,
+                name_hint,
+                err.as_ref(),
+            )))
+        })?;
         entities.push(entity);
     }
 
@@ -82,6 +88,22 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         policy,
         schema,
     })
+}
+
+fn entity_name_hint(value: &Yaml) -> Option<String> {
+    let hash = value.as_hash()?;
+    let name = hash_get(hash, "name")?;
+    match name {
+        Yaml::String(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn format_entity_error(index: usize, name: Option<String>, err: &dyn std::error::Error) -> String {
+    match name {
+        Some(name) => format!("entities[{index}] (entity.name={name}): {err}"),
+        None => format!("entities[{index}]: {err}"),
+    }
 }
 
 fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {

@@ -37,6 +37,23 @@ pub struct RunOptions {
 }
 
 pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> {
+    let config = config::parse_config(config_path)?;
+    config::validate_config(&config)?;
+
+    validate_schema(config_path, &config)?;
+
+    if !options.entities.is_empty() {
+        run::validate_entities(&config, &options.entities)?;
+    }
+
+    Ok(())
+}
+
+pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
+    config::parse_config(config_path)
+}
+
+fn validate_schema(config_path: &Path, config: &config::RootConfig) -> FloeResult<()> {
     let root_schema = RootSchema::load_from_str(SCHEMA_YAML).map_err(|err| {
         Box::new(ConfigError(format!(
             "failed to load embedded schema: {err}"
@@ -51,19 +68,39 @@ pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> 
         let errors = context.errors.borrow();
         let message = errors
             .iter()
-            .map(|error| error.to_string())
+            .map(|error| annotate_schema_error(&error.to_string(), config))
             .collect::<Vec<_>>()
             .join("\n");
         return Err(Box::new(ConfigError(message)));
-    }
-    let config = config::parse_config(config_path)?;
-    if !options.entities.is_empty() {
-        run::validate_entities(&config, &options.entities)?;
     }
 
     Ok(())
 }
 
-pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
-    config::parse_config(config_path)
+fn annotate_schema_error(message: &str, config: &config::RootConfig) -> String {
+    let marker = "entities[";
+    let Some(start) = message.find(marker) else {
+        return message.to_string();
+    };
+    let idx_start = start + marker.len();
+    let bytes = message.as_bytes();
+    let mut idx_end = idx_start;
+    while idx_end < bytes.len() && bytes[idx_end].is_ascii_digit() {
+        idx_end += 1;
+    }
+    if idx_end >= bytes.len() || bytes[idx_end] != b']' {
+        return message.to_string();
+    }
+    let Ok(index) = message[idx_start..idx_end].parse::<usize>() else {
+        return message.to_string();
+    };
+    let Some(entity) = config.entities.get(index) else {
+        return message.to_string();
+    };
+    let insert_at = idx_end + 1;
+    let mut out = String::new();
+    out.push_str(&message[..insert_at]);
+    out.push_str(&format!(" (entity.name={})", entity.name));
+    out.push_str(&message[insert_at..]);
+    out
 }

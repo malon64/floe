@@ -18,15 +18,13 @@ Reports are written under the configured report directory:
 
 ```
 <report.path>/run_<run_id>/<entity.name>/run.json
-<report.path>/run_<run_id>/run.summary.json
 ```
 
 `run_id` is a filename-safe ISO-like string: `YYYY-MM-DDTHH-MM-SSZ`
 (colons replaced by dashes). The report JSON must include the full
 `report_file` path.
 
-Each entity produces its own `run.json`. The `run.summary.json` file
-represents the run as a whole and aggregates results across entities.
+Each entity produces its own `run.json`.
 
 Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 
@@ -44,8 +42,6 @@ Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
 
-`run.summary.json` uses the same top-level keys and aggregates `results` and
-`files` across all entities in the run.
 
 ## Status and exit code rules
 

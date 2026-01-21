@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::config::{EntityConfig, RootConfig};
 use crate::{ConfigError, FloeResult};
 
-const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date"];
+const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
 const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
@@ -140,6 +140,7 @@ fn canonical_column_type(value: &str) -> Option<&'static str> {
         "boolean" | "bool" => Some("boolean"),
         "datetime" | "timestamp" => Some("datetime"),
         "date" => Some("date"),
+        "time" => Some("time"),
         _ => None,
     }
 }

@@ -37,7 +37,6 @@ Example:
 
 Reports are written to:
   <report.path>/run_<run_id>/<entity.name>/run.json
-  <report.path>/run_<run_id>/run.summary.json
 "#;
 
 const VALIDATE_LONG_ABOUT: &str = r#"Validate a configuration file before running.

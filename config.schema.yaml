@@ -15,6 +15,8 @@ properties:
     type: string
   metadata:
     $ref: "#/$defs/project_metadata"
+  filesystems:
+    $ref: "#/$defs/filesystems"
   report:
     $ref: "#/$defs/report"
   entities:
@@ -121,6 +123,8 @@ $defs:
         enum: [csv, parquet, json]
       path:
         type: string
+      filesystem:
+        type: string
       options:
         $ref: "#/$defs/source_options"
       cast_mode:
@@ -167,6 +171,8 @@ $defs:
         enum: [parquet, delta]
       path:
         type: string
+      filesystem:
+        type: string
 
   sink_rejected:
     type: object
@@ -180,6 +186,8 @@ $defs:
         enum: [csv]
       path:
         type: string
+      filesystem:
+        type: string
 
   report:
     type: object
@@ -188,6 +196,37 @@ $defs:
       - path
     properties:
       path:
+        type: string
+
+  filesystems:
+    type: object
+    additionalProperties: false
+    required:
+      - default
+      - definitions
+    properties:
+      default:
+        type: string
+      definitions:
+        type: array
+        items:
+          $ref: "#/$defs/filesystem_definition"
+
+  filesystem_definition:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - type
+    properties:
+      name:
+        type: string
+      type:
+        type: string
+        enum: [local, s3]
+      bucket:
+        type: string
+      region:
         type: string
 
   archive_target:

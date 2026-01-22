@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::config::{EntityConfig, RootConfig};
+use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
@@ -12,6 +12,7 @@ const ALLOWED_REJECTED_FORMATS: &[&str] = &["csv"];
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
+const ALLOWED_FILESYSTEM_TYPES: &[&str] = &["local", "s3"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -20,9 +21,11 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
         )));
     }
 
+    let filesystem_registry = FilesystemRegistry::new(config)?;
+
     let mut names = HashSet::new();
     for entity in &config.entities {
-        validate_entity(entity)?;
+        validate_entity(entity, &filesystem_registry)?;
         if !names.insert(entity.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} is duplicated in config",
@@ -34,15 +37,15 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     Ok(())
 }
 
-fn validate_entity(entity: &EntityConfig) -> FloeResult<()> {
-    validate_source(entity)?;
+fn validate_entity(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
+    validate_source(entity, filesystems)?;
     validate_policy(entity)?;
-    validate_sink(entity)?;
+    validate_sink(entity, filesystems)?;
     validate_schema(entity)?;
     Ok(())
 }
 
-fn validate_source(entity: &EntityConfig) -> FloeResult<()> {
+fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
     if !ALLOWED_SOURCE_FORMATS.contains(&entity.source.format.as_str()) {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} source.format={} is unsupported (allowed: {})",
@@ -63,10 +66,17 @@ fn validate_source(entity: &EntityConfig) -> FloeResult<()> {
         }
     }
 
+    let fs_name = filesystems.resolve_name(
+        entity,
+        "source.filesystem",
+        entity.source.filesystem.as_deref(),
+    )?;
+    filesystems.validate_reference(entity, "source.filesystem", &fs_name)?;
+
     Ok(())
 }
 
-fn validate_sink(entity: &EntityConfig) -> FloeResult<()> {
+fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
     if !ALLOWED_ACCEPTED_FORMATS.contains(&entity.sink.accepted.format.as_str()) {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} sink.accepted.format={} is unsupported (allowed: {})",
@@ -92,6 +102,22 @@ fn validate_sink(entity: &EntityConfig) -> FloeResult<()> {
                 ALLOWED_REJECTED_FORMATS.join(", ")
             ))));
         }
+    }
+
+    let accepted_fs = filesystems.resolve_name(
+        entity,
+        "sink.accepted.filesystem",
+        entity.sink.accepted.filesystem.as_deref(),
+    )?;
+    filesystems.validate_reference(entity, "sink.accepted.filesystem", &accepted_fs)?;
+
+    if let Some(rejected) = &entity.sink.rejected {
+        let rejected_fs = filesystems.resolve_name(
+            entity,
+            "sink.rejected.filesystem",
+            rejected.filesystem.as_deref(),
+        )?;
+        filesystems.validate_reference(entity, "sink.rejected.filesystem", &rejected_fs)?;
     }
 
     Ok(())
@@ -186,4 +212,122 @@ fn canonical_column_type(value: &str) -> Option<&'static str> {
 
 fn normalize_value(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['-', '_'], "")
+}
+
+struct FilesystemRegistry {
+    has_config: bool,
+    default_name: Option<String>,
+    definitions: std::collections::HashMap<String, FilesystemDefinition>,
+}
+
+impl FilesystemRegistry {
+    fn new(config: &RootConfig) -> FloeResult<Self> {
+        let Some(filesystems) = &config.filesystems else {
+            return Ok(Self {
+                has_config: false,
+                default_name: None,
+                definitions: std::collections::HashMap::new(),
+            });
+        };
+
+        if filesystems.definitions.is_empty() {
+            return Err(Box::new(ConfigError(
+                "filesystems.definitions must not be empty".to_string(),
+            )));
+        }
+
+        let mut definitions = std::collections::HashMap::new();
+        for definition in &filesystems.definitions {
+            if !ALLOWED_FILESYSTEM_TYPES.contains(&definition.fs_type.as_str()) {
+                return Err(Box::new(ConfigError(format!(
+                    "filesystems.definitions name={} type={} is unsupported (allowed: {})",
+                    definition.name,
+                    definition.fs_type,
+                    ALLOWED_FILESYSTEM_TYPES.join(", ")
+                ))));
+            }
+            if definition.fs_type == "s3" && definition.bucket.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "filesystems.definitions name={} requires bucket for type s3",
+                    definition.name
+                ))));
+            }
+            if definitions
+                .insert(definition.name.clone(), definition.clone())
+                .is_some()
+            {
+                return Err(Box::new(ConfigError(format!(
+                    "filesystems.definitions name={} is duplicated",
+                    definition.name
+                ))));
+            }
+        }
+
+        if let Some(default_name) = &filesystems.default {
+            if !definitions.contains_key(default_name) {
+                return Err(Box::new(ConfigError(format!(
+                    "filesystems.default={} does not match any definition",
+                    default_name
+                ))));
+            }
+        } else {
+            return Err(Box::new(ConfigError(
+                "filesystems.default is required when filesystems is set".to_string(),
+            )));
+        }
+
+        Ok(Self {
+            has_config: true,
+            default_name: filesystems.default.clone(),
+            definitions,
+        })
+    }
+
+    fn resolve_name(
+        &self,
+        entity: &EntityConfig,
+        field: &str,
+        override_name: Option<&str>,
+    ) -> FloeResult<String> {
+        if let Some(name) = override_name {
+            return Ok(name.to_string());
+        }
+        if self.has_config {
+            let default_name = self.default_name.clone().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} {field} requires filesystems.default",
+                    entity.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            return Ok(default_name);
+        }
+        Ok("local".to_string())
+    }
+
+    fn validate_reference(&self, entity: &EntityConfig, field: &str, name: &str) -> FloeResult<()> {
+        if !self.has_config {
+            if name != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} {field} references unknown filesystem {} (no filesystems block)",
+                    entity.name, name
+                ))));
+            }
+            return Ok(());
+        }
+
+        let definition = self.definitions.get(name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "entity.name={} {field} references unknown filesystem {}",
+                entity.name, name
+            )))
+        })?;
+
+        if definition.fs_type == "s3" {
+            return Err(Box::new(ConfigError(
+                "filesystem type s3 is not supported yet (F-103)".to_string(),
+            )));
+        }
+
+        Ok(())
+    }
 }

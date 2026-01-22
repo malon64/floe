@@ -7,9 +7,10 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::config::{
-    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
-    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig,
-    SinkConfig, SinkTarget, SourceConfig, SourceOptions,
+    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, FilesystemDefinition,
+    FilesystemsConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig,
+    RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkTarget, SourceConfig,
+    SourceOptions,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -28,11 +29,20 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
 
 fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     let root = yaml_hash(doc, "root")?;
-    validate_known_keys(root, "root", &["version", "metadata", "report", "entities"])?;
+    validate_known_keys(
+        root,
+        "root",
+        &["version", "metadata", "filesystems", "report", "entities"],
+    )?;
     let version = get_string(root, "version", "root")?;
 
     let metadata = match hash_get(root, "metadata") {
         Some(value) => Some(parse_project_metadata(value)?),
+        None => None,
+    };
+
+    let filesystems = match hash_get(root, "filesystems") {
+        Some(value) => Some(parse_filesystems(value)?),
         None => None,
     };
 
@@ -54,6 +64,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     Ok(RootConfig {
         version,
         metadata,
+        filesystems,
         report,
         entities,
     })
@@ -127,7 +138,11 @@ fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {
 
 fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     let hash = yaml_hash(value, "source")?;
-    validate_known_keys(hash, "source", &["format", "path", "options", "cast_mode"])?;
+    validate_known_keys(
+        hash,
+        "source",
+        &["format", "path", "filesystem", "options", "cast_mode"],
+    )?;
     let options = match hash_get(hash, "options") {
         Some(value) => Some(parse_source_options(value)?),
         None => Some(SourceOptions::default()),
@@ -136,6 +151,7 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     Ok(SourceConfig {
         format: get_string(hash, "format", "source")?,
         path: get_string(hash, "path", "source")?,
+        filesystem: opt_string(hash, "filesystem", "source")?,
         options,
         cast_mode: opt_string(hash, "cast_mode", "source")?,
     })
@@ -179,10 +195,11 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
 
 fn parse_sink_target(value: &Yaml, ctx: &str) -> FloeResult<SinkTarget> {
     let hash = yaml_hash(value, ctx)?;
-    validate_known_keys(hash, ctx, &["format", "path"])?;
+    validate_known_keys(hash, ctx, &["format", "path", "filesystem"])?;
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
+        filesystem: opt_string(hash, "filesystem", ctx)?,
     })
 }
 
@@ -191,6 +208,47 @@ fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     validate_known_keys(hash, "report", &["path"])?;
     Ok(ReportConfig {
         path: get_string(hash, "path", "report")?,
+    })
+}
+
+fn parse_filesystems(value: &Yaml) -> FloeResult<FilesystemsConfig> {
+    let hash = yaml_hash(value, "filesystems")?;
+    validate_known_keys(hash, "filesystems", &["default", "definitions"])?;
+    let definitions_yaml = match hash_get(hash, "definitions") {
+        Some(value) => yaml_array(value, "filesystems.definitions")?,
+        None => {
+            return Err(Box::new(ConfigError(
+                "missing required field filesystems.definitions".to_string(),
+            )))
+        }
+    };
+    let mut definitions = Vec::with_capacity(definitions_yaml.len());
+    for (index, item) in definitions_yaml.iter().enumerate() {
+        let definition = parse_filesystem_definition(item).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "filesystems.definitions[{index}]: {err}"
+            )))
+        })?;
+        definitions.push(definition);
+    }
+    Ok(FilesystemsConfig {
+        default: opt_string(hash, "default", "filesystems")?,
+        definitions,
+    })
+}
+
+fn parse_filesystem_definition(value: &Yaml) -> FloeResult<FilesystemDefinition> {
+    let hash = yaml_hash(value, "filesystems.definitions")?;
+    validate_known_keys(
+        hash,
+        "filesystems.definitions",
+        &["name", "type", "bucket", "region"],
+    )?;
+    Ok(FilesystemDefinition {
+        name: get_string(hash, "name", "filesystems.definitions")?,
+        fs_type: get_string(hash, "type", "filesystems.definitions")?,
+        bucket: opt_string(hash, "bucket", "filesystems.definitions")?,
+        region: opt_string(hash, "region", "filesystems.definitions")?,
     })
 }
 

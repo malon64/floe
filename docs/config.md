@@ -93,7 +93,7 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - Overrides the default file pattern for the source format:
       - `csv`: `*.csv`
       - `parquet`: `*.parquet`
-      - `json`: `*.jsonl`
+      - `json`: `*.json`
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).

@@ -124,8 +124,8 @@ fn default_glob(format: &str) -> FloeResult<&'static str> {
     match format {
         "csv" => Ok("*.[cC][sS][vV]"),
         "parquet" => Ok("*.[pP][aA][rR][qQ][uU][eE][tT]"),
-        // Default for ndjson/json inputs in local mode uses .jsonl files.
-        "json" => Ok("*.[jJ][sS][oO][nN][lL]"),
+        // Default for json inputs in local mode uses .json files.
+        "json" => Ok("*.[jJ][sS][oO][nN]"),
         _ => Err(Box::new(ConfigError(format!(
             "unsupported source format for input resolution: {format}"
         )))),

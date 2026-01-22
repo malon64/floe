@@ -39,9 +39,12 @@ entities:
 
 
     policy:
-      severity: "abort"   # warn | reject | abort
+      severity: "reject"   # warn | reject | abort
 
     schema:
+      mismatch:
+        missing_columns: "reject_file"
+        extra_columns: "ignore"
       normalize_columns:
         enabled: true
         strategy: "snake_case"     # snake_case | lower | none
@@ -98,6 +101,9 @@ entities:
       severity: "reject"   # warn | reject | abort
 
     schema:
+      mismatch:
+        missing_columns: "fill_nulls"
+        extra_columns: "reject_file"
       normalize_columns:
         enabled: true
         strategy: "snake_case"     # snake_case | lower | none

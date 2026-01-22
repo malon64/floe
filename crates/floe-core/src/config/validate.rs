@@ -10,6 +10,8 @@ const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_ca
 const ALLOWED_ACCEPTED_FORMATS: &[&str] = &["parquet"];
 const ALLOWED_REJECTED_FORMATS: &[&str] = &["csv"];
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
+const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
+const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -116,6 +118,29 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
                     entity.name,
                     strategy,
                     ALLOWED_NORMALIZE_STRATEGIES.join(", ")
+                ))));
+            }
+        }
+    }
+
+    if let Some(mismatch) = &entity.schema.mismatch {
+        if let Some(policy) = &mismatch.missing_columns {
+            if !ALLOWED_MISSING_POLICIES.contains(&policy.as_str()) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.mismatch.missing_columns={} is unsupported (allowed: {})",
+                    entity.name,
+                    policy,
+                    ALLOWED_MISSING_POLICIES.join(", ")
+                ))));
+            }
+        }
+        if let Some(policy) = &mismatch.extra_columns {
+            if !ALLOWED_EXTRA_POLICIES.contains(&policy.as_str()) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.mismatch.extra_columns={} is unsupported (allowed: {})",
+                    entity.name,
+                    policy,
+                    ALLOWED_EXTRA_POLICIES.join(", ")
                 ))));
             }
         }

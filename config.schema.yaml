@@ -217,6 +217,8 @@ $defs:
     properties:
       normalize_columns:
         $ref: "#/$defs/normalize_columns"
+      mismatch:
+        $ref: "#/$defs/schema_mismatch"
       columns:
         type: array
         items:
@@ -231,6 +233,17 @@ $defs:
       strategy:
         type: string
         enum: [snake_case, lower, camel_case, none]
+
+  schema_mismatch:
+    type: object
+    additionalProperties: false
+    properties:
+      missing_columns:
+        type: string
+        enum: [reject_file, fill_nulls]
+      extra_columns:
+        type: string
+        enum: [reject_file, ignore]
 
   column:
     type: object

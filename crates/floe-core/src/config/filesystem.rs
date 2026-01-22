@@ -90,6 +90,7 @@ impl FilesystemResolver {
                 fs_type: "local".to_string(),
                 bucket: None,
                 region: None,
+                prefix: None,
             }
         };
 
@@ -114,6 +115,22 @@ impl FilesystemResolver {
                 "filesystem type {} is unsupported",
                 definition.fs_type
             )))),
+        }
+    }
+
+    pub fn definition(&self, name: &str) -> Option<FilesystemDefinition> {
+        if self.has_config {
+            self.definitions.get(name).cloned()
+        } else if name == "local" {
+            Some(FilesystemDefinition {
+                name: "local".to_string(),
+                fs_type: "local".to_string(),
+                bucket: None,
+                region: None,
+                prefix: None,
+            })
+        } else {
+            None
         }
     }
 }
@@ -145,15 +162,11 @@ fn resolve_s3_uri(definition: &FilesystemDefinition, raw_path: &str) -> FloeResu
                 definition.name, bucket_in_path
             ))));
         }
-        return Ok(format!("s3://{}/{}", bucket, key));
+        return Ok(format_s3_uri(bucket, &key));
     }
 
-    let trimmed = raw_path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        Ok(format!("s3://{}", bucket))
-    } else {
-        Ok(format!("s3://{}/{}", bucket, trimmed))
-    }
+    let key = join_s3_key(definition.prefix.as_deref().unwrap_or(""), raw_path);
+    Ok(format_s3_uri(bucket, &key))
 }
 
 fn parse_s3_uri(value: &str) -> Option<(String, String)> {
@@ -165,4 +178,23 @@ fn parse_s3_uri(value: &str) -> Option<(String, String)> {
     }
     let key = parts.next().unwrap_or("").to_string();
     Some((bucket, key))
+}
+
+fn join_s3_key(prefix: &str, raw_path: &str) -> String {
+    let prefix = prefix.trim_matches('/');
+    let trimmed = raw_path.trim_start_matches('/');
+    match (prefix.is_empty(), trimmed.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => trimmed.to_string(),
+        (false, true) => prefix.to_string(),
+        (false, false) => format!("{}/{}", prefix, trimmed),
+    }
+}
+
+fn format_s3_uri(bucket: &str, key: &str) -> String {
+    if key.is_empty() {
+        format!("s3://{}", bucket)
+    } else {
+        format!("s3://{}/{}", bucket, key)
+    }
 }

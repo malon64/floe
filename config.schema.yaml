@@ -232,6 +232,8 @@ $defs:
         type: string
       region:
         type: string
+      prefix:
+        type: string
 
   archive_target:
     type: object

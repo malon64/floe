@@ -514,7 +514,7 @@ fn missing_filesystem_reference_errors() {
 }
 
 #[test]
-fn s3_filesystem_reference_errors() {
+fn s3_filesystem_reference_ok() {
     let filesystems = r#"  default: "local"
   definitions:
     - name: "local"
@@ -522,6 +522,7 @@ fn s3_filesystem_reference_errors() {
     - name: "s3_raw"
       type: "s3"
       bucket: "demo"
+      region: "us-east-1"
 "#;
     let entity = r#"  - name: "customer"
     source:
@@ -540,5 +541,5 @@ fn s3_filesystem_reference_errors() {
           type: "string"
 "#;
     let yaml = config_with_filesystems(filesystems, entity);
-    assert_validation_error(&yaml, &["filesystem type s3 is not supported yet (F-103)"]);
+    assert_validation_ok(&yaml);
 }

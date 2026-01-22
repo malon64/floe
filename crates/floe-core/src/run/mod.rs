@@ -16,6 +16,7 @@ use normalize::{
 const MAX_EXAMPLES_PER_RULE: u64 = 3;
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
+const MAX_RESOLVED_INPUTS: usize = 50;
 
 type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
@@ -30,6 +31,25 @@ pub struct RunOutcome {
 pub struct EntityOutcome {
     pub report: report::RunReport,
     pub file_timings_ms: Vec<Option<u64>>,
+}
+
+#[derive(Clone)]
+struct InputFile {
+    source_uri: String,
+    local_path: PathBuf,
+    source_name: String,
+    source_stem: String,
+}
+
+enum StorageTarget {
+    Local {
+        base_path: String,
+    },
+    S3 {
+        filesystem: String,
+        bucket: String,
+        base_key: String,
+    },
 }
 
 pub(crate) fn validate_entities(
@@ -74,12 +94,19 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
         .unwrap_or_else(|| report::run_id_from_timestamp(&started_at));
     let run_timer = Instant::now();
     let mut entity_outcomes = Vec::new();
+    let mut s3_clients = HashMap::new();
 
     let mut abort_run = false;
     for entity in &config.entities {
         let input = &entity.source;
         let resolved_paths = resolve_entity_paths(&filesystem_resolver, entity)?;
-        if resolved_paths.source.local_path.is_none() {
+        let source_definition = filesystem_definition(
+            &filesystem_resolver,
+            &resolved_paths.source.filesystem,
+            entity,
+        )?;
+        let source_is_s3 = source_definition.fs_type == "s3";
+        if !source_is_s3 && resolved_paths.source.local_path.is_none() {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} source.filesystem={} is not supported for run",
                 entity.name, resolved_paths.source.filesystem
@@ -92,45 +119,75 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             entity.schema.columns.clone()
         };
         let required_cols = required_columns(&normalized_columns);
-        let accepted_base_path = resolved_paths
-            .accepted
-            .local_path
-            .as_ref()
-            .ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.filesystem={} is not supported for run",
-                    entity.name, resolved_paths.accepted.filesystem
-                )))
-            })?
-            .display()
-            .to_string();
-        let rejected_base_path = resolved_paths
+        let accepted_target = storage_target_from_resolved(&resolved_paths.accepted)?;
+        let rejected_target = resolved_paths
             .rejected
             .as_ref()
-            .and_then(|resolved| resolved.local_path.as_ref())
-            .map(|path| path.display().to_string());
+            .map(storage_target_from_resolved)
+            .transpose()?;
+        let needs_temp = source_is_s3
+            || matches!(accepted_target, StorageTarget::S3 { .. })
+            || matches!(rejected_target, Some(StorageTarget::S3 { .. }));
+        let temp_dir = if needs_temp {
+            Some(
+                tempfile::TempDir::new()
+                    .map_err(|err| Box::new(ConfigError(format!("tempdir failed: {err}"))))?,
+            )
+        } else {
+            None
+        };
 
-        let resolved_inputs = io::resolve::resolve_local_inputs(
-            &config_dir,
-            &entity.name,
-            input,
-            &resolved_paths.source.filesystem,
-        )?;
+        let (input_files, resolved_mode) = if source_is_s3 {
+            let source_location = io::s3::parse_s3_uri(&resolved_paths.source.uri)?;
+            let s3_client = s3_client_for(
+                &mut s3_clients,
+                &filesystem_resolver,
+                &resolved_paths.source.filesystem,
+                entity,
+            )?;
+            let temp_dir = temp_dir
+                .as_ref()
+                .ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
+            let inputs = build_s3_inputs(
+                s3_client,
+                &source_location.bucket,
+                &source_location.key,
+                input.format.as_str(),
+                temp_dir.path(),
+                entity,
+                &resolved_paths.source.filesystem,
+            )?;
+            (inputs, report::ResolvedInputMode::Directory)
+        } else {
+            let resolved_inputs = io::resolve::resolve_local_inputs(
+                &config_dir,
+                &entity.name,
+                input,
+                &resolved_paths.source.filesystem,
+            )?;
+            let inputs = build_local_inputs(&resolved_inputs.files, entity);
+            let mode = match resolved_inputs.mode {
+                io::resolve::LocalInputMode::File => report::ResolvedInputMode::File,
+                io::resolve::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
+            };
+            (inputs, mode)
+        };
+
         let inputs = read_inputs(
             entity,
-            &resolved_inputs.files,
+            &input_files,
             &normalized_columns,
             normalize_strategy.as_deref(),
         )?;
-        let resolved_files = resolved_inputs
-            .files
+        let resolved_files = input_files
             .iter()
-            .map(|path| path.display().to_string())
+            .map(|input| input.source_uri.clone())
             .collect::<Vec<_>>();
-        let resolved_mode = match resolved_inputs.mode {
-            io::resolve::LocalInputMode::File => report::ResolvedInputMode::File,
-            io::resolve::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
-        };
+        let reported_files = resolved_files
+            .iter()
+            .take(MAX_RESOLVED_INPUTS)
+            .cloned()
+            .collect::<Vec<_>>();
         let severity = match entity.policy.severity.as_str() {
             "warn" => report::Severity::Warn,
             "reject" => report::Severity::Reject,
@@ -161,12 +218,9 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             .map(|archive| config::resolve_local_path(&config_dir, &archive.path));
 
         let mut file_timings_ms = Vec::with_capacity(inputs.len());
-        for (source_path, mut raw_df, mut df) in inputs {
+        for (input_file, mut raw_df, mut df) in inputs {
             let file_timer = Instant::now();
-            let source_stem = source_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or(entity.name.as_str());
+            let source_stem = input_file.source_stem.as_str();
             let mismatch =
                 check::apply_schema_mismatch(entity, &normalized_columns, &mut raw_df, &mut df)?;
             let row_count = raw_df.height() as u64;
@@ -179,19 +233,25 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                     entity,
                     if mismatch.aborted { "abort" } else { "reject" },
                 )?;
-                let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                     Box::new(ConfigError(format!(
                         "entity.name={} sink.rejected.filesystem is required for rejection",
                         entity.name
                     )))
                 })?;
-                let rejected_path_buf =
-                    io::write::write_rejected_raw(&source_path, rejected_base_path)?;
-                let rejected_path = Some(rejected_path_buf.display().to_string());
+                let rejected_path = Some(write_rejected_raw_output(
+                    rejected_target,
+                    &input_file,
+                    temp_dir.as_ref().map(|dir| dir.path()),
+                    &mut s3_clients,
+                    &filesystem_resolver,
+                    entity,
+                )?);
 
                 let archived_path = if archive_enabled {
                     if let Some(dir) = &archive_dir {
-                        let archived_path_buf = io::write::archive_input(&source_path, dir)?;
+                        let archived_path_buf =
+                            io::write::archive_input(&input_file.local_path, dir)?;
                         Some(archived_path_buf.display().to_string())
                     } else {
                         None
@@ -211,7 +271,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 let warnings = mismatch.warnings;
 
                 let file_report = report::FileReport {
-                    input_file: source_path.display().to_string(),
+                    input_file: input_file.source_uri.clone(),
                     status,
                     row_count,
                     accepted_count,
@@ -279,11 +339,15 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 "warn" => {
                     let output_path = write_accepted_output(
                         entity.sink.accepted.format.as_str(),
-                        &accepted_base_path,
+                        &accepted_target,
                         &mut df,
                         source_stem,
+                        temp_dir.as_ref().map(|dir| dir.path()),
+                        &mut s3_clients,
+                        &filesystem_resolver,
+                        entity,
                     )?;
-                    accepted_path = Some(output_path.display().to_string());
+                    accepted_path = Some(output_path);
                 }
                 "reject" => {
                     if has_errors {
@@ -304,59 +368,85 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
 
                         let output_path = write_accepted_output(
                             entity.sink.accepted.format.as_str(),
-                            &accepted_base_path,
+                            &accepted_target,
                             &mut accepted_df,
                             source_stem,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
                         )?;
-                        accepted_path = Some(output_path.display().to_string());
-                        let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                        accepted_path = Some(output_path);
+                        let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                             Box::new(ConfigError(format!(
                                 "entity.name={} sink.rejected.filesystem is required for rejection",
                                 entity.name
                             )))
                         })?;
-                        let rejected_path_buf = io::write::write_rejected_csv(
+                        let rejected_path_value = write_rejected_csv_output(
+                            rejected_target,
                             &mut rejected_df,
-                            rejected_base_path,
                             source_stem,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
                         )?;
-                        rejected_path = Some(rejected_path_buf.display().to_string());
+                        rejected_path = Some(rejected_path_value);
                     } else {
                         let output_path = write_accepted_output(
                             entity.sink.accepted.format.as_str(),
-                            &accepted_base_path,
+                            &accepted_target,
                             &mut df,
                             source_stem,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
                         )?;
-                        accepted_path = Some(output_path.display().to_string());
+                        accepted_path = Some(output_path);
                     }
                 }
                 "abort" => {
                     if has_errors {
                         validate_rejected_target(entity, "abort")?;
-                        let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                        let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                             Box::new(ConfigError(format!(
                                 "entity.name={} sink.rejected.filesystem is required for rejection",
                                 entity.name
                             )))
                         })?;
-                        let rejected_path_buf =
-                            io::write::write_rejected_raw(&source_path, rejected_base_path)?;
-                        let report_path = io::write::write_error_report(
-                            rejected_base_path,
+                        let rejected_path_value = write_rejected_raw_output(
+                            rejected_target,
+                            &input_file,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
+                        )?;
+                        let errors_path_value = write_error_report_output(
+                            rejected_target,
                             source_stem,
                             &errors_json,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
                         )?;
-                        rejected_path = Some(rejected_path_buf.display().to_string());
-                        errors_path = Some(report_path.display().to_string());
+                        rejected_path = Some(rejected_path_value);
+                        errors_path = Some(errors_path_value);
                     } else {
                         let output_path = write_accepted_output(
                             entity.sink.accepted.format.as_str(),
-                            &accepted_base_path,
+                            &accepted_target,
                             &mut df,
                             source_stem,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            &mut s3_clients,
+                            &filesystem_resolver,
+                            entity,
                         )?;
-                        accepted_path = Some(output_path.display().to_string());
+                        accepted_path = Some(output_path);
                     }
                 }
                 severity => {
@@ -368,7 +458,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
 
             if archive_enabled {
                 if let Some(dir) = &archive_dir {
-                    let archived_path_buf = io::write::archive_input(&source_path, dir)?;
+                    let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
                     archived_path = Some(archived_path_buf.display().to_string());
                 }
             }
@@ -414,7 +504,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             let warnings = warnings + mismatch.warnings;
 
             let file_report = report::FileReport {
-                input_file: source_path.display().to_string(),
+                input_file: input_file.source_uri.clone(),
                 status,
                 row_count,
                 accepted_count,
@@ -488,7 +578,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                     resolved_inputs: report::ResolvedInputs {
                         mode: resolved_mode,
                         file_count: resolved_files.len() as u64,
-                        files: resolved_files,
+                        files: reported_files,
                     },
                 },
                 sink: report::SinkEcho {
@@ -550,17 +640,18 @@ fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
 
 fn read_inputs(
     entity: &config::EntityConfig,
-    files: &[PathBuf],
+    files: &[InputFile],
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
-) -> FloeResult<Vec<(PathBuf, DataFrame, DataFrame)>> {
+) -> FloeResult<Vec<(InputFile, DataFrame, DataFrame)>> {
     let input = &entity.source;
     match input.format.as_str() {
         "csv" => {
             let default_options = config::SourceOptions::default();
             let source_options = input.options.as_ref().unwrap_or(&default_options);
             let mut inputs = Vec::with_capacity(files.len());
-            for path in files {
+            for input_file in files {
+                let path = &input_file.local_path;
                 let input_columns = resolve_input_columns(path, source_options, columns)?;
                 let raw_schema = build_raw_schema(&input_columns);
                 let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
@@ -572,7 +663,7 @@ fn read_inputs(
                     normalize_dataframe_columns(&mut raw_df, strategy)?;
                     normalize_dataframe_columns(&mut typed_df, strategy)?;
                 }
-                inputs.push((path.clone(), raw_df, typed_df));
+                inputs.push((input_file.clone(), raw_df, typed_df));
             }
             Ok(inputs)
         }
@@ -640,6 +731,113 @@ fn resolve_entity_paths(
         accepted,
         rejected,
     })
+}
+
+fn storage_target_from_resolved(resolved: &config::ResolvedPath) -> FloeResult<StorageTarget> {
+    if let Some(path) = &resolved.local_path {
+        return Ok(StorageTarget::Local {
+            base_path: path.display().to_string(),
+        });
+    }
+    let location = io::s3::parse_s3_uri(&resolved.uri)?;
+    Ok(StorageTarget::S3 {
+        filesystem: resolved.filesystem.clone(),
+        bucket: location.bucket,
+        base_key: location.key,
+    })
+}
+
+fn filesystem_definition(
+    resolver: &config::FilesystemResolver,
+    name: &str,
+    entity: &config::EntityConfig,
+) -> FloeResult<config::FilesystemDefinition> {
+    resolver.definition(name).ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "entity.name={} filesystem {} is not defined",
+            entity.name, name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
+}
+
+fn s3_client_for<'a>(
+    clients: &'a mut HashMap<String, io::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    filesystem: &str,
+    entity: &config::EntityConfig,
+) -> FloeResult<&'a mut io::s3::S3Client> {
+    if !clients.contains_key(filesystem) {
+        let definition = filesystem_definition(resolver, filesystem, entity)?;
+        if definition.fs_type != "s3" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} filesystem {} is not s3",
+                entity.name, filesystem
+            ))));
+        }
+        let client = io::s3::S3Client::new(definition.region.as_deref())?;
+        clients.insert(filesystem.to_string(), client);
+    }
+    Ok(clients.get_mut(filesystem).expect("s3 client inserted"))
+}
+
+fn build_local_inputs(files: &[PathBuf], entity: &config::EntityConfig) -> Vec<InputFile> {
+    files
+        .iter()
+        .map(|path| {
+            let source_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(entity.name.as_str())
+                .to_string();
+            let source_stem = Path::new(&source_name)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(entity.name.as_str())
+                .to_string();
+            InputFile {
+                source_uri: path.display().to_string(),
+                local_path: path.clone(),
+                source_name,
+                source_stem,
+            }
+        })
+        .collect()
+}
+
+fn build_s3_inputs(
+    client: &io::s3::S3Client,
+    bucket: &str,
+    prefix: &str,
+    format: &str,
+    temp_dir: &Path,
+    entity: &config::EntityConfig,
+    filesystem: &str,
+) -> FloeResult<Vec<InputFile>> {
+    let suffix = io::s3::suffix_for_format(format)?;
+    let keys = client.list_objects(bucket, prefix)?;
+    let keys = io::s3::filter_keys_by_suffix(keys, suffix);
+    if keys.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} source.filesystem={} no input objects matched (bucket={}, prefix={}, suffix={})",
+            entity.name, filesystem, bucket, prefix, suffix
+        ))));
+    }
+    let mut inputs = Vec::with_capacity(keys.len());
+    for key in keys {
+        let local_path = io::s3::temp_path_for_key(temp_dir, &key);
+        client.download_object(bucket, &key, &local_path)?;
+        let source_name = io::s3::file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
+        let source_stem =
+            io::s3::file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
+        let source_uri = io::s3::format_s3_uri(bucket, &key);
+        inputs.push(InputFile {
+            source_uri,
+            local_path,
+            source_name,
+            source_stem,
+        });
+    }
+    Ok(inputs)
 }
 
 fn headless_columns(declared_names: &[String], input_count: usize) -> Vec<String> {
@@ -715,20 +913,141 @@ fn collect_errors(
     Ok((accept_rows, errors_json, error_lists))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_accepted_output(
     format: &str,
-    base_path: &str,
+    target: &StorageTarget,
     df: &mut DataFrame,
     source_stem: &str,
-) -> FloeResult<PathBuf> {
+    temp_dir: Option<&Path>,
+    s3_clients: &mut HashMap<String, io::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<String> {
     match format {
-        "parquet" => {
-            let output_path = io::write::write_parquet(df, base_path, source_stem)?;
-            Ok(output_path)
-        }
+        "parquet" => match target {
+            StorageTarget::Local { base_path } => {
+                let output_path = io::write::write_parquet(df, base_path, source_stem)?;
+                Ok(output_path.display().to_string())
+            }
+            StorageTarget::S3 {
+                filesystem,
+                bucket,
+                base_key,
+            } => {
+                let temp_dir = temp_dir.ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "entity.name={} missing temp dir for s3 output",
+                        entity.name
+                    )))
+                })?;
+                let temp_base = temp_dir.display().to_string();
+                let local_path = io::write::write_parquet(df, &temp_base, source_stem)?;
+                let key = io::s3::build_parquet_key(base_key, source_stem);
+                let client = s3_client_for(s3_clients, resolver, filesystem, entity)?;
+                client.upload_file(bucket, &key, &local_path)?;
+                Ok(io::s3::format_s3_uri(bucket, &key))
+            }
+        },
         format => Err(Box::new(ConfigError(format!(
             "unsupported sink format for now: {format}"
         )))),
+    }
+}
+
+fn write_rejected_csv_output(
+    target: &StorageTarget,
+    df: &mut DataFrame,
+    source_stem: &str,
+    temp_dir: Option<&Path>,
+    s3_clients: &mut HashMap<String, io::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<String> {
+    match target {
+        StorageTarget::Local { base_path } => {
+            let output_path = io::write::write_rejected_csv(df, base_path, source_stem)?;
+            Ok(output_path.display().to_string())
+        }
+        StorageTarget::S3 {
+            filesystem,
+            bucket,
+            base_key,
+        } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} missing temp dir for s3 output",
+                    entity.name
+                )))
+            })?;
+            let temp_base = temp_dir.display().to_string();
+            let local_path = io::write::write_rejected_csv(df, &temp_base, source_stem)?;
+            let key = io::s3::build_rejected_csv_key(base_key, source_stem);
+            let client = s3_client_for(s3_clients, resolver, filesystem, entity)?;
+            client.upload_file(bucket, &key, &local_path)?;
+            Ok(io::s3::format_s3_uri(bucket, &key))
+        }
+    }
+}
+
+fn write_rejected_raw_output(
+    target: &StorageTarget,
+    input_file: &InputFile,
+    _temp_dir: Option<&Path>,
+    s3_clients: &mut HashMap<String, io::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<String> {
+    match target {
+        StorageTarget::Local { base_path } => {
+            let output_path = io::write::write_rejected_raw(&input_file.local_path, base_path)?;
+            Ok(output_path.display().to_string())
+        }
+        StorageTarget::S3 {
+            filesystem,
+            bucket,
+            base_key,
+        } => {
+            let key = io::s3::build_rejected_raw_key(base_key, &input_file.source_name);
+            let client = s3_client_for(s3_clients, resolver, filesystem, entity)?;
+            client.upload_file(bucket, &key, &input_file.local_path)?;
+            Ok(io::s3::format_s3_uri(bucket, &key))
+        }
+    }
+}
+
+fn write_error_report_output(
+    target: &StorageTarget,
+    source_stem: &str,
+    errors_json: &[Option<String>],
+    temp_dir: Option<&Path>,
+    s3_clients: &mut HashMap<String, io::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<String> {
+    match target {
+        StorageTarget::Local { base_path } => {
+            let output_path = io::write::write_error_report(base_path, source_stem, errors_json)?;
+            Ok(output_path.display().to_string())
+        }
+        StorageTarget::S3 {
+            filesystem,
+            bucket,
+            base_key,
+        } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} missing temp dir for s3 output",
+                    entity.name
+                )))
+            })?;
+            let temp_base = temp_dir.display().to_string();
+            let local_path = io::write::write_error_report(&temp_base, source_stem, errors_json)?;
+            let key = io::s3::build_reject_errors_key(base_key, source_stem);
+            let client = s3_client_for(s3_clients, resolver, filesystem, entity)?;
+            client.upload_file(bucket, &key, &local_path)?;
+            Ok(io::s3::format_s3_uri(bucket, &key))
+        }
     }
 }
 

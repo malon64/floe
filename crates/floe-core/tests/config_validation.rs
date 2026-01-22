@@ -62,6 +62,18 @@ entities:
     )
 }
 
+fn config_with_filesystems(filesystems_yaml: &str, entities_yaml: &str) -> String {
+    format!(
+        r#"version: "0.1"
+filesystems:
+{filesystems_yaml}
+report:
+  path: "/tmp/reports"
+entities:
+{entities_yaml}"#
+    )
+}
+
 #[test]
 fn missing_report_path_errors() {
     let yaml = format!(
@@ -394,4 +406,139 @@ entities:
           type: "string"
 "#;
     assert_validation_ok(yaml);
+}
+
+#[test]
+fn filesystems_optional_defaults_to_local() {
+    let yaml = base_config(&base_entity("customer"));
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn filesystems_local_defined_and_used() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+"#;
+    let yaml = config_with_filesystems(filesystems, &base_entity("customer"));
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn source_filesystem_override_works() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "local_alt"
+      type: "local"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      filesystem: "local_alt"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_filesystems(filesystems, entity);
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn sink_accepted_filesystem_override_works() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "local_alt"
+      type: "local"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        filesystem: "local_alt"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_filesystems(filesystems, entity);
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn missing_filesystem_reference_errors() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      filesystem: "missing"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_filesystems(filesystems, entity);
+    assert_validation_error(
+        &yaml,
+        &["entity.name=customer", "source.filesystem", "missing"],
+    );
+}
+
+#[test]
+fn s3_filesystem_reference_errors() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "s3_raw"
+      type: "s3"
+      bucket: "demo"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      filesystem: "s3_raw"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_filesystems(filesystems, entity);
+    assert_validation_error(&yaml, &["filesystem type s3 is not supported yet (F-103)"]);
 }

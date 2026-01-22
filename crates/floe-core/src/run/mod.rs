@@ -57,10 +57,16 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     };
     crate::validate(config_path, validate_options)?;
     let config = config::parse_config(config_path)?;
+    let filesystem_resolver = config::FilesystemResolver::new(&config, config_path)?;
+    let config_dir = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     if !options.entities.is_empty() {
         validate_entities(&config, &options.entities)?;
     }
-    let report_base_path = config.report.path.clone();
+    let report_dir = config::resolve_local_path(&config_dir, &config.report.path);
+    let report_base_path = report_dir.display().to_string();
     let started_at = report::now_rfc3339();
     let run_id = options
         .run_id
@@ -72,7 +78,13 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     let mut abort_run = false;
     for entity in &config.entities {
         let input = &entity.source;
-        let input_path = Path::new(&input.path);
+        let resolved_paths = resolve_entity_paths(&filesystem_resolver, entity)?;
+        let input_path = resolved_paths.source.local_path.as_ref().ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "entity.name={} source.filesystem={} is not supported for run",
+                entity.name, resolved_paths.source.filesystem
+            )))
+        })?;
         let normalize_strategy = resolve_normalize_strategy(entity)?;
         let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
             normalize_schema_columns(&entity.schema.columns, strategy)?
@@ -80,6 +92,23 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             entity.schema.columns.clone()
         };
         let required_cols = required_columns(&normalized_columns);
+        let accepted_base_path = resolved_paths
+            .accepted
+            .local_path
+            .as_ref()
+            .ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.filesystem={} is not supported for run",
+                    entity.name, resolved_paths.accepted.filesystem
+                )))
+            })?
+            .display()
+            .to_string();
+        let rejected_base_path = resolved_paths
+            .rejected
+            .as_ref()
+            .and_then(|resolved| resolved.local_path.as_ref())
+            .map(|path| path.display().to_string());
 
         let inputs = read_inputs(
             entity,
@@ -123,7 +152,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             .sink
             .archive
             .as_ref()
-            .map(|archive| PathBuf::from(&archive.path));
+            .map(|archive| config::resolve_local_path(&config_dir, &archive.path));
 
         let mut file_timings_ms = Vec::with_capacity(inputs.len());
         for (source_path, mut raw_df, mut df) in inputs {
@@ -140,12 +169,18 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 let accepted_path = None;
                 let errors_path = None;
 
-                let rejected_target = validate_rejected_target(
+                validate_rejected_target(
                     entity,
                     if mismatch.aborted { "abort" } else { "reject" },
                 )?;
+                let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "entity.name={} sink.rejected.filesystem is required for rejection",
+                        entity.name
+                    )))
+                })?;
                 let rejected_path_buf =
-                    io::write::write_rejected_raw(&source_path, &rejected_target.path)?;
+                    io::write::write_rejected_raw(&source_path, rejected_base_path)?;
                 let rejected_path = Some(rejected_path_buf.display().to_string());
 
                 let archived_path = if archive_enabled {
@@ -236,12 +271,17 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
 
             match entity.policy.severity.as_str() {
                 "warn" => {
-                    let output_path = write_accepted_output(entity, &mut df, source_stem)?;
+                    let output_path = write_accepted_output(
+                        entity.sink.accepted.format.as_str(),
+                        &accepted_base_path,
+                        &mut df,
+                        source_stem,
+                    )?;
                     accepted_path = Some(output_path.display().to_string());
                 }
                 "reject" => {
                     if has_errors {
-                        let rejected_target = validate_rejected_target(entity, "reject")?;
+                        validate_rejected_target(entity, "reject")?;
 
                         let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
                         let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
@@ -256,34 +296,60 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                         })?;
                         append_rejection_columns(&mut rejected_df, &errors_json, false)?;
 
-                        let output_path =
-                            write_accepted_output(entity, &mut accepted_df, source_stem)?;
+                        let output_path = write_accepted_output(
+                            entity.sink.accepted.format.as_str(),
+                            &accepted_base_path,
+                            &mut accepted_df,
+                            source_stem,
+                        )?;
                         accepted_path = Some(output_path.display().to_string());
+                        let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                            Box::new(ConfigError(format!(
+                                "entity.name={} sink.rejected.filesystem is required for rejection",
+                                entity.name
+                            )))
+                        })?;
                         let rejected_path_buf = io::write::write_rejected_csv(
                             &mut rejected_df,
-                            &rejected_target.path,
+                            rejected_base_path,
                             source_stem,
                         )?;
                         rejected_path = Some(rejected_path_buf.display().to_string());
                     } else {
-                        let output_path = write_accepted_output(entity, &mut df, source_stem)?;
+                        let output_path = write_accepted_output(
+                            entity.sink.accepted.format.as_str(),
+                            &accepted_base_path,
+                            &mut df,
+                            source_stem,
+                        )?;
                         accepted_path = Some(output_path.display().to_string());
                     }
                 }
                 "abort" => {
                     if has_errors {
-                        let rejected_target = validate_rejected_target(entity, "abort")?;
+                        validate_rejected_target(entity, "abort")?;
+                        let rejected_base_path = rejected_base_path.as_ref().ok_or_else(|| {
+                            Box::new(ConfigError(format!(
+                                "entity.name={} sink.rejected.filesystem is required for rejection",
+                                entity.name
+                            )))
+                        })?;
                         let rejected_path_buf =
-                            io::write::write_rejected_raw(&source_path, &rejected_target.path)?;
+                            io::write::write_rejected_raw(&source_path, rejected_base_path)?;
                         let report_path = io::write::write_error_report(
-                            &rejected_target.path,
+                            rejected_base_path,
                             source_stem,
                             &errors_json,
                         )?;
                         rejected_path = Some(rejected_path_buf.display().to_string());
                         errors_path = Some(report_path.display().to_string());
                     } else {
-                        let output_path = write_accepted_output(entity, &mut df, source_stem)?;
+                        let output_path = write_accepted_output(
+                            entity.sink.accepted.format.as_str(),
+                            &accepted_base_path,
+                            &mut df,
+                            source_stem,
+                        )?;
                         accepted_path = Some(output_path.display().to_string());
                     }
                 }
@@ -379,8 +445,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             run_status = report::RunStatus::SuccessWithWarnings;
         }
 
-        let report_dir = Path::new(&config.report.path);
-        let report_path = report::ReportWriter::report_path(report_dir, &run_id, &entity.name);
+        let report_path = report::ReportWriter::report_path(&report_dir, &run_id, &entity.name);
         let finished_at = report::now_rfc3339();
         let duration_ms = run_timer.elapsed().as_millis() as u64;
         let run_report =
@@ -410,7 +475,7 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 },
                 source: report::SourceEcho {
                     format: input.format.clone(),
-                    path: input.path.clone(),
+                    path: resolved_paths.source.uri.clone(),
                     options: input.options.as_ref().map(source_options_json),
                     cast_mode: input.cast_mode.clone(),
                     read_plan: report::SourceReadPlan::RawAndTyped,
@@ -423,12 +488,16 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                 sink: report::SinkEcho {
                     accepted: report::SinkTargetEcho {
                         format: entity.sink.accepted.format.clone(),
-                        path: entity.sink.accepted.path.clone(),
+                        path: resolved_paths.accepted.uri.clone(),
                     },
                     rejected: entity.sink.rejected.as_ref().map(|rejected| {
                         report::SinkTargetEcho {
                             format: rejected.format.clone(),
-                            path: rejected.path.clone(),
+                            path: resolved_paths
+                                .rejected
+                                .as_ref()
+                                .map(|target| target.uri.clone())
+                                .unwrap_or_else(|| rejected.path.clone()),
                         }
                     }),
                     archive: report::SinkArchiveEcho {
@@ -441,14 +510,14 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
                     },
                 },
                 report: report::ReportEcho {
-                    path: config.report.path.clone(),
+                    path: report_base_path.clone(),
                     report_file: report_path.display().to_string(),
                 },
                 policy: report::PolicyEcho { severity },
                 results: totals,
                 files: file_reports,
             };
-        report::ReportWriter::write_report(report_dir, &run_id, &entity.name, &run_report)?;
+        report::ReportWriter::write_report(&report_dir, &run_id, &entity.name, &run_report)?;
         entity_outcomes.push(EntityOutcome {
             report: run_report,
             file_timings_ms,
@@ -526,6 +595,48 @@ fn resolve_input_columns(
     Ok(headless_columns(&declared_names, input_columns.len()))
 }
 
+struct ResolvedEntityPaths {
+    source: config::ResolvedPath,
+    accepted: config::ResolvedPath,
+    rejected: Option<config::ResolvedPath>,
+}
+
+fn resolve_entity_paths(
+    resolver: &config::FilesystemResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<ResolvedEntityPaths> {
+    let source = resolver.resolve_path(
+        &entity.name,
+        "source.filesystem",
+        entity.source.filesystem.as_deref(),
+        &entity.source.path,
+    )?;
+    let accepted = resolver.resolve_path(
+        &entity.name,
+        "sink.accepted.filesystem",
+        entity.sink.accepted.filesystem.as_deref(),
+        &entity.sink.accepted.path,
+    )?;
+    let rejected = entity
+        .sink
+        .rejected
+        .as_ref()
+        .map(|rejected| {
+            resolver.resolve_path(
+                &entity.name,
+                "sink.rejected.filesystem",
+                rejected.filesystem.as_deref(),
+                &rejected.path,
+            )
+        })
+        .transpose()?;
+    Ok(ResolvedEntityPaths {
+        source,
+        accepted,
+        rejected,
+    })
+}
+
 fn headless_columns(declared_names: &[String], input_count: usize) -> Vec<String> {
     let mut names = declared_names
         .iter()
@@ -600,14 +711,14 @@ fn collect_errors(
 }
 
 fn write_accepted_output(
-    entity: &config::EntityConfig,
+    format: &str,
+    base_path: &str,
     df: &mut DataFrame,
     source_stem: &str,
 ) -> FloeResult<PathBuf> {
-    match entity.sink.accepted.format.as_str() {
+    match format {
         "parquet" => {
-            let output_path =
-                io::write::write_parquet(df, &entity.sink.accepted.path, source_stem)?;
+            let output_path = io::write::write_parquet(df, base_path, source_stem)?;
             Ok(output_path)
         }
         format => Err(Box::new(ConfigError(format!(

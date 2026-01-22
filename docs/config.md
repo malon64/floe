@@ -21,6 +21,8 @@ entities:
         separator: ","
         encoding: "utf-8"
         null_values: ["", "NULL", "null"]
+        recursive: false
+        glob: "*.csv"
       cast_mode: "strict"
     sink:
       accepted:
@@ -73,10 +75,10 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 - `format` (required)
   - Supported: `csv` (v0.1). `parquet` and `json` are reserved for later.
 - `path` (required)
-  - Input location. Can be a file or a directory. If a directory, all files
-    with the matching extension are processed.
-  - Paths are used as provided (relative paths resolve against the current
-    working directory).
+  - Input location. Can be a file, a directory, or a glob pattern
+    (example: `/data/in/*.csv`).
+  - If a directory is provided, a glob is applied to select files.
+  - Relative paths resolve against the config file directory.
 - `options` (optional)
   - CSV-specific options.
   - Defaults if omitted:
@@ -84,6 +86,17 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - `separator`: `";"`
     - `encoding`: `"UTF8"`
     - `null_values`: `[]`
+    - `recursive`: `false`
+    - `glob`: (none; default is based on `source.format`)
+  - `glob` (optional)
+    - Used only when `source.path` is a directory.
+    - Overrides the default file pattern for the source format:
+      - `csv`: `*.csv`
+      - `parquet`: `*.parquet`
+      - `json`: `*.json`
+    - If `source.path` itself contains a glob pattern, this option is ignored.
+  - `recursive` (optional)
+    - If `true`, directory globs include subdirectories (via `**/`).
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).

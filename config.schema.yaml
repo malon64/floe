@@ -145,6 +145,10 @@ $defs:
         type: array
         items:
           type: string
+      recursive:
+        type: boolean
+      glob:
+        type: string
 
   sink:
     type: object

@@ -58,6 +58,8 @@ pub struct SourceOptions {
     pub separator: Option<String>,
     pub encoding: Option<String>,
     pub null_values: Option<Vec<String>>,
+    pub recursive: Option<bool>,
+    pub glob: Option<String>,
 }
 
 impl Default for SourceOptions {
@@ -67,6 +69,8 @@ impl Default for SourceOptions {
             separator: Some(";".to_string()),
             encoding: Some("UTF8".to_string()),
             null_values: Some(Vec::new()),
+            recursive: Some(false),
+            glob: None,
         }
     }
 }

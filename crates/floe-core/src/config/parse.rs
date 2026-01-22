@@ -162,7 +162,14 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
     validate_known_keys(
         hash,
         "source.options",
-        &["header", "separator", "encoding", "null_values"],
+        &[
+            "header",
+            "separator",
+            "encoding",
+            "null_values",
+            "recursive",
+            "glob",
+        ],
     )?;
     let defaults = SourceOptions::default();
     Ok(SourceOptions {
@@ -171,6 +178,8 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
         encoding: opt_string(hash, "encoding", "source.options")?.or(defaults.encoding),
         null_values: opt_vec_string(hash, "null_values", "source.options")?
             .or(defaults.null_values),
+        recursive: opt_bool(hash, "recursive", "source.options")?.or(defaults.recursive),
+        glob: opt_string(hash, "glob", "source.options")?.or(defaults.glob),
     })
 }
 

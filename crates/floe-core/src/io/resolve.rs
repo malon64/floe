@@ -122,10 +122,10 @@ fn split_glob_details(pattern_path: &Path, raw_pattern: &str) -> (String, String
 
 fn default_glob(format: &str) -> FloeResult<&'static str> {
     match format {
-        "csv" => Ok("*.csv"),
-        "parquet" => Ok("*.parquet"),
+        "csv" => Ok("*.[cC][sS][vV]"),
+        "parquet" => Ok("*.[pP][aA][rR][qQ][uU][eE][tT]"),
         // Default for ndjson/json inputs in local mode uses .jsonl files.
-        "json" => Ok("*.jsonl"),
+        "json" => Ok("*.[jJ][sS][oO][nN][lL]"),
         _ => Err(Box::new(ConfigError(format!(
             "unsupported source format for input resolution: {format}"
         )))),
@@ -208,6 +208,7 @@ mod tests {
     fn default_glob_filters_by_format() {
         let root = temp_dir("floe-resolve-default-glob");
         write_file(&root.join("a.csv"), "id\n1\n");
+        write_file(&root.join("B.CSV"), "id\n2\n");
         write_file(&root.join("b.txt"), "skip\n");
         let source = source_config("csv", &root, None);
 
@@ -219,7 +220,7 @@ mod tests {
             .iter()
             .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
             .collect::<Vec<_>>();
-        assert_eq!(names, vec!["a.csv"]);
+        assert_eq!(names, vec!["B.CSV", "a.csv"]);
         assert_eq!(resolved.mode, LocalInputMode::Directory);
     }
 

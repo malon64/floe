@@ -79,12 +79,12 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     for entity in &config.entities {
         let input = &entity.source;
         let resolved_paths = resolve_entity_paths(&filesystem_resolver, entity)?;
-        let input_path = resolved_paths.source.local_path.as_ref().ok_or_else(|| {
-            Box::new(ConfigError(format!(
+        if resolved_paths.source.local_path.is_none() {
+            return Err(Box::new(ConfigError(format!(
                 "entity.name={} source.filesystem={} is not supported for run",
                 entity.name, resolved_paths.source.filesystem
-            )))
-        })?;
+            ))));
+        }
         let normalize_strategy = resolve_normalize_strategy(entity)?;
         let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
             normalize_schema_columns(&entity.schema.columns, strategy)?
@@ -110,20 +110,26 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
             .and_then(|resolved| resolved.local_path.as_ref())
             .map(|path| path.display().to_string());
 
+        let resolved_inputs = io::resolve::resolve_local_inputs(
+            &config_dir,
+            &entity.name,
+            input,
+            &resolved_paths.source.filesystem,
+        )?;
         let inputs = read_inputs(
             entity,
-            input_path,
+            &resolved_inputs.files,
             &normalized_columns,
             normalize_strategy.as_deref(),
         )?;
-        let resolved_files = inputs
+        let resolved_files = resolved_inputs
+            .files
             .iter()
-            .map(|(path, _, _)| path.display().to_string())
+            .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let resolved_mode = if input_path.is_dir() {
-            report::ResolvedInputMode::Directory
-        } else {
-            report::ResolvedInputMode::File
+        let resolved_mode = match resolved_inputs.mode {
+            io::resolve::LocalInputMode::File => report::ResolvedInputMode::File,
+            io::resolve::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
         };
         let severity = match entity.policy.severity.as_str() {
             "warn" => report::Severity::Warn,
@@ -544,7 +550,7 @@ fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
 
 fn read_inputs(
     entity: &config::EntityConfig,
-    input_path: &Path,
+    files: &[PathBuf],
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
 ) -> FloeResult<Vec<(PathBuf, DataFrame, DataFrame)>> {
@@ -553,21 +559,20 @@ fn read_inputs(
         "csv" => {
             let default_options = config::SourceOptions::default();
             let source_options = input.options.as_ref().unwrap_or(&default_options);
-            let files = io::read_csv::list_csv_files(input_path)?;
             let mut inputs = Vec::with_capacity(files.len());
             for path in files {
-                let input_columns = resolve_input_columns(&path, source_options, columns)?;
+                let input_columns = resolve_input_columns(path, source_options, columns)?;
                 let raw_schema = build_raw_schema(&input_columns);
                 let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
                 let raw_plan = io::read_csv::CsvReadPlan::strict(raw_schema);
                 let typed_plan = io::read_csv::CsvReadPlan::permissive(typed_schema);
-                let mut raw_df = io::read_csv::read_csv_file(&path, source_options, &raw_plan)?;
-                let mut typed_df = io::read_csv::read_csv_file(&path, source_options, &typed_plan)?;
+                let mut raw_df = io::read_csv::read_csv_file(path, source_options, &raw_plan)?;
+                let mut typed_df = io::read_csv::read_csv_file(path, source_options, &typed_plan)?;
                 if let Some(strategy) = normalize_strategy {
                     normalize_dataframe_columns(&mut raw_df, strategy)?;
                     normalize_dataframe_columns(&mut typed_df, strategy)?;
                 }
-                inputs.push((path, raw_df, typed_df));
+                inputs.push((path.clone(), raw_df, typed_df));
             }
             Ok(inputs)
         }
@@ -936,6 +941,12 @@ fn source_options_json(options: &config::SourceOptions) -> Value {
     }
     if let Some(null_values) = &options.null_values {
         map.insert("null_values".to_string(), string_array(null_values));
+    }
+    if let Some(recursive) = options.recursive {
+        map.insert("recursive".to_string(), Value::Bool(recursive));
+    }
+    if let Some(glob) = &options.glob {
+        map.insert("glob".to_string(), Value::String(glob.clone()));
     }
     Value::Object(map)
 }

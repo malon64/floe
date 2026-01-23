@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use floe_core::report::FileStatus;
 use floe_core::{run, RunOptions};
-use polars::prelude::{DataFrame, ParquetReader, ParquetWriter, SerReader, SerWriter, Series};
+use polars::prelude::{DataFrame, NamedFrom, ParquetReader, ParquetWriter, SerReader, Series};
 
 fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -52,13 +52,13 @@ fn parquet_directory_reads_multiple_files() {
     fs::create_dir_all(&input_dir).expect("create input dir");
 
     let df_a = DataFrame::new(vec![
-        Series::new("id".into(), ["1"]),
-        Series::new("name".into(), ["alice"]),
+        Series::new("id".into(), ["1"]).into(),
+        Series::new("name".into(), ["alice"]).into(),
     ])
     .expect("df a");
     let df_b = DataFrame::new(vec![
-        Series::new("id".into(), ["2"]),
-        Series::new("name".into(), ["bob"]),
+        Series::new("id".into(), ["2"]).into(),
+        Series::new("name".into(), ["bob"]).into(),
     ])
     .expect("df b");
     write_parquet(&input_dir, "a.parquet", df_a);
@@ -107,8 +107,7 @@ fn parquet_missing_columns_fill_nulls() {
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
 
-    let df = DataFrame::new(vec![Series::new("id".into(), ["1"])])
-        .expect("df");
+    let df = DataFrame::new(vec![Series::new("id".into(), ["1"]).into()]).expect("df");
     write_parquet(&input_dir, "input.parquet", df);
 
     let yaml = format!(
@@ -163,8 +162,8 @@ fn parquet_extra_columns_ignore() {
     fs::create_dir_all(&input_dir).expect("create input dir");
 
     let df = DataFrame::new(vec![
-        Series::new("id".into(), ["1"]),
-        Series::new("extra".into(), ["skip"]),
+        Series::new("id".into(), ["1"]).into(),
+        Series::new("extra".into(), ["skip"]).into(),
     ])
     .expect("df");
     write_parquet(&input_dir, "input.parquet", df);
@@ -219,8 +218,8 @@ fn parquet_cast_errors_reject_rows() {
     fs::create_dir_all(&input_dir).expect("create input dir");
 
     let df = DataFrame::new(vec![
-        Series::new("id".into(), ["1", "2"]),
-        Series::new("amount".into(), ["1", "bad"]),
+        Series::new("id".into(), ["1", "2"]).into(),
+        Series::new("amount".into(), ["1", "bad"]).into(),
     ])
     .expect("df");
     write_parquet(&input_dir, "input.parquet", df);

@@ -157,13 +157,21 @@ fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<DataFrame> {
                 name.as_str()
             )))
         })?;
-        let casted = series.cast(dtype, CastOptions::NonStrict).map_err(|err| {
+        let casted = series
+            .cast_with_options(dtype, CastOptions::NonStrict)
+            .map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "failed to cast parquet column {}: {err}",
+                    name.as_str()
+                )))
+            })?;
+        let idx = out.get_column_index(name.as_str()).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "failed to cast parquet column {}: {err}",
+                "parquet column {} not found for update",
                 name.as_str()
             )))
         })?;
-        out.replace(name.as_str(), casted).map_err(|err| {
+        out.replace_column(idx, casted).map_err(|err| {
             Box::new(ConfigError(format!(
                 "failed to update parquet column {}: {err}",
                 name.as_str()
@@ -187,13 +195,21 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
                 name
             )))
         })?;
-        let casted = series.cast(dtype, CastOptions::NonStrict).map_err(|err| {
+        let casted = series
+            .cast_with_options(dtype, CastOptions::NonStrict)
+            .map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "failed to cast parquet column {}: {err}",
+                    name
+                )))
+            })?;
+        let idx = out.get_column_index(&name).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "failed to cast parquet column {}: {err}",
+                "parquet column {} not found for update",
                 name
             )))
         })?;
-        out.replace(&name, casted).map_err(|err| {
+        out.replace_column(idx, casted).map_err(|err| {
             Box::new(ConfigError(format!(
                 "failed to update parquet column {}: {err}",
                 name

@@ -199,8 +199,8 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
 
 pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
     match format {
-        "parquet" => Ok(io::write::parquet_accepted_adapter()),
-        "delta" => Ok(io::write::delta_accepted_adapter()),
+        "parquet" => Ok(io::write::parquet::parquet_accepted_adapter()),
+        "delta" => Ok(io::write::delta::delta_accepted_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,
@@ -211,7 +211,7 @@ pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSi
 
 pub fn rejected_sink_adapter(format: &str) -> FloeResult<&'static dyn RejectedSinkAdapter> {
     match format {
-        "csv" => Ok(io::write::csv_rejected_adapter()),
+        "csv" => Ok(io::write::csv::csv_rejected_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::SinkRejected,
             format,

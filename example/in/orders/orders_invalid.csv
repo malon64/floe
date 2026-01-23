@@ -1,6 +1,0 @@
-order_id,customer_id,order_total,currency,created_at,order_date,is_expedited,promo_code
-,c-010,100.00,USD,2024-02-01T10:00:00Z,2024-02-01,true,SPRING
-o-2002,NULL,75.00,USD,2024-02-02T10:00:00Z,2024-02-02,false,
-o-2003,c-012,abc,USD,2024-02-03T10:00:00Z,2024-02-03,false,VIP
-o-2004,c-013,50.00,USD,2024-02-30T10:00:00Z,2024-02-30,maybe,WINTER
-o-2002,c-014,80.00,USD,2024-02-04T10:00:00Z,2024-02-04,false,SPRING

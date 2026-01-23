@@ -60,6 +60,7 @@ pub struct SourceOptions {
     pub null_values: Option<Vec<String>>,
     pub recursive: Option<bool>,
     pub glob: Option<String>,
+    pub ndjson: Option<bool>,
 }
 
 impl Default for SourceOptions {
@@ -71,6 +72,7 @@ impl Default for SourceOptions {
             null_values: Some(Vec::new()),
             recursive: Some(false),
             glob: None,
+            ndjson: Some(false),
         }
     }
 }

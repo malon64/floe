@@ -80,13 +80,10 @@ entities:
       tags: ["prepared", "events"]
 
     source:
-      format: "csv"
+      format: "json"
       path: "/home/alexis/floe/example/in/orders"
       options:
-        header: true
-        separator: ","
-        encoding: "utf-8"
-        null_values: ["", "NULL", "null"]
+        ndjson: true
       cast_mode: "strict"   # strict | coerce
 
     sink:

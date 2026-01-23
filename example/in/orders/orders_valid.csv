@@ -1,4 +1,0 @@
-order_id,customer_id,order_total,currency,created_at,order_date,is_expedited
-o-1001,c-001,120.50,USD,2024-01-10T09:15:00Z,2024-01-10,true
-o-1002,c-002,89.00,EUR,2024-01-11T14:45:00Z,2024-01-11,false
-o-1003,c-003,45.99,USD,2024-01-12T08:00:00Z,2024-01-12,false

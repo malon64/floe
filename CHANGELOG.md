@@ -2,6 +2,13 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.1.3
+
+- Added a format registry with adapter traits for inputs and sinks.
+- Centralized file extension handling for local/S3 resolution.
+- Expanded input format scaffolding (Parquet/JSON readers) and IO dispatch.
+- Run pipeline refactor to use format adapters and shared IO helpers.
+
 ## v0.1.2
 
 - Config validation now rejects unknown fields and adds broader negative test coverage.

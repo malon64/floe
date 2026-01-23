@@ -5,8 +5,7 @@ use std::sync::Arc;
 use deltalake::arrow::array::{
     ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
     Int64Array, Int8Array, NullArray, StringArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray, UInt16Array,
-    UInt32Array, UInt64Array, UInt8Array,
+    TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use deltalake::arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
@@ -142,17 +141,12 @@ fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRe
         }
         DataType::Datetime(unit, _) => {
             let values = series.datetime()?;
-            match unit {
-                TimeUnit::Milliseconds => {
-                    Arc::new(TimestampMillisecondArray::from_iter(values.phys.iter()))
-                }
-                TimeUnit::Microseconds => {
-                    Arc::new(TimestampMicrosecondArray::from_iter(values.phys.iter()))
-                }
-                TimeUnit::Nanoseconds => {
-                    Arc::new(TimestampNanosecondArray::from_iter(values.phys.iter()))
-                }
-            }
+            let micros = values.phys.iter().map(|opt| match unit {
+                TimeUnit::Milliseconds => opt.map(|value| value.saturating_mul(1000)),
+                TimeUnit::Microseconds => opt,
+                TimeUnit::Nanoseconds => opt.map(|value| value / 1000),
+            });
+            Arc::new(TimestampMicrosecondArray::from_iter(micros))
         }
         DataType::Time => {
             let values = series.time()?;

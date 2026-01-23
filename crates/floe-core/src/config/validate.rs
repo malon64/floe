@@ -4,7 +4,7 @@ use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
-const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv"];
+const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv", "parquet"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
 const ALLOWED_ACCEPTED_FORMATS: &[&str] = &["parquet"];
@@ -72,6 +72,17 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
         entity.source.filesystem.as_deref(),
     )?;
     filesystems.validate_reference(entity, "source.filesystem", &fs_name)?;
+
+    if entity.source.format == "parquet" {
+        if let Some(fs_type) = filesystems.definition_type(&fs_name) {
+            if fs_type != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.format=parquet is only supported on local filesystem (got {})",
+                    entity.name, fs_type
+                ))));
+            }
+        }
+    }
 
     Ok(())
 }
@@ -331,5 +342,17 @@ impl FilesystemRegistry {
         })?;
 
         Ok(())
+    }
+
+    fn definition_type(&self, name: &str) -> Option<&str> {
+        if !self.has_config {
+            if name == "local" {
+                return Some("local");
+            }
+            return None;
+        }
+        self.definitions
+            .get(name)
+            .map(|definition| definition.fs_type.as_str())
     }
 }

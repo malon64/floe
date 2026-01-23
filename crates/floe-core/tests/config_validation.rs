@@ -543,3 +543,41 @@ fn s3_filesystem_reference_ok() {
     let yaml = config_with_filesystems(filesystems, entity);
     assert_validation_ok(&yaml);
 }
+
+#[test]
+fn parquet_source_rejects_s3_filesystem() {
+    let filesystems = r#"  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "s3_raw"
+      type: "s3"
+      bucket: "demo"
+      region: "us-east-1"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "parquet"
+      path: "/tmp/input"
+      filesystem: "s3_raw"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_filesystems(filesystems, entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "source.format=parquet",
+            "local filesystem",
+        ],
+    );
+}

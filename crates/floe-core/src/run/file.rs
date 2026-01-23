@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use polars::chunked_array::cast::CastOptions;
 use polars::prelude::{DataFrame, DataType, Schema};
 
 use crate::{check, config, io, ConfigError, FloeResult};
@@ -39,6 +40,27 @@ pub(super) fn read_inputs(
                 let typed_plan = io::read::CsvReadPlan::permissive(typed_schema);
                 let mut raw_df = io::read::read_csv_file(path, source_options, &raw_plan)?;
                 let mut typed_df = io::read::read_csv_file(path, source_options, &typed_plan)?;
+                if let Some(strategy) = normalize_strategy {
+                    normalize_dataframe_columns(&mut raw_df, strategy)?;
+                    normalize_dataframe_columns(&mut typed_df, strategy)?;
+                }
+                inputs.push((input_file.clone(), raw_df, typed_df));
+            }
+            Ok(inputs)
+        }
+        "parquet" => {
+            let mut inputs = Vec::with_capacity(files.len());
+            for input_file in files {
+                let path = &input_file.local_path;
+                let df = io::read::read_parquet_file(path)?;
+                let input_columns = df
+                    .get_column_names()
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>();
+                let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
+                let mut raw_df = cast_df_to_string(&df)?;
+                let mut typed_df = cast_df_to_schema(&df, &typed_schema)?;
                 if let Some(strategy) = normalize_strategy {
                     normalize_dataframe_columns(&mut raw_df, strategy)?;
                     normalize_dataframe_columns(&mut typed_df, strategy)?;
@@ -120,6 +142,65 @@ fn build_typed_schema(
         schema.insert(name.as_str().into(), dtype);
     }
     Ok(schema)
+}
+
+fn cast_df_to_string(df: &DataFrame) -> FloeResult<DataFrame> {
+    cast_df_with_type(df, &DataType::String)
+}
+
+fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<DataFrame> {
+    let mut out = df.clone();
+    for (name, dtype) in schema.iter() {
+        let series = out.column(name.as_str()).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "parquet column {} not found: {err}",
+                name.as_str()
+            )))
+        })?;
+        let casted = series.cast(dtype, CastOptions::NonStrict).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to cast parquet column {}: {err}",
+                name.as_str()
+            )))
+        })?;
+        out.replace(name.as_str(), casted).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to update parquet column {}: {err}",
+                name.as_str()
+            )))
+        })?;
+    }
+    Ok(out)
+}
+
+fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> {
+    let mut out = df.clone();
+    let names = out
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    for name in names {
+        let series = out.column(&name).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "parquet column {} not found: {err}",
+                name
+            )))
+        })?;
+        let casted = series.cast(dtype, CastOptions::NonStrict).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to cast parquet column {}: {err}",
+                name
+            )))
+        })?;
+        out.replace(&name, casted).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "failed to update parquet column {}: {err}",
+                name
+            )))
+        })?;
+    }
+    Ok(out)
 }
 
 pub(super) fn collect_errors(

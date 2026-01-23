@@ -14,7 +14,8 @@ path = "src/lib.rs"
 
 [dependencies]
 yaml-rust2 = "0.11"
-polars = { version = "0.52.0", features = ["csv", "parquet", "lazy", "timezones"] }
+polars = { version = "0.52.0", features = ["csv", "parquet", "lazy", "timezones", "dtype-date", "dtype-datetime", "dtype-time"] }
+deltalake = { version = "0.20", features = ["datafusion"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["formatting"] }

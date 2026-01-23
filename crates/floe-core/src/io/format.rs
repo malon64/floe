@@ -200,6 +200,7 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
 pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
     match format {
         "parquet" => Ok(io::write::parquet_accepted_adapter()),
+        "delta" => Ok(io::write::delta_accepted_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,

@@ -113,6 +113,16 @@ fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> Flo
         entity.sink.accepted.filesystem.as_deref(),
     )?;
     filesystems.validate_reference(entity, "sink.accepted.filesystem", &accepted_fs)?;
+    if entity.sink.accepted.format == "delta" {
+        if let Some(fs_type) = filesystems.definition_type(&accepted_fs) {
+            if fs_type != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.format=delta is only supported on local filesystem (got {})",
+                    entity.name, fs_type
+                ))));
+            }
+        }
+    }
 
     if let Some(rejected) = &entity.sink.rejected {
         let rejected_fs = filesystems.resolve_name(

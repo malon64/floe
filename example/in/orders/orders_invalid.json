@@ -1,0 +1,5 @@
+{"order_id":null,"customer_id":"c-010","order_total":100.00,"currency":"USD","created_at":"2024-02-01T10:00:00Z","order_date":"2024-02-01","is_expedited":true,"promo_code":"SPRING"}
+{"order_id":"o-2002","customer_id":null,"order_total":75.00,"currency":"USD","created_at":"2024-02-02T10:00:00Z","order_date":"2024-02-02","is_expedited":false,"promo_code":null}
+{"order_id":"o-2003","customer_id":"c-012","order_total":"abc","currency":"USD","created_at":"2024-02-03T10:00:00Z","order_date":"2024-02-03","is_expedited":false,"promo_code":"VIP"}
+{"order_id":"o-2004","customer_id":"c-013","order_total":50.00,"currency":"USD","created_at":"2024-02-30T10:00:00Z","order_date":"2024-02-30","is_expedited":"maybe","promo_code":"WINTER"}
+{"order_id":"o-2002","customer_id":"c-014","order_total":80.00,"currency":"USD","created_at":"2024-02-04T10:00:00Z","order_date":"2024-02-04","is_expedited":false,"promo_code":"SPRING"}

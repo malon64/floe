@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use polars::chunked_array::cast::CastOptions;
-use polars::prelude::{DataFrame, DataType, Schema};
+use polars::prelude::{DataFrame, DataType, NamedFrom, Schema, Series};
 
 use crate::{check, config, io, ConfigError, FloeResult};
 
@@ -216,32 +216,56 @@ fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<DataFrame> {
     for (name, dtype) in schema.iter() {
         let series = out.column(name.as_str()).map_err(|err| {
             Box::new(ConfigError(format!(
-                "parquet column {} not found: {err}",
+                "input column {} not found: {err}",
                 name.as_str()
             )))
         })?;
-        let casted = series
-            .cast_with_options(dtype, CastOptions::NonStrict)
-            .map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "failed to cast parquet column {}: {err}",
-                    name.as_str()
-                )))
-            })?;
+        let casted =
+            if matches!(dtype, DataType::Boolean) && matches!(series.dtype(), DataType::String) {
+                cast_string_to_bool(name.as_str(), series)?
+            } else {
+                series
+                    .cast_with_options(dtype, CastOptions::NonStrict)
+                    .map_err(|err| {
+                        Box::new(ConfigError(format!(
+                            "failed to cast input column {}: {err}",
+                            name.as_str()
+                        )))
+                    })?
+            };
         let idx = out.get_column_index(name.as_str()).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "parquet column {} not found for update",
+                "input column {} not found for update",
                 name.as_str()
             )))
         })?;
         out.replace_column(idx, casted).map_err(|err| {
             Box::new(ConfigError(format!(
-                "failed to update parquet column {}: {err}",
+                "failed to update input column {}: {err}",
                 name.as_str()
             )))
         })?;
     }
     Ok(out)
+}
+
+fn cast_string_to_bool(name: &str, series: &polars::prelude::Column) -> FloeResult<Series> {
+    let string_values = series.as_materialized_series().str().map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to read boolean column {} as string: {err}",
+            name
+        )))
+    })?;
+    let mut values = Vec::with_capacity(series.len());
+    for value in string_values {
+        let parsed = value.and_then(|raw| match raw.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        });
+        values.push(parsed);
+    }
+    Ok(Series::new(name.into(), values))
 }
 
 fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> {
@@ -254,7 +278,7 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
     for name in names {
         let series = out.column(&name).map_err(|err| {
             Box::new(ConfigError(format!(
-                "parquet column {} not found: {err}",
+                "input column {} not found: {err}",
                 name
             )))
         })?;
@@ -262,19 +286,19 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
             .cast_with_options(dtype, CastOptions::NonStrict)
             .map_err(|err| {
                 Box::new(ConfigError(format!(
-                    "failed to cast parquet column {}: {err}",
+                    "failed to cast input column {}: {err}",
                     name
                 )))
             })?;
         let idx = out.get_column_index(&name).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "parquet column {} not found for update",
+                "input column {} not found for update",
                 name
             )))
         })?;
         out.replace_column(idx, casted).map_err(|err| {
             Box::new(ConfigError(format!(
-                "failed to update parquet column {}: {err}",
+                "failed to update input column {}: {err}",
                 name
             )))
         })?;

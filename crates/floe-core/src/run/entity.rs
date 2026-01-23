@@ -2,38 +2,21 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::{check, config, io, report, ConfigError, FloeResult};
+use crate::{check, config, format, io, report, ConfigError, FloeResult};
 
-use super::file::{collect_errors, read_inputs, required_columns, ReadInput};
+use super::file::{collect_errors, read_inputs, required_columns};
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
-    write_error_report_output, write_rejected_csv_output, write_rejected_raw_output,
+    write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
 use super::reporting::{
     entity_metadata_json, project_metadata_json, source_options_json, summarize_validation,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 
-#[derive(Clone)]
-pub(super) struct InputFile {
-    pub source_uri: String,
-    pub local_path: PathBuf,
-    pub source_name: String,
-    pub source_stem: String,
-}
-
-pub(super) enum StorageTarget {
-    Local {
-        base_path: String,
-    },
-    S3 {
-        filesystem: String,
-        bucket: String,
-        base_key: String,
-    },
-}
+use format::{InputAdapter, InputFile, ReadInput, StorageTarget};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
@@ -54,6 +37,7 @@ pub(super) fn run_entity(
 ) -> FloeResult<EntityRunResult> {
     let config = &context.config;
     let input = &entity.source;
+    let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_paths = resolve_entity_paths(&context.filesystem_resolver, entity)?;
     let source_definition = filesystem_definition(
         &context.filesystem_resolver,
@@ -108,14 +92,14 @@ pub(super) fn run_entity(
             s3_client,
             &source_location.bucket,
             &source_location.key,
-            input.format.as_str(),
+            input_adapter,
             temp_dir.path(),
             entity,
             &resolved_paths.source.filesystem,
         )?;
         (inputs, report::ResolvedInputMode::Directory)
     } else {
-        let resolved_inputs = io::fs::local::resolve_local_inputs(
+        let resolved_inputs = input_adapter.resolve_local_inputs(
             &context.config_dir,
             &entity.name,
             input,
@@ -130,6 +114,7 @@ pub(super) fn run_entity(
     };
 
     let inputs = read_inputs(
+        input_adapter,
         entity,
         &input_files,
         &normalized_columns,
@@ -414,13 +399,20 @@ pub(super) fn run_entity(
                         entity,
                     )?;
                     accepted_path = Some(output_path);
+                    let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
+                        Box::new(ConfigError(format!(
+                            "entity.name={} sink.rejected.filesystem is required for rejection",
+                            entity.name
+                        )))
+                    })?;
                     let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
                             "entity.name={} sink.rejected.filesystem is required for rejection",
                             entity.name
                         )))
                     })?;
-                    let rejected_path_value = write_rejected_csv_output(
+                    let rejected_path_value = write_rejected_output(
+                        rejected_config.format.as_str(),
                         rejected_target,
                         &mut rejected_df,
                         source_stem,
@@ -732,7 +724,7 @@ fn filesystem_definition(
     })
 }
 
-pub(super) fn s3_client_for<'a>(
+pub(crate) fn s3_client_for<'a>(
     clients: &'a mut HashMap<String, io::fs::s3::S3Client>,
     resolver: &config::FilesystemResolver,
     filesystem: &str,
@@ -780,12 +772,12 @@ fn build_s3_inputs(
     client: &io::fs::s3::S3Client,
     bucket: &str,
     prefix: &str,
-    format: &str,
+    adapter: &dyn InputAdapter,
     temp_dir: &Path,
     entity: &config::EntityConfig,
     filesystem: &str,
 ) -> FloeResult<Vec<InputFile>> {
-    let suffixes = io::fs::extensions::suffixes_for_format(format)?;
+    let suffixes = adapter.suffixes()?;
     let keys = client.list_objects(bucket, prefix)?;
     let keys = io::fs::s3::filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {

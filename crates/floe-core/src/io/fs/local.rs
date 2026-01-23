@@ -21,6 +21,7 @@ pub fn resolve_local_inputs(
     entity_name: &str,
     source: &config::SourceConfig,
     filesystem: &str,
+    default_globs: &[String],
 ) -> FloeResult<ResolvedLocalInputs> {
     let default_options = config::SourceOptions::default();
     let options = source.options.as_ref().unwrap_or(&default_options);
@@ -59,7 +60,7 @@ pub fn resolve_local_inputs(
     let glob_used = if let Some(glob_override) = glob_override {
         vec![glob_override.to_string()]
     } else {
-        super::extensions::glob_patterns_for_format(source.format.as_str())?
+        default_globs.to_vec()
     };
     if !base_path.is_dir() {
         return Err(Box::new(ConfigError(no_match_message(
@@ -194,6 +195,10 @@ mod tests {
         fs::write(path, contents).expect("write file");
     }
 
+    fn default_globs(format: &str) -> Vec<String> {
+        crate::io::fs::extensions::glob_patterns_for_format(format).expect("default globs")
+    }
+
     fn source_config(
         format: &str,
         path: &Path,
@@ -217,7 +222,8 @@ mod tests {
         let source = source_config("csv", &root, None);
 
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
 
         let names = resolved
             .files
@@ -240,7 +246,8 @@ mod tests {
         let source = source_config("csv", &root, Some(options));
 
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
         let names = resolved
             .files
             .iter()
@@ -257,7 +264,8 @@ mod tests {
         let source = source_config("csv", &root, None);
 
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
         let names = resolved
             .files
             .iter()
@@ -276,7 +284,8 @@ mod tests {
         };
         let source = source_config("csv", &root, Some(options));
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
         let names = resolved
             .files
             .iter()
@@ -298,7 +307,8 @@ mod tests {
         let source = source_config("csv", &root.join("*.csv"), None);
 
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
         assert_eq!(resolved.files.len(), 2);
     }
 
@@ -310,7 +320,8 @@ mod tests {
         let source = source_config("csv", &root, None);
 
         let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local").expect("resolve inputs");
+            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+                .expect("resolve inputs");
         let names = resolved
             .files
             .iter()
@@ -328,7 +339,8 @@ mod tests {
         };
         let source = source_config("csv", &root, Some(options));
 
-        let err = resolve_local_inputs(&root, "customer", &source, "local").unwrap_err();
+        let err = resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
+            .unwrap_err();
         let message = err.to_string();
         assert!(message.contains("entity.name=customer"));
         assert!(message.contains("source.filesystem=local"));

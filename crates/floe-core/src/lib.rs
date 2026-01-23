@@ -2,6 +2,7 @@ use std::path::Path;
 
 pub mod checks;
 pub mod config;
+mod format;
 mod io;
 pub mod report;
 pub mod run;

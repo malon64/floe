@@ -159,6 +159,7 @@ pub struct FilesystemDefinition {
     pub fs_type: String,
     pub bucket: Option<String>,
     pub region: Option<String>,
+    pub prefix: Option<String>,
 }
 
 #[derive(Debug)]

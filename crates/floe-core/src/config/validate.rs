@@ -246,11 +246,19 @@ impl FilesystemRegistry {
                     ALLOWED_FILESYSTEM_TYPES.join(", ")
                 ))));
             }
-            if definition.fs_type == "s3" && definition.bucket.is_none() {
-                return Err(Box::new(ConfigError(format!(
-                    "filesystems.definitions name={} requires bucket for type s3",
-                    definition.name
-                ))));
+            if definition.fs_type == "s3" {
+                if definition.bucket.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "filesystems.definitions name={} requires bucket for type s3",
+                        definition.name
+                    ))));
+                }
+                if definition.region.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "filesystems.definitions name={} requires region for type s3",
+                        definition.name
+                    ))));
+                }
             }
             if definitions
                 .insert(definition.name.clone(), definition.clone())
@@ -315,18 +323,12 @@ impl FilesystemRegistry {
             return Ok(());
         }
 
-        let definition = self.definitions.get(name).ok_or_else(|| {
+        let _definition = self.definitions.get(name).ok_or_else(|| {
             Box::new(ConfigError(format!(
                 "entity.name={} {field} references unknown filesystem {}",
                 entity.name, name
             )))
         })?;
-
-        if definition.fs_type == "s3" {
-            return Err(Box::new(ConfigError(
-                "filesystem type s3 is not supported yet (F-103)".to_string(),
-            )));
-        }
 
         Ok(())
     }

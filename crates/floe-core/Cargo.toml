@@ -19,3 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["formatting"] }
 glob = "0.3"
+aws-config = "1"
+aws-sdk-s3 = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "fs", "io-util"] }

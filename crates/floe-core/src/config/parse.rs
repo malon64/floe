@@ -251,13 +251,14 @@ fn parse_filesystem_definition(value: &Yaml) -> FloeResult<FilesystemDefinition>
     validate_known_keys(
         hash,
         "filesystems.definitions",
-        &["name", "type", "bucket", "region"],
+        &["name", "type", "bucket", "region", "prefix"],
     )?;
     Ok(FilesystemDefinition {
         name: get_string(hash, "name", "filesystems.definitions")?,
         fs_type: get_string(hash, "type", "filesystems.definitions")?,
         bucket: opt_string(hash, "bucket", "filesystems.definitions")?,
         region: opt_string(hash, "region", "filesystems.definitions")?,
+        prefix: opt_string(hash, "prefix", "filesystems.definitions")?,
     })
 }
 

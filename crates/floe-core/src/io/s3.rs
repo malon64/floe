@@ -1,3 +1,5 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use aws_config::meta::region::RegionProviderChain;
@@ -180,14 +182,30 @@ pub fn filter_keys_by_suffix(mut keys: Vec<String>, suffix: &str) -> Vec<String>
 }
 
 pub fn temp_path_for_key(temp_dir: &Path, key: &str) -> PathBuf {
-    let sanitized = key.replace('/', "__");
-    temp_dir.join(sanitized)
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let name = file_name_from_key(key).unwrap_or_else(|| "object".to_string());
+    let sanitized = sanitize_filename(&name);
+    temp_dir.join(format!("{hash:016x}_{sanitized}"))
 }
 
 pub fn file_name_from_key(key: &str) -> Option<String> {
     Path::new(key)
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 pub fn file_stem_from_name(name: &str) -> Option<String> {
@@ -295,5 +313,13 @@ mod tests {
         ];
         let filtered = filter_keys_by_suffix(keys, ".csv");
         assert_eq!(filtered, vec!["a.CSV", "b.csv"]);
+    }
+
+    #[test]
+    fn temp_path_for_key_avoids_separator_collisions() {
+        let temp_dir = Path::new("tmp");
+        let first = temp_path_for_key(temp_dir, "dir/a/b.csv");
+        let second = temp_path_for_key(temp_dir, "dir/a__b.csv");
+        assert_ne!(first, second);
     }
 }

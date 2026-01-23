@@ -162,20 +162,14 @@ pub fn normalize_base_key(base_key: &str) -> String {
     base_key.trim_matches('/').to_string()
 }
 
-pub fn suffix_for_format(format: &str) -> FloeResult<&'static str> {
-    match format {
-        "csv" => Ok(".csv"),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported source format for s3: {format}"
-        )))),
-    }
-}
-
-pub fn filter_keys_by_suffix(mut keys: Vec<String>, suffix: &str) -> Vec<String> {
-    let suffix = suffix.to_ascii_lowercase();
+pub fn filter_keys_by_suffixes(mut keys: Vec<String>, suffixes: &[String]) -> Vec<String> {
+    let suffixes = suffixes
+        .iter()
+        .map(|suffix| suffix.to_ascii_lowercase())
+        .collect::<Vec<_>>();
     keys.retain(|key| {
         let lower = key.to_ascii_lowercase();
-        lower.ends_with(&suffix) && !lower.ends_with('/')
+        !lower.ends_with('/') && suffixes.iter().any(|suffix| lower.ends_with(suffix))
     });
     keys.sort();
     keys
@@ -311,7 +305,7 @@ mod tests {
             "a.CSV".to_string(),
             "c.txt".to_string(),
         ];
-        let filtered = filter_keys_by_suffix(keys, ".csv");
+        let filtered = filter_keys_by_suffixes(keys, &[".csv".to_string()]);
         assert_eq!(filtered, vec!["a.CSV", "b.csv"]);
     }
 

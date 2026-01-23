@@ -785,13 +785,17 @@ fn build_s3_inputs(
     entity: &config::EntityConfig,
     filesystem: &str,
 ) -> FloeResult<Vec<InputFile>> {
-    let suffix = io::fs::s3::suffix_for_format(format)?;
+    let suffixes = io::fs::extensions::suffixes_for_format(format)?;
     let keys = client.list_objects(bucket, prefix)?;
-    let keys = io::fs::s3::filter_keys_by_suffix(keys, suffix);
+    let keys = io::fs::s3::filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} source.filesystem={} no input objects matched (bucket={}, prefix={}, suffix={})",
-            entity.name, filesystem, bucket, prefix, suffix
+            "entity.name={} source.filesystem={} no input objects matched (bucket={}, prefix={}, suffixes={})",
+            entity.name,
+            filesystem,
+            bucket,
+            prefix,
+            suffixes.join(",")
         ))));
     }
     let mut inputs = Vec::with_capacity(keys.len());

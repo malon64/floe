@@ -57,33 +57,38 @@ pub fn resolve_local_inputs(
     }
 
     let glob_used = if let Some(glob_override) = glob_override {
-        glob_override.to_string()
+        vec![glob_override.to_string()]
     } else {
-        default_glob(source.format.as_str())?.to_string()
+        super::extensions::glob_patterns_for_format(source.format.as_str())?
     };
     if !base_path.is_dir() {
         return Err(Box::new(ConfigError(no_match_message(
             entity_name,
             filesystem,
             &base_path.display().to_string(),
-            &glob_used,
+            &glob_used.join(","),
             recursive,
         ))));
     }
 
-    let pattern_path = if recursive {
-        base_path.join("**").join(&glob_used)
+    let pattern_paths = if recursive {
+        glob_used
+            .iter()
+            .map(|glob| base_path.join("**").join(glob))
+            .collect::<Vec<_>>()
     } else {
-        base_path.join(&glob_used)
+        glob_used
+            .iter()
+            .map(|glob| base_path.join(glob))
+            .collect::<Vec<_>>()
     };
-    let pattern = pattern_path.to_string_lossy().to_string();
-    let files = collect_glob_files(&pattern)?;
+    let files = collect_glob_files_multi(&pattern_paths)?;
     if files.is_empty() {
         return Err(Box::new(ConfigError(no_match_message(
             entity_name,
             filesystem,
             &base_path.display().to_string(),
-            &glob_used,
+            &glob_used.join(","),
             recursive,
         ))));
     }
@@ -120,18 +125,6 @@ fn split_glob_details(pattern_path: &Path, raw_pattern: &str) -> (String, String
     (base, glob_used)
 }
 
-fn default_glob(format: &str) -> FloeResult<&'static str> {
-    match format {
-        "csv" => Ok("*.[cC][sS][vV]"),
-        "parquet" => Ok("*.[pP][aA][rR][qQ][uU][eE][tT]"),
-        // Default for json inputs in local mode uses .json files.
-        "json" => Ok("*.[jJ][sS][oO][nN]"),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported source format for input resolution: {format}"
-        )))),
-    }
-}
-
 fn collect_glob_files(pattern: &str) -> FloeResult<Vec<PathBuf>> {
     let mut files = Vec::new();
     let entries = glob(pattern).map_err(|err| {
@@ -150,6 +143,17 @@ fn collect_glob_files(pattern: &str) -> FloeResult<Vec<PathBuf>> {
         }
     }
     files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+    Ok(files)
+}
+
+fn collect_glob_files_multi(patterns: &[PathBuf]) -> FloeResult<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for pattern_path in patterns {
+        let pattern = pattern_path.to_string_lossy().to_string();
+        files.extend(collect_glob_files(&pattern)?);
+    }
+    files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+    files.dedup_by(|a, b| a.to_string_lossy() == b.to_string_lossy());
     Ok(files)
 }
 

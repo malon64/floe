@@ -111,27 +111,9 @@ impl InputAdapter for JsonInputAdapter {
             let path = &input_file.local_path;
             match read_ndjson_file(path) {
                 Ok(df) => {
-                    let input_columns = df
-                        .get_column_names()
-                        .iter()
-                        .map(|name| name.to_string())
-                        .collect::<Vec<_>>();
-                    let typed_schema =
-                        format::build_typed_schema(&input_columns, columns, normalize_strategy)?;
-                    let mut raw_df = format::cast_df_to_string(&df)?;
-                    let mut typed_df = format::cast_df_to_schema(&df, &typed_schema)?;
-                    if let Some(strategy) = normalize_strategy {
-                        crate::run::normalize::normalize_dataframe_columns(&mut raw_df, strategy)?;
-                        crate::run::normalize::normalize_dataframe_columns(
-                            &mut typed_df,
-                            strategy,
-                        )?;
-                    }
-                    inputs.push(ReadInput::Data {
-                        input_file: input_file.clone(),
-                        raw_df,
-                        typed_df,
-                    });
+                    let input =
+                        format::read_input_from_df(input_file, &df, columns, normalize_strategy)?;
+                    inputs.push(input);
                 }
                 Err(err) => {
                     inputs.push(ReadInput::FileError {

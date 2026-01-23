@@ -62,10 +62,11 @@ pub fn read_csv_file(
 pub fn read_csv_header(
     input_path: &Path,
     source_options: &config::SourceOptions,
+    n_rows: Option<usize>,
 ) -> FloeResult<Vec<String>> {
     let read_options = source_options
         .to_csv_read_options(input_path)?
-        .with_n_rows(Some(1));
+        .with_n_rows(n_rows);
     let reader = read_options
         .try_into_reader_with_file_path(None)
         .map_err(|err| {
@@ -108,17 +109,11 @@ impl InputAdapter for CsvInputAdapter {
                 format::build_typed_schema(&input_columns, columns, normalize_strategy)?;
             let raw_plan = CsvReadPlan::strict(raw_schema);
             let typed_plan = CsvReadPlan::permissive(typed_schema);
-            let mut raw_df = read_csv_file(path, source_options, &raw_plan)?;
-            let mut typed_df = read_csv_file(path, source_options, &typed_plan)?;
-            if let Some(strategy) = normalize_strategy {
-                crate::run::normalize::normalize_dataframe_columns(&mut raw_df, strategy)?;
-                crate::run::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
-            }
-            inputs.push(ReadInput::Data {
-                input_file: input_file.clone(),
-                raw_df,
-                typed_df,
-            });
+            let raw_df = read_csv_file(path, source_options, &raw_plan)?;
+            let typed_df = read_csv_file(path, source_options, &typed_plan)?;
+            let input =
+                format::finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)?;
+            inputs.push(input);
         }
         Ok(inputs)
     }
@@ -130,11 +125,11 @@ fn resolve_input_columns(
     declared_columns: &[config::ColumnConfig],
 ) -> FloeResult<Vec<String>> {
     let header = source_options.header.unwrap_or(true);
-    let input_columns = read_csv_header(path, source_options)?;
     if header {
-        return Ok(input_columns);
+        return read_csv_header(path, source_options, Some(0));
     }
 
+    let input_columns = read_csv_header(path, source_options, Some(1))?;
     let declared_names = declared_columns
         .iter()
         .map(|column| column.name.clone())

@@ -110,33 +110,147 @@ pub trait RejectedSinkAdapter: Send + Sync {
     ) -> FloeResult<String>;
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum FormatKind {
+    Source,
+    SinkAccepted,
+    SinkRejected,
+}
+
+impl FormatKind {
+    fn field_path(self) -> &'static str {
+        match self {
+            FormatKind::Source => "source.format",
+            FormatKind::SinkAccepted => "sink.accepted.format",
+            FormatKind::SinkRejected => "sink.rejected.format",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            FormatKind::Source => "source format",
+            FormatKind::SinkAccepted => "accepted sink format",
+            FormatKind::SinkRejected => "rejected sink format",
+        }
+    }
+}
+
+fn unsupported_format_error(
+    kind: FormatKind,
+    format: &str,
+    entity_name: Option<&str>,
+) -> ConfigError {
+    if let Some(entity_name) = entity_name {
+        return ConfigError(format!(
+            "entity.name={} {}={} is unsupported",
+            entity_name,
+            kind.field_path(),
+            format
+        ));
+    }
+    ConfigError(format!("unsupported {}: {format}", kind.description()))
+}
+
+pub fn ensure_input_format(entity_name: &str, format: &str) -> FloeResult<()> {
+    if input_adapter(format).is_err() {
+        return Err(Box::new(unsupported_format_error(
+            FormatKind::Source,
+            format,
+            Some(entity_name),
+        )));
+    }
+    Ok(())
+}
+
+pub fn ensure_accepted_sink_format(entity_name: &str, format: &str) -> FloeResult<()> {
+    if accepted_sink_adapter(format).is_err() {
+        return Err(Box::new(unsupported_format_error(
+            FormatKind::SinkAccepted,
+            format,
+            Some(entity_name),
+        )));
+    }
+    Ok(())
+}
+
+pub fn ensure_rejected_sink_format(entity_name: &str, format: &str) -> FloeResult<()> {
+    if rejected_sink_adapter(format).is_err() {
+        return Err(Box::new(unsupported_format_error(
+            FormatKind::SinkRejected,
+            format,
+            Some(entity_name),
+        )));
+    }
+    Ok(())
+}
+
 pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
     match format {
         "csv" => Ok(io::read::csv::csv_input_adapter()),
         "parquet" => Ok(io::read::parquet::parquet_input_adapter()),
         "json" => Ok(io::read::json::json_input_adapter()),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported source format: {format}"
-        )))),
+        _ => Err(Box::new(unsupported_format_error(
+            FormatKind::Source,
+            format,
+            None,
+        ))),
     }
 }
 
 pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
     match format {
         "parquet" => Ok(io::write::parquet_accepted_adapter()),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported accepted sink format: {format}"
-        )))),
+        _ => Err(Box::new(unsupported_format_error(
+            FormatKind::SinkAccepted,
+            format,
+            None,
+        ))),
     }
 }
 
 pub fn rejected_sink_adapter(format: &str) -> FloeResult<&'static dyn RejectedSinkAdapter> {
     match format {
         "csv" => Ok(io::write::csv_rejected_adapter()),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported rejected sink format: {format}"
-        )))),
+        _ => Err(Box::new(unsupported_format_error(
+            FormatKind::SinkRejected,
+            format,
+            None,
+        ))),
     }
+}
+
+pub(crate) fn read_input_from_df(
+    input_file: &InputFile,
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+) -> FloeResult<ReadInput> {
+    let input_columns = df
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
+    let raw_df = cast_df_to_string(df)?;
+    let typed_df = cast_df_to_schema(df, &typed_schema)?;
+    finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)
+}
+
+pub(crate) fn finalize_read_input(
+    input_file: &InputFile,
+    mut raw_df: DataFrame,
+    mut typed_df: DataFrame,
+    normalize_strategy: Option<&str>,
+) -> FloeResult<ReadInput> {
+    if let Some(strategy) = normalize_strategy {
+        crate::run::normalize::normalize_dataframe_columns(&mut raw_df, strategy)?;
+        crate::run::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
+    }
+    Ok(ReadInput::Data {
+        input_file: input_file.clone(),
+        raw_df,
+        typed_df,
+    })
 }
 
 pub(crate) fn build_typed_schema(

@@ -77,41 +77,15 @@ pub(super) fn run_entity(
         None
     };
 
-    let (input_files, resolved_mode) = if source_is_s3 {
-        let source_location = io::fs::s3::parse_s3_uri(&resolved_paths.source.uri)?;
-        let s3_client = s3_client_for(
-            s3_clients,
-            &context.filesystem_resolver,
-            &resolved_paths.source.filesystem,
-            entity,
-        )?;
-        let temp_dir = temp_dir
-            .as_ref()
-            .ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
-        let inputs = build_s3_inputs(
-            s3_client,
-            &source_location.bucket,
-            &source_location.key,
-            input_adapter,
-            temp_dir.path(),
-            entity,
-            &resolved_paths.source.filesystem,
-        )?;
-        (inputs, report::ResolvedInputMode::Directory)
-    } else {
-        let resolved_inputs = input_adapter.resolve_local_inputs(
-            &context.config_dir,
-            &entity.name,
-            input,
-            &resolved_paths.source.filesystem,
-        )?;
-        let inputs = build_local_inputs(&resolved_inputs.files, entity);
-        let mode = match resolved_inputs.mode {
-            io::fs::local::LocalInputMode::File => report::ResolvedInputMode::File,
-            io::fs::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
-        };
-        (inputs, mode)
-    };
+    let (input_files, resolved_mode) = resolve_input_files(
+        context,
+        s3_clients,
+        entity,
+        input_adapter,
+        &resolved_paths,
+        source_is_s3,
+        temp_dir.as_ref(),
+    )?;
 
     let inputs = read_inputs(
         input_adapter,
@@ -659,6 +633,51 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+fn resolve_input_files(
+    context: &RunContext,
+    s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+    entity: &config::EntityConfig,
+    input_adapter: &dyn InputAdapter,
+    resolved_paths: &ResolvedEntityPaths,
+    source_is_s3: bool,
+    temp_dir: Option<&tempfile::TempDir>,
+) -> FloeResult<(Vec<InputFile>, report::ResolvedInputMode)> {
+    if source_is_s3 {
+        let source_location = io::fs::s3::parse_s3_uri(&resolved_paths.source.uri)?;
+        let s3_client = s3_client_for(
+            s3_clients,
+            &context.filesystem_resolver,
+            &resolved_paths.source.filesystem,
+            entity,
+        )?;
+        let temp_dir =
+            temp_dir.ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
+        let inputs = build_s3_inputs(
+            s3_client,
+            &source_location.bucket,
+            &source_location.key,
+            input_adapter,
+            temp_dir.path(),
+            entity,
+            &resolved_paths.source.filesystem,
+        )?;
+        return Ok((inputs, report::ResolvedInputMode::Directory));
+    }
+
+    let resolved_inputs = input_adapter.resolve_local_inputs(
+        &context.config_dir,
+        &entity.name,
+        &entity.source,
+        &resolved_paths.source.filesystem,
+    )?;
+    let inputs = build_local_inputs(&resolved_inputs.files, entity);
+    let mode = match resolved_inputs.mode {
+        io::fs::local::LocalInputMode::File => report::ResolvedInputMode::File,
+        io::fs::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
+    };
+    Ok((inputs, mode))
 }
 
 fn resolve_entity_paths(

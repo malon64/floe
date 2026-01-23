@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::{check, config, io, report, ConfigError, FloeResult};
 
-use super::file::{collect_errors, read_inputs, required_columns};
+use super::file::{collect_errors, read_inputs, required_columns, ReadInput};
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
@@ -175,8 +175,93 @@ pub(super) fn run_entity(
 
     let mut file_timings_ms = Vec::with_capacity(inputs.len());
     let mut abort_run = false;
-    for (input_file, mut raw_df, mut df) in inputs {
+    for input in inputs {
         let file_timer = Instant::now();
+        let (input_file, mut raw_df, mut df) = match input {
+            ReadInput::Data {
+                input_file,
+                raw_df,
+                typed_df,
+            } => (input_file, raw_df, typed_df),
+            ReadInput::FileError { input_file, error } => {
+                let status = if entity.policy.severity == "abort" {
+                    report::FileStatus::Aborted
+                } else {
+                    report::FileStatus::Rejected
+                };
+                let mismatch_action = if status == report::FileStatus::Aborted {
+                    report::MismatchAction::Aborted
+                } else {
+                    report::MismatchAction::RejectedFile
+                };
+
+                let rejected_target = resolved_paths
+                    .rejected
+                    .as_ref()
+                    .map(storage_target_from_resolved)
+                    .transpose()?;
+                let rejected_path = rejected_target
+                    .as_ref()
+                    .map(|target| {
+                        write_rejected_raw_output(
+                            target,
+                            &input_file,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            s3_clients,
+                            &context.filesystem_resolver,
+                            entity,
+                        )
+                    })
+                    .transpose()?;
+
+                let file_report = report::FileReport {
+                    input_file: input_file.source_uri.clone(),
+                    status,
+                    row_count: 0,
+                    accepted_count: 0,
+                    rejected_count: 0,
+                    mismatch: report::FileMismatch {
+                        declared_columns_count: normalized_columns.len() as u64,
+                        input_columns_count: 0,
+                        missing_columns: Vec::new(),
+                        extra_columns: Vec::new(),
+                        mismatch_action,
+                        error: Some(report::MismatchIssue {
+                            rule: error.rule,
+                            message: format!("entity.name={} {}", entity.name, error.message),
+                        }),
+                        warning: None,
+                    },
+                    output: report::FileOutput {
+                        accepted_path: None,
+                        rejected_path,
+                        errors_path: None,
+                        archived_path: None,
+                    },
+                    validation: report::FileValidation {
+                        errors: 1,
+                        warnings: 0,
+                        rules: Vec::new(),
+                        examples: report::ExampleSummary {
+                            max_examples_per_rule: 3,
+                            items: Vec::new(),
+                        },
+                    },
+                };
+
+                totals.errors_total += 1;
+                file_statuses.push(status);
+                file_reports.push(file_report);
+                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+
+                if status == report::FileStatus::Aborted {
+                    abort_run = true;
+                    break;
+                }
+                continue;
+            }
+        };
+
         let source_stem = input_file.source_stem.as_str();
         let mismatch =
             check::apply_schema_mismatch(entity, &normalized_columns, &mut raw_df, &mut df)?;

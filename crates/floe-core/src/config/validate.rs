@@ -4,7 +4,7 @@ use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
-const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv", "parquet"];
+const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv", "parquet", "json"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
 const ALLOWED_ACCEPTED_FORMATS: &[&str] = &["parquet"];
@@ -72,6 +72,21 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
         entity.source.filesystem.as_deref(),
     )?;
     filesystems.validate_reference(entity, "source.filesystem", &fs_name)?;
+
+    if entity.source.format == "json" {
+        let ndjson = entity
+            .source
+            .options
+            .as_ref()
+            .and_then(|options| options.ndjson)
+            .unwrap_or(false);
+        if !ndjson {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.format=json requires source.options.ndjson=true (json array mode not supported yet)",
+                entity.name
+            ))));
+        }
+    }
 
     if entity.source.format == "parquet" {
         if let Some(fs_type) = filesystems.definition_type(&fs_name) {

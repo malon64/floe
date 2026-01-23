@@ -11,6 +11,23 @@ use super::normalize::{normalize_dataframe_columns, normalize_name};
 
 pub(super) type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
+pub(super) struct FileReadError {
+    pub rule: String,
+    pub message: String,
+}
+
+pub(super) enum ReadInput {
+    Data {
+        input_file: InputFile,
+        raw_df: DataFrame,
+        typed_df: DataFrame,
+    },
+    FileError {
+        input_file: InputFile,
+        error: FileReadError,
+    },
+}
+
 pub(super) fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
     columns
         .iter()
@@ -24,7 +41,7 @@ pub(super) fn read_inputs(
     files: &[InputFile],
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
-) -> FloeResult<Vec<(InputFile, DataFrame, DataFrame)>> {
+) -> FloeResult<Vec<ReadInput>> {
     let input = &entity.source;
     match input.format.as_str() {
         "csv" => {
@@ -44,7 +61,11 @@ pub(super) fn read_inputs(
                     normalize_dataframe_columns(&mut raw_df, strategy)?;
                     normalize_dataframe_columns(&mut typed_df, strategy)?;
                 }
-                inputs.push((input_file.clone(), raw_df, typed_df));
+                inputs.push(ReadInput::Data {
+                    input_file: input_file.clone(),
+                    raw_df,
+                    typed_df,
+                });
             }
             Ok(inputs)
         }
@@ -65,7 +86,49 @@ pub(super) fn read_inputs(
                     normalize_dataframe_columns(&mut raw_df, strategy)?;
                     normalize_dataframe_columns(&mut typed_df, strategy)?;
                 }
-                inputs.push((input_file.clone(), raw_df, typed_df));
+                inputs.push(ReadInput::Data {
+                    input_file: input_file.clone(),
+                    raw_df,
+                    typed_df,
+                });
+            }
+            Ok(inputs)
+        }
+        "json" => {
+            let mut inputs = Vec::with_capacity(files.len());
+            for input_file in files {
+                let path = &input_file.local_path;
+                match io::read::read_ndjson_file(path) {
+                    Ok(df) => {
+                        let input_columns = df
+                            .get_column_names()
+                            .iter()
+                            .map(|name| name.to_string())
+                            .collect::<Vec<_>>();
+                        let typed_schema =
+                            build_typed_schema(&input_columns, columns, normalize_strategy)?;
+                        let mut raw_df = cast_df_to_string(&df)?;
+                        let mut typed_df = cast_df_to_schema(&df, &typed_schema)?;
+                        if let Some(strategy) = normalize_strategy {
+                            normalize_dataframe_columns(&mut raw_df, strategy)?;
+                            normalize_dataframe_columns(&mut typed_df, strategy)?;
+                        }
+                        inputs.push(ReadInput::Data {
+                            input_file: input_file.clone(),
+                            raw_df,
+                            typed_df,
+                        });
+                    }
+                    Err(err) => {
+                        inputs.push(ReadInput::FileError {
+                            input_file: input_file.clone(),
+                            error: FileReadError {
+                                rule: err.rule,
+                                message: err.message,
+                            },
+                        });
+                    }
+                }
             }
             Ok(inputs)
         }

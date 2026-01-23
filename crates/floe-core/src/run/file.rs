@@ -249,7 +249,10 @@ fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<DataFrame> {
     Ok(out)
 }
 
-fn cast_string_to_bool(name: &str, series: &polars::prelude::Column) -> FloeResult<Series> {
+fn cast_string_to_bool(
+    name: &str,
+    series: &polars::prelude::Column,
+) -> FloeResult<polars::prelude::Column> {
     let string_values = series.as_materialized_series().str().map_err(|err| {
         Box::new(ConfigError(format!(
             "failed to read boolean column {} as string: {err}",
@@ -265,7 +268,7 @@ fn cast_string_to_bool(name: &str, series: &polars::prelude::Column) -> FloeResu
         });
         values.push(parsed);
     }
-    Ok(Series::new(name.into(), values))
+    Ok(Series::new(name.into(), values).into())
 }
 
 fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> {

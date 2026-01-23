@@ -1,10 +1,10 @@
 use polars::prelude::DataFrame;
 
-use crate::{config, format, FloeResult};
+use crate::{config, io, FloeResult};
 
-use format::{InputAdapter, InputFile, ReadInput};
+use io::format::{InputAdapter, InputFile, ReadInput};
 
-pub(super) type ValidationCollect = format::ValidationCollect;
+pub(super) type ValidationCollect = io::format::ValidationCollect;
 
 pub(super) fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
     columns
@@ -31,5 +31,5 @@ pub(super) fn collect_errors(
     columns: &[config::ColumnConfig],
     track_cast_errors: bool,
 ) -> FloeResult<ValidationCollect> {
-    format::collect_errors(raw_df, typed_df, required_cols, columns, track_cast_errors)
+    io::format::collect_errors(raw_df, typed_df, required_cols, columns, track_cast_errors)
 }

@@ -3,9 +3,9 @@ use std::path::Path;
 
 use polars::prelude::DataFrame;
 
-use crate::{check, config, format, io, ConfigError, FloeResult};
+use crate::{check, config, io, ConfigError, FloeResult};
 
-use format::{InputFile, StorageTarget};
+use io::format::{self, InputFile, StorageTarget};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn write_accepted_output(

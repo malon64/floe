@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
-use crate::format;
+use crate::io::format;
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];

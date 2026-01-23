@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::{check, config, format, io, report, ConfigError, FloeResult};
+use crate::{check, config, io, report, ConfigError, FloeResult};
 
 use super::file::{collect_errors, read_inputs, required_columns};
 use super::normalize::normalize_schema_columns;
@@ -16,7 +16,7 @@ use super::reporting::{
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 
-use format::{InputAdapter, InputFile, ReadInput, StorageTarget};
+use io::format::{self, InputAdapter, InputFile, ReadInput, StorageTarget};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,

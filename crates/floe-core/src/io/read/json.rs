@@ -4,6 +4,17 @@ use std::path::Path;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use serde_json::Value;
 
+use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::{config, FloeResult};
+
+struct JsonInputAdapter;
+
+static JSON_INPUT_ADAPTER: JsonInputAdapter = JsonInputAdapter;
+
+pub(crate) fn json_input_adapter() -> &'static dyn InputAdapter {
+    &JSON_INPUT_ADAPTER
+}
+
 #[derive(Debug, Clone)]
 pub struct JsonReadError {
     pub rule: String,
@@ -81,4 +92,58 @@ pub fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
         rule: "json_parse_error".to_string(),
         message: format!("failed to build dataframe: {err}"),
     })
+}
+
+impl InputAdapter for JsonInputAdapter {
+    fn format(&self) -> &'static str {
+        "json"
+    }
+
+    fn read_inputs(
+        &self,
+        _entity: &config::EntityConfig,
+        files: &[InputFile],
+        columns: &[config::ColumnConfig],
+        normalize_strategy: Option<&str>,
+    ) -> FloeResult<Vec<ReadInput>> {
+        let mut inputs = Vec::with_capacity(files.len());
+        for input_file in files {
+            let path = &input_file.local_path;
+            match read_ndjson_file(path) {
+                Ok(df) => {
+                    let input_columns = df
+                        .get_column_names()
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect::<Vec<_>>();
+                    let typed_schema =
+                        format::build_typed_schema(&input_columns, columns, normalize_strategy)?;
+                    let mut raw_df = format::cast_df_to_string(&df)?;
+                    let mut typed_df = format::cast_df_to_schema(&df, &typed_schema)?;
+                    if let Some(strategy) = normalize_strategy {
+                        crate::run::normalize::normalize_dataframe_columns(&mut raw_df, strategy)?;
+                        crate::run::normalize::normalize_dataframe_columns(
+                            &mut typed_df,
+                            strategy,
+                        )?;
+                    }
+                    inputs.push(ReadInput::Data {
+                        input_file: input_file.clone(),
+                        raw_df,
+                        typed_df,
+                    });
+                }
+                Err(err) => {
+                    inputs.push(ReadInput::FileError {
+                        input_file: input_file.clone(),
+                        error: FileReadError {
+                            rule: err.rule,
+                            message: err.message,
+                        },
+                    });
+                }
+            }
+        }
+        Ok(inputs)
+    }
 }

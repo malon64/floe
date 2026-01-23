@@ -1,14 +1,12 @@
 use std::collections::HashSet;
 
 use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
+use crate::io::format;
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
-const ALLOWED_SOURCE_FORMATS: &[&str] = &["csv", "parquet", "json"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
-const ALLOWED_ACCEPTED_FORMATS: &[&str] = &["parquet"];
-const ALLOWED_REJECTED_FORMATS: &[&str] = &["csv"];
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
@@ -46,14 +44,7 @@ fn validate_entity(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
 }
 
 fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
-    if !ALLOWED_SOURCE_FORMATS.contains(&entity.source.format.as_str()) {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} source.format={} is unsupported (allowed: {})",
-            entity.name,
-            entity.source.format,
-            ALLOWED_SOURCE_FORMATS.join(", ")
-        ))));
-    }
+    format::ensure_input_format(&entity.name, entity.source.format.as_str())?;
 
     if let Some(cast_mode) = &entity.source.cast_mode {
         if !ALLOWED_CAST_MODES.contains(&cast_mode.as_str()) {
@@ -103,14 +94,7 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
 }
 
 fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
-    if !ALLOWED_ACCEPTED_FORMATS.contains(&entity.sink.accepted.format.as_str()) {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.format={} is unsupported (allowed: {})",
-            entity.name,
-            entity.sink.accepted.format,
-            ALLOWED_ACCEPTED_FORMATS.join(", ")
-        ))));
-    }
+    format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
 
     if entity.policy.severity == "reject" && entity.sink.rejected.is_none() {
         return Err(Box::new(ConfigError(format!(
@@ -120,14 +104,7 @@ fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> Flo
     }
 
     if let Some(rejected) = &entity.sink.rejected {
-        if !ALLOWED_REJECTED_FORMATS.contains(&rejected.format.as_str()) {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.rejected.format={} is unsupported (allowed: {})",
-                entity.name,
-                rejected.format,
-                ALLOWED_REJECTED_FORMATS.join(", ")
-            ))));
-        }
+        format::ensure_rejected_sink_format(&entity.name, rejected.format.as_str())?;
     }
 
     let accepted_fs = filesystems.resolve_name(

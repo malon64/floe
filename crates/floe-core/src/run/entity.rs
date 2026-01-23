@@ -4,36 +4,19 @@ use std::time::Instant;
 
 use crate::{check, config, io, report, ConfigError, FloeResult};
 
-use super::file::{collect_errors, read_inputs, required_columns, ReadInput};
+use super::file::{collect_errors, read_inputs, required_columns};
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
-    write_error_report_output, write_rejected_csv_output, write_rejected_raw_output,
+    write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
 use super::reporting::{
     entity_metadata_json, project_metadata_json, source_options_json, summarize_validation,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 
-#[derive(Clone)]
-pub(super) struct InputFile {
-    pub source_uri: String,
-    pub local_path: PathBuf,
-    pub source_name: String,
-    pub source_stem: String,
-}
-
-pub(super) enum StorageTarget {
-    Local {
-        base_path: String,
-    },
-    S3 {
-        filesystem: String,
-        bucket: String,
-        base_key: String,
-    },
-}
+use io::format::{self, InputAdapter, InputFile, ReadInput, StorageTarget};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
@@ -54,6 +37,7 @@ pub(super) fn run_entity(
 ) -> FloeResult<EntityRunResult> {
     let config = &context.config;
     let input = &entity.source;
+    let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_paths = resolve_entity_paths(&context.filesystem_resolver, entity)?;
     let source_definition = filesystem_definition(
         &context.filesystem_resolver,
@@ -93,43 +77,18 @@ pub(super) fn run_entity(
         None
     };
 
-    let (input_files, resolved_mode) = if source_is_s3 {
-        let source_location = io::fs::s3::parse_s3_uri(&resolved_paths.source.uri)?;
-        let s3_client = s3_client_for(
-            s3_clients,
-            &context.filesystem_resolver,
-            &resolved_paths.source.filesystem,
-            entity,
-        )?;
-        let temp_dir = temp_dir
-            .as_ref()
-            .ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
-        let inputs = build_s3_inputs(
-            s3_client,
-            &source_location.bucket,
-            &source_location.key,
-            input.format.as_str(),
-            temp_dir.path(),
-            entity,
-            &resolved_paths.source.filesystem,
-        )?;
-        (inputs, report::ResolvedInputMode::Directory)
-    } else {
-        let resolved_inputs = io::fs::local::resolve_local_inputs(
-            &context.config_dir,
-            &entity.name,
-            input,
-            &resolved_paths.source.filesystem,
-        )?;
-        let inputs = build_local_inputs(&resolved_inputs.files, entity);
-        let mode = match resolved_inputs.mode {
-            io::fs::local::LocalInputMode::File => report::ResolvedInputMode::File,
-            io::fs::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
-        };
-        (inputs, mode)
-    };
+    let (input_files, resolved_mode) = resolve_input_files(
+        context,
+        s3_clients,
+        entity,
+        input_adapter,
+        &resolved_paths,
+        source_is_s3,
+        temp_dir.as_ref(),
+    )?;
 
     let inputs = read_inputs(
+        input_adapter,
         entity,
         &input_files,
         &normalized_columns,
@@ -414,13 +373,20 @@ pub(super) fn run_entity(
                         entity,
                     )?;
                     accepted_path = Some(output_path);
+                    let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
+                        Box::new(ConfigError(format!(
+                            "entity.name={} sink.rejected.filesystem is required for rejection",
+                            entity.name
+                        )))
+                    })?;
                     let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
                             "entity.name={} sink.rejected.filesystem is required for rejection",
                             entity.name
                         )))
                     })?;
-                    let rejected_path_value = write_rejected_csv_output(
+                    let rejected_path_value = write_rejected_output(
+                        rejected_config.format.as_str(),
                         rejected_target,
                         &mut rejected_df,
                         source_stem,
@@ -669,6 +635,51 @@ pub(super) fn run_entity(
     })
 }
 
+fn resolve_input_files(
+    context: &RunContext,
+    s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+    entity: &config::EntityConfig,
+    input_adapter: &dyn InputAdapter,
+    resolved_paths: &ResolvedEntityPaths,
+    source_is_s3: bool,
+    temp_dir: Option<&tempfile::TempDir>,
+) -> FloeResult<(Vec<InputFile>, report::ResolvedInputMode)> {
+    if source_is_s3 {
+        let source_location = io::fs::s3::parse_s3_uri(&resolved_paths.source.uri)?;
+        let s3_client = s3_client_for(
+            s3_clients,
+            &context.filesystem_resolver,
+            &resolved_paths.source.filesystem,
+            entity,
+        )?;
+        let temp_dir =
+            temp_dir.ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
+        let inputs = build_s3_inputs(
+            s3_client,
+            &source_location.bucket,
+            &source_location.key,
+            input_adapter,
+            temp_dir.path(),
+            entity,
+            &resolved_paths.source.filesystem,
+        )?;
+        return Ok((inputs, report::ResolvedInputMode::Directory));
+    }
+
+    let resolved_inputs = input_adapter.resolve_local_inputs(
+        &context.config_dir,
+        &entity.name,
+        &entity.source,
+        &resolved_paths.source.filesystem,
+    )?;
+    let inputs = build_local_inputs(&resolved_inputs.files, entity);
+    let mode = match resolved_inputs.mode {
+        io::fs::local::LocalInputMode::File => report::ResolvedInputMode::File,
+        io::fs::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
+    };
+    Ok((inputs, mode))
+}
+
 fn resolve_entity_paths(
     resolver: &config::FilesystemResolver,
     entity: &config::EntityConfig,
@@ -732,7 +743,7 @@ fn filesystem_definition(
     })
 }
 
-pub(super) fn s3_client_for<'a>(
+pub(crate) fn s3_client_for<'a>(
     clients: &'a mut HashMap<String, io::fs::s3::S3Client>,
     resolver: &config::FilesystemResolver,
     filesystem: &str,
@@ -780,12 +791,12 @@ fn build_s3_inputs(
     client: &io::fs::s3::S3Client,
     bucket: &str,
     prefix: &str,
-    format: &str,
+    adapter: &dyn InputAdapter,
     temp_dir: &Path,
     entity: &config::EntityConfig,
     filesystem: &str,
 ) -> FloeResult<Vec<InputFile>> {
-    let suffixes = io::fs::extensions::suffixes_for_format(format)?;
+    let suffixes = adapter.suffixes()?;
     let keys = client.list_objects(bucket, prefix)?;
     let keys = io::fs::s3::filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {

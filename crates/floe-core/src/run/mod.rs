@@ -4,9 +4,9 @@ use std::path::Path;
 use crate::{config, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
-mod entity;
+pub(crate) mod entity;
 mod file;
-mod normalize;
+pub(crate) mod normalize;
 mod output;
 mod reporting;
 

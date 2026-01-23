@@ -31,8 +31,8 @@ entities:
 
     sink:
       accepted:
-        format: "parquet"
-        path: "/home/alexis/floe/example/out/accepted/customer/"
+        format: "delta"
+        path: "/home/alexis/floe/example/out/accepted/customer_delta/"
       rejected:
         format: "csv"
         path: "/home/alexis/floe/example/out/rejected/customer/"

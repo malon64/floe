@@ -45,3 +45,46 @@ pub fn unique_errors(
 
     Ok(errors_per_row)
 }
+
+pub fn unique_counts(
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+) -> FloeResult<Vec<(String, u64)>> {
+    if df.height() == 0 {
+        return Ok(Vec::new());
+    }
+
+    let unique_columns: Vec<&config::ColumnConfig> = columns
+        .iter()
+        .filter(|col| col.unique == Some(true))
+        .collect();
+    if unique_columns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut counts = Vec::new();
+    for column in unique_columns {
+        let series = df.column(&column.name).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "unique column {} not found: {err}",
+                column.name
+            )))
+        })?;
+        let non_null = series.len().saturating_sub(series.null_count());
+        if non_null == 0 {
+            continue;
+        }
+        let unique = series.drop_nulls().n_unique().map_err(|err| {
+            Box::new(ConfigError(format!(
+                "unique column {} read failed: {err}",
+                column.name
+            )))
+        })?;
+        let violations = non_null.saturating_sub(unique) as u64;
+        if violations > 0 {
+            counts.push((column.name.clone(), violations));
+        }
+    }
+
+    Ok(counts)
+}

@@ -7,8 +7,8 @@ use polars::prelude::{BooleanChunked, NamedFrom, NewChunkedArray, Series};
 
 pub use cast::cast_mismatch_errors;
 pub use mismatch::{apply_schema_mismatch, MismatchOutcome};
-pub use not_null::not_null_errors;
-pub use unique::unique_errors;
+pub use not_null::{not_null_counts, not_null_errors};
+pub use unique::{unique_counts, unique_errors};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowError {

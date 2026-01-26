@@ -32,3 +32,26 @@ pub fn not_null_errors(df: &DataFrame, required_cols: &[String]) -> FloeResult<V
 
     Ok(errors_per_row)
 }
+
+pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<Vec<(String, u64)>> {
+    if required_cols.is_empty() || df.height() == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut counts = Vec::new();
+    for name in required_cols {
+        let nulls = df
+            .column(name)
+            .map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "required column {name} not found: {err}"
+                )))
+            })?
+            .is_null();
+        let violations = nulls.sum().unwrap_or(0) as u64;
+        if violations > 0 {
+            counts.push((name.clone(), violations));
+        }
+    }
+    Ok(counts)
+}

@@ -309,6 +309,117 @@ pub(super) fn run_entity(
             continue;
         }
 
+        let fast_warn = entity.policy.severity == "warn" && !track_cast_errors;
+        if fast_warn {
+            let not_null_counts = check::not_null_counts(&df, &required_cols)?;
+            let unique_counts = check::unique_counts(&df, &normalized_columns)?;
+            let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
+            let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
+            let violation_count = not_null_total + unique_total;
+
+            let mut rules = Vec::new();
+            if not_null_total > 0 {
+                let columns = not_null_counts
+                    .iter()
+                    .map(|(name, count)| report::ColumnSummary {
+                        column: name.clone(),
+                        violations: *count,
+                        target_type: None,
+                    })
+                    .collect();
+                rules.push(report::RuleSummary {
+                    rule: report::RuleName::NotNull,
+                    severity,
+                    violations: not_null_total,
+                    columns,
+                });
+            }
+            if unique_total > 0 {
+                let columns = unique_counts
+                    .iter()
+                    .map(|(name, count)| report::ColumnSummary {
+                        column: name.clone(),
+                        violations: *count,
+                        target_type: None,
+                    })
+                    .collect();
+                rules.push(report::RuleSummary {
+                    rule: report::RuleName::Unique,
+                    severity,
+                    violations: unique_total,
+                    columns,
+                });
+            }
+
+            let mut examples = report::ExampleSummary {
+                max_examples_per_rule: 3,
+                items: Vec::new(),
+            };
+            let mut archived_path = None;
+            let mut sink_options_warnings = 0;
+            if let Some(message) = sink_options_warning.as_deref() {
+                sink_options_warnings = 1;
+                if !sink_options_warned {
+                    eprintln!("warn: {message}");
+                    sink_options_warned = true;
+                }
+                append_sink_options_warning(&mut rules, &mut examples, message);
+            }
+
+            let output_path = write_accepted_output(
+                entity.sink.accepted.format.as_str(),
+                &accepted_target,
+                &mut df,
+                source_stem,
+                temp_dir.as_ref().map(|dir| dir.path()),
+                s3_clients,
+                &context.filesystem_resolver,
+                entity,
+            )?;
+            let accepted_path = Some(output_path);
+
+            if archive_enabled {
+                if let Some(dir) = &archive_dir {
+                    let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
+                    archived_path = Some(archived_path_buf.display().to_string());
+                }
+            }
+
+            let errors = mismatch.errors;
+            let warnings = violation_count + mismatch.warnings + sink_options_warnings;
+            let status = report::FileStatus::Success;
+
+            let file_report = report::FileReport {
+                input_file: input_file.source_uri.clone(),
+                status,
+                row_count,
+                accepted_count: row_count,
+                rejected_count: 0,
+                mismatch: mismatch.report,
+                output: report::FileOutput {
+                    accepted_path,
+                    rejected_path: None,
+                    errors_path: None,
+                    archived_path,
+                },
+                validation: report::FileValidation {
+                    errors,
+                    warnings,
+                    rules,
+                    examples,
+                },
+            };
+
+            totals.rows_total += row_count;
+            totals.accepted_total += row_count;
+            totals.errors_total += errors;
+            totals.warnings_total += warnings;
+            file_statuses.push(status);
+            file_reports.push(file_report);
+            file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+            continue;
+        }
+
         let (accept_rows, errors_json, error_lists) = collect_errors(
             &raw_df,
             &df,

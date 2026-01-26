@@ -26,13 +26,6 @@ impl CsvReadPlan {
             ignore_errors: false,
         }
     }
-
-    pub fn permissive(schema: Schema) -> Self {
-        Self {
-            schema,
-            ignore_errors: true,
-        }
-    }
 }
 
 pub fn read_csv_file(
@@ -108,9 +101,8 @@ impl InputAdapter for CsvInputAdapter {
             let typed_schema =
                 format::build_typed_schema(&input_columns, columns, normalize_strategy)?;
             let raw_plan = CsvReadPlan::strict(raw_schema);
-            let typed_plan = CsvReadPlan::permissive(typed_schema);
             let raw_df = read_csv_file(path, source_options, &raw_plan)?;
-            let typed_df = read_csv_file(path, source_options, &typed_plan)?;
+            let typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
             let input =
                 format::finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)?;
             inputs.push(input);

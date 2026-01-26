@@ -23,7 +23,7 @@ pub(super) struct EntityRunResult {
     pub abort_run: bool,
 }
 
-struct FastWarnOutcome {
+struct WarnOutcome {
     file_report: report::FileReport,
     status: report::FileStatus,
     elapsed_ms: u64,
@@ -315,10 +315,11 @@ pub(super) fn run_entity(
             continue;
         }
 
-        if let Some(outcome) = try_fast_warn(
+        if let Some(outcome) = try_warn_counts(
             entity,
             &input_file,
             row_count,
+            &raw_df,
             &mut df,
             &required_cols,
             &normalized_columns,
@@ -693,10 +694,11 @@ pub(super) fn run_entity(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_fast_warn(
+fn try_warn_counts(
     entity: &config::EntityConfig,
     input_file: &InputFile,
     row_count: u64,
+    raw_df: &polars::prelude::DataFrame,
     df: &mut polars::prelude::DataFrame,
     required_cols: &[String],
     normalized_columns: &[config::ColumnConfig],
@@ -713,16 +715,22 @@ fn try_fast_warn(
     s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
     resolver: &config::FilesystemResolver,
     elapsed_ms: u64,
-) -> FloeResult<Option<FastWarnOutcome>> {
-    if entity.policy.severity != "warn" || track_cast_errors {
+) -> FloeResult<Option<WarnOutcome>> {
+    if entity.policy.severity != "warn" {
         return Ok(None);
     }
 
     let not_null_counts = check::not_null_counts(df, required_cols)?;
     let unique_counts = check::unique_counts(df, normalized_columns)?;
+    let cast_counts = if track_cast_errors {
+        check::cast_mismatch_counts(raw_df, df, normalized_columns)?
+    } else {
+        Vec::new()
+    };
     let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
     let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
-    let violation_count = not_null_total + unique_total;
+    let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
+    let violation_count = not_null_total + unique_total + cast_total;
 
     let mut rules = Vec::new();
     if not_null_total > 0 {
@@ -754,6 +762,22 @@ fn try_fast_warn(
             rule: report::RuleName::Unique,
             severity,
             violations: unique_total,
+            columns,
+        });
+    }
+    if cast_total > 0 {
+        let columns = cast_counts
+            .iter()
+            .map(|(name, count, target_type)| report::ColumnSummary {
+                column: name.clone(),
+                violations: *count,
+                target_type: Some(target_type.clone()),
+            })
+            .collect();
+        rules.push(report::RuleSummary {
+            rule: report::RuleName::CastError,
+            severity,
+            violations: cast_total,
             columns,
         });
     }
@@ -817,7 +841,7 @@ fn try_fast_warn(
         },
     };
 
-    Ok(Some(FastWarnOutcome {
+    Ok(Some(WarnOutcome {
         file_report,
         status,
         elapsed_ms,

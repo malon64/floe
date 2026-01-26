@@ -1,4 +1,4 @@
-use polars::prelude::DataFrame;
+use polars::prelude::{AnyValue, DataFrame};
 
 use super::RowError;
 use crate::{ConfigError, FloeResult};
@@ -38,17 +38,23 @@ pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<V
         return Ok(Vec::new());
     }
 
+    let null_counts = df.null_count();
     let mut counts = Vec::new();
     for name in required_cols {
-        let nulls = df
-            .column(name)
-            .map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "required column {name} not found: {err}"
-                )))
-            })?
-            .is_null();
-        let violations = nulls.sum().unwrap_or(0) as u64;
+        let series = null_counts.column(name).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "required column {name} not found: {err}"
+            )))
+        })?;
+        let value = series.get(0).unwrap_or(AnyValue::UInt32(0));
+        let violations = match value {
+            AnyValue::UInt32(value) => value as u64,
+            AnyValue::UInt64(value) => value,
+            AnyValue::Int64(value) => value.max(0) as u64,
+            AnyValue::Int32(value) => value.max(0) as u64,
+            AnyValue::Null => 0,
+            _ => 0,
+        };
         if violations > 0 {
             counts.push((name.clone(), violations));
         }

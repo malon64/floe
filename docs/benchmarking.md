@@ -34,8 +34,9 @@ python3 scripts/prepare_data.py --sizes 100000,1000000
   - `pickup_datetime` -> timestamp (format: `M/d/yyyy H:mm:ss`)
   - `lat`, `lon` -> float
   - `base` -> string
-- Not-null: `row_id`, `pickup_datetime`
+- Not-null: `row_id` (pickup_datetime is nullable for the benchmark)
 - Unique: `row_id` (keep first, reject duplicates)
+ - Cast mode: coerce
 
 ## Run all benchmarks
 

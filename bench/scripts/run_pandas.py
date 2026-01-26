@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_for_size(path: Path) -> tuple[float, float, int, int]:
+def run_for_size(path: Path, accepted_path: Path, rejected_path: Path) -> tuple[float, float, int, int]:
     start = time.perf_counter()
     df = pd.read_csv(path)
 
@@ -53,10 +53,17 @@ def run_for_size(path: Path) -> tuple[float, float, int, int]:
     df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
     df["base"] = df["base"].astype("string")
 
-    valid_mask = df["row_id"].notna() & df["pickup_datetime"].notna()
+    valid_mask = df["row_id"].notna()
     dup_mask = df["row_id"].duplicated(keep="first")
-    accepted = int((valid_mask & ~dup_mask).sum())
-    rejected = int(len(df) - accepted)
+    accepted_df = df[valid_mask & ~dup_mask].copy()
+    rejected_df = df[~(valid_mask & ~dup_mask)].copy()
+    accepted = int(len(accepted_df))
+    rejected = int(len(rejected_df))
+
+    accepted_path.parent.mkdir(parents=True, exist_ok=True)
+    rejected_path.parent.mkdir(parents=True, exist_ok=True)
+    accepted_df.to_csv(accepted_path, index=False)
+    rejected_df.to_csv(rejected_path, index=False)
 
     wall_time_s = time.perf_counter() - start
     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -73,7 +80,11 @@ def main() -> None:
         path = args.generated_dir / f"uber_{label}.csv"
         if not path.exists():
             raise SystemExit(f"missing input: {path}")
-        wall_time_s, peak_rss_mb, accepted, rejected = run_for_size(path)
+        accepted_path = Path("out/accepted/pandas") / f"uber_{label}.csv"
+        rejected_path = Path("out/rejected/pandas") / f"uber_{label}.csv"
+        wall_time_s, peak_rss_mb, accepted, rejected = run_for_size(
+            path, accepted_path, rejected_path
+        )
         cmd = [
             sys.executable,
             "scripts/write_result.py",

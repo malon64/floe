@@ -23,7 +23,7 @@ def main() -> None:
 
     start_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     start_time = time.perf_counter()
-    proc = subprocess.run(cmd, check=False)
+    proc = subprocess.run(cmd, check=False, stdout=sys.stderr, stderr=sys.stderr)
     end_time = time.perf_counter()
     end_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
 

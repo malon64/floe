@@ -23,4 +23,7 @@ bench/data/
 bench/generated/
 bench/out/
 bench/results/report/
+bench/config/bench_*.yml
+!bench/config/bench.yml
+bench/scripts/__pycache__/
 bench/.venv

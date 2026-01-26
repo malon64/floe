@@ -13,18 +13,14 @@ entities:
         header: true
         separator: ","
         null_values: ["", "NULL", "null"]
-      cast_mode: "strict"
+      cast_mode: "coerce"
 
     sink:
       accepted:
         format: "parquet"
         path: "../out/accepted"
-      rejected:
-        format: "csv"
-        path: "../out/rejected"
-
     policy:
-      severity: "reject"
+      severity: "warn"
 
     schema:
       columns:
@@ -35,7 +31,7 @@ entities:
 
         - name: "pickup_datetime"
           type: "datetime"
-          nullable: false
+          nullable: true
           unique: false
 
         - name: "lat"

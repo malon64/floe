@@ -43,7 +43,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_for_size(spark: SparkSession, path: Path) -> tuple[float, float, int, int]:
+def run_for_size(
+    spark: SparkSession, path: Path, accepted_path: Path, rejected_path: Path
+) -> tuple[float, float, int, int]:
     start = time.perf_counter()
 
     df = spark.read.option("header", "true").csv(str(path))
@@ -61,16 +63,21 @@ def run_for_size(spark: SparkSession, path: Path) -> tuple[float, float, int, in
     window = Window.partitionBy("row_id").orderBy("row_id")
     df = df.withColumn("dup_rank", F.row_number().over(window))
 
-    valid = F.col("row_id").isNotNull() & F.col("pickup_datetime").isNotNull()
-    accepted_expr = F.sum(
-        F.when(valid & (F.col("dup_rank") == 1), 1).otherwise(0)
-    ).alias("accepted")
-    total_expr = F.count(F.lit(1)).alias("total")
+    valid = F.col("row_id").isNotNull()
+    accepted_df = df.filter(valid & (F.col("dup_rank") == 1)).drop("dup_rank")
+    rejected_df = df.filter(~(valid & (F.col("dup_rank") == 1))).drop("dup_rank")
 
-    row = df.select(accepted_expr, total_expr).collect()[0]
-    accepted = int(row["accepted"])
-    total = int(row["total"])
-    rejected = total - accepted
+    accepted = accepted_df.count()
+    rejected = rejected_df.count()
+
+    accepted_path.parent.mkdir(parents=True, exist_ok=True)
+    rejected_path.parent.mkdir(parents=True, exist_ok=True)
+    accepted_df.write.mode("overwrite").option("header", "true").csv(
+        str(accepted_path)
+    )
+    rejected_df.write.mode("overwrite").option("header", "true").csv(
+        str(rejected_path)
+    )
 
     wall_time_s = time.perf_counter() - start
     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -95,7 +102,11 @@ def main() -> None:
         if not path.exists():
             spark.stop()
             raise SystemExit(f"missing input: {path}")
-        wall_time_s, peak_rss_mb, accepted, rejected = run_for_size(spark, path)
+        accepted_path = Path("out/accepted/spark") / f"uber_{label}"
+        rejected_path = Path("out/rejected/spark") / f"uber_{label}"
+        wall_time_s, peak_rss_mb, accepted, rejected = run_for_size(
+            spark, path, accepted_path, rejected_path
+        )
         cmd = [
             sys.executable,
             "scripts/write_result.py",

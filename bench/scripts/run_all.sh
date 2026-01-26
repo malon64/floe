@@ -2,11 +2,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$ROOT/.." && pwd)"
 RESULTS_FILE="$ROOT/results/results.csv"
 
 mkdir -p "$ROOT/results" "$ROOT/results/report" "$ROOT/out/accepted" "$ROOT/out/rejected"
 
 : > "$RESULTS_FILE"
+
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  cargo build -p floe-cli --release --manifest-path "$PROJECT_ROOT/Cargo.toml"
+fi
+
+export FLOE_BIN="${FLOE_BIN:-$PROJECT_ROOT/target/release/floe}"
 
 if [[ "${SKIP_PREP:-0}" != "1" ]]; then
   if [[ -n "${SIZES:-}" ]]; then

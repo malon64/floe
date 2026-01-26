@@ -50,6 +50,10 @@ cd bench
 ./scripts/run_all.sh
 ```
 
+This builds the local Floe binary with Cargo and runs the benchmark against
+`../target/release/floe`. To skip the build step, set `SKIP_BUILD=1` and ensure
+`FLOE_BIN` points to a valid binary.
+
 Optional environment flags:
 
 - Skip Spark:

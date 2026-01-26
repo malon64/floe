@@ -5,7 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_FILE="$ROOT/results/results.csv"
 CONFIG_BASE="$ROOT/config/bench.yml"
 REPORT_DIR="$ROOT/results/report"
-FLOE_BIN="${FLOE_BIN:-floe}"
+if [[ -z "${FLOE_BIN:-}" ]]; then
+  candidate="$ROOT/../target/release/floe"
+  if [[ -x "$candidate" ]]; then
+    FLOE_BIN="$candidate"
+  else
+    FLOE_BIN="floe"
+  fi
+fi
 
 if [[ -n "${SIZES:-}" ]]; then
   IFS=',' read -r -a sizes <<< "$SIZES"
@@ -26,7 +33,7 @@ for size in "${sizes[@]}"; do
   label="$(label_for_size "$size")"
   input_file="$ROOT/generated/uber_${label}.csv"
   if [[ ! -f "$input_file" ]]; then
-    echo "missing input: $input_file (run bench/scripts/prepare_data.py)" >&2
+    echo "missing input: $input_file (run scripts/prepare_data.py)" >&2
     exit 1
   fi
 

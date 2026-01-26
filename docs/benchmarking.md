@@ -48,6 +48,7 @@ cd bench
 ```
 
 Options:
+- `SKIP_BUILD=1` to skip rebuilding `../target/release/floe`
 - Limit sizes: `SIZES=100000,1000000 ./scripts/run_all.sh`
 - Skip a tool: `SKIP_SPARK=1 ./scripts/run_all.sh`
 

@@ -1,51 +1,119 @@
+![Floe logo](docs/assets/floe.png)
+
 # Floe
 
-Floe is a YAML-driven technical ingestion tool for single-node, medium-sized datasets. It targets data engineering workflows where raw files (initially CSV) are ingested into a clean, typed dataset with simple technical rules:
+Technical ingestion on a single node, driven by YAML contracts.
 
-- Schema enforcement (types + nullable)
-- Data quality checks (not_null, unique, cast mismatch)
-- Row-level rejection by default
-- Run report (JSON) with counts and aggregated violations
+Floe is a Rust + Polars tool for technical ingestion on a single node. It ingests raw files into typed datasets using YAML contracts, applying schema enforcement and simple data quality rules with clear, auditable outputs.
 
-Floe is intentionally not a distributed engine and is not meant to replace Spark. This repository is a learning project in Rust, with a working core pipeline that is intentionally small and readable.
+## What Floe solves
 
-## What you can do today
+- Schema enforcement and type casting (`strict` vs `coerce`)
+- Nullability checks (`not_null`)
+- Uniqueness checks (`unique`)
+- Policy behavior: `warn` / `reject` / `abort`
+- Accepted vs rejected outputs for clean separation
+- JSON run reports for observability and audit
 
-- Validate configs with `floe validate`
-- Run local CSV ingestion with `floe run`
-- Emit accepted/rejected outputs
-- Generate per-entity run reports
+## Why not Spark?
 
-## Non-goals (for now)
+- Floe targets single-node jobs where cluster setup and JVM overhead are unnecessary.
+- It avoids distributed complexity for small/medium datasets.
 
-- Distributed execution or orchestration
-- Advanced rule engines or UDFs
-- Multi-format IO beyond CSV input + parquet output
-- Incremental state beyond a single run
+## Why not Pandas?
 
-## Repository layout
+- Better suited for larger-than-memory-ish CSV workloads via Polars.
+- Stronger contract-driven ingestion and reporting model.
 
-- `crates/floe-core/`: core library (config parsing, checks, IO, reporting)
-- `crates/floe-cli/`: CLI interface
-- `docs/`: docs for checks, reports, CLI, and features
-- `example/`: sample configs and input data
+## Quickstart (Homebrew)
 
-## Quick start
+### Install
 
 ```bash
-floe validate -c example/config.yml --entities customer
-floe run -c example/config.yml --entities customer
+brew tap malon64/floe
+brew install floe
+floe --version
 ```
 
-## Docs
+### Validate
 
-- Checks: `docs/checks.md`
-- Config: `docs/config.md`
-- Reports: `docs/report.md`
-- CLI: `docs/cli.md`
-- Features: `docs/features.md`
-- Release: `docs/release.md`
-- Docs index: see the list above for the current, version-agnostic docs set.
+```bash
+floe validate -c example/config.yml
+```
+
+### Run
+
+```bash
+floe run -c example/config.yml
+```
+
+### Troubleshooting
+
+If Homebrew is unavailable:
+
+- GitHub Releases: download the prebuilt binary from the latest release
+- Cargo: `cargo install floe-cli`
+
+## Outputs explained
+
+- Accepted output: `entities[].sink.accepted.path`
+- Rejected output: `entities[].sink.rejected.path`
+- Reports: `<report.path>/run_<run_id>/<entity.name>/run.json`
+
+Reports include per-entity JSON, a run summary, and key counters (rows, accepted/rejected, errors).
+
+## Minimal config example
+
+```yaml
+version: "0.1"
+report:
+  path: "./reports"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "./example/in/customer"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./example/out/accepted/customer"
+      rejected:
+        format: "csv"
+        path: "./example/out/rejected/customer"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: true
+        - name: "created_at"
+          type: "datetime"
+          nullable: true
+```
+
+Full example: `example/config.yml`
+
+## Sample console output
+
+```text
+run id: run-123
+report base: ./reports
+==> entity customer (severity=reject, format=csv)
+  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=customers.parquet rejected_out=customers_rejected.csv
+Totals: files=1 rows=10 accepted=8 rejected=2
+Overall: rejected (exit_code=0)
+Run summary: ./reports/run_run-123/run.summary.json
+```
+
+## Roadmap (near term)
+
+- Parquet and JSON input formats
+- Delta sink for accepted outputs
+- S3 input/output stabilization
+- Benchmarking harness and performance baselines
+- Improved CLI UX and richer validation diagnostics
 
 ## License
 

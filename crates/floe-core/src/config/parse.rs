@@ -9,8 +9,8 @@ use crate::config::yaml_decode::{
 use crate::config::{
     ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, FilesystemDefinition,
     FilesystemsConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig,
-    RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkTarget, SourceConfig,
-    SourceOptions,
+    RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget,
+    SourceConfig, SourceOptions,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -189,7 +189,7 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     let hash = yaml_hash(value, "sink")?;
     validate_known_keys(hash, "sink", &["accepted", "rejected", "archive"])?;
     let rejected = match hash_get(hash, "rejected") {
-        Some(value) => Some(parse_sink_target(value, "sink.rejected")?),
+        Some(value) => Some(parse_sink_target(value, "sink.rejected", false)?),
         None => None,
     };
     let archive = match hash_get(hash, "archive") {
@@ -198,19 +198,41 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     };
 
     Ok(SinkConfig {
-        accepted: parse_sink_target(get_value(hash, "accepted", "sink")?, "sink.accepted")?,
+        accepted: parse_sink_target(get_value(hash, "accepted", "sink")?, "sink.accepted", true)?,
         rejected,
         archive,
     })
 }
 
-fn parse_sink_target(value: &Yaml, ctx: &str) -> FloeResult<SinkTarget> {
+fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult<SinkTarget> {
     let hash = yaml_hash(value, ctx)?;
-    validate_known_keys(hash, ctx, &["format", "path", "filesystem"])?;
+    let mut allowed = vec!["format", "path", "filesystem"];
+    if allow_options {
+        allowed.push("options");
+    }
+    validate_known_keys(hash, ctx, &allowed)?;
+    let options = if allow_options {
+        match hash_get(hash, "options") {
+            Some(value) => Some(parse_sink_options(value, &format!("{ctx}.options"))?),
+            None => None,
+        }
+    } else {
+        None
+    };
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
         filesystem: opt_string(hash, "filesystem", ctx)?,
+        options,
+    })
+}
+
+fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["compression", "row_group_size"])?;
+    Ok(SinkOptions {
+        compression: opt_string(hash, "compression", ctx)?,
+        row_group_size: opt_u64(hash, "row_group_size", ctx)?,
     })
 }
 
@@ -393,6 +415,25 @@ fn opt_bool(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<bool>> {
             Yaml::Boolean(value) => Ok(Some(*value)),
             _ => Err(Box::new(ConfigError(format!(
                 "expected boolean at {ctx}.{key}"
+            )))),
+        },
+    }
+}
+
+fn opt_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
+    match hash_get(hash, key) {
+        None | Some(Yaml::Null) | Some(Yaml::BadValue) => Ok(None),
+        Some(value) => match value {
+            Yaml::Integer(raw) => {
+                if *raw < 0 {
+                    return Err(Box::new(ConfigError(format!(
+                        "expected positive integer at {ctx}.{key}"
+                    ))));
+                }
+                Ok(Some(*raw as u64))
+            }
+            _ => Err(Box::new(ConfigError(format!(
+                "expected integer at {ctx}.{key}"
             )))),
         },
     }

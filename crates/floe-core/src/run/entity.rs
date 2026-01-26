@@ -133,6 +133,8 @@ pub(super) fn run_entity(
         .map(|archive| config::resolve_local_path(&context.config_dir, &archive.path));
 
     let mut file_timings_ms = Vec::with_capacity(inputs.len());
+    let sink_options_warning = sink_options_warning(entity);
+    let mut sink_options_warned = false;
     let mut abort_run = false;
     for input in inputs {
         let file_timer = Instant::now();
@@ -329,7 +331,17 @@ pub(super) fn run_entity(
         let mut rejected_path = None;
         let mut errors_path = None;
         let mut archived_path = None;
-        let (rules, examples) = summarize_validation(&error_lists, &normalized_columns, severity);
+        let (mut rules, mut examples) =
+            summarize_validation(&error_lists, &normalized_columns, severity);
+        let mut sink_options_warnings = 0;
+        if let Some(message) = sink_options_warning.as_deref() {
+            sink_options_warnings = 1;
+            if !sink_options_warned {
+                eprintln!("warn: {message}");
+                sink_options_warned = true;
+            }
+            append_sink_options_warning(&mut rules, &mut examples, message);
+        }
 
         match entity.policy.severity.as_str() {
             "warn" => {
@@ -504,7 +516,7 @@ pub(super) fn run_entity(
                 _ => unreachable!("severity validated earlier"),
             };
         let errors = errors + mismatch.errors;
-        let warnings = warnings + mismatch.warnings;
+        let warnings = warnings + mismatch.warnings + sink_options_warnings;
 
         let file_report = report::FileReport {
             input_file: input_file.source_uri.clone(),
@@ -633,6 +645,78 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+fn sink_options_warning(entity: &config::EntityConfig) -> Option<String> {
+    let options = entity.sink.accepted.options.as_ref()?;
+    if entity.sink.accepted.format == "parquet" {
+        return None;
+    }
+    let mut keys = Vec::new();
+    if options.compression.is_some() {
+        keys.push("compression");
+    }
+    if options.row_group_size.is_some() {
+        keys.push("row_group_size");
+    }
+    let detail = if keys.is_empty() {
+        "options".to_string()
+    } else {
+        keys.join(", ")
+    };
+    Some(format!(
+        "entity.name={} sink.accepted.options ({detail}) ignored for format={}",
+        entity.name, entity.sink.accepted.format
+    ))
+}
+
+fn append_sink_options_warning(
+    rules: &mut Vec<report::RuleSummary>,
+    examples: &mut report::ExampleSummary,
+    message: &str,
+) {
+    let column = "sink.accepted.options".to_string();
+    if let Some(rule) = rules
+        .iter_mut()
+        .find(|rule| rule.rule == report::RuleName::SchemaError)
+    {
+        rule.violations += 1;
+        rule.severity = report::Severity::Warn;
+        if let Some(entry) = rule.columns.iter_mut().find(|entry| entry.column == column) {
+            entry.violations += 1;
+        } else {
+            rule.columns.push(report::ColumnSummary {
+                column: column.clone(),
+                violations: 1,
+                target_type: None,
+            });
+        }
+    } else {
+        rules.push(report::RuleSummary {
+            rule: report::RuleName::SchemaError,
+            severity: report::Severity::Warn,
+            violations: 1,
+            columns: vec![report::ColumnSummary {
+                column: column.clone(),
+                violations: 1,
+                target_type: None,
+            }],
+        });
+    }
+
+    let existing = examples
+        .items
+        .iter()
+        .filter(|item| item.rule == report::RuleName::SchemaError)
+        .count() as u64;
+    if existing < examples.max_examples_per_rule {
+        examples.items.push(report::ValidationExample {
+            rule: report::RuleName::SchemaError,
+            column,
+            row_index: 0,
+            message: message.to_string(),
+        });
+    }
 }
 
 fn resolve_input_files(

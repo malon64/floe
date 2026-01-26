@@ -113,6 +113,11 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
   - `format`: `parquet` or `delta` (local). `iceberg` is recognized but not
     implemented yet.
   - `path`: output directory for accepted records.
+  - `options` (optional)
+    - Parquet-only sink options. When provided for other formats, Floe logs a
+      warning and records it in the run report.
+    - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
+    - `row_group_size`: positive integer (rows per row group)
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
   - `path`: output directory for rejected rows.

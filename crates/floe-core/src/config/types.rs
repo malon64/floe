@@ -147,6 +147,13 @@ pub struct SinkTarget {
     pub format: String,
     pub path: String,
     pub filesystem: Option<String>,
+    pub options: Option<SinkOptions>,
+}
+
+#[derive(Debug)]
+pub struct SinkOptions {
+    pub compression: Option<String>,
+    pub row_group_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

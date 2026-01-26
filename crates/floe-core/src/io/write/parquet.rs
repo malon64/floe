@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use polars::prelude::{DataFrame, ParquetWriter};
+use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
 use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
 use crate::{config, io, ConfigError, FloeResult};
@@ -18,13 +18,28 @@ pub fn write_parquet(
     df: &mut DataFrame,
     base_path: &str,
     source_stem: &str,
+    options: Option<&config::SinkOptions>,
 ) -> FloeResult<PathBuf> {
     let output_path = build_parquet_path(base_path, source_stem);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let file = std::fs::File::create(&output_path)?;
-    ParquetWriter::new(file)
+    let mut writer = ParquetWriter::new(file);
+    if let Some(options) = options {
+        if let Some(compression) = &options.compression {
+            writer = writer.with_compression(parse_parquet_compression(compression)?);
+        }
+        if let Some(row_group_size) = options.row_group_size {
+            let row_group_size = usize::try_from(row_group_size).map_err(|_| {
+                Box::new(ConfigError(format!(
+                    "parquet row_group_size is too large: {row_group_size}"
+                )))
+            })?;
+            writer = writer.with_row_group_size(Some(row_group_size));
+        }
+    }
+    writer
         .finish(df)
         .map_err(|err| Box::new(ConfigError(format!("parquet write failed: {err}"))))?;
     Ok(output_path)
@@ -43,7 +58,12 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
     ) -> FloeResult<String> {
         match target {
             StorageTarget::Local { base_path } => {
-                let output_path = write_parquet(df, base_path, source_stem)?;
+                let output_path = write_parquet(
+                    df,
+                    base_path,
+                    source_stem,
+                    entity.sink.accepted.options.as_ref(),
+                )?;
                 Ok(output_path.display().to_string())
             }
             StorageTarget::S3 {
@@ -58,7 +78,12 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                     )))
                 })?;
                 let temp_base = temp_dir.display().to_string();
-                let local_path = write_parquet(df, &temp_base, source_stem)?;
+                let local_path = write_parquet(
+                    df,
+                    &temp_base,
+                    source_stem,
+                    entity.sink.accepted.options.as_ref(),
+                )?;
                 let key = io::fs::s3::build_parquet_key(base_key, source_stem);
                 let client =
                     crate::run::entity::s3_client_for(s3_clients, resolver, filesystem, entity)?;
@@ -75,5 +100,17 @@ fn build_parquet_path(base_path: &str, source_stem: &str) -> PathBuf {
         path.to_path_buf()
     } else {
         path.join(format!("{source_stem}.parquet"))
+    }
+}
+
+fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {
+    match value {
+        "snappy" => Ok(ParquetCompression::Snappy),
+        "gzip" => Ok(ParquetCompression::Gzip(None)),
+        "zstd" => Ok(ParquetCompression::Zstd(None)),
+        "uncompressed" => Ok(ParquetCompression::Uncompressed),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported parquet compression: {value}"
+        )))),
     }
 }

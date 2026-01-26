@@ -1,0 +1,54 @@
+version: "0.1"
+
+report:
+  path: "../results/report"
+
+entities:
+  - name: "uber"
+
+    source:
+      format: "csv"
+      path: "../generated/uber_100k.csv"
+      options:
+        header: true
+        separator: ","
+        null_values: ["", "NULL", "null"]
+      cast_mode: "strict"
+
+    sink:
+      accepted:
+        format: "parquet"
+        path: "../out/accepted"
+      rejected:
+        format: "csv"
+        path: "../out/rejected"
+
+    policy:
+      severity: "reject"
+
+    schema:
+      columns:
+        - name: "row_id"
+          type: "integer"
+          nullable: false
+          unique: true
+
+        - name: "pickup_datetime"
+          type: "datetime"
+          nullable: false
+          unique: false
+
+        - name: "lat"
+          type: "number"
+          nullable: true
+          unique: false
+
+        - name: "lon"
+          type: "number"
+          nullable: true
+          unique: false
+
+        - name: "base"
+          type: "string"
+          nullable: true
+          unique: false

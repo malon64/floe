@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sizes",
         type=str,
-        default="100000,1000000",
+        default="100000,1000000,5000000",
         help="Comma-separated row counts",
     )
     return parser.parse_args()

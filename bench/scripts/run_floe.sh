@@ -10,7 +10,7 @@ FLOE_BIN="${FLOE_BIN:-floe}"
 if [[ -n "${SIZES:-}" ]]; then
   IFS=',' read -r -a sizes <<< "$SIZES"
 else
-  sizes=(100000 1000000)
+  sizes=(100000 1000000 5000000)
 fi
 
 label_for_size() {

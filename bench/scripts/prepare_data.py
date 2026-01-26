@@ -4,7 +4,7 @@ import csv
 import itertools
 from pathlib import Path
 
-DEFAULT_BASE = Path("bench/data/uber-raw-data-apr14.csv")
+DEFAULT_BASE = Path("data/uber-raw-data-apr14.csv")
 DEFAULT_SIZES = [100_000, 1_000_000, 5_000_000]
 
 
@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("bench/generated"),
+        default=Path("generated"),
         help="Output directory for generated CSV files",
     )
     parser.add_argument(

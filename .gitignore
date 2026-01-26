@@ -23,3 +23,4 @@ bench/data/
 bench/generated/
 bench/out/
 bench/results/report/
+bench/.venv

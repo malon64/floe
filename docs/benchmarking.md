@@ -15,16 +15,16 @@ produce slide-ready `bench/results/results.csv`.
 - A synthetic `row_id` column is injected (strictly increasing).
 - Every 10,000th row has an empty `pickup_datetime` to exercise not-null logic.
 
-Generate inputs:
+Generate inputs (run from the `bench/` directory):
 
 ```
-python3 bench/scripts/prepare_data.py
+python3 scripts/prepare_data.py
 ```
 
 To limit sizes:
 
 ```
-python3 bench/scripts/prepare_data.py --sizes 100000,1000000
+python3 scripts/prepare_data.py --sizes 100000,1000000
 ```
 
 ## Validation rules (aligned across tools)

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RESULTS_FILE="$ROOT/bench/results/results.csv"
-CONFIG_BASE="$ROOT/bench/config/bench.yml"
-REPORT_DIR="$ROOT/bench/results/report"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RESULTS_FILE="$ROOT/results/results.csv"
+CONFIG_BASE="$ROOT/config/bench.yml"
+REPORT_DIR="$ROOT/results/report"
 FLOE_BIN="${FLOE_BIN:-floe}"
 
 if [[ -n "${SIZES:-}" ]]; then
@@ -24,17 +24,17 @@ label_for_size() {
 
 for size in "${sizes[@]}"; do
   label="$(label_for_size "$size")"
-  input_file="$ROOT/bench/generated/uber_${label}.csv"
+  input_file="$ROOT/generated/uber_${label}.csv"
   if [[ ! -f "$input_file" ]]; then
     echo "missing input: $input_file (run bench/scripts/prepare_data.py)" >&2
     exit 1
   fi
 
-  tmp_config="$(mktemp "$ROOT/bench/config/bench_${label}_XXXX.yml")"
+  tmp_config="$(mktemp "$ROOT/config/bench_${label}_XXXX.yml")"
   sed "s|../generated/uber_100k.csv|../generated/uber_${label}.csv|" "$CONFIG_BASE" > "$tmp_config"
 
   run_id="bench-${label}"
-  metrics_json="$(python3 "$ROOT/bench/scripts/time_cmd.py" -- "$FLOE_BIN" run -c "$tmp_config" --run-id "$run_id" --quiet)"
+  metrics_json="$(python3 "$ROOT/scripts/time_cmd.py" -- "$FLOE_BIN" run -c "$tmp_config" --run-id "$run_id" --quiet)"
 
   wall_time_s="$(python3 - <<'PY' "$metrics_json"
 import json
@@ -75,7 +75,7 @@ PY
   accepted_rows="${read_counts%% *}"
   rejected_rows="${read_counts##* }"
 
-  python3 "$ROOT/bench/scripts/write_result.py" \
+  python3 "$ROOT/scripts/write_result.py" \
     --results-file "$RESULTS_FILE" \
     --tool "floe" \
     --dataset "uber" \

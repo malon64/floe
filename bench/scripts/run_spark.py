@@ -25,13 +25,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--generated-dir",
         type=Path,
-        default=Path("bench/generated"),
+        default=Path("generated"),
         help="Directory with generated CSV files",
     )
     parser.add_argument(
         "--results-file",
         type=Path,
-        default=Path("bench/results/results.csv"),
+        default=Path("results/results.csv"),
         help="Results CSV path",
     )
     parser.add_argument(
@@ -98,7 +98,7 @@ def main() -> None:
         wall_time_s, peak_rss_mb, accepted, rejected = run_for_size(spark, path)
         cmd = [
             sys.executable,
-            "bench/scripts/write_result.py",
+            "scripts/write_result.py",
             "--results-file",
             str(args.results_file),
             "--tool",

@@ -4,6 +4,3 @@ members = [
   "crates/floe-cli",
 ]
 resolver = "2"
-
-[patch.crates-io]
-arrow-arith = { path = "vendor/arrow-arith" }

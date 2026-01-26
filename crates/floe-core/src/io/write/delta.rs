@@ -9,11 +9,12 @@ use deltalake::arrow::array::{
 };
 use deltalake::arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
-use deltalake::DeltaOps;
+use deltalake::DeltaTable;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
 use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
 use crate::{config, io, ConfigError, FloeResult};
+use url::Url;
 
 struct DeltaAcceptedAdapter;
 
@@ -28,15 +29,21 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
     std::fs::create_dir_all(&table_path)?;
 
     let batch = dataframe_to_record_batch(df)?;
-    let table_uri = table_path.display().to_string();
+    let table_uri = Url::from_directory_path(&table_path).map_err(|_| {
+        Box::new(ConfigError(format!(
+            "delta table path is not a valid url: {}",
+            table_path.display()
+        )))
+    })?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|err| Box::new(ConfigError(format!("delta runtime init failed: {err}"))))?;
     runtime
         .block_on(async move {
-            let ops = DeltaOps::try_from_uri(&table_uri).await?;
-            ops.write(vec![batch])
+            let table = DeltaTable::try_from_url(table_uri).await?;
+            table
+                .write(vec![batch])
                 .with_save_mode(SaveMode::Overwrite)
                 .await?;
             Ok::<(), deltalake::DeltaTableError>(())
@@ -187,12 +194,16 @@ mod tests {
                     "delta test runtime init failed: {err}"
                 )))
             })?;
+        let table_url = Url::from_directory_path(&table_path).map_err(|_| {
+            Box::new(ConfigError("delta test path is not a valid url".to_string()))
+        })?;
         let table = runtime
-            .block_on(async { deltalake::open_table(table_path.to_str().unwrap()).await })
+            .block_on(async { deltalake::open_table(table_url).await })
             .map_err(|err| Box::new(ConfigError(format!("delta test open failed: {err}"))))?;
 
-        let schema = table.get_schema()?;
-        let field_names = schema
+        let field_names = table
+            .snapshot()?
+            .schema()
             .fields()
             .map(|field| field.name.clone())
             .collect::<Vec<_>>();

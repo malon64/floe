@@ -23,6 +23,12 @@ pub(super) struct EntityRunResult {
     pub abort_run: bool,
 }
 
+struct FastWarnOutcome {
+    file_report: report::FileReport,
+    status: report::FileStatus,
+    elapsed_ms: u64,
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedEntityPaths {
     source: config::ResolvedPath,
@@ -309,114 +315,35 @@ pub(super) fn run_entity(
             continue;
         }
 
-        let fast_warn = entity.policy.severity == "warn" && !track_cast_errors;
-        if fast_warn {
-            let not_null_counts = check::not_null_counts(&df, &required_cols)?;
-            let unique_counts = check::unique_counts(&df, &normalized_columns)?;
-            let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
-            let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
-            let violation_count = not_null_total + unique_total;
-
-            let mut rules = Vec::new();
-            if not_null_total > 0 {
-                let columns = not_null_counts
-                    .iter()
-                    .map(|(name, count)| report::ColumnSummary {
-                        column: name.clone(),
-                        violations: *count,
-                        target_type: None,
-                    })
-                    .collect();
-                rules.push(report::RuleSummary {
-                    rule: report::RuleName::NotNull,
-                    severity,
-                    violations: not_null_total,
-                    columns,
-                });
-            }
-            if unique_total > 0 {
-                let columns = unique_counts
-                    .iter()
-                    .map(|(name, count)| report::ColumnSummary {
-                        column: name.clone(),
-                        violations: *count,
-                        target_type: None,
-                    })
-                    .collect();
-                rules.push(report::RuleSummary {
-                    rule: report::RuleName::Unique,
-                    severity,
-                    violations: unique_total,
-                    columns,
-                });
-            }
-
-            let mut examples = report::ExampleSummary {
-                max_examples_per_rule: 3,
-                items: Vec::new(),
-            };
-            let mut archived_path = None;
-            let mut sink_options_warnings = 0;
-            if let Some(message) = sink_options_warning.as_deref() {
-                sink_options_warnings = 1;
-                if !sink_options_warned {
-                    eprintln!("warn: {message}");
-                    sink_options_warned = true;
-                }
-                append_sink_options_warning(&mut rules, &mut examples, message);
-            }
-
-            let output_path = write_accepted_output(
-                entity.sink.accepted.format.as_str(),
-                &accepted_target,
-                &mut df,
-                source_stem,
-                temp_dir.as_ref().map(|dir| dir.path()),
-                s3_clients,
-                &context.filesystem_resolver,
-                entity,
-            )?;
-            let accepted_path = Some(output_path);
-
-            if archive_enabled {
-                if let Some(dir) = &archive_dir {
-                    let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
-                    archived_path = Some(archived_path_buf.display().to_string());
-                }
-            }
-
-            let errors = mismatch.errors;
-            let warnings = violation_count + mismatch.warnings + sink_options_warnings;
-            let status = report::FileStatus::Success;
-
-            let file_report = report::FileReport {
-                input_file: input_file.source_uri.clone(),
-                status,
-                row_count,
-                accepted_count: row_count,
-                rejected_count: 0,
-                mismatch: mismatch.report,
-                output: report::FileOutput {
-                    accepted_path,
-                    rejected_path: None,
-                    errors_path: None,
-                    archived_path,
-                },
-                validation: report::FileValidation {
-                    errors,
-                    warnings,
-                    rules,
-                    examples,
-                },
-            };
-
-            totals.rows_total += row_count;
-            totals.accepted_total += row_count;
-            totals.errors_total += errors;
-            totals.warnings_total += warnings;
-            file_statuses.push(status);
-            file_reports.push(file_report);
-            file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+        if let Some(outcome) = try_fast_warn(
+            entity,
+            &input_file,
+            row_count,
+            &mut df,
+            &required_cols,
+            &normalized_columns,
+            severity,
+            track_cast_errors,
+            &accepted_target,
+            &sink_options_warning,
+            &mut sink_options_warned,
+            archive_enabled,
+            &archive_dir,
+            &mismatch,
+            source_stem,
+            temp_dir.as_ref().map(|dir| dir.path()),
+            s3_clients,
+            &context.filesystem_resolver,
+            file_timer.elapsed().as_millis() as u64,
+        )? {
+            totals.rows_total += outcome.file_report.row_count;
+            totals.accepted_total += outcome.file_report.accepted_count;
+            totals.rejected_total += outcome.file_report.rejected_count;
+            totals.errors_total += outcome.file_report.validation.errors;
+            totals.warnings_total += outcome.file_report.validation.warnings;
+            file_statuses.push(outcome.status);
+            file_reports.push(outcome.file_report);
+            file_timings_ms.push(Some(outcome.elapsed_ms));
             continue;
         }
 
@@ -763,6 +690,138 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_fast_warn(
+    entity: &config::EntityConfig,
+    input_file: &InputFile,
+    row_count: u64,
+    df: &mut polars::prelude::DataFrame,
+    required_cols: &[String],
+    normalized_columns: &[config::ColumnConfig],
+    severity: report::Severity,
+    track_cast_errors: bool,
+    accepted_target: &StorageTarget,
+    sink_options_warning: &Option<String>,
+    sink_options_warned: &mut bool,
+    archive_enabled: bool,
+    archive_dir: &Option<PathBuf>,
+    mismatch: &check::MismatchOutcome,
+    source_stem: &str,
+    temp_dir: Option<&Path>,
+    s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+    resolver: &config::FilesystemResolver,
+    elapsed_ms: u64,
+) -> FloeResult<Option<FastWarnOutcome>> {
+    if entity.policy.severity != "warn" || track_cast_errors {
+        return Ok(None);
+    }
+
+    let not_null_counts = check::not_null_counts(df, required_cols)?;
+    let unique_counts = check::unique_counts(df, normalized_columns)?;
+    let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
+    let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
+    let violation_count = not_null_total + unique_total;
+
+    let mut rules = Vec::new();
+    if not_null_total > 0 {
+        let columns = not_null_counts
+            .iter()
+            .map(|(name, count)| report::ColumnSummary {
+                column: name.clone(),
+                violations: *count,
+                target_type: None,
+            })
+            .collect();
+        rules.push(report::RuleSummary {
+            rule: report::RuleName::NotNull,
+            severity,
+            violations: not_null_total,
+            columns,
+        });
+    }
+    if unique_total > 0 {
+        let columns = unique_counts
+            .iter()
+            .map(|(name, count)| report::ColumnSummary {
+                column: name.clone(),
+                violations: *count,
+                target_type: None,
+            })
+            .collect();
+        rules.push(report::RuleSummary {
+            rule: report::RuleName::Unique,
+            severity,
+            violations: unique_total,
+            columns,
+        });
+    }
+
+    let mut examples = report::ExampleSummary {
+        max_examples_per_rule: 3,
+        items: Vec::new(),
+    };
+    let mut archived_path = None;
+    let mut sink_options_warnings = 0;
+    if let Some(message) = sink_options_warning.as_deref() {
+        sink_options_warnings = 1;
+        if !*sink_options_warned {
+            eprintln!("warn: {message}");
+            *sink_options_warned = true;
+        }
+        append_sink_options_warning(&mut rules, &mut examples, message);
+    }
+
+    let output_path = write_accepted_output(
+        entity.sink.accepted.format.as_str(),
+        accepted_target,
+        df,
+        source_stem,
+        temp_dir,
+        s3_clients,
+        resolver,
+        entity,
+    )?;
+    let accepted_path = Some(output_path);
+
+    if archive_enabled {
+        if let Some(dir) = archive_dir {
+            let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
+            archived_path = Some(archived_path_buf.display().to_string());
+        }
+    }
+
+    let errors = mismatch.errors;
+    let warnings = violation_count + mismatch.warnings + sink_options_warnings;
+    let status = report::FileStatus::Success;
+
+    let file_report = report::FileReport {
+        input_file: input_file.source_uri.clone(),
+        status,
+        row_count,
+        accepted_count: row_count,
+        rejected_count: 0,
+        mismatch: mismatch.report.clone(),
+        output: report::FileOutput {
+            accepted_path,
+            rejected_path: None,
+            errors_path: None,
+            archived_path,
+        },
+        validation: report::FileValidation {
+            errors,
+            warnings,
+            rules,
+            examples,
+        },
+    };
+
+    Ok(Some(FastWarnOutcome {
+        file_report,
+        status,
+        elapsed_ms,
+    }))
 }
 
 fn sink_options_warning(entity: &config::EntityConfig) -> Option<String> {

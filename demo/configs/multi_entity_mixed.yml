@@ -65,12 +65,9 @@ entities:
       accepted:
         format: "parquet"
         path: "../out/accepted/orders"
-      rejected:
-        format: "csv"
-        path: "../out/rejected/orders"
 
     policy:
-      severity: "reject"
+      severity: "warn"
 
     schema:
       mismatch:
@@ -133,7 +130,7 @@ entities:
         path: "../out/rejected/events"
 
     policy:
-      severity: "reject"
+      severity: "abort"
 
     schema:
       mismatch:

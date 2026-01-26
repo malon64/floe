@@ -8,12 +8,11 @@ entities:
 
     source:
       format: "csv"
-      path: "../in/customer"
+      path: "../in/customer/customers_invalid.csv"
       options:
         header: true
         separator: ","
         null_values: ["", "NULL", "null"]
-        glob: "customers_invalid.csv"
       cast_mode: "strict"
 
     sink:

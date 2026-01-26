@@ -11,6 +11,7 @@ const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_FILESYSTEM_TYPES: &[&str] = &["local", "s3"];
+const ALLOWED_PARQUET_COMPRESSIONS: &[&str] = &["snappy", "gzip", "zstd", "uncompressed"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -100,6 +101,28 @@ fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> Flo
             "entity.name={} sink.accepted.format=iceberg is not supported yet (filesystem catalog writer not implemented)",
             entity.name
         ))));
+    }
+    if let Some(options) = &entity.sink.accepted.options {
+        if entity.sink.accepted.format == "parquet" {
+            if let Some(compression) = &options.compression {
+                if !ALLOWED_PARQUET_COMPRESSIONS.contains(&compression.as_str()) {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} sink.accepted.options.compression={} is unsupported (allowed: {})",
+                        entity.name,
+                        compression,
+                        ALLOWED_PARQUET_COMPRESSIONS.join(", ")
+                    ))));
+                }
+            }
+            if let Some(row_group_size) = options.row_group_size {
+                if row_group_size == 0 {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
+                        entity.name
+                    ))));
+                }
+            }
+        }
     }
 
     if entity.policy.severity == "reject" && entity.sink.rejected.is_none() {

@@ -353,6 +353,89 @@ fn iceberg_accepted_format_errors() {
 }
 
 #[test]
+fn parquet_sink_options_are_valid() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        options:
+          compression: "gzip"
+          row_group_size: 1000
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn parquet_sink_invalid_compression_errors() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        options:
+          compression: "fast"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.options.compression",
+            "fast",
+        ],
+    );
+}
+
+#[test]
+fn parquet_sink_row_group_size_must_be_positive() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        options:
+          row_group_size: 0
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.options.row_group_size",
+        ],
+    );
+}
+
+#[test]
 fn unknown_root_field_errors() {
     let yaml = r#"version: "0.1"
 report:

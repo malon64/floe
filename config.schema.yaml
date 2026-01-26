@@ -179,6 +179,16 @@ $defs:
         type: string
       filesystem:
         type: string
+      options:
+        type: object
+        additionalProperties: false
+        properties:
+          compression:
+            type: string
+            enum: [snappy, gzip, zstd, uncompressed]
+          row_group_size:
+            type: integer
+            minimum: 1
 
   sink_rejected:
     type: object

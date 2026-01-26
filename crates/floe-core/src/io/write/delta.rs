@@ -195,7 +195,9 @@ mod tests {
                 )))
             })?;
         let table_url = Url::from_directory_path(&table_path).map_err(|_| {
-            Box::new(ConfigError("delta test path is not a valid url".to_string()))
+            Box::new(ConfigError(
+                "delta test path is not a valid url".to_string(),
+            ))
         })?;
         let table = runtime
             .block_on(async { deltalake::open_table(table_url).await })

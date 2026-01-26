@@ -667,8 +667,18 @@ pub(super) fn run_entity(
         run_status = report::RunStatus::SuccessWithWarnings;
     }
 
-    let report_path =
-        report::ReportWriter::report_path(&context.report_dir, &context.run_id, &entity.name);
+    let report_path = context
+        .report_dir
+        .as_ref()
+        .map(|dir| report::ReportWriter::report_path(dir, &context.run_id, &entity.name));
+    let report_base_path = context
+        .report_base_path
+        .clone()
+        .unwrap_or_else(|| "disabled".to_string());
+    let report_file_path = report_path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "disabled".to_string());
     let finished_at = report::now_rfc3339();
     let duration_ms = context.run_timer.elapsed().as_millis() as u64;
     let run_report = report::RunReport {
@@ -734,20 +744,17 @@ pub(super) fn run_entity(
             },
         },
         report: report::ReportEcho {
-            path: context.report_base_path.clone(),
-            report_file: report_path.display().to_string(),
+            path: report_base_path,
+            report_file: report_file_path,
         },
         policy: report::PolicyEcho { severity },
         results: totals,
         files: file_reports,
     };
 
-    report::ReportWriter::write_report(
-        &context.report_dir,
-        &context.run_id,
-        &entity.name,
-        &run_report,
-    )?;
+    if let Some(report_dir) = &context.report_dir {
+        report::ReportWriter::write_report(report_dir, &context.run_id, &entity.name, &run_report)?;
+    }
 
     Ok(EntityRunResult {
         outcome: EntityOutcome {

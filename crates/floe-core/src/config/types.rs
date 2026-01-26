@@ -12,7 +12,7 @@ pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
     pub filesystems: Option<FilesystemsConfig>,
-    pub report: ReportConfig,
+    pub report: Option<ReportConfig>,
     pub entities: Vec<EntityConfig>,
 }
 

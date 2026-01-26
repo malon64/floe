@@ -18,7 +18,7 @@ pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 #[derive(Debug, Clone)]
 pub struct RunOutcome {
     pub run_id: String,
-    pub report_base_path: String,
+    pub report_base_path: Option<String>,
     pub entity_outcomes: Vec<EntityOutcome>,
 }
 

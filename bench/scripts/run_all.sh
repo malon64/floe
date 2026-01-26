@@ -8,14 +8,6 @@ mkdir -p "$ROOT/bench/results" "$ROOT/bench/results/report" "$ROOT/bench/out/acc
 
 : > "$RESULTS_FILE"
 
-if [[ "${SKIP_PREP:-0}" != "1" ]]; then
-  if [[ -n "${SIZES:-}" ]]; then
-    python3 "$ROOT/bench/scripts/prepare_data.py" --sizes "$SIZES"
-  else
-    python3 "$ROOT/bench/scripts/prepare_data.py"
-  fi
-fi
-
 if [[ "${SKIP_FLOE:-0}" != "1" ]]; then
   bash "$ROOT/bench/scripts/run_floe.sh"
 fi

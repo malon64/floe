@@ -10,22 +10,13 @@ produce slide-ready `bench/results/results.csv`.
 - Generated inputs (CSV) are written to `bench/generated/`:
   - `uber_100k.csv`
   - `uber_1m.csv`
-  - `uber_5m.csv`
 - Generation is deterministic: rows are replayed from the base file in order.
 - A synthetic `row_id` column is injected (strictly increasing).
 - Every 10,000th row has an empty `pickup_datetime` to exercise not-null logic.
-
-Generate inputs:
-
-```
-python3 bench/scripts/prepare_data.py
-```
-
-To limit sizes:
-
-```
-python3 bench/scripts/prepare_data.py --sizes 100000,1000000
-```
+- A 5M-row file is feasible but not tracked in git due to size limits. If you
+  want it, regenerate locally from the commit history where
+  `bench/scripts/prepare_data.py` existed and then run with
+  `SIZES=100000,1000000,5000000`.
 
 ## Validation rules (aligned across tools)
 

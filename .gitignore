@@ -20,6 +20,6 @@ example/report/*
 
 # Bench outputs
 bench/data/
-bench/generated/
 bench/out/
 bench/results/report/
+bench/generated/uber_5m.csv

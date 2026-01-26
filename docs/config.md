@@ -110,7 +110,8 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 ### `sink` (required)
 
 - `accepted` (required)
-  - `format`: `parquet` (v0.1). `delta` reserved for later.
+  - `format`: `parquet` or `delta` (local). `iceberg` is recognized but not
+    implemented yet.
   - `path`: output directory for accepted records.
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).

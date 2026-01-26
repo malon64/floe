@@ -1,5 +1,6 @@
 pub mod csv;
 pub mod delta;
+pub mod iceberg;
 pub mod parquet;
 
 use std::path::{Path, PathBuf};
@@ -51,7 +52,6 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
     }
     Ok(destination)
 }
-
 fn build_reject_errors_path(base_path: &str, source_stem: &str) -> PathBuf {
     let base = Path::new(base_path);
     let dir = if base.extension().is_some() {

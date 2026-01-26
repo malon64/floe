@@ -129,3 +129,4 @@ Expected:
 - S3 can be added as an optional appendix: define a filesystem block and swap
   input/output paths to S3, but keep the core demo local for simplicity.
 - Keep outputs clean by deleting `demo/out/` and `demo/report/` between runs.
+- Or reset the demo outputs with `./demo/clean.sh`.

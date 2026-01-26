@@ -1,0 +1,23 @@
+version: "0.1"
+
+report: {}
+
+entities:
+  - name: "broken"
+
+    source:
+      format: "csv"
+      path: "../in/customer"
+
+    sink:
+      accepted:
+        format: "parquet"
+        path: "../out/accepted/customer"
+
+    policy:
+      severity: "warn"
+
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"

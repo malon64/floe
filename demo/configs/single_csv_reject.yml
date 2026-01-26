@@ -1,0 +1,56 @@
+version: "0.1"
+
+report:
+  path: "../report"
+
+entities:
+  - name: "customer"
+
+    source:
+      format: "csv"
+      path: "../in/customer"
+      options:
+        header: true
+        separator: ","
+        null_values: ["", "NULL", "null"]
+        glob: "customers_invalid.csv"
+      cast_mode: "strict"
+
+    sink:
+      accepted:
+        format: "parquet"
+        path: "../out/accepted/customer"
+      rejected:
+        format: "csv"
+        path: "../out/rejected/customer"
+
+    policy:
+      severity: "reject"
+
+    schema:
+      mismatch:
+        missing_columns: "fill_nulls"
+        extra_columns: "ignore"
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: true
+
+        - name: "email"
+          type: "string"
+          nullable: true
+          unique: true
+
+        - name: "country_code"
+          type: "string"
+          nullable: true
+          unique: false
+
+        - name: "created_at"
+          type: "datetime"
+          nullable: true
+          unique: false

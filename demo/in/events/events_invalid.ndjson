@@ -1,0 +1,3 @@
+{"event_id":"e-2001","customer_id":"c-010","occurred_at":"2024-02-01T10:00:00Z","amount":15.0,"is_test":false}
+{"event_id":"e-2002","customer_id":null,"occurred_at":"2024-02-30T09:00:00Z","amount":"oops","is_test":false,"extra_field":"x"}
+{"event_id":"e-2002","customer_id":"c-012","occurred_at":"bad-date","amount":25.5,"is_test":null}

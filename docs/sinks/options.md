@@ -1,7 +1,6 @@
 # Sink options
 
-Floe supports `sink.accepted.options` for tuning accepted output writers. In
-v0.2, only Parquet options are applied; other formats accept the options block
+Floe supports `sink.accepted.options` for tuning accepted output writers. For now, only Parquet options are applied; other formats accept the options block
 but emit a warning and record it in the run report.
 
 ## Parquet options

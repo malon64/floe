@@ -1,4 +1,4 @@
-![Floe logo](docs/assets/floe.png)
+![Floe logo](docs/assets/floe-banner.png)
 
 # Floe
 
@@ -15,15 +15,11 @@ Floe is a Rust + Polars tool for technical ingestion on a single node. It ingest
 - Accepted vs rejected outputs for clean separation
 - JSON run reports for observability and audit
 
-## Why not Spark?
+## Why Polars + Rust
 
-- Floe targets single-node jobs where cluster setup and JVM overhead are unnecessary.
-- It avoids distributed complexity for small/medium datasets.
-
-## Why not Pandas?
-
-- Better suited for larger-than-memory-ish CSV workloads via Polars.
-- Stronger contract-driven ingestion and reporting model.
+- Polars provides fast, columnar execution on a single node without JVM overhead.
+- Rust gives predictable performance and low-level control while keeping memory usage tight.
+- The combo fits contract-driven ingestion: schema checks, deterministic outputs, and stable reports.
 
 ## Quickstart (Homebrew)
 
@@ -54,6 +50,38 @@ If Homebrew is unavailable:
 - GitHub Releases: download the prebuilt binary from the latest release
 - Cargo: `cargo install floe-cli`
 
+More CLI details: [docs/cli.md](docs/cli.md)
+
+## Cloud integration and filesystems
+
+Floe resolves all paths through a filesystem registry in the config. By default,
+paths use `local://`. To use cloud storage, define a filesystem (with credentials
+or bucket info) and reference it on `source`/`sink`. Currently only S3 is
+implemented; Google Cloud Storage, Azure Data Lake Storage, and `dbfs://`
+(Databricks) are on the roadmap.
+
+Example (S3 filesystem):
+
+```yaml
+filesystems:
+  default: local
+  definitions:
+    - name: local
+      type: local
+    - name: s3_raw
+      type: s3
+      bucket: my-bucket
+      region: eu-west-1
+      # credentials via standard AWS env vars or profile
+entities:
+  - name: customer
+    source:
+      filesystem: s3_raw
+      path: raw/customer/
+```
+
+Filesystem guide: [docs/filesystems/s3.md](docs/filesystems/s3.md)
+
 ## Outputs explained
 
 - Accepted output: `entities[].sink.accepted.path`
@@ -61,6 +89,32 @@ If Homebrew is unavailable:
 - Reports: `<report.path>/run_<run_id>/<entity.name>/run.json`
 
 Reports include per-entity JSON, a run summary, and key counters (rows, accepted/rejected, errors).
+
+Report details: [docs/report.md](docs/report.md)
+
+## Severity policy
+
+- `warn`: keep all rows and report violations
+- `reject`: reject only rows with violations; keep valid rows
+- `abort`: reject the entire file on first violation
+
+Checks and policy details: [docs/checks.md](docs/checks.md)
+
+## Supported formats
+
+Inputs:
+- CSV (local and S3)
+- Parquet (local and S3)
+- NDJSON (local and S3)
+
+Outputs:
+- Accepted: Parquet, Delta
+- Rejected: CSV
+
+Sink details:
+- Options: [docs/sinks/options.md](docs/sinks/options.md)
+- Delta: [docs/sinks/delta.md](docs/sinks/delta.md)
+- Iceberg: [docs/sinks/iceberg.md](docs/sinks/iceberg.md)
 
 ## Minimal config example
 
@@ -93,7 +147,9 @@ entities:
           nullable: true
 ```
 
-Full example: `example/config.yml`
+Full example: [example/config.yml](example/config.yml)
+
+Config reference: [docs/config.md](docs/config.md)
 
 ## Sample console output
 
@@ -109,11 +165,13 @@ Run summary: ./reports/run_run-123/run.summary.json
 
 ## Roadmap (near term)
 
-- Parquet and JSON input formats
-- Delta sink for accepted outputs
-- S3 input/output stabilization
-- Benchmarking harness and performance baselines
-- Improved CLI UX and richer validation diagnostics
+- Cloud integration for storage and compute
+- Python library release
+- Orchestrator integrations (Airflow, Dagster)
+- More input/output formats, including database sources and sinks
+- Data platform integrations (Databricks, Microsoft Fabric, Snowflake)
+
+Feature tracking: [docs/features.md](docs/features.md)
 
 ## License
 

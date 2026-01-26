@@ -95,6 +95,12 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
 
 fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
     format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
+    if entity.sink.accepted.format == "iceberg" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.format=iceberg is not supported yet (filesystem catalog writer not implemented)",
+            entity.name
+        ))));
+    }
 
     if entity.policy.severity == "reject" && entity.sink.rejected.is_none() {
         return Err(Box::new(ConfigError(format!(

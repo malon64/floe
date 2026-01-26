@@ -325,6 +325,34 @@ fn rejected_format_errors() {
 }
 
 #[test]
+fn iceberg_accepted_format_errors() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.format=iceberg",
+            "not supported yet",
+        ],
+    );
+}
+
+#[test]
 fn unknown_root_field_errors() {
     let yaml = r#"version: "0.1"
 report:

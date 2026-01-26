@@ -201,6 +201,7 @@ pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSi
     match format {
         "parquet" => Ok(io::write::parquet::parquet_accepted_adapter()),
         "delta" => Ok(io::write::delta::delta_accepted_adapter()),
+        "iceberg" => Ok(io::write::iceberg::iceberg_accepted_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,

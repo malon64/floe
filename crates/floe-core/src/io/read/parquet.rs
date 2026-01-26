@@ -38,12 +38,19 @@ impl InputAdapter for ParquetInputAdapter {
         files: &[InputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
+        collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
             let path = &input_file.local_path;
             let df = read_parquet_file(path)?;
-            let input = format::read_input_from_df(input_file, &df, columns, normalize_strategy)?;
+            let input = format::read_input_from_df(
+                input_file,
+                &df,
+                columns,
+                normalize_strategy,
+                collect_raw,
+            )?;
             inputs.push(input);
         }
         Ok(inputs)

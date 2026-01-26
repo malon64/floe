@@ -90,13 +90,8 @@ pub fn cast_mismatch_counts(
             })?
             .is_null();
 
-        let mut violations = 0u64;
-        for idx in 0..typed_df.height() {
-            let typed_is_null = typed_nulls.get(idx).unwrap_or(false);
-            if typed_is_null && raw.get(idx).is_some() {
-                violations += 1;
-            }
-        }
+        let raw_not_null = raw.is_not_null();
+        let violations = (&typed_nulls & &raw_not_null).sum().unwrap_or(0) as u64;
 
         if violations > 0 {
             counts.push((column.name.clone(), violations, column.column_type.clone()));

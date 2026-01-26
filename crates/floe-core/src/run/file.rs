@@ -20,8 +20,9 @@ pub(super) fn read_inputs(
     files: &[InputFile],
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
+    collect_raw: bool,
 ) -> FloeResult<Vec<ReadInput>> {
-    adapter.read_inputs(entity, files, columns, normalize_strategy)
+    adapter.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
 }
 
 pub(super) fn collect_errors(

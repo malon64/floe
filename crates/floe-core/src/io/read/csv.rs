@@ -90,6 +90,7 @@ impl InputAdapter for CsvInputAdapter {
         files: &[InputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
+        collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let default_options = config::SourceOptions::default();
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
@@ -97,14 +98,22 @@ impl InputAdapter for CsvInputAdapter {
         for input_file in files {
             let path = &input_file.local_path;
             let input_columns = resolve_input_columns(path, source_options, columns)?;
-            let raw_schema = build_raw_schema(&input_columns);
             let typed_schema =
                 format::build_typed_schema(&input_columns, columns, normalize_strategy)?;
-            let raw_plan = CsvReadPlan::strict(raw_schema);
-            let raw_df = read_csv_file(path, source_options, &raw_plan)?;
-            let typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
-            let input =
-                format::finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)?;
+            let input = if collect_raw {
+                let raw_schema = build_raw_schema(&input_columns);
+                let raw_plan = CsvReadPlan::strict(raw_schema);
+                let raw_df = read_csv_file(path, source_options, &raw_plan)?;
+                let typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
+                format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy)?
+            } else {
+                let typed_plan = CsvReadPlan {
+                    schema: typed_schema,
+                    ignore_errors: true,
+                };
+                let typed_df = read_csv_file(path, source_options, &typed_plan)?;
+                format::finalize_read_input(input_file, None, typed_df, normalize_strategy)?
+            };
             inputs.push(input);
         }
         Ok(inputs)

@@ -1,9 +1,13 @@
 use polars::prelude::{AnyValue, DataFrame};
 
-use super::RowError;
+use super::{ColumnIndex, RowError};
 use crate::{ConfigError, FloeResult};
 
-pub fn not_null_errors(df: &DataFrame, required_cols: &[String]) -> FloeResult<Vec<Vec<RowError>>> {
+pub fn not_null_errors(
+    df: &DataFrame,
+    required_cols: &[String],
+    indices: &ColumnIndex,
+) -> FloeResult<Vec<Vec<RowError>>> {
     let mut errors_per_row = vec![Vec::new(); df.height()];
     if required_cols.is_empty() {
         return Ok(errors_per_row);
@@ -11,11 +15,16 @@ pub fn not_null_errors(df: &DataFrame, required_cols: &[String]) -> FloeResult<V
 
     let mut null_masks = Vec::with_capacity(required_cols.len());
     for name in required_cols {
+        let index = indices.get(name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "required column {name} not found in dataframe"
+            )))
+        })?;
         let mask = df
-            .column(name)
-            .map_err(|err| {
+            .select_at_idx(*index)
+            .ok_or_else(|| {
                 Box::new(ConfigError(format!(
-                    "required column {name} not found: {err}"
+                    "required column {name} not found in dataframe"
                 )))
             })?
             .is_null();

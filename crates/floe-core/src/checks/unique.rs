@@ -2,12 +2,13 @@ use std::collections::HashSet;
 
 use polars::prelude::{AnyValue, DataFrame};
 
-use super::RowError;
+use super::{ColumnIndex, RowError};
 use crate::{config, ConfigError, FloeResult};
 
 pub fn unique_errors(
     df: &DataFrame,
     columns: &[config::ColumnConfig],
+    indices: &ColumnIndex,
 ) -> FloeResult<Vec<Vec<RowError>>> {
     let mut errors_per_row = vec![Vec::new(); df.height()];
     let unique_columns: Vec<&config::ColumnConfig> = columns
@@ -19,9 +20,15 @@ pub fn unique_errors(
     }
 
     for column in unique_columns {
-        let series = df.column(&column.name).map_err(|err| {
+        let index = indices.get(&column.name).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "unique column {} not found: {err}",
+                "unique column {} not found",
+                column.name
+            )))
+        })?;
+        let series = df.select_at_idx(*index).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "unique column {} not found",
                 column.name
             )))
         })?;

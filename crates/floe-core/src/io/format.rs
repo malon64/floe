@@ -399,15 +399,18 @@ pub fn collect_errors(
     required_cols: &[String],
     columns: &[config::ColumnConfig],
     track_cast_errors: bool,
+    raw_indices: &check::ColumnIndex,
+    typed_indices: &check::ColumnIndex,
 ) -> FloeResult<ValidationCollect> {
-    let mut error_lists = check::not_null_errors(typed_df, required_cols)?;
+    let mut error_lists = check::not_null_errors(typed_df, required_cols, typed_indices)?;
     if track_cast_errors {
-        let cast_errors = check::cast_mismatch_errors(raw_df, typed_df, columns)?;
+        let cast_errors =
+            check::cast_mismatch_errors(raw_df, typed_df, columns, raw_indices, typed_indices)?;
         for (errors, cast) in error_lists.iter_mut().zip(cast_errors) {
             errors.extend(cast);
         }
     }
-    let unique_errors = check::unique_errors(typed_df, columns)?;
+    let unique_errors = check::unique_errors(typed_df, columns, typed_indices)?;
     for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
         errors.extend(unique);
     }

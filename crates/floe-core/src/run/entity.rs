@@ -364,13 +364,43 @@ pub(super) fn run_entity(
                 entity.name
             )))
         })?;
-        let (accept_rows, errors_json, error_lists) = collect_errors(
-            raw_df,
-            &df,
-            &required_cols,
-            &normalized_columns,
-            track_cast_errors,
-        )?;
+        let raw_indices = check::column_index_map(raw_df);
+        let typed_indices = check::column_index_map(&df);
+
+        let (accept_rows, errors_json, error_lists) =
+            if entity.policy.severity == "abort" && track_cast_errors {
+                let cast_errors = check::cast_mismatch_errors(
+                    raw_df,
+                    &df,
+                    &normalized_columns,
+                    &raw_indices,
+                    &typed_indices,
+                )?;
+                if cast_errors.iter().any(|errors| !errors.is_empty()) {
+                    let (accept_rows, errors_json) = check::build_error_state(&cast_errors);
+                    (accept_rows, errors_json, cast_errors)
+                } else {
+                    collect_errors(
+                        raw_df,
+                        &df,
+                        &required_cols,
+                        &normalized_columns,
+                        track_cast_errors,
+                        &raw_indices,
+                        &typed_indices,
+                    )?
+                }
+            } else {
+                collect_errors(
+                    raw_df,
+                    &df,
+                    &required_cols,
+                    &normalized_columns,
+                    track_cast_errors,
+                    &raw_indices,
+                    &typed_indices,
+                )?
+            };
         let row_error_count = error_lists
             .iter()
             .filter(|errors| !errors.is_empty())

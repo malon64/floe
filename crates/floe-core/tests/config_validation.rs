@@ -87,6 +87,17 @@ entities:
 }
 
 #[test]
+fn report_section_optional() {
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+{}"#,
+        base_entity("customer")
+    );
+    assert_validation_ok(&yaml);
+}
+
+#[test]
 fn empty_entities_errors() {
     let yaml = r#"version: "0.1"
 report:

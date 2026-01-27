@@ -116,7 +116,14 @@ fn main() -> FloeResult<()> {
             let config = load_config(&config_path)?;
             println!("Config valid: {}", config_path.display());
             println!("Version: {}", config.version);
-            println!("Report: {}", config.report.path);
+            println!(
+                "Report: {}",
+                config
+                    .report
+                    .as_ref()
+                    .map(|report| report.path.as_str())
+                    .unwrap_or("(disabled)")
+            );
             println!("Entities: {}", config.entities.len());
             for entity in &config.entities {
                 println!("Entity: {}", entity.name);

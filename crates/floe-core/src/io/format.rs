@@ -23,7 +23,8 @@ pub struct FileReadError {
 pub enum ReadInput {
     Data {
         input_file: InputFile,
-        raw_df: DataFrame,
+        input_columns: Vec<String>,
+        raw_df: Option<DataFrame>,
         typed_df: DataFrame,
     },
     FileError {
@@ -79,6 +80,7 @@ pub trait InputAdapter: Send + Sync {
         files: &[InputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
+        collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>>;
 }
 
@@ -226,6 +228,7 @@ pub(crate) fn read_input_from_df(
     df: &DataFrame,
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
+    collect_raw: bool,
 ) -> FloeResult<ReadInput> {
     let input_columns = df
         .get_column_names()
@@ -233,23 +236,37 @@ pub(crate) fn read_input_from_df(
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
     let typed_schema = build_typed_schema(&input_columns, columns, normalize_strategy)?;
-    let raw_df = cast_df_to_string(df)?;
+    let raw_df = if collect_raw {
+        Some(cast_df_to_string(df)?)
+    } else {
+        None
+    };
     let typed_df = cast_df_to_schema(df, &typed_schema)?;
-    finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)
+    finalize_read_input(
+        input_file,
+        input_columns,
+        raw_df,
+        typed_df,
+        normalize_strategy,
+    )
 }
 
 pub(crate) fn finalize_read_input(
     input_file: &InputFile,
-    mut raw_df: DataFrame,
+    input_columns: Vec<String>,
+    mut raw_df: Option<DataFrame>,
     mut typed_df: DataFrame,
     normalize_strategy: Option<&str>,
 ) -> FloeResult<ReadInput> {
     if let Some(strategy) = normalize_strategy {
-        crate::run::normalize::normalize_dataframe_columns(&mut raw_df, strategy)?;
+        if let Some(raw_df) = raw_df.as_mut() {
+            crate::run::normalize::normalize_dataframe_columns(raw_df, strategy)?;
+        }
         crate::run::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
     }
     Ok(ReadInput::Data {
         input_file: input_file.clone(),
+        input_columns,
         raw_df,
         typed_df,
     })
@@ -289,9 +306,9 @@ pub(crate) fn cast_df_to_string(df: &DataFrame) -> FloeResult<DataFrame> {
 }
 
 pub(crate) fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<DataFrame> {
-    let mut out = df.clone();
+    let mut columns = Vec::with_capacity(schema.len());
     for (name, dtype) in schema.iter() {
-        let series = out.column(name.as_str()).map_err(|err| {
+        let series = df.column(name.as_str()).map_err(|err| {
             Box::new(ConfigError(format!(
                 "input column {} not found: {err}",
                 name.as_str()
@@ -310,20 +327,13 @@ pub(crate) fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<D
                         )))
                     })?
             };
-        let idx = out.get_column_index(name.as_str()).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "input column {} not found for update",
-                name.as_str()
-            )))
-        })?;
-        out.replace_column(idx, casted).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "failed to update input column {}: {err}",
-                name.as_str()
-            )))
-        })?;
+        columns.push(casted);
     }
-    Ok(out)
+    DataFrame::new(columns).map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to build typed dataframe: {err}"
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
 }
 
 fn cast_string_to_bool(name: &str, series: &Column) -> FloeResult<Column> {
@@ -389,19 +399,23 @@ pub fn collect_errors(
     required_cols: &[String],
     columns: &[config::ColumnConfig],
     track_cast_errors: bool,
+    raw_indices: &check::ColumnIndex,
+    typed_indices: &check::ColumnIndex,
 ) -> FloeResult<ValidationCollect> {
-    let mut error_lists = check::not_null_errors(typed_df, required_cols)?;
+    let mut error_lists = check::not_null_errors(typed_df, required_cols, typed_indices)?;
     if track_cast_errors {
-        let cast_errors = check::cast_mismatch_errors(raw_df, typed_df, columns)?;
+        let cast_errors =
+            check::cast_mismatch_errors(raw_df, typed_df, columns, raw_indices, typed_indices)?;
         for (errors, cast) in error_lists.iter_mut().zip(cast_errors) {
             errors.extend(cast);
         }
     }
-    let unique_errors = check::unique_errors(typed_df, columns)?;
+    let unique_errors = check::unique_errors(typed_df, columns, typed_indices)?;
     for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
         errors.extend(unique);
     }
-    let (accept_rows, errors_json) = check::build_error_state(&error_lists);
+    let accept_rows = check::build_accept_rows(&error_lists);
+    let errors_json = check::build_errors_json(&error_lists, &accept_rows);
     Ok((accept_rows, errors_json, error_lists))
 }
 

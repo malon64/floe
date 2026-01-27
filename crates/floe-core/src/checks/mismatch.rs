@@ -18,18 +18,22 @@ pub struct MismatchOutcome {
 pub fn apply_schema_mismatch(
     entity: &config::EntityConfig,
     declared_columns: &[config::ColumnConfig],
-    raw_df: &mut DataFrame,
+    input_names: &[String],
+    mut raw_df: Option<&mut DataFrame>,
     typed_df: &mut DataFrame,
 ) -> FloeResult<MismatchOutcome> {
+    let normalize_strategy = crate::run::normalize::resolve_normalize_strategy(entity)?;
     let declared_names = declared_columns
         .iter()
         .map(|column| column.name.clone())
         .collect::<Vec<_>>();
-    let input_names = raw_df
-        .get_column_names()
-        .iter()
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
+    let input_names = match normalize_strategy.as_deref() {
+        Some(strategy) => input_names
+            .iter()
+            .map(|name| crate::run::normalize::normalize_name(name, strategy))
+            .collect::<Vec<_>>(),
+        None => input_names.to_vec(),
+    };
 
     let declared_set = declared_names
         .iter()
@@ -101,12 +105,19 @@ pub fn apply_schema_mismatch(
         let mut filled = false;
         let mut ignored = false;
         if effective_missing == "fill_nulls" && !missing.is_empty() {
-            add_missing_columns(raw_df, typed_df, declared_columns, &missing)?;
+            if let Some(raw_df) = raw_df.as_mut() {
+                add_missing_columns(raw_df, typed_df, declared_columns, &missing)?;
+            } else {
+                add_missing_columns_typed(typed_df, declared_columns, &missing)?;
+            }
             filled = true;
         }
         if effective_extra == "ignore" && !extra.is_empty() {
-            drop_extra_columns(raw_df, &extra)?;
-            drop_extra_columns(typed_df, &extra)?;
+            if let Some(raw_df) = raw_df.as_mut() {
+                drop_extra_columns(raw_df, typed_df, &extra)?;
+            } else {
+                drop_extra_columns_typed(typed_df, &extra)?;
+            }
             ignored = true;
         }
         if filled {
@@ -189,14 +200,75 @@ fn add_missing_columns(
     Ok(())
 }
 
-fn drop_extra_columns(df: &mut DataFrame, extra: &[String]) -> FloeResult<()> {
-    for name in extra {
-        df.drop_in_place(name).map_err(|err| {
+fn add_missing_columns_typed(
+    typed_df: &mut DataFrame,
+    declared_columns: &[config::ColumnConfig],
+    missing: &[String],
+) -> FloeResult<()> {
+    let mut types = HashMap::new();
+    for column in declared_columns {
+        types.insert(
+            column.name.as_str(),
+            config::parse_data_type(&column.column_type)?,
+        );
+    }
+
+    let height = typed_df.height();
+    for name in missing {
+        let dtype = types
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or(DataType::String);
+        let typed_series = Series::full_null(name.as_str().into(), height, &dtype);
+        typed_df.with_column(typed_series).map_err(|err| {
             Box::new(ConfigError(format!(
-                "failed to drop extra column {}: {err}",
+                "failed to add missing column {}: {err}",
                 name
             )))
         })?;
+    }
+    Ok(())
+}
+
+fn drop_extra_columns(
+    raw_df: &mut DataFrame,
+    typed_df: &mut DataFrame,
+    extra: &[String],
+) -> FloeResult<()> {
+    for name in extra {
+        if raw_df.get_column_index(name).is_some() {
+            raw_df.drop_in_place(name).map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "failed to drop extra column {}: {err}",
+                    name
+                )))
+            })?;
+        }
+    }
+
+    for name in extra {
+        if typed_df.get_column_index(name).is_some() {
+            typed_df.drop_in_place(name).map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "failed to drop extra column {}: {err}",
+                    name
+                )))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn drop_extra_columns_typed(typed_df: &mut DataFrame, extra: &[String]) -> FloeResult<()> {
+    for name in extra {
+        if typed_df.get_column_index(name).is_some() {
+            typed_df.drop_in_place(name).map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "failed to drop extra column {}: {err}",
+                    name
+                )))
+            })?;
+        }
     }
     Ok(())
 }

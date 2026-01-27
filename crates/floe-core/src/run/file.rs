@@ -1,6 +1,6 @@
 use polars::prelude::DataFrame;
 
-use crate::{config, io, FloeResult};
+use crate::{check, config, io, FloeResult};
 
 use io::format::{InputAdapter, InputFile, ReadInput};
 
@@ -20,8 +20,9 @@ pub(super) fn read_inputs(
     files: &[InputFile],
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
+    collect_raw: bool,
 ) -> FloeResult<Vec<ReadInput>> {
-    adapter.read_inputs(entity, files, columns, normalize_strategy)
+    adapter.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
 }
 
 pub(super) fn collect_errors(
@@ -30,6 +31,16 @@ pub(super) fn collect_errors(
     required_cols: &[String],
     columns: &[config::ColumnConfig],
     track_cast_errors: bool,
+    raw_indices: &check::ColumnIndex,
+    typed_indices: &check::ColumnIndex,
 ) -> FloeResult<ValidationCollect> {
-    io::format::collect_errors(raw_df, typed_df, required_cols, columns, track_cast_errors)
+    io::format::collect_errors(
+        raw_df,
+        typed_df,
+        required_cols,
+        columns,
+        track_cast_errors,
+        raw_indices,
+        typed_indices,
+    )
 }

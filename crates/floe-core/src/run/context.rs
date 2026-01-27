@@ -8,8 +8,8 @@ pub struct RunContext {
     pub config_path: PathBuf,
     pub config_dir: PathBuf,
     pub filesystem_resolver: config::FilesystemResolver,
-    pub report_dir: PathBuf,
-    pub report_base_path: String,
+    pub report_dir: Option<PathBuf>,
+    pub report_base_path: Option<String>,
     pub run_id: String,
     pub started_at: String,
     pub run_timer: Instant,
@@ -23,8 +23,11 @@ impl RunContext {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let report_dir = config::resolve_local_path(&config_dir, &config.report.path);
-        let report_base_path = report_dir.display().to_string();
+        let report_dir = config
+            .report
+            .as_ref()
+            .map(|report| config::resolve_local_path(&config_dir, &report.path));
+        let report_base_path = report_dir.as_ref().map(|path| path.display().to_string());
         let started_at = report::now_rfc3339();
         let run_id = options
             .run_id

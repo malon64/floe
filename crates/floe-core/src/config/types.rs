@@ -12,7 +12,7 @@ pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
     pub filesystems: Option<FilesystemsConfig>,
-    pub report: ReportConfig,
+    pub report: Option<ReportConfig>,
     pub entities: Vec<EntityConfig>,
 }
 
@@ -78,15 +78,19 @@ impl Default for SourceOptions {
 }
 
 impl SourceOptions {
-    pub fn to_csv_read_options(&self, input_path: &Path) -> FloeResult<CsvReadOptions> {
-        let header = self.header.unwrap_or(true);
+    pub fn to_csv_parse_options(&self) -> FloeResult<CsvParseOptions> {
         let separator = parse_separator(self.separator.as_deref().unwrap_or(";"))?;
         let encoding = parse_encoding(self.encoding.as_deref())?;
         let null_values = build_null_values(self.null_values.as_ref());
-        let parse_options = CsvParseOptions::default()
+        Ok(CsvParseOptions::default()
             .with_separator(separator)
             .with_encoding(encoding)
-            .with_null_values(null_values);
+            .with_null_values(null_values))
+    }
+
+    pub fn to_csv_read_options(&self, input_path: &Path) -> FloeResult<CsvReadOptions> {
+        let header = self.header.unwrap_or(true);
+        let parse_options = self.to_csv_parse_options()?;
 
         Ok(CsvReadOptions::default()
             .with_path(Some(input_path))

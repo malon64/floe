@@ -14,7 +14,10 @@ pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
 
     if mode != OutputMode::Quiet {
         lines.push(format!("run id: {}", &outcome.run_id));
-        lines.push(format!("report base: {}", &outcome.report_base_path));
+        lines.push(format!(
+            "report base: {}",
+            outcome.report_base_path.as_deref().unwrap_or("(disabled)")
+        ));
     }
 
     if mode != OutputMode::Quiet {
@@ -102,7 +105,10 @@ fn format_run_summary(outcome: &RunOutcome, include_run_info: bool) -> Vec<Strin
     let mut lines = Vec::new();
     if include_run_info {
         lines.push(format!("run id: {}", &outcome.run_id));
-        lines.push(format!("report base: {}", &outcome.report_base_path));
+        lines.push(format!(
+            "report base: {}",
+            outcome.report_base_path.as_deref().unwrap_or("(disabled)")
+        ));
     }
     lines.push(format!(
         "Totals: files={} rows={} accepted={} rejected={}",
@@ -118,12 +124,15 @@ fn format_run_summary(outcome: &RunOutcome, include_run_info: bool) -> Vec<Strin
     ));
     lines.push(format!(
         "Run summary: {}",
-        run_summary_path(&outcome.run_id, &outcome.report_base_path)
+        run_summary_path(&outcome.run_id, outcome.report_base_path.as_deref())
     ));
     lines
 }
 
-fn run_summary_path(run_id: &str, report_base_path: &str) -> String {
+fn run_summary_path(run_id: &str, report_base_path: Option<&str>) -> String {
+    let Some(report_base_path) = report_base_path else {
+        return "(disabled)".to_string();
+    };
     let run_dir = report::ReportWriter::run_dir_name(run_id);
     Path::new(report_base_path)
         .join(run_dir)
@@ -324,7 +333,7 @@ mod tests {
 
         RunOutcome {
             run_id,
-            report_base_path,
+            report_base_path: Some(report_base_path),
             entity_outcomes: vec![EntityOutcome {
                 report,
                 file_timings_ms: vec![Some(12)],

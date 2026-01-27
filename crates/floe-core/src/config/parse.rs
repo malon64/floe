@@ -46,7 +46,10 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         None => None,
     };
 
-    let report = parse_report_config(get_value(root, "report", "root")?)?;
+    let report = match hash_get(root, "report") {
+        Some(value) => Some(parse_report_config(value)?),
+        None => None,
+    };
     let entities_yaml = get_array(root, "entities", "root")?;
     let mut entities = Vec::with_capacity(entities_yaml.len());
     for (index, entity_yaml) in entities_yaml.iter().enumerate() {
@@ -484,7 +487,7 @@ entities:
         let path = write_temp_config(yaml);
         let config = parse_config(&path).expect("parse config");
 
-        assert_eq!(config.report.path, "/tmp/reports");
+        assert_eq!(config.report.as_ref().unwrap().path, "/tmp/reports");
         assert_eq!(config.entities.len(), 1);
         let entity = &config.entities[0];
         let options = entity.source.options.as_ref().expect("options");

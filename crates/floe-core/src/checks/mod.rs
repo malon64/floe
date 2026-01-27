@@ -3,12 +3,23 @@ mod mismatch;
 mod not_null;
 mod unique;
 
-use polars::prelude::{BooleanChunked, NamedFrom, NewChunkedArray, Series};
+use polars::prelude::{BooleanChunked, DataFrame, NamedFrom, NewChunkedArray, Series};
+use std::collections::HashMap;
 
-pub use cast::cast_mismatch_errors;
+pub use cast::{cast_mismatch_counts, cast_mismatch_errors};
 pub use mismatch::{apply_schema_mismatch, MismatchOutcome};
-pub use not_null::not_null_errors;
-pub use unique::unique_errors;
+pub use not_null::{not_null_counts, not_null_errors};
+pub use unique::{unique_counts, unique_errors};
+
+pub type ColumnIndex = HashMap<String, usize>;
+
+pub fn column_index_map(df: &DataFrame) -> ColumnIndex {
+    df.get_column_names()
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.to_string(), idx))
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowError {
@@ -36,24 +47,32 @@ impl RowError {
     }
 }
 
-pub fn build_error_state(errors_per_row: &[Vec<RowError>]) -> (Vec<bool>, Vec<Option<String>>) {
+pub fn build_accept_rows(errors_per_row: &[Vec<RowError>]) -> Vec<bool> {
     let mut accept_rows = Vec::with_capacity(errors_per_row.len());
-    let mut errors_json = Vec::with_capacity(errors_per_row.len());
     for errors in errors_per_row {
-        if errors.is_empty() {
-            accept_rows.push(true);
-            errors_json.push(None);
-        } else {
-            accept_rows.push(false);
-            let json_items = errors
-                .iter()
-                .map(RowError::to_json)
-                .collect::<Vec<_>>()
-                .join(",");
-            errors_json.push(Some(format!("[{}]", json_items)));
-        }
+        accept_rows.push(errors.is_empty());
     }
-    (accept_rows, errors_json)
+    accept_rows
+}
+
+pub fn build_errors_json(
+    errors_per_row: &[Vec<RowError>],
+    accept_rows: &[bool],
+) -> Vec<Option<String>> {
+    let mut errors_json = Vec::with_capacity(errors_per_row.len());
+    for (errors, accepted) in errors_per_row.iter().zip(accept_rows.iter()) {
+        if *accepted {
+            errors_json.push(None);
+            continue;
+        }
+        let json_items = errors
+            .iter()
+            .map(RowError::to_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        errors_json.push(Some(format!("[{}]", json_items)));
+    }
+    errors_json
 }
 
 pub fn build_row_masks(accept_rows: &[bool]) -> (BooleanChunked, BooleanChunked) {
@@ -113,7 +132,8 @@ mod tests {
         .expect("create df");
         let required = vec!["customer_id".to_string()];
 
-        let errors = not_null_errors(&df, &required).expect("not_null_errors");
+        let indices = column_index_map(&df);
+        let errors = not_null_errors(&df, &required, &indices).expect("not_null_errors");
 
         assert!(errors[0].is_empty());
         assert_eq!(
@@ -143,7 +163,11 @@ mod tests {
             unique: None,
         }];
 
-        let errors = cast_mismatch_errors(&raw_df, &typed_df, &columns).expect("cast errors");
+        let raw_indices = column_index_map(&raw_df);
+        let typed_indices = column_index_map(&typed_df);
+        let errors =
+            cast_mismatch_errors(&raw_df, &typed_df, &columns, &raw_indices, &typed_indices)
+                .expect("cast errors");
 
         assert!(errors[0].is_empty());
         assert_eq!(
@@ -170,7 +194,8 @@ mod tests {
             unique: Some(true),
         }];
 
-        let errors = unique_errors(&df, &columns).expect("unique errors");
+        let indices = column_index_map(&df);
+        let errors = unique_errors(&df, &columns, &indices).expect("unique errors");
 
         assert!(errors[0].is_empty());
         assert!(errors[1].is_empty());
@@ -195,7 +220,8 @@ mod tests {
                 "required value missing",
             )],
         ];
-        let (accept_rows, errors_json) = build_error_state(&errors);
+        let accept_rows = build_accept_rows(&errors);
+        let errors_json = build_errors_json(&errors, &accept_rows);
 
         assert_eq!(accept_rows, vec![true, false]);
         assert!(errors_json[0].is_none());

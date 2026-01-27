@@ -110,14 +110,26 @@ impl InputAdapter for CsvInputAdapter {
                         )))
                     })?;
                 }
-                format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy)?
+                format::finalize_read_input(
+                    input_file,
+                    input_columns.clone(),
+                    Some(raw_df),
+                    typed_df,
+                    normalize_strategy,
+                )?
             } else {
                 let typed_plan = CsvReadPlan {
                     schema: typed_schema,
                     ignore_errors: true,
                 };
                 let typed_df = read_csv_lazy(path, source_options, &typed_plan.schema, true, None)?;
-                format::finalize_read_input(input_file, None, typed_df, normalize_strategy)?
+                format::finalize_read_input(
+                    input_file,
+                    input_columns.clone(),
+                    None,
+                    typed_df,
+                    normalize_strategy,
+                )?
             };
             inputs.push(input);
         }

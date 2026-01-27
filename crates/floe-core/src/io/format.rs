@@ -23,6 +23,7 @@ pub struct FileReadError {
 pub enum ReadInput {
     Data {
         input_file: InputFile,
+        input_columns: Vec<String>,
         raw_df: Option<DataFrame>,
         typed_df: DataFrame,
     },
@@ -241,11 +242,18 @@ pub(crate) fn read_input_from_df(
         None
     };
     let typed_df = cast_df_to_schema(df, &typed_schema)?;
-    finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)
+    finalize_read_input(
+        input_file,
+        input_columns,
+        raw_df,
+        typed_df,
+        normalize_strategy,
+    )
 }
 
 pub(crate) fn finalize_read_input(
     input_file: &InputFile,
+    input_columns: Vec<String>,
     mut raw_df: Option<DataFrame>,
     mut typed_df: DataFrame,
     normalize_strategy: Option<&str>,
@@ -258,6 +266,7 @@ pub(crate) fn finalize_read_input(
     }
     Ok(ReadInput::Data {
         input_file: input_file.clone(),
+        input_columns,
         raw_df,
         typed_df,
     })

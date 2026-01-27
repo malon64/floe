@@ -147,12 +147,13 @@ pub(super) fn run_entity(
     let mut abort_run = false;
     for input in inputs {
         let file_timer = Instant::now();
-        let (input_file, mut raw_df, mut df) = match input {
+        let (input_file, input_columns, mut raw_df, mut df) = match input {
             ReadInput::Data {
                 input_file,
+                input_columns,
                 raw_df,
                 typed_df,
-            } => (input_file, raw_df, typed_df),
+            } => (input_file, input_columns, raw_df, typed_df),
             ReadInput::FileError { input_file, error } => {
                 let status = if entity.policy.severity == "abort" {
                     report::FileStatus::Aborted
@@ -233,8 +234,13 @@ pub(super) fn run_entity(
         };
 
         let source_stem = input_file.source_stem.as_str();
-        let mismatch =
-            check::apply_schema_mismatch(entity, &normalized_columns, raw_df.as_mut(), &mut df)?;
+        let mismatch = check::apply_schema_mismatch(
+            entity,
+            &normalized_columns,
+            &input_columns,
+            raw_df.as_mut(),
+            &mut df,
+        )?;
         let row_count = raw_df
             .as_ref()
             .map(|df| df.height())

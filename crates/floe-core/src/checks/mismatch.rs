@@ -22,11 +22,18 @@ pub fn apply_schema_mismatch(
     mut raw_df: Option<&mut DataFrame>,
     typed_df: &mut DataFrame,
 ) -> FloeResult<MismatchOutcome> {
+    let normalize_strategy = crate::run::normalize::resolve_normalize_strategy(entity)?;
     let declared_names = declared_columns
         .iter()
         .map(|column| column.name.clone())
         .collect::<Vec<_>>();
-    let input_names = input_names.to_vec();
+    let input_names = match normalize_strategy.as_deref() {
+        Some(strategy) => input_names
+            .iter()
+            .map(|name| crate::run::normalize::normalize_name(name, strategy))
+            .collect::<Vec<_>>(),
+        None => input_names.to_vec(),
+    };
 
     let declared_set = declared_names
         .iter()

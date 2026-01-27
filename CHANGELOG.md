@@ -4,7 +4,7 @@ All notable changes to Floe are documented in this file.
 
 ## v0.1.4
 
-- Added delta accepted sink support with overwrite semantics (local filesystem only).
+- Added delta accepted sink support with overwrite semantics (local storage only).
 - Added iceberg accepted sink configuration stub with a clear not-implemented error.
 - Added `sink.accepted.options` for parquet compression and row group sizing.
 

@@ -20,7 +20,7 @@ pub fn resolve_local_inputs(
     config_dir: &Path,
     entity_name: &str,
     source: &config::SourceConfig,
-    filesystem: &str,
+    storage: &str,
     default_globs: &[String],
 ) -> FloeResult<ResolvedLocalInputs> {
     let default_options = config::SourceOptions::default();
@@ -37,7 +37,7 @@ pub fn resolve_local_inputs(
             let (base_path, glob_used) = split_glob_details(&pattern_path, raw_path);
             return Err(Box::new(ConfigError(no_match_message(
                 entity_name,
-                filesystem,
+                storage,
                 &base_path,
                 &glob_used,
                 recursive,
@@ -65,7 +65,7 @@ pub fn resolve_local_inputs(
     if !base_path.is_dir() {
         return Err(Box::new(ConfigError(no_match_message(
             entity_name,
-            filesystem,
+            storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
@@ -87,7 +87,7 @@ pub fn resolve_local_inputs(
     if files.is_empty() {
         return Err(Box::new(ConfigError(no_match_message(
             entity_name,
-            filesystem,
+            storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
@@ -160,14 +160,14 @@ fn collect_glob_files_multi(patterns: &[PathBuf]) -> FloeResult<Vec<PathBuf>> {
 
 fn no_match_message(
     entity_name: &str,
-    filesystem: &str,
+    storage: &str,
     base_path: &str,
     glob_used: &str,
     recursive: bool,
 ) -> String {
     format!(
-        "entity.name={} source.filesystem={} no input files matched (base_path={}, glob={}, recursive={})",
-        entity_name, filesystem, base_path, glob_used, recursive
+        "entity.name={} source.storage={} no input files matched (base_path={}, glob={}, recursive={})",
+        entity_name, storage, base_path, glob_used, recursive
     )
 }
 
@@ -207,7 +207,7 @@ mod tests {
         config::SourceConfig {
             format: format.to_string(),
             path: path.display().to_string(),
-            filesystem: None,
+            storage: None,
             options,
             cast_mode: None,
         }
@@ -343,7 +343,7 @@ mod tests {
             .unwrap_err();
         let message = err.to_string();
         assert!(message.contains("entity.name=customer"));
-        assert!(message.contains("source.filesystem=local"));
+        assert!(message.contains("source.storage=local"));
         assert!(message.contains("base_path="));
         assert!(message.contains("glob="));
         assert!(message.contains("recursive=true"));

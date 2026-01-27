@@ -22,11 +22,11 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
         _source_stem: &str,
         _temp_dir: Option<&Path>,
         _s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        _resolver: &config::FilesystemResolver,
+        _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.format=iceberg is not supported yet (filesystem catalog writer not implemented)",
+            "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",
             entity.name
         ))))
     }

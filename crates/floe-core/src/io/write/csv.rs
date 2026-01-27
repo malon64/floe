@@ -38,7 +38,7 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
         source_stem: &str,
         temp_dir: Option<&Path>,
         s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         match target {
@@ -47,7 +47,7 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
                 Ok(output_path.display().to_string())
             }
             StorageTarget::S3 {
-                filesystem,
+                storage,
                 bucket,
                 base_key,
             } => {
@@ -61,7 +61,7 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
                 let local_path = write_rejected_csv(df, &temp_base, source_stem)?;
                 let key = io::fs::s3::build_rejected_csv_key(base_key, source_stem);
                 let client =
-                    crate::run::entity::s3_client_for(s3_clients, resolver, filesystem, entity)?;
+                    crate::run::entity::s3_client_for(s3_clients, resolver, storage, entity)?;
                 client.upload_file(bucket, &key, &local_path)?;
                 Ok(io::fs::s3::format_s3_uri(bucket, &key))
             }

@@ -1,10 +1,10 @@
-mod filesystem;
 mod parse;
+mod storage;
 mod types;
 mod validate;
 mod yaml_decode;
 
-pub use filesystem::{resolve_local_path, FilesystemResolver, ResolvedPath};
+pub use storage::{resolve_local_path, ResolvedPath, StorageResolver};
 pub use types::*;
 
 pub(crate) use parse::parse_config;

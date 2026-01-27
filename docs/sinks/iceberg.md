@@ -4,10 +4,10 @@ Floe recognizes `sink.accepted.format: iceberg`, but it does not yet write
 Iceberg tables. The CLI fails fast with a clear error so configs remain
 forward-compatible.
 
-## Filesystem catalog model
+## Storage catalog model
 
 - Table identity: `sink.accepted.path` (table root directory).
-- Metadata lives under `<path>/metadata/` (filesystem catalog layout).
+- Metadata lives under `<path>/metadata/` (storage catalog layout).
 - No external catalog integration in v0.2.
 
 ## Example config
@@ -33,9 +33,9 @@ entities:
 ## Limitations (v0.2)
 
 - Writer not implemented; `floe validate` and `floe run` return a clear error.
-- Only local filesystem catalog is planned; cloud catalogs are not supported yet.
+- Only local storage catalog is planned; cloud catalogs are not supported yet.
 
 ## Next steps
 
-- Implement a filesystem catalog writer (metadata + data files).
+- Implement a storage catalog writer (metadata + data files).
 - Map Floe schema types to Iceberg types and handle overwrite semantics.

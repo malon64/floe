@@ -44,17 +44,17 @@ pub(super) fn run_entity(
     let config = &context.config;
     let input = &entity.source;
     let input_adapter = format::input_adapter(input.format.as_str())?;
-    let resolved_paths = resolve_entity_paths(&context.filesystem_resolver, entity)?;
-    let source_definition = filesystem_definition(
-        &context.filesystem_resolver,
-        &resolved_paths.source.filesystem,
+    let resolved_paths = resolve_entity_paths(&context.storage_resolver, entity)?;
+    let source_definition = storage_definition(
+        &context.storage_resolver,
+        &resolved_paths.source.storage,
         entity,
     )?;
     let source_is_s3 = source_definition.fs_type == "s3";
     if !source_is_s3 && resolved_paths.source.local_path.is_none() {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} source.filesystem={} is not supported for run",
-            entity.name, resolved_paths.source.filesystem
+            "entity.name={} source.storage={} is not supported for run",
+            entity.name, resolved_paths.source.storage
         ))));
     }
 
@@ -179,7 +179,7 @@ pub(super) fn run_entity(
                             &input_file,
                             temp_dir.as_ref().map(|dir| dir.path()),
                             s3_clients,
-                            &context.filesystem_resolver,
+                            &context.storage_resolver,
                             entity,
                         )
                     })
@@ -253,7 +253,7 @@ pub(super) fn run_entity(
             validate_rejected_target(entity, if mismatch.aborted { "abort" } else { "reject" })?;
             let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                 Box::new(ConfigError(format!(
-                    "entity.name={} sink.rejected.filesystem is required for rejection",
+                    "entity.name={} sink.rejected.storage is required for rejection",
                     entity.name
                 )))
             })?;
@@ -262,7 +262,7 @@ pub(super) fn run_entity(
                 &input_file,
                 temp_dir.as_ref().map(|dir| dir.path()),
                 s3_clients,
-                &context.filesystem_resolver,
+                &context.storage_resolver,
                 entity,
             )?);
 
@@ -346,7 +346,7 @@ pub(super) fn run_entity(
             source_stem,
             temp_dir.as_ref().map(|dir| dir.path()),
             s3_clients,
-            &context.filesystem_resolver,
+            &context.storage_resolver,
             file_timer.elapsed().as_millis() as u64,
         )? {
             totals.rows_total += outcome.file_report.row_count;
@@ -466,7 +466,7 @@ pub(super) fn run_entity(
                     source_stem,
                     temp_dir.as_ref().map(|dir| dir.path()),
                     s3_clients,
-                    &context.filesystem_resolver,
+                    &context.storage_resolver,
                     entity,
                 )?;
                 accepted_path = Some(output_path);
@@ -495,19 +495,19 @@ pub(super) fn run_entity(
                         source_stem,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     accepted_path = Some(output_path);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.filesystem is required for rejection",
+                            "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
                         )))
                     })?;
                     let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.filesystem is required for rejection",
+                            "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
                         )))
                     })?;
@@ -518,7 +518,7 @@ pub(super) fn run_entity(
                         source_stem,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     rejected_path = Some(rejected_path_value);
@@ -530,7 +530,7 @@ pub(super) fn run_entity(
                         source_stem,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     accepted_path = Some(output_path);
@@ -541,7 +541,7 @@ pub(super) fn run_entity(
                     validate_rejected_target(entity, "abort")?;
                     let rejected_target = rejected_target.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.filesystem is required for rejection",
+                            "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
                         )))
                     })?;
@@ -550,7 +550,7 @@ pub(super) fn run_entity(
                         &input_file,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     let errors_path_value = write_error_report_output(
@@ -559,7 +559,7 @@ pub(super) fn run_entity(
                         &errors_json,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     rejected_path = Some(rejected_path_value);
@@ -572,7 +572,7 @@ pub(super) fn run_entity(
                         source_stem,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         s3_clients,
-                        &context.filesystem_resolver,
+                        &context.storage_resolver,
                         entity,
                     )?;
                     accepted_path = Some(output_path);
@@ -788,7 +788,7 @@ fn try_warn_counts(
     source_stem: &str,
     temp_dir: Option<&Path>,
     s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-    resolver: &config::FilesystemResolver,
+    resolver: &config::StorageResolver,
     elapsed_ms: u64,
 ) -> FloeResult<Option<WarnOutcome>> {
     if entity.policy.severity != "warn" {
@@ -1014,8 +1014,8 @@ fn resolve_input_files(
         let source_location = io::fs::s3::parse_s3_uri(&resolved_paths.source.uri)?;
         let s3_client = s3_client_for(
             s3_clients,
-            &context.filesystem_resolver,
-            &resolved_paths.source.filesystem,
+            &context.storage_resolver,
+            &resolved_paths.source.storage,
             entity,
         )?;
         let temp_dir =
@@ -1027,7 +1027,7 @@ fn resolve_input_files(
             input_adapter,
             temp_dir.path(),
             entity,
-            &resolved_paths.source.filesystem,
+            &resolved_paths.source.storage,
         )?;
         return Ok((inputs, report::ResolvedInputMode::Directory));
     }
@@ -1036,7 +1036,7 @@ fn resolve_input_files(
         &context.config_dir,
         &entity.name,
         &entity.source,
-        &resolved_paths.source.filesystem,
+        &resolved_paths.source.storage,
     )?;
     let inputs = build_local_inputs(&resolved_inputs.files, entity);
     let mode = match resolved_inputs.mode {
@@ -1047,19 +1047,19 @@ fn resolve_input_files(
 }
 
 fn resolve_entity_paths(
-    resolver: &config::FilesystemResolver,
+    resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<ResolvedEntityPaths> {
     let source = resolver.resolve_path(
         &entity.name,
-        "source.filesystem",
-        entity.source.filesystem.as_deref(),
+        "source.storage",
+        entity.source.storage.as_deref(),
         &entity.source.path,
     )?;
     let accepted = resolver.resolve_path(
         &entity.name,
-        "sink.accepted.filesystem",
-        entity.sink.accepted.filesystem.as_deref(),
+        "sink.accepted.storage",
+        entity.sink.accepted.storage.as_deref(),
         &entity.sink.accepted.path,
     )?;
     let rejected = entity
@@ -1069,8 +1069,8 @@ fn resolve_entity_paths(
         .map(|rejected| {
             resolver.resolve_path(
                 &entity.name,
-                "sink.rejected.filesystem",
-                rejected.filesystem.as_deref(),
+                "sink.rejected.storage",
+                rejected.storage.as_deref(),
                 &rejected.path,
             )
         })
@@ -1090,20 +1090,20 @@ fn storage_target_from_resolved(resolved: &config::ResolvedPath) -> FloeResult<S
     }
     let location = io::fs::s3::parse_s3_uri(&resolved.uri)?;
     Ok(StorageTarget::S3 {
-        filesystem: resolved.filesystem.clone(),
+        storage: resolved.storage.clone(),
         bucket: location.bucket,
         base_key: location.key,
     })
 }
 
-fn filesystem_definition(
-    resolver: &config::FilesystemResolver,
+fn storage_definition(
+    resolver: &config::StorageResolver,
     name: &str,
     entity: &config::EntityConfig,
-) -> FloeResult<config::FilesystemDefinition> {
+) -> FloeResult<config::StorageDefinition> {
     resolver.definition(name).ok_or_else(|| {
         Box::new(ConfigError(format!(
-            "entity.name={} filesystem {} is not defined",
+            "entity.name={} storage {} is not defined",
             entity.name, name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })
@@ -1111,22 +1111,22 @@ fn filesystem_definition(
 
 pub(crate) fn s3_client_for<'a>(
     clients: &'a mut HashMap<String, io::fs::s3::S3Client>,
-    resolver: &config::FilesystemResolver,
-    filesystem: &str,
+    resolver: &config::StorageResolver,
+    storage: &str,
     entity: &config::EntityConfig,
 ) -> FloeResult<&'a mut io::fs::s3::S3Client> {
-    if !clients.contains_key(filesystem) {
-        let definition = filesystem_definition(resolver, filesystem, entity)?;
+    if !clients.contains_key(storage) {
+        let definition = storage_definition(resolver, storage, entity)?;
         if definition.fs_type != "s3" {
             return Err(Box::new(ConfigError(format!(
-                "entity.name={} filesystem {} is not s3",
-                entity.name, filesystem
+                "entity.name={} storage {} is not s3",
+                entity.name, storage
             ))));
         }
         let client = io::fs::s3::S3Client::new(definition.region.as_deref())?;
-        clients.insert(filesystem.to_string(), client);
+        clients.insert(storage.to_string(), client);
     }
-    Ok(clients.get_mut(filesystem).expect("s3 client inserted"))
+    Ok(clients.get_mut(storage).expect("s3 client inserted"))
 }
 
 fn build_local_inputs(files: &[PathBuf], entity: &config::EntityConfig) -> Vec<InputFile> {
@@ -1160,16 +1160,16 @@ fn build_s3_inputs(
     adapter: &dyn InputAdapter,
     temp_dir: &Path,
     entity: &config::EntityConfig,
-    filesystem: &str,
+    storage: &str,
 ) -> FloeResult<Vec<InputFile>> {
     let suffixes = adapter.suffixes()?;
     let keys = client.list_objects(bucket, prefix)?;
     let keys = io::fs::s3::filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} source.filesystem={} no input objects matched (bucket={}, prefix={}, suffixes={})",
+            "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
             entity.name,
-            filesystem,
+            storage,
             bucket,
             prefix,
             suffixes.join(",")

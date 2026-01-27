@@ -132,18 +132,18 @@ Sink details:
 - Delta: [docs/sinks/delta.md](docs/sinks/delta.md)
 - Iceberg: [docs/sinks/iceberg.md](docs/sinks/iceberg.md)
 
-## Cloud integration and filesystems
+## Cloud integration and storages
 
-Floe resolves all paths through a filesystem registry in the config. By default,
-paths use `local://`. To use cloud storage, define a filesystem (with credentials
+Floe resolves all paths through a storage registry in the config. By default,
+paths use `local://`. To use cloud storage, define a storage (with credentials
 or bucket info) and reference it on `source`/`sink`. Currently only S3 is
 implemented; Google Cloud Storage, Azure Data Lake Storage, and `dbfs://`
 (Databricks) are on the roadmap.
 
-Example (S3 filesystem):
+Example (S3 storage):
 
 ```yaml
-filesystems:
+storages:
   default: local
   definitions:
     - name: local
@@ -156,11 +156,11 @@ filesystems:
 entities:
   - name: customer
     source:
-      filesystem: s3_raw
+      storage: s3_raw
       path: raw/customer/
 ```
 
-Filesystem guide: [docs/filesystems/s3.md](docs/filesystems/s3.md)
+Storage guide: [docs/storages/s3.md](docs/storages/s3.md)
 
 ## Roadmap (near term)
 

@@ -38,7 +38,7 @@ pub enum StorageTarget {
         base_path: String,
     },
     S3 {
-        filesystem: String,
+        storage: String,
         bucket: String,
         base_key: String,
     },
@@ -62,14 +62,14 @@ pub trait InputAdapter: Send + Sync {
         config_dir: &Path,
         entity_name: &str,
         source: &config::SourceConfig,
-        filesystem: &str,
+        storage: &str,
     ) -> FloeResult<io::fs::local::ResolvedLocalInputs> {
         let default_globs = self.default_globs()?;
         io::fs::local::resolve_local_inputs(
             config_dir,
             entity_name,
             source,
-            filesystem,
+            storage,
             &default_globs,
         )
     }
@@ -93,7 +93,7 @@ pub trait AcceptedSinkAdapter: Send + Sync {
         source_stem: &str,
         temp_dir: Option<&Path>,
         s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;
 }
@@ -107,7 +107,7 @@ pub trait RejectedSinkAdapter: Send + Sync {
         source_stem: &str,
         temp_dir: Option<&Path>,
         s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;
 }

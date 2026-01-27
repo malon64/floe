@@ -61,7 +61,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _source_stem: &str,
         _temp_dir: Option<&Path>,
         _s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        _resolver: &config::FilesystemResolver,
+        _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         match target {
@@ -70,7 +70,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
                 Ok(output_path.display().to_string())
             }
             StorageTarget::S3 { .. } => Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.format=delta is only supported on local filesystem",
+                "entity.name={} sink.accepted.format=delta is only supported on local storage",
                 entity.name
             )))),
         }

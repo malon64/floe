@@ -62,11 +62,11 @@ entities:
     )
 }
 
-fn config_with_filesystems(filesystems_yaml: &str, entities_yaml: &str) -> String {
+fn config_with_storages(storages_yaml: &str, entities_yaml: &str) -> String {
     format!(
         r#"version: "0.1"
-filesystems:
-{filesystems_yaml}
+storages:
+{storages_yaml}
 report:
   path: "/tmp/reports"
 entities:
@@ -555,25 +555,25 @@ entities:
 }
 
 #[test]
-fn filesystems_optional_defaults_to_local() {
+fn storages_optional_defaults_to_local() {
     let yaml = base_config(&base_entity("customer"));
     assert_validation_ok(&yaml);
 }
 
 #[test]
-fn filesystems_local_defined_and_used() {
-    let filesystems = r#"  default: "local"
+fn storages_local_defined_and_used() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
 "#;
-    let yaml = config_with_filesystems(filesystems, &base_entity("customer"));
+    let yaml = config_with_storages(storages, &base_entity("customer"));
     assert_validation_ok(&yaml);
 }
 
 #[test]
-fn source_filesystem_override_works() {
-    let filesystems = r#"  default: "local"
+fn source_storage_override_works() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
@@ -584,7 +584,7 @@ fn source_filesystem_override_works() {
     source:
       format: "csv"
       path: "/tmp/input"
-      filesystem: "local_alt"
+      storage: "local_alt"
     sink:
       accepted:
         format: "parquet"
@@ -596,13 +596,13 @@ fn source_filesystem_override_works() {
         - name: "customer_id"
           type: "string"
 "#;
-    let yaml = config_with_filesystems(filesystems, entity);
+    let yaml = config_with_storages(storages, entity);
     assert_validation_ok(&yaml);
 }
 
 #[test]
-fn sink_accepted_filesystem_override_works() {
-    let filesystems = r#"  default: "local"
+fn sink_accepted_storage_override_works() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
@@ -617,7 +617,7 @@ fn sink_accepted_filesystem_override_works() {
       accepted:
         format: "parquet"
         path: "/tmp/out"
-        filesystem: "local_alt"
+        storage: "local_alt"
     policy:
       severity: "warn"
     schema:
@@ -625,13 +625,13 @@ fn sink_accepted_filesystem_override_works() {
         - name: "customer_id"
           type: "string"
 "#;
-    let yaml = config_with_filesystems(filesystems, entity);
+    let yaml = config_with_storages(storages, entity);
     assert_validation_ok(&yaml);
 }
 
 #[test]
-fn missing_filesystem_reference_errors() {
-    let filesystems = r#"  default: "local"
+fn missing_storage_reference_errors() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
@@ -640,7 +640,7 @@ fn missing_filesystem_reference_errors() {
     source:
       format: "csv"
       path: "/tmp/input"
-      filesystem: "missing"
+      storage: "missing"
     sink:
       accepted:
         format: "parquet"
@@ -652,16 +652,16 @@ fn missing_filesystem_reference_errors() {
         - name: "customer_id"
           type: "string"
 "#;
-    let yaml = config_with_filesystems(filesystems, entity);
+    let yaml = config_with_storages(storages, entity);
     assert_validation_error(
         &yaml,
-        &["entity.name=customer", "source.filesystem", "missing"],
+        &["entity.name=customer", "source.storage", "missing"],
     );
 }
 
 #[test]
-fn s3_filesystem_reference_ok() {
-    let filesystems = r#"  default: "local"
+fn s3_storage_reference_ok() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
@@ -674,7 +674,7 @@ fn s3_filesystem_reference_ok() {
     source:
       format: "csv"
       path: "/tmp/input"
-      filesystem: "s3_raw"
+      storage: "s3_raw"
     sink:
       accepted:
         format: "parquet"
@@ -686,13 +686,13 @@ fn s3_filesystem_reference_ok() {
         - name: "customer_id"
           type: "string"
 "#;
-    let yaml = config_with_filesystems(filesystems, entity);
+    let yaml = config_with_storages(storages, entity);
     assert_validation_ok(&yaml);
 }
 
 #[test]
-fn parquet_source_rejects_s3_filesystem() {
-    let filesystems = r#"  default: "local"
+fn parquet_source_rejects_s3_storage() {
+    let storages = r#"  default: "local"
   definitions:
     - name: "local"
       type: "local"
@@ -705,7 +705,7 @@ fn parquet_source_rejects_s3_filesystem() {
     source:
       format: "parquet"
       path: "/tmp/input"
-      filesystem: "s3_raw"
+      storage: "s3_raw"
     sink:
       accepted:
         format: "parquet"
@@ -717,13 +717,13 @@ fn parquet_source_rejects_s3_filesystem() {
         - name: "customer_id"
           type: "string"
 "#;
-    let yaml = config_with_filesystems(filesystems, entity);
+    let yaml = config_with_storages(storages, entity);
     assert_validation_error(
         &yaml,
         &[
             "entity.name=customer",
             "source.format=parquet",
-            "local filesystem",
+            "local storage",
         ],
     );
 }

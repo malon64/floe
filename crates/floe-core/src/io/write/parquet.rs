@@ -53,7 +53,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         source_stem: &str,
         temp_dir: Option<&Path>,
         s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         match target {
@@ -67,7 +67,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 Ok(output_path.display().to_string())
             }
             StorageTarget::S3 {
-                filesystem,
+                storage,
                 bucket,
                 base_key,
             } => {
@@ -86,7 +86,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 )?;
                 let key = io::fs::s3::build_parquet_key(base_key, source_stem);
                 let client =
-                    crate::run::entity::s3_client_for(s3_clients, resolver, filesystem, entity)?;
+                    crate::run::entity::s3_client_for(s3_clients, resolver, storage, entity)?;
                 client.upload_file(bucket, &key, &local_path)?;
                 Ok(io::fs::s3::format_s3_uri(bucket, &key))
             }

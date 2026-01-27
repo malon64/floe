@@ -1,6 +1,6 @@
 # Delta Sink (Accepted Output)
 
-Floe can write accepted output as a Delta Lake table on the local filesystem.
+Floe can write accepted output as a Delta Lake table on the local storage.
 
 Example:
 ```yaml
@@ -18,4 +18,4 @@ entities:
 Semantics:
 - `sink.accepted.format: delta` writes a Delta table at `sink.accepted.path`.
 - Write mode is `overwrite` (the table at the path is replaced on each run).
-- Local filesystem only (S3 is not supported yet for delta output).
+- Local storage only (S3 is not supported yet for delta output).

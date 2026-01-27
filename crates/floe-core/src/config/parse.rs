@@ -7,10 +7,10 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::config::{
-    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, FilesystemDefinition,
-    FilesystemsConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig,
-    RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget,
-    SourceConfig, SourceOptions,
+    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
+    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig,
+    SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition,
+    StoragesConfig,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -32,7 +32,14 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     validate_known_keys(
         root,
         "root",
-        &["version", "metadata", "filesystems", "report", "entities"],
+        &[
+            "version",
+            "metadata",
+            "storages",
+            "filesystems",
+            "report",
+            "entities",
+        ],
     )?;
     let version = get_string(root, "version", "root")?;
 
@@ -41,9 +48,15 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         None => None,
     };
 
-    let filesystems = match hash_get(root, "filesystems") {
-        Some(value) => Some(parse_filesystems(value)?),
-        None => None,
+    let storages = match (hash_get(root, "storages"), hash_get(root, "filesystems")) {
+        (Some(_), Some(_)) => {
+            return Err(Box::new(ConfigError(
+                "root.storages and root.filesystems are mutually exclusive".to_string(),
+            )))
+        }
+        (Some(value), None) => Some(parse_storages(value)?),
+        (None, Some(value)) => Some(parse_storages(value)?),
+        (None, None) => None,
     };
 
     let report = match hash_get(root, "report") {
@@ -67,7 +80,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     Ok(RootConfig {
         version,
         metadata,
-        filesystems,
+        storages,
         report,
         entities,
     })
@@ -144,17 +157,32 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     validate_known_keys(
         hash,
         "source",
-        &["format", "path", "filesystem", "options", "cast_mode"],
+        &[
+            "format",
+            "path",
+            "storage",
+            "filesystem",
+            "options",
+            "cast_mode",
+        ],
     )?;
     let options = match hash_get(hash, "options") {
         Some(value) => Some(parse_source_options(value)?),
         None => Some(SourceOptions::default()),
     };
 
+    let storage = opt_string(hash, "storage", "source")?;
+    let filesystem = opt_string(hash, "filesystem", "source")?;
+    if storage.is_some() && filesystem.is_some() {
+        return Err(Box::new(ConfigError(
+            "source.storage and source.storage are mutually exclusive".to_string(),
+        )));
+    }
+
     Ok(SourceConfig {
         format: get_string(hash, "format", "source")?,
         path: get_string(hash, "path", "source")?,
-        filesystem: opt_string(hash, "filesystem", "source")?,
+        storage: storage.or(filesystem),
         options,
         cast_mode: opt_string(hash, "cast_mode", "source")?,
     })
@@ -209,11 +237,18 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
 
 fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult<SinkTarget> {
     let hash = yaml_hash(value, ctx)?;
-    let mut allowed = vec!["format", "path", "filesystem"];
+    let mut allowed = vec!["format", "path", "storage", "filesystem"];
     if allow_options {
         allowed.push("options");
     }
     validate_known_keys(hash, ctx, &allowed)?;
+    let storage = opt_string(hash, "storage", ctx)?;
+    let filesystem = opt_string(hash, "filesystem", ctx)?;
+    if storage.is_some() && filesystem.is_some() {
+        return Err(Box::new(ConfigError(format!(
+            "{ctx}.storage and {ctx}.storage are mutually exclusive"
+        ))));
+    }
     let options = if allow_options {
         match hash_get(hash, "options") {
             Some(value) => Some(parse_sink_options(value, &format!("{ctx}.options"))?),
@@ -225,7 +260,7 @@ fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
-        filesystem: opt_string(hash, "filesystem", ctx)?,
+        storage: storage.or(filesystem),
         options,
     })
 }
@@ -247,45 +282,43 @@ fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     })
 }
 
-fn parse_filesystems(value: &Yaml) -> FloeResult<FilesystemsConfig> {
-    let hash = yaml_hash(value, "filesystems")?;
-    validate_known_keys(hash, "filesystems", &["default", "definitions"])?;
+fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
+    let hash = yaml_hash(value, "storages")?;
+    validate_known_keys(hash, "storages", &["default", "definitions"])?;
     let definitions_yaml = match hash_get(hash, "definitions") {
-        Some(value) => yaml_array(value, "filesystems.definitions")?,
+        Some(value) => yaml_array(value, "storages.definitions")?,
         None => {
             return Err(Box::new(ConfigError(
-                "missing required field filesystems.definitions".to_string(),
+                "missing required field storages.definitions".to_string(),
             )))
         }
     };
     let mut definitions = Vec::with_capacity(definitions_yaml.len());
     for (index, item) in definitions_yaml.iter().enumerate() {
-        let definition = parse_filesystem_definition(item).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "filesystems.definitions[{index}]: {err}"
-            )))
+        let definition = parse_storage_definition(item).map_err(|err| {
+            Box::new(ConfigError(format!("storages.definitions[{index}]: {err}")))
         })?;
         definitions.push(definition);
     }
-    Ok(FilesystemsConfig {
-        default: opt_string(hash, "default", "filesystems")?,
+    Ok(StoragesConfig {
+        default: opt_string(hash, "default", "storages")?,
         definitions,
     })
 }
 
-fn parse_filesystem_definition(value: &Yaml) -> FloeResult<FilesystemDefinition> {
-    let hash = yaml_hash(value, "filesystems.definitions")?;
+fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
+    let hash = yaml_hash(value, "storages.definitions")?;
     validate_known_keys(
         hash,
-        "filesystems.definitions",
+        "storages.definitions",
         &["name", "type", "bucket", "region", "prefix"],
     )?;
-    Ok(FilesystemDefinition {
-        name: get_string(hash, "name", "filesystems.definitions")?,
-        fs_type: get_string(hash, "type", "filesystems.definitions")?,
-        bucket: opt_string(hash, "bucket", "filesystems.definitions")?,
-        region: opt_string(hash, "region", "filesystems.definitions")?,
-        prefix: opt_string(hash, "prefix", "filesystems.definitions")?,
+    Ok(StorageDefinition {
+        name: get_string(hash, "name", "storages.definitions")?,
+        fs_type: get_string(hash, "type", "storages.definitions")?,
+        bucket: opt_string(hash, "bucket", "storages.definitions")?,
+        region: opt_string(hash, "region", "storages.definitions")?,
+        prefix: opt_string(hash, "prefix", "storages.definitions")?,
     })
 }
 

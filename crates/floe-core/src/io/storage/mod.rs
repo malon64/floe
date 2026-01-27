@@ -5,9 +5,7 @@ use crate::{config, ConfigError, FloeResult};
 
 pub mod extensions;
 pub mod local;
-pub mod local_inputs;
 pub mod s3;
-pub mod s3_paths;
 pub mod target;
 
 pub use target::Target;

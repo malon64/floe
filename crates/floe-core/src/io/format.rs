@@ -53,9 +53,9 @@ pub trait InputAdapter: Send + Sync {
         entity_name: &str,
         source: &config::SourceConfig,
         storage: &str,
-    ) -> FloeResult<io::storage::local_inputs::ResolvedLocalInputs> {
+    ) -> FloeResult<io::storage::local::ResolvedLocalInputs> {
         let default_globs = self.default_globs()?;
-        io::storage::local_inputs::resolve_local_inputs(
+        io::storage::local::resolve_local_inputs(
             config_dir,
             entity_name,
             source,

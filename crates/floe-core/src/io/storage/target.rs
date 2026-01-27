@@ -24,7 +24,7 @@ impl Target {
                 base_path: path.display().to_string(),
             });
         }
-        let location = io::storage::s3_paths::parse_s3_uri(&resolved.uri)?;
+        let location = io::storage::s3::parse_s3_uri(&resolved.uri)?;
         Ok(Target::S3 {
             storage: resolved.storage.clone(),
             uri: resolved.uri.clone(),

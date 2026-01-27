@@ -1022,10 +1022,8 @@ fn resolve_input_files(
     )?;
     let inputs = build_local_inputs(&resolved_inputs.files, entity);
     let mode = match resolved_inputs.mode {
-        io::storage::local_inputs::LocalInputMode::File => report::ResolvedInputMode::File,
-        io::storage::local_inputs::LocalInputMode::Directory => {
-            report::ResolvedInputMode::Directory
-        }
+        io::storage::local::LocalInputMode::File => report::ResolvedInputMode::File,
+        io::storage::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
     };
     Ok((inputs, mode))
 }
@@ -1104,7 +1102,7 @@ fn build_s3_inputs(
 ) -> FloeResult<Vec<InputFile>> {
     let suffixes = adapter.suffixes()?;
     let keys = client.list(prefix)?;
-    let keys = io::storage::s3_paths::filter_keys_by_suffixes(keys, &suffixes);
+    let keys = io::storage::s3::filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
@@ -1117,13 +1115,13 @@ fn build_s3_inputs(
     }
     let mut inputs = Vec::with_capacity(keys.len());
     for key in keys {
-        let local_path = io::storage::s3_paths::temp_path_for_key(temp_dir, &key);
+        let local_path = io::storage::s3::temp_path_for_key(temp_dir, &key);
         client.download(&key, &local_path)?;
         let source_name =
-            io::storage::s3_paths::file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
-        let source_stem = io::storage::s3_paths::file_stem_from_name(&source_name)
+            io::storage::s3::file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
+        let source_stem = io::storage::s3::file_stem_from_name(&source_name)
             .unwrap_or_else(|| entity.name.clone());
-        let source_uri = io::storage::s3_paths::format_s3_uri(bucket, &key);
+        let source_uri = io::storage::s3::format_s3_uri(bucket, &key);
         inputs.push(InputFile {
             source_uri,
             local_path,

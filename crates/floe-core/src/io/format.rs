@@ -414,7 +414,8 @@ pub fn collect_errors(
     for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
         errors.extend(unique);
     }
-    let (accept_rows, errors_json) = check::build_error_state(&error_lists);
+    let accept_rows = check::build_accept_rows(&error_lists);
+    let errors_json = check::build_errors_json(&error_lists, &accept_rows);
     Ok((accept_rows, errors_json, error_lists))
 }
 

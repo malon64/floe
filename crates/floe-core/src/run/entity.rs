@@ -358,57 +358,75 @@ pub(super) fn run_entity(
             continue;
         }
 
-        let raw_df = raw_df.as_ref().ok_or_else(|| {
+        let raw_df = raw_df.ok_or_else(|| {
             Box::new(ConfigError(format!(
                 "entity.name={} raw dataframe unavailable for rejection checks",
                 entity.name
             )))
         })?;
-        let raw_indices = check::column_index_map(raw_df);
+        let raw_indices = check::column_index_map(&raw_df);
         let typed_indices = check::column_index_map(&df);
 
-        let (accept_rows, errors_json, error_lists) =
-            if entity.policy.severity == "abort" && track_cast_errors {
+        let cast_counts = if track_cast_errors {
+            check::cast_mismatch_counts(&raw_df, &df, &normalized_columns)?
+        } else {
+            Vec::new()
+        };
+        let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
+
+        let (accept_rows, errors_json, error_lists, row_error_count, violation_count) =
+            if entity.policy.severity == "abort" && cast_total > 0 {
                 let cast_errors = check::cast_mismatch_errors(
-                    raw_df,
+                    &raw_df,
                     &df,
                     &normalized_columns,
                     &raw_indices,
                     &typed_indices,
                 )?;
-                if cast_errors.iter().any(|errors| !errors.is_empty()) {
-                    let (accept_rows, errors_json) = check::build_error_state(&cast_errors);
-                    (accept_rows, errors_json, cast_errors)
+                let accept_rows = check::build_accept_rows(&cast_errors);
+                let errors_json = check::build_errors_json(&cast_errors, &accept_rows);
+                let row_error_count = cast_errors
+                    .iter()
+                    .filter(|errors| !errors.is_empty())
+                    .count() as u64;
+                let violation_count = cast_errors
+                    .iter()
+                    .map(|errors| errors.len() as u64)
+                    .sum::<u64>();
+                (
+                    accept_rows,
+                    errors_json,
+                    cast_errors,
+                    row_error_count,
+                    violation_count,
+                )
+            } else {
+                let not_null_counts = check::not_null_counts(&df, &required_cols)?;
+                let unique_counts = check::unique_counts(&df, &normalized_columns)?;
+                let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
+                let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
+                let quick_total = cast_total + not_null_total + unique_total;
+
+                if quick_total == 0 {
+                    (vec![true; row_count as usize], Vec::new(), Vec::new(), 0, 0)
                 } else {
-                    collect_errors(
-                        raw_df,
+                    let (rows, json, lists) = collect_errors(
+                        &raw_df,
                         &df,
                         &required_cols,
                         &normalized_columns,
-                        track_cast_errors,
+                        track_cast_errors && cast_total > 0,
                         &raw_indices,
                         &typed_indices,
-                    )?
+                    )?;
+                    let row_error_count =
+                        lists.iter().filter(|errors| !errors.is_empty()).count() as u64;
+                    let violation_count =
+                        lists.iter().map(|errors| errors.len() as u64).sum::<u64>();
+                    (rows, json, lists, row_error_count, violation_count)
                 }
-            } else {
-                collect_errors(
-                    raw_df,
-                    &df,
-                    &required_cols,
-                    &normalized_columns,
-                    track_cast_errors,
-                    &raw_indices,
-                    &typed_indices,
-                )?
             };
-        let row_error_count = error_lists
-            .iter()
-            .filter(|errors| !errors.is_empty())
-            .count() as u64;
-        let violation_count = error_lists
-            .iter()
-            .map(|errors| errors.len() as u64)
-            .sum::<u64>();
+        drop(raw_df);
         let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
         let reject_count = row_count.saturating_sub(accept_count);
         let has_errors = row_error_count > 0;
@@ -416,8 +434,17 @@ pub(super) fn run_entity(
         let mut rejected_path = None;
         let mut errors_path = None;
         let mut archived_path = None;
-        let (mut rules, mut examples) =
-            summarize_validation(&error_lists, &normalized_columns, severity);
+        let (mut rules, mut examples) = if has_errors {
+            summarize_validation(&error_lists, &normalized_columns, severity)
+        } else {
+            (
+                Vec::new(),
+                report::ExampleSummary {
+                    max_examples_per_rule: 3,
+                    items: Vec::new(),
+                },
+            )
+        };
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;

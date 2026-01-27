@@ -47,24 +47,32 @@ impl RowError {
     }
 }
 
-pub fn build_error_state(errors_per_row: &[Vec<RowError>]) -> (Vec<bool>, Vec<Option<String>>) {
+pub fn build_accept_rows(errors_per_row: &[Vec<RowError>]) -> Vec<bool> {
     let mut accept_rows = Vec::with_capacity(errors_per_row.len());
-    let mut errors_json = Vec::with_capacity(errors_per_row.len());
     for errors in errors_per_row {
-        if errors.is_empty() {
-            accept_rows.push(true);
-            errors_json.push(None);
-        } else {
-            accept_rows.push(false);
-            let json_items = errors
-                .iter()
-                .map(RowError::to_json)
-                .collect::<Vec<_>>()
-                .join(",");
-            errors_json.push(Some(format!("[{}]", json_items)));
-        }
+        accept_rows.push(errors.is_empty());
     }
-    (accept_rows, errors_json)
+    accept_rows
+}
+
+pub fn build_errors_json(
+    errors_per_row: &[Vec<RowError>],
+    accept_rows: &[bool],
+) -> Vec<Option<String>> {
+    let mut errors_json = Vec::with_capacity(errors_per_row.len());
+    for (errors, accepted) in errors_per_row.iter().zip(accept_rows.iter()) {
+        if *accepted {
+            errors_json.push(None);
+            continue;
+        }
+        let json_items = errors
+            .iter()
+            .map(RowError::to_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        errors_json.push(Some(format!("[{}]", json_items)));
+    }
+    errors_json
 }
 
 pub fn build_row_masks(accept_rows: &[bool]) -> (BooleanChunked, BooleanChunked) {
@@ -212,7 +220,8 @@ mod tests {
                 "required value missing",
             )],
         ];
-        let (accept_rows, errors_json) = build_error_state(&errors);
+        let accept_rows = build_accept_rows(&errors);
+        let errors_json = build_errors_json(&errors, &accept_rows);
 
         assert_eq!(accept_rows, vec![true, false]);
         assert!(errors_json[0].is_none());

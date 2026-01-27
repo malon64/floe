@@ -19,7 +19,8 @@ pub fn write_rejected_csv(
     base_path: &str,
     source_stem: &str,
 ) -> FloeResult<PathBuf> {
-    let output_path = build_rejected_path(base_path, source_stem);
+    let filename = io::storage::paths::build_output_filename(source_stem, "_rejected", "csv");
+    let output_path = io::storage::paths::resolve_output_path(base_path, &filename);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -54,11 +55,4 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
     }
 }
 
-fn build_rejected_path(base_path: &str, source_stem: &str) -> PathBuf {
-    let path = Path::new(base_path);
-    if path.extension().is_some() {
-        path.to_path_buf()
-    } else {
-        path.join(format!("{source_stem}_rejected.csv"))
-    }
-}
+// Filename construction is shared via io::storage::paths helpers.

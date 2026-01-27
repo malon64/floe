@@ -46,7 +46,11 @@ pub(super) fn write_accepted_output(
                 entity,
             )?;
             let key = match format {
-                "parquet" => io::storage::s3::build_parquet_key(base_key, source_stem),
+                "parquet" => {
+                    let filename =
+                        io::storage::paths::build_output_filename(source_stem, "", "parquet");
+                    io::storage::paths::resolve_output_key(base_key, &filename)
+                }
                 "delta" | "iceberg" => {
                     return Err(Box::new(ConfigError(format!(
                         "entity.name={} sink.accepted.format={} is only supported on local storage",
@@ -106,7 +110,11 @@ pub(super) fn write_rejected_output(
                 entity,
             )?;
             let key = match format {
-                "csv" => io::storage::s3::build_rejected_csv_key(base_key, source_stem),
+                "csv" => {
+                    let filename =
+                        io::storage::paths::build_output_filename(source_stem, "_rejected", "csv");
+                    io::storage::paths::resolve_output_key(base_key, &filename)
+                }
                 _ => {
                     return Err(Box::new(ConfigError(format!(
                         "entity.name={} sink.rejected.format={} is unsupported for s3 output",
@@ -140,7 +148,7 @@ pub(super) fn write_rejected_raw_output(
             base_key,
             ..
         } => {
-            let key = io::storage::s3::build_rejected_raw_key(base_key, &input_file.source_name);
+            let key = io::storage::paths::resolve_output_key(base_key, &input_file.source_name);
             let client = cloud.client_for(resolver, storage, entity)?;
             client.upload(&key, &input_file.local_path)?;
             Ok(io::storage::s3::format_s3_uri(bucket, &key))
@@ -176,7 +184,9 @@ pub(super) fn write_error_report_output(
             })?;
             let temp_base = temp_dir.display().to_string();
             let local_path = io::write::write_error_report(&temp_base, source_stem, errors_json)?;
-            let key = io::storage::s3::build_reject_errors_key(base_key, source_stem);
+            let filename =
+                io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
+            let key = io::storage::paths::resolve_sibling_key(base_key, &filename);
             let client = cloud.client_for(resolver, storage, entity)?;
             client.upload(&key, &local_path)?;
             Ok(io::storage::s3::format_s3_uri(bucket, &key))

@@ -173,10 +173,6 @@ pub fn format_s3_uri(bucket: &str, key: &str) -> String {
     }
 }
 
-pub fn normalize_base_key(base_key: &str) -> String {
-    base_key.trim_matches('/').to_string()
-}
-
 pub fn filter_keys_by_suffixes(mut keys: Vec<String>, suffixes: &[String]) -> Vec<String> {
     let suffixes = suffixes
         .iter()
@@ -223,60 +219,6 @@ pub fn file_stem_from_name(name: &str) -> Option<String> {
         .map(|stem| stem.to_string_lossy().to_string())
 }
 
-pub fn build_parquet_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        format!("{source_stem}.parquet")
-    } else {
-        format!("{base}/{source_stem}.parquet")
-    }
-}
-
-pub fn build_rejected_csv_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        format!("{source_stem}_rejected.csv")
-    } else {
-        format!("{base}/{source_stem}_rejected.csv")
-    }
-}
-
-pub fn build_rejected_raw_key(base_key: &str, source_name: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        source_name.to_string()
-    } else {
-        format!("{base}/{source_name}")
-    }
-}
-
-pub fn build_reject_errors_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    let dir = if Path::new(&base).extension().is_some() {
-        parent_key(&base)
-    } else {
-        base
-    };
-    if dir.is_empty() {
-        format!("{source_stem}_reject_errors.json")
-    } else {
-        format!("{dir}/{source_stem}_reject_errors.json")
-    }
-}
-
-fn parent_key(base: &str) -> String {
-    match base.rsplit_once('/') {
-        Some((parent, _)) => parent.to_string(),
-        None => base.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,24 +235,6 @@ mod tests {
         let loc = parse_s3_uri("s3://my-bucket").expect("parse");
         assert_eq!(loc.bucket, "my-bucket");
         assert_eq!(loc.key, "");
-    }
-
-    #[test]
-    fn build_keys_from_prefix() {
-        assert_eq!(build_parquet_key("out", "file"), "out/file.parquet");
-        assert_eq!(
-            build_parquet_key("out/file.parquet", "file"),
-            "out/file.parquet"
-        );
-        assert_eq!(
-            build_rejected_csv_key("out", "file"),
-            "out/file_rejected.csv"
-        );
-        assert_eq!(build_rejected_raw_key("out", "file.csv"), "out/file.csv");
-        assert_eq!(
-            build_reject_errors_key("out/errors.csv", "file"),
-            "out/file_reject_errors.json"
-        );
     }
 
     #[test]

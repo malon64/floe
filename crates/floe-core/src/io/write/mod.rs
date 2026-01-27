@@ -5,14 +5,15 @@ pub mod parquet;
 
 use std::path::{Path, PathBuf};
 
-use crate::{ConfigError, FloeResult};
+use crate::{io, ConfigError, FloeResult};
 
 pub fn write_error_report(
     base_path: &str,
     source_stem: &str,
     errors_per_row: &[Option<String>],
 ) -> FloeResult<PathBuf> {
-    let output_path = build_reject_errors_path(base_path, source_stem);
+    let filename = io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
+    let output_path = io::storage::paths::resolve_sibling_path(base_path, &filename);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -28,7 +29,12 @@ pub fn write_error_report(
 }
 
 pub fn write_rejected_raw(source_path: &Path, base_path: &str) -> FloeResult<PathBuf> {
-    let output_path = build_rejected_raw_path(base_path, source_path);
+    let file_name = source_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("rejected.csv"))
+        .to_string_lossy()
+        .to_string();
+    let output_path = io::storage::paths::resolve_output_path(base_path, &file_name);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -51,25 +57,4 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
         std::fs::remove_file(source_path)?;
     }
     Ok(destination)
-}
-fn build_reject_errors_path(base_path: &str, source_stem: &str) -> PathBuf {
-    let base = Path::new(base_path);
-    let dir = if base.extension().is_some() {
-        base.parent().unwrap_or(base)
-    } else {
-        base
-    };
-    dir.join(format!("{source_stem}_reject_errors.json"))
-}
-
-fn build_rejected_raw_path(base_path: &str, source_path: &Path) -> PathBuf {
-    let base = Path::new(base_path);
-    if base.extension().is_some() {
-        base.to_path_buf()
-    } else {
-        let file_name = source_path
-            .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new("rejected.csv"));
-        base.join(file_name)
-    }
 }

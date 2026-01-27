@@ -1,0 +1,56 @@
+use crate::{config, io, FloeResult};
+
+#[derive(Debug, Clone)]
+pub enum Target {
+    Local {
+        storage: String,
+        uri: String,
+        base_path: String,
+    },
+    S3 {
+        storage: String,
+        uri: String,
+        bucket: String,
+        base_key: String,
+    },
+}
+
+impl Target {
+    pub fn from_resolved(resolved: &config::ResolvedPath) -> FloeResult<Self> {
+        if let Some(path) = &resolved.local_path {
+            return Ok(Target::Local {
+                storage: resolved.storage.clone(),
+                uri: resolved.uri.clone(),
+                base_path: path.display().to_string(),
+            });
+        }
+        let location = io::fs::s3::parse_s3_uri(&resolved.uri)?;
+        Ok(Target::S3 {
+            storage: resolved.storage.clone(),
+            uri: resolved.uri.clone(),
+            bucket: location.bucket,
+            base_key: location.key,
+        })
+    }
+
+    pub fn storage(&self) -> &str {
+        match self {
+            Target::Local { storage, .. } | Target::S3 { storage, .. } => storage.as_str(),
+        }
+    }
+
+    pub fn uri(&self) -> &str {
+        match self {
+            Target::Local { uri, .. } | Target::S3 { uri, .. } => uri.as_str(),
+        }
+    }
+
+    pub fn s3_parts(&self) -> Option<(&str, &str)> {
+        match self {
+            Target::S3 {
+                bucket, base_key, ..
+            } => Some((bucket.as_str(), base_key.as_str())),
+            Target::Local { .. } => None,
+        }
+    }
+}

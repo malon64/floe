@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,7 +11,8 @@ use deltalake::protocol::SaveMode;
 use deltalake::DeltaTable;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
-use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
+use crate::io::format::AcceptedSinkAdapter;
+use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 use url::Url;
 
@@ -56,20 +56,20 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
 impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
     fn write_accepted(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         _source_stem: &str,
         _temp_dir: Option<&Path>,
-        _s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+        _cloud: &mut io::storage::CloudClient,
         _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         match target {
-            StorageTarget::Local { base_path } => {
+            Target::Local { base_path, .. } => {
                 let output_path = write_delta_table(df, base_path)?;
                 Ok(output_path.display().to_string())
             }
-            StorageTarget::S3 { .. } => Err(Box::new(ConfigError(format!(
+            Target::S3 { .. } => Err(Box::new(ConfigError(format!(
                 "entity.name={} sink.accepted.format=delta is only supported on local storage",
                 entity.name
             )))),

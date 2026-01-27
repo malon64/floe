@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use polars::chunked_array::cast::CastOptions;
 use polars::prelude::{Column, DataFrame, DataType, NamedFrom, Schema, Series};
 
+use crate::io::storage::Target;
 use crate::{check, config, io, ConfigError, FloeResult};
 
 #[derive(Debug, Clone)]
@@ -30,17 +31,6 @@ pub enum ReadInput {
     FileError {
         input_file: InputFile,
         error: FileReadError,
-    },
-}
-
-pub enum StorageTarget {
-    Local {
-        base_path: String,
-    },
-    S3 {
-        storage: String,
-        bucket: String,
-        base_key: String,
     },
 }
 
@@ -88,11 +78,11 @@ pub trait AcceptedSinkAdapter: Send + Sync {
     #[allow(clippy::too_many_arguments)]
     fn write_accepted(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
         temp_dir: Option<&Path>,
-        s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+        cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;
@@ -102,11 +92,11 @@ pub trait RejectedSinkAdapter: Send + Sync {
     #[allow(clippy::too_many_arguments)]
     fn write_rejected(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
         temp_dir: Option<&Path>,
-        s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
+        cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;

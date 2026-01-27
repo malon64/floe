@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
@@ -14,18 +14,15 @@ pub(crate) fn parquet_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &PARQUET_ACCEPTED_ADAPTER
 }
 
-pub fn write_parquet(
+pub fn write_parquet_to_path(
     df: &mut DataFrame,
-    base_path: &str,
-    source_stem: &str,
+    output_path: &Path,
     options: Option<&config::SinkOptions>,
-) -> FloeResult<PathBuf> {
-    let filename = io::storage::paths::build_output_filename(source_stem, "", "parquet");
-    let output_path = io::storage::paths::resolve_output_path(base_path, &filename);
+) -> FloeResult<()> {
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let file = std::fs::File::create(&output_path)?;
+    let file = std::fs::File::create(output_path)?;
     let mut writer = ParquetWriter::new(file);
     if let Some(options) = options {
         if let Some(compression) = &options.compression {
@@ -43,7 +40,7 @@ pub fn write_parquet(
     writer
         .finish(df)
         .map_err(|err| Box::new(ConfigError(format!("parquet write failed: {err}"))))?;
-    Ok(output_path)
+    Ok(())
 }
 
 impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
@@ -52,26 +49,22 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
-        _temp_dir: Option<&Path>,
-        _cloud: &mut io::storage::CloudClient,
-        _resolver: &config::StorageResolver,
+        temp_dir: Option<&Path>,
+        cloud: &mut io::storage::CloudClient,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
-        match target {
-            Target::Local { base_path, .. } => {
-                let output_path = write_parquet(
-                    df,
-                    base_path,
-                    source_stem,
-                    entity.sink.accepted.options.as_ref(),
-                )?;
-                Ok(output_path.display().to_string())
-            }
-            Target::S3 { .. } => Err(Box::new(ConfigError(format!(
-                "entity.name={} parquet writer does not handle s3 targets",
-                entity.name
-            )))),
-        }
+        let filename = io::storage::paths::build_output_filename(source_stem, "", "parquet");
+        io::storage::output::write_output(
+            target,
+            io::storage::output::OutputPlacement::Output,
+            &filename,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
+        )
     }
 }
 

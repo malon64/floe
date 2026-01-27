@@ -5,15 +5,12 @@ pub mod parquet;
 
 use std::path::{Path, PathBuf};
 
-use crate::{io, ConfigError, FloeResult};
+use crate::{ConfigError, FloeResult};
 
 pub fn write_error_report(
-    base_path: &str,
-    source_stem: &str,
+    output_path: &Path,
     errors_per_row: &[Option<String>],
 ) -> FloeResult<PathBuf> {
-    let filename = io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
-    let output_path = io::storage::paths::resolve_sibling_path(base_path, &filename);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -24,22 +21,16 @@ pub fn write_error_report(
         }
     }
     let content = format!("[{}]", items.join(","));
-    std::fs::write(&output_path, content)?;
-    Ok(output_path)
+    std::fs::write(output_path, content)?;
+    Ok(output_path.to_path_buf())
 }
 
-pub fn write_rejected_raw(source_path: &Path, base_path: &str) -> FloeResult<PathBuf> {
-    let file_name = source_path
-        .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new("rejected.csv"))
-        .to_string_lossy()
-        .to_string();
-    let output_path = io::storage::paths::resolve_output_path(base_path, &file_name);
+pub fn write_rejected_raw(source_path: &Path, output_path: &Path) -> FloeResult<PathBuf> {
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::copy(source_path, &output_path)?;
-    Ok(output_path)
+    std::fs::copy(source_path, output_path)?;
+    Ok(output_path.to_path_buf())
 }
 
 pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathBuf> {

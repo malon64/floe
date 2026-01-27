@@ -103,7 +103,8 @@ pub(super) fn run_entity(
             ))))
         }
     };
-    let collect_raw = entity.policy.severity != "warn";
+    let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
+    let collect_raw = entity.policy.severity != "warn" || track_cast_errors;
 
     let inputs = read_inputs(
         input_adapter,
@@ -123,7 +124,6 @@ pub(super) fn run_entity(
         .cloned()
         .collect::<Vec<_>>();
 
-    let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
     let mut file_reports = Vec::with_capacity(inputs.len());
     let mut file_statuses = Vec::with_capacity(inputs.len());
     let mut totals = report::ResultsTotals {
@@ -331,9 +331,11 @@ pub(super) fn run_entity(
             entity,
             &input_file,
             row_count,
+            raw_df.as_ref(),
             &mut df,
             &required_cols,
             &normalized_columns,
+            track_cast_errors,
             severity,
             &accepted_target,
             &sink_options_warning,
@@ -771,9 +773,11 @@ fn try_warn_counts(
     entity: &config::EntityConfig,
     input_file: &InputFile,
     row_count: u64,
+    raw_df: Option<&polars::prelude::DataFrame>,
     df: &mut polars::prelude::DataFrame,
     required_cols: &[String],
     normalized_columns: &[config::ColumnConfig],
+    track_cast_errors: bool,
     severity: report::Severity,
     accepted_target: &StorageTarget,
     sink_options_warning: &Option<String>,
@@ -791,13 +795,41 @@ fn try_warn_counts(
         return Ok(None);
     }
 
+    let cast_counts = if track_cast_errors {
+        let raw_df = raw_df.ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "entity.name={} raw dataframe unavailable for cast checks",
+                entity.name
+            )))
+        })?;
+        check::cast_mismatch_counts(raw_df, df, normalized_columns)?
+    } else {
+        Vec::new()
+    };
     let not_null_counts = check::not_null_counts(df, required_cols)?;
     let unique_counts = check::unique_counts(df, normalized_columns)?;
+    let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
     let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
     let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
-    let violation_count = not_null_total + unique_total;
+    let violation_count = cast_total + not_null_total + unique_total;
 
     let mut rules = Vec::new();
+    if cast_total > 0 {
+        let columns = cast_counts
+            .iter()
+            .map(|(name, count, target_type)| report::ColumnSummary {
+                column: name.clone(),
+                violations: *count,
+                target_type: Some(target_type.clone()),
+            })
+            .collect();
+        rules.push(report::RuleSummary {
+            rule: report::RuleName::CastError,
+            severity,
+            violations: cast_total,
+            columns,
+        });
+    }
     if not_null_total > 0 {
         let columns = not_null_counts
             .iter()

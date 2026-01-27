@@ -40,11 +40,11 @@ pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 
     fn default_globs(&self) -> FloeResult<Vec<String>> {
-        io::fs::extensions::glob_patterns_for_format(self.format())
+        io::storage::extensions::glob_patterns_for_format(self.format())
     }
 
     fn suffixes(&self) -> FloeResult<Vec<String>> {
-        io::fs::extensions::suffixes_for_format(self.format())
+        io::storage::extensions::suffixes_for_format(self.format())
     }
 
     fn resolve_local_inputs(
@@ -53,9 +53,9 @@ pub trait InputAdapter: Send + Sync {
         entity_name: &str,
         source: &config::SourceConfig,
         storage: &str,
-    ) -> FloeResult<io::fs::local::ResolvedLocalInputs> {
+    ) -> FloeResult<io::storage::local_inputs::ResolvedLocalInputs> {
         let default_globs = self.default_globs()?;
-        io::fs::local::resolve_local_inputs(
+        io::storage::local_inputs::resolve_local_inputs(
             config_dir,
             entity_name,
             source,

@@ -196,7 +196,7 @@ mod tests {
     }
 
     fn default_globs(format: &str) -> Vec<String> {
-        crate::io::fs::extensions::glob_patterns_for_format(format).expect("default globs")
+        crate::io::storage::extensions::glob_patterns_for_format(format).expect("default globs")
     }
 
     fn source_config(

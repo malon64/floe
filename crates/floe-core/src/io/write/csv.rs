@@ -60,10 +60,10 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
                 })?;
                 let temp_base = temp_dir.display().to_string();
                 let local_path = write_rejected_csv(df, &temp_base, source_stem)?;
-                let key = io::fs::s3::build_rejected_csv_key(base_key, source_stem);
+                let key = io::storage::s3_paths::build_rejected_csv_key(base_key, source_stem);
                 let client = cloud.client_for(resolver, storage, entity)?;
                 client.upload(&key, &local_path)?;
-                Ok(io::fs::s3::format_s3_uri(bucket, &key))
+                Ok(io::storage::s3_paths::format_s3_uri(bucket, &key))
             }
         }
     }

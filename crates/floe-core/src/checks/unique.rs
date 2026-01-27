@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use polars::prelude::{AnyValue, DataFrame};
+use polars::prelude::{is_duplicated, is_first_distinct, DataFrame};
 
 use super::{ColumnIndex, RowError};
 use crate::{config, ConfigError, FloeResult};
@@ -32,20 +30,34 @@ pub fn unique_errors(
                 column.name
             )))
         })?;
-        let mut seen = HashSet::new();
-        for (row_idx, errors) in errors_per_row.iter_mut().enumerate() {
-            let value = series.get(row_idx).map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "unique column {} read failed: {err}",
-                    column.name
-                )))
-            })?;
-            if matches!(value, AnyValue::Null) {
-                continue;
-            }
-            let key = value.to_string();
-            if !seen.insert(key) {
-                errors.push(RowError::new("unique", &column.name, "duplicate value"));
+        let series = series.as_materialized_series();
+        let non_null = series.len().saturating_sub(series.null_count());
+        if non_null == 0 {
+            continue;
+        }
+        let mut duplicate_mask = is_duplicated(series).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "unique column {} read failed: {err}",
+                column.name
+            )))
+        })?;
+        let not_null = series.is_not_null();
+        duplicate_mask = &duplicate_mask & &not_null;
+        let mut first_mask = is_first_distinct(series).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "unique column {} read failed: {err}",
+                column.name
+            )))
+        })?;
+        first_mask = &first_mask & &not_null;
+        let mask = duplicate_mask & !first_mask;
+        for (row_idx, is_dup) in mask.into_iter().enumerate() {
+            if is_dup == Some(true) {
+                errors_per_row[row_idx].push(RowError::new(
+                    "unique",
+                    &column.name,
+                    "duplicate value",
+                ));
             }
         }
     }

@@ -294,8 +294,8 @@ fn extra_columns_reject_file_aborts() {
 
     let outcome = run_config(&config_path);
     let report = &outcome.entity_outcomes[0].report;
-    assert_eq!(report.run.status, RunStatus::Aborted);
-    assert_eq!(report.run.exit_code, 2);
+    assert_eq!(outcome.summary.run.status, RunStatus::Aborted);
+    assert_eq!(outcome.summary.run.exit_code, 2);
     let file = &report.files[0];
     assert_eq!(file.status, FileStatus::Aborted);
     assert_eq!(file.mismatch.mismatch_action, MismatchAction::Aborted);

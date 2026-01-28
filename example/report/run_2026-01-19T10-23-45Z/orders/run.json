@@ -1,111 +1,119 @@
 {
-  "spec_version": "0.1.0",
-  "tool": {
-    "name": "floe",
-    "version": "0.1.0"
-  },
-  "run": {
-    "run_id": "2026-01-19T10-23-45Z",
-    "started_at": "2026-01-19T10-23-45Z",
-    "finished_at": "2026-01-19T10-23-49Z",
-    "duration_ms": 4000,
-    "status": "success_with_warnings",
-    "exit_code": 0
-  },
-  "config": {
-    "path": "example/config.yml",
-    "version": "0.1.0",
-    "metadata": {
-      "project": "example",
-      "owner": "data-eng"
-    }
-  },
+  "spec_version": "0.1",
   "entity": {
     "name": "orders",
     "metadata": {
-      "domain": "fulfillment",
-      "owner": "ops"
+      "data_product": "order_events",
+      "description": "Technical ingestion contract for order events",
+      "domain": "sales",
+      "owner": "data-platform",
+      "tags": [
+        "prepared",
+        "events"
+      ]
     }
   },
   "source": {
-    "format": "csv",
-    "path": "example/in/orders",
+    "format": "json",
+    "path": "local:///home/alexis/floe/example/in/orders",
     "options": {
-      "header": true
+      "encoding": "UTF8",
+      "header": true,
+      "ndjson": true,
+      "null_values": [],
+      "recursive": false,
+      "separator": ";"
     },
+    "cast_mode": "strict",
     "read_plan": "raw_and_typed",
     "resolved_inputs": {
       "mode": "directory",
-      "file_count": 1,
+      "file_count": 2,
       "files": [
-        "example/in/orders/orders_valid.csv"
+        "/home/alexis/floe/example/in/orders/orders_invalid.json",
+        "/home/alexis/floe/example/in/orders/orders_valid.json"
       ]
     }
   },
   "sink": {
     "accepted": {
       "format": "parquet",
-      "path": "example/out/orders/accepted"
+      "path": "local:///home/alexis/floe/example/out/accepted/orders/"
+    },
+    "rejected": {
+      "format": "csv",
+      "path": "local:///home/alexis/floe/example/out/rejected/orders/"
     },
     "archive": {
       "enabled": false
     }
   },
-  "report": {
-    "path": "example/report",
-    "report_file": "example/report/run_2026-01-19T10-23-45Z/orders/run.json"
-  },
   "policy": {
-    "severity": "warn"
+    "severity": "reject"
   },
   "results": {
-    "files_total": 1,
-    "rows_total": 12,
-    "accepted_total": 12,
-    "rejected_total": 0,
-    "warnings_total": 1,
-    "errors_total": 0
+    "files_total": 2,
+    "rows_total": 8,
+    "accepted_total": 3,
+    "rejected_total": 5,
+    "warnings_total": 0,
+    "errors_total": 1
   },
   "files": [
     {
-      "input_file": "example/in/orders/orders_valid.csv",
-      "status": "success",
-      "row_count": 12,
-      "accepted_count": 12,
-      "rejected_count": 0,
+      "input_file": "/home/alexis/floe/example/in/orders/orders_invalid.json",
+      "status": "rejected",
+      "row_count": 5,
+      "accepted_count": 0,
+      "rejected_count": 5,
+      "mismatch": {
+        "declared_columns_count": 7,
+        "input_columns_count": 8,
+        "missing_columns": [],
+        "extra_columns": [
+          "promo_code"
+        ],
+        "mismatch_action": "rejected_file",
+        "error": {
+          "rule": "schema_mismatch",
+          "message": "entity.name=orders schema mismatch: missing=0 extra=1"
+        }
+      },
       "output": {
-        "accepted_path": "example/out/orders/accepted/orders.parquet",
+        "accepted_path": null,
+        "rejected_path": "/home/alexis/floe/example/out/rejected/orders/orders_invalid.json",
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 1,
+        "warnings": 0,
+        "rules": []
+      }
+    },
+    {
+      "input_file": "/home/alexis/floe/example/in/orders/orders_valid.json",
+      "status": "success",
+      "row_count": 3,
+      "accepted_count": 3,
+      "rejected_count": 0,
+      "mismatch": {
+        "declared_columns_count": 7,
+        "input_columns_count": 7,
+        "missing_columns": [],
+        "extra_columns": [],
+        "mismatch_action": "none"
+      },
+      "output": {
+        "accepted_path": "/home/alexis/floe/example/out/accepted/orders/orders_valid.parquet",
         "rejected_path": null,
         "errors_path": null,
         "archived_path": null
       },
       "validation": {
         "errors": 0,
-        "warnings": 1,
-        "rules": [
-          {
-            "rule": "unique",
-            "severity": "warn",
-            "violations": 1,
-            "columns": [
-              {
-                "column": "order_id",
-                "violations": 1
-              }
-            ]
-          }
-        ],
-        "examples": {
-          "max_examples_per_rule": 3,
-          "items": [
-            {
-              "rule": "unique",
-              "column": "order_id",
-              "row_index": 8,
-              "message": "duplicate value"
-            }
-          ]
-        }
+        "warnings": 0,
+        "rules": []
       }
     }
   ]

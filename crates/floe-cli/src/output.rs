@@ -101,7 +101,6 @@ fn format_file_line(file: &report::FileReport, elapsed_ms: Option<u64>) -> Strin
 }
 
 fn format_run_summary(outcome: &RunOutcome, include_run_info: bool) -> Vec<String> {
-    let summary = summarize_outcome(outcome);
     let mut lines = Vec::new();
     if include_run_info {
         lines.push(format!("run id: {}", &outcome.run_id));
@@ -112,15 +111,15 @@ fn format_run_summary(outcome: &RunOutcome, include_run_info: bool) -> Vec<Strin
     }
     lines.push(format!(
         "Totals: files={} rows={} accepted={} rejected={}",
-        summary.totals.files_total,
-        summary.totals.rows_total,
-        summary.totals.accepted_total,
-        summary.totals.rejected_total
+        outcome.summary.results.files_total,
+        outcome.summary.results.rows_total,
+        outcome.summary.results.accepted_total,
+        outcome.summary.results.rejected_total
     ));
     lines.push(format!(
         "Overall: {} (exit_code={})",
-        format_run_status(summary.status),
-        summary.exit_code
+        format_run_status(outcome.summary.run.status),
+        outcome.summary.run.exit_code
     ));
     lines.push(format!(
         "Run summary: {}",
@@ -139,40 +138,6 @@ fn run_summary_path(run_id: &str, report_base_path: Option<&str>) -> String {
         .join("run.summary.json")
         .display()
         .to_string()
-}
-
-fn summarize_outcome(outcome: &RunOutcome) -> RunSummary {
-    let mut totals = report::ResultsTotals {
-        files_total: 0,
-        rows_total: 0,
-        accepted_total: 0,
-        rejected_total: 0,
-        warnings_total: 0,
-        errors_total: 0,
-    };
-    let mut statuses = Vec::new();
-
-    for entity in &outcome.entity_outcomes {
-        let report = &entity.report;
-        totals.files_total += report.results.files_total;
-        totals.rows_total += report.results.rows_total;
-        totals.accepted_total += report.results.accepted_total;
-        totals.rejected_total += report.results.rejected_total;
-        totals.warnings_total += report.results.warnings_total;
-        totals.errors_total += report.results.errors_total;
-        statuses.extend(report.files.iter().map(|file| file.status));
-    }
-
-    let (mut status, exit_code) = report::compute_run_outcome(&statuses);
-    if status == report::RunStatus::Success && totals.warnings_total > 0 {
-        status = report::RunStatus::SuccessWithWarnings;
-    }
-
-    RunSummary {
-        totals,
-        status,
-        exit_code,
-    }
 }
 
 fn format_file_status(status: report::FileStatus) -> &'static str {
@@ -217,12 +182,6 @@ fn short_path(path: &str) -> String {
         .to_string()
 }
 
-struct RunSummary {
-    totals: report::ResultsTotals,
-    status: report::RunStatus,
-    exit_code: i32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,24 +194,6 @@ mod tests {
 
         let report = report::RunReport {
             spec_version: version.clone(),
-            tool: report::ToolInfo {
-                name: "floe".to_string(),
-                version: version.clone(),
-                git: None,
-            },
-            run: report::RunInfo {
-                run_id: run_id.clone(),
-                started_at: "2026-01-19T10-23-45Z".to_string(),
-                finished_at: "2026-01-19T10-23-46Z".to_string(),
-                duration_ms: 1000,
-                status: report::RunStatus::Rejected,
-                exit_code: 0,
-            },
-            config: report::ConfigEcho {
-                path: "/tmp/config.yml".to_string(),
-                version,
-                metadata: None,
-            },
             entity: report::EntityEcho {
                 name: "customer".to_string(),
                 metadata: None,
@@ -282,10 +223,6 @@ mod tests {
                     enabled: false,
                     path: None,
                 },
-            },
-            report: report::ReportEcho {
-                path: report_base_path.clone(),
-                report_file,
             },
             policy: report::PolicyEcho {
                 severity: report::Severity::Reject,
@@ -323,11 +260,54 @@ mod tests {
                     errors: 1,
                     warnings: 0,
                     rules: Vec::new(),
-                    examples: report::ExampleSummary {
-                        max_examples_per_rule: 3,
-                        items: Vec::new(),
-                    },
                 },
+            }],
+        };
+
+        let summary = report::RunSummaryReport {
+            spec_version: version.clone(),
+            tool: report::ToolInfo {
+                name: "floe".to_string(),
+                version: version.clone(),
+                git: None,
+            },
+            run: report::RunInfo {
+                run_id: run_id.clone(),
+                started_at: "2026-01-19T10-23-45Z".to_string(),
+                finished_at: "2026-01-19T10-23-46Z".to_string(),
+                duration_ms: 1000,
+                status: report::RunStatus::Rejected,
+                exit_code: 0,
+            },
+            config: report::ConfigEcho {
+                path: "/tmp/config.yml".to_string(),
+                version,
+                metadata: None,
+            },
+            report: report::ReportEcho {
+                path: report_base_path.clone(),
+                report_file,
+            },
+            results: report::ResultsTotals {
+                files_total: 1,
+                rows_total: 10,
+                accepted_total: 8,
+                rejected_total: 2,
+                warnings_total: 0,
+                errors_total: 0,
+            },
+            entities: vec![report::EntitySummary {
+                name: "customer".to_string(),
+                status: report::RunStatus::Rejected,
+                results: report::ResultsTotals {
+                    files_total: 1,
+                    rows_total: 10,
+                    accepted_total: 8,
+                    rejected_total: 2,
+                    warnings_total: 0,
+                    errors_total: 0,
+                },
+                report_file: "/tmp/reports/run_run-123/customer/run.json".to_string(),
             }],
         };
 
@@ -338,6 +318,7 @@ mod tests {
                 report,
                 file_timings_ms: vec![Some(12)],
             }],
+            summary,
         }
     }
 

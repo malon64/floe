@@ -81,7 +81,7 @@ impl RowErrorFormatter for CsvRowErrorFormatter {
                 )
             })
             .collect::<Vec<_>>()
-            .join("\\n");
+            .join("\n");
         json_string(&lines)
     }
 }
@@ -178,7 +178,12 @@ pub fn rejected_error_columns(
 }
 
 fn json_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\"', "\\\"")
+    value
+        .replace('\\', "\\\\")
+        .replace('\"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 fn json_string(value: &str) -> String {
@@ -307,9 +312,15 @@ mod tests {
 
     #[test]
     fn csv_formatter_outputs_json_string() {
-        let errors = vec![RowError::new("not_null", "customer_id", "missing")];
+        let errors = vec![
+            RowError::new("not_null", "customer_id", "missing"),
+            RowError::new("unique", "order_id", "duplicate"),
+        ];
         let formatted = CsvRowErrorFormatter.format(&errors);
-        assert_eq!(formatted, "\"not_null,customer_id,missing\"");
+        assert_eq!(
+            formatted,
+            "\"not_null,customer_id,missing\\nunique,order_id,duplicate\""
+        );
     }
 
     #[test]

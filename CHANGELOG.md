@@ -2,6 +2,15 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.1.5
+
+- Refactored storage configuration and IO to use a shared storage client abstraction.
+- Split the entity runner into focused modules and centralized warning handling.
+- Added configurable row error formatting (json/csv/text) in reports.
+- Unified input resolution logic and reorganized run/config tests.
+- Improved warn-mode performance and added lazy scan paths for CSV/Parquet.
+- Added benchmark harness docs/scripts and example reports for v0.1.5.
+
 ## v0.1.4
 
 - Added delta accepted sink support with overwrite semantics (local storage only).

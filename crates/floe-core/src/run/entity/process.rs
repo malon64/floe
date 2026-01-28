@@ -170,26 +170,11 @@ pub(super) fn try_warn_counts(ctx: &mut WarnContext<'_>) -> FloeResult<Option<Wa
 }
 
 pub(super) fn sink_options_warning(entity: &config::EntityConfig) -> Option<String> {
-    let options = entity.sink.accepted.options.as_ref()?;
-    if entity.sink.accepted.format == "parquet" {
-        return None;
-    }
-    let mut keys = Vec::new();
-    if options.compression.is_some() {
-        keys.push("compression");
-    }
-    if options.row_group_size.is_some() {
-        keys.push("row_group_size");
-    }
-    let detail = if keys.is_empty() {
-        "options".to_string()
-    } else {
-        keys.join(", ")
-    };
-    Some(format!(
-        "entity.name={} sink.accepted.options ({detail}) ignored for format={}",
-        entity.name, entity.sink.accepted.format
-    ))
+    crate::io::format::sink_options_warning(
+        &entity.name,
+        entity.sink.accepted.format.as_str(),
+        entity.sink.accepted.options.as_ref(),
+    )
 }
 
 pub(super) fn append_sink_options_warning(

@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, errors::StorageError, FloeResult};
 
 use super::{paths, CloudClient, Target};
 
@@ -55,7 +55,7 @@ where
             ..
         } => {
             let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                Box::new(StorageError(format!(
                     "entity.name={} missing temp dir for s3 output",
                     entity.name
                 )))

@@ -174,6 +174,67 @@ pub fn ensure_rejected_sink_format(entity_name: &str, format: &str) -> FloeResul
     Ok(())
 }
 
+pub fn sink_options_warning(
+    entity_name: &str,
+    format: &str,
+    options: Option<&config::SinkOptions>,
+) -> Option<String> {
+    let options = options?;
+    if format == "parquet" {
+        return None;
+    }
+    let mut keys = Vec::new();
+    if options.compression.is_some() {
+        keys.push("compression");
+    }
+    if options.row_group_size.is_some() {
+        keys.push("row_group_size");
+    }
+    let detail = if keys.is_empty() {
+        "options".to_string()
+    } else {
+        keys.join(", ")
+    };
+    Some(format!(
+        "entity.name={} sink.accepted.options ({detail}) ignored for format={}",
+        entity_name, format
+    ))
+}
+
+pub fn validate_sink_options(
+    entity_name: &str,
+    format: &str,
+    options: Option<&config::SinkOptions>,
+) -> FloeResult<()> {
+    let options = match options {
+        Some(options) => options,
+        None => return Ok(()),
+    };
+    if format != "parquet" {
+        return Ok(());
+    }
+    if let Some(compression) = &options.compression {
+        match compression.as_str() {
+            "snappy" | "gzip" | "zstd" | "uncompressed" => {}
+            _ => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.options.compression={} is unsupported (allowed: snappy, gzip, zstd, uncompressed)",
+                    entity_name, compression
+                ))))
+            }
+        }
+    }
+    if let Some(row_group_size) = options.row_group_size {
+        if row_group_size == 0 {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
+                entity_name
+            ))));
+        }
+    }
+    Ok(())
+}
+
 pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
     match format {
         "csv" => Ok(io::read::csv::csv_input_adapter()),

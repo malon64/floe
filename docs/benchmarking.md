@@ -7,6 +7,7 @@ produce slide-ready `bench/results/results.csv`.
 ## Dataset + preparation
 
 - Base file: `bench/data/uber-raw-data-apr14.csv` (Kaggle Uber pickups).
+  This file is not committed to git; see `bench/setup.md` for download steps.
 - Generated inputs (CSV) are written to `bench/generated/`:
   - `uber_100k.csv`
   - `uber_1m.csv`

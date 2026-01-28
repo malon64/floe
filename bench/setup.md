@@ -23,7 +23,33 @@ pip install -r bench/requirements.txt
 PySpark requires Java (8+). If you hit a Java error, ensure `JAVA_HOME` points
 to a valid JDK.
 
-## 3) Prepare benchmark datasets
+## 3) Download the base dataset (Kaggle)
+
+The benchmark uses the Uber pickups dataset from Kaggle. Download and unzip it
+into `bench/data/`:
+
+```
+# install the Kaggle CLI if needed
+python -m pip install kaggle
+
+# set up your Kaggle API token (see https://www.kaggle.com/docs/api)
+mkdir -p ~/.kaggle
+cp /path/to/kaggle.json ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+
+# download + unzip into bench/data
+kaggle datasets download -d fivethirtyeight/uber-pickups-in-new-york-city -p bench/data --unzip
+```
+
+Ensure the file is named:
+
+```
+bench/data/uber-raw-data-apr14.csv
+```
+
+If Kaggle extracted a different name, rename it to match.
+
+## 4) Prepare benchmark datasets
 
 From the `bench/` directory:
 
@@ -38,7 +64,7 @@ To limit sizes (optional):
 python3 scripts/prepare_data.py --sizes 100000,1000000
 ```
 
-## 4) Run the full benchmark
+## 5) Run the full benchmark
 
 ```
 ./scripts/run_all.sh
@@ -62,7 +88,7 @@ SKIP_SPARK=1 ./scripts/run_all.sh
 SIZES=100000,1000000 ./scripts/run_all.sh
 ```
 
-## 5) Review results
+## 6) Review results
 
 Results are written to:
 

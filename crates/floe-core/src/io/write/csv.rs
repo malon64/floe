@@ -18,7 +18,7 @@ pub fn write_rejected_csv(df: &mut DataFrame, output_path: &Path) -> FloeResult<
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let file = std::fs::File::create(&output_path)?;
+    let file = std::fs::File::create(output_path)?;
     CsvWriter::new(file)
         .finish(df)
         .map_err(|err| Box::new(ConfigError(format!("rejected csv write failed: {err}"))))?;

@@ -6,8 +6,6 @@ use crate::{check, config, io, ConfigError, FloeResult};
 
 use io::format::{self, InputFile};
 use io::storage::Target;
-
-#[allow(clippy::too_many_arguments)]
 pub(super) fn write_accepted_output(
     format: &str,
     target: &Target,
@@ -21,8 +19,6 @@ pub(super) fn write_accepted_output(
     let adapter = format::accepted_sink_adapter(format)?;
     adapter.write_accepted(target, df, source_stem, temp_dir, cloud, resolver, entity)
 }
-
-#[allow(clippy::too_many_arguments)]
 pub(super) fn write_rejected_output(
     format: &str,
     target: &Target,

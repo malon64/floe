@@ -75,7 +75,6 @@ pub trait InputAdapter: Send + Sync {
 }
 
 pub trait AcceptedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
     fn write_accepted(
         &self,
         target: &Target,
@@ -89,7 +88,6 @@ pub trait AcceptedSinkAdapter: Send + Sync {
 }
 
 pub trait RejectedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
     fn write_rejected(
         &self,
         target: &Target,
@@ -382,7 +380,6 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
     }
     Ok(out)
 }
-
 pub fn collect_errors(
     raw_df: &DataFrame,
     typed_df: &DataFrame,

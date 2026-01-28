@@ -24,7 +24,6 @@ pub(super) fn read_inputs(
 ) -> FloeResult<Vec<ReadInput>> {
     adapter.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
 }
-
 pub(super) fn collect_errors(
     raw_df: &DataFrame,
     typed_df: &DataFrame,

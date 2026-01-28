@@ -7,46 +7,47 @@ use crate::run::output::write_accepted_output;
 use io::format::InputFile;
 use io::storage::Target;
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn try_warn_counts(
-    entity: &config::EntityConfig,
-    input_file: &InputFile,
-    row_count: u64,
-    raw_df: Option<&polars::prelude::DataFrame>,
-    df: &mut polars::prelude::DataFrame,
-    required_cols: &[String],
-    normalized_columns: &[config::ColumnConfig],
-    track_cast_errors: bool,
-    severity: report::Severity,
-    accepted_target: &Target,
-    sink_options_warning: &Option<String>,
-    sink_options_warned: &mut bool,
-    archive_enabled: bool,
-    archive_dir: &Option<PathBuf>,
-    mismatch: &check::MismatchOutcome,
-    source_stem: &str,
-    temp_dir: Option<&Path>,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    elapsed_ms: u64,
-) -> FloeResult<Option<WarnOutcome>> {
-    if entity.policy.severity != "warn" {
+pub(super) struct WarnContext<'a> {
+    pub entity: &'a config::EntityConfig,
+    pub input_file: &'a InputFile,
+    pub row_count: u64,
+    pub raw_df: Option<&'a polars::prelude::DataFrame>,
+    pub df: &'a mut polars::prelude::DataFrame,
+    pub required_cols: &'a [String],
+    pub normalized_columns: &'a [config::ColumnConfig],
+    pub track_cast_errors: bool,
+    pub severity: report::Severity,
+    pub accepted_target: &'a Target,
+    pub sink_options_warning: &'a Option<String>,
+    pub sink_options_warned: &'a mut bool,
+    pub archive_enabled: bool,
+    pub archive_dir: &'a Option<PathBuf>,
+    pub mismatch: &'a check::MismatchOutcome,
+    pub source_stem: &'a str,
+    pub temp_dir: Option<&'a Path>,
+    pub cloud: &'a mut io::storage::CloudClient,
+    pub resolver: &'a config::StorageResolver,
+    pub elapsed_ms: u64,
+}
+
+pub(super) fn try_warn_counts(ctx: &mut WarnContext<'_>) -> FloeResult<Option<WarnOutcome>> {
+    if ctx.entity.policy.severity != "warn" {
         return Ok(None);
     }
 
-    let cast_counts = if track_cast_errors {
-        let raw_df = raw_df.ok_or_else(|| {
+    let cast_counts = if ctx.track_cast_errors {
+        let raw_df = ctx.raw_df.ok_or_else(|| {
             Box::new(ConfigError(format!(
                 "entity.name={} raw dataframe unavailable for cast checks",
-                entity.name
+                ctx.entity.name
             )))
         })?;
-        check::cast_mismatch_counts(raw_df, df, normalized_columns)?
+        check::cast_mismatch_counts(raw_df, ctx.df, ctx.normalized_columns)?
     } else {
         Vec::new()
     };
-    let not_null_counts = check::not_null_counts(df, required_cols)?;
-    let unique_counts = check::unique_counts(df, normalized_columns)?;
+    let not_null_counts = check::not_null_counts(ctx.df, ctx.required_cols)?;
+    let unique_counts = check::unique_counts(ctx.df, ctx.normalized_columns)?;
     let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
     let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
     let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
@@ -64,7 +65,7 @@ pub(super) fn try_warn_counts(
             .collect();
         rules.push(report::RuleSummary {
             rule: report::RuleName::CastError,
-            severity,
+            severity: ctx.severity,
             violations: cast_total,
             columns,
         });
@@ -80,7 +81,7 @@ pub(super) fn try_warn_counts(
             .collect();
         rules.push(report::RuleSummary {
             rule: report::RuleName::NotNull,
-            severity,
+            severity: ctx.severity,
             violations: not_null_total,
             columns,
         });
@@ -96,7 +97,7 @@ pub(super) fn try_warn_counts(
             .collect();
         rules.push(report::RuleSummary {
             rule: report::RuleName::Unique,
-            severity,
+            severity: ctx.severity,
             violations: unique_total,
             columns,
         });
@@ -108,45 +109,45 @@ pub(super) fn try_warn_counts(
     };
     let mut archived_path = None;
     let mut sink_options_warnings = 0;
-    if let Some(message) = sink_options_warning.as_deref() {
+    if let Some(message) = ctx.sink_options_warning.as_deref() {
         sink_options_warnings = 1;
-        if !*sink_options_warned {
+        if !*ctx.sink_options_warned {
             eprintln!("warn: {message}");
-            *sink_options_warned = true;
+            *ctx.sink_options_warned = true;
         }
         append_sink_options_warning(&mut rules, &mut examples, message);
     }
 
     let output_path = write_accepted_output(
-        entity.sink.accepted.format.as_str(),
-        accepted_target,
-        df,
-        source_stem,
-        temp_dir,
-        cloud,
-        resolver,
-        entity,
+        ctx.entity.sink.accepted.format.as_str(),
+        ctx.accepted_target,
+        ctx.df,
+        ctx.source_stem,
+        ctx.temp_dir,
+        ctx.cloud,
+        ctx.resolver,
+        ctx.entity,
     )?;
     let accepted_path = Some(output_path);
 
-    if archive_enabled {
-        if let Some(dir) = archive_dir {
-            let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
+    if ctx.archive_enabled {
+        if let Some(dir) = ctx.archive_dir {
+            let archived_path_buf = io::write::archive_input(&ctx.input_file.local_path, dir)?;
             archived_path = Some(archived_path_buf.display().to_string());
         }
     }
 
-    let errors = mismatch.errors;
-    let warnings = violation_count + mismatch.warnings + sink_options_warnings;
+    let errors = ctx.mismatch.errors;
+    let warnings = violation_count + ctx.mismatch.warnings + sink_options_warnings;
     let status = report::FileStatus::Success;
 
     let file_report = report::FileReport {
-        input_file: input_file.source_uri.clone(),
+        input_file: ctx.input_file.source_uri.clone(),
         status,
-        row_count,
-        accepted_count: row_count,
+        row_count: ctx.row_count,
+        accepted_count: ctx.row_count,
         rejected_count: 0,
-        mismatch: mismatch.report.clone(),
+        mismatch: ctx.mismatch.report.clone(),
         output: report::FileOutput {
             accepted_path,
             rejected_path: None,
@@ -164,7 +165,7 @@ pub(super) fn try_warn_counts(
     Ok(Some(WarnOutcome {
         file_report,
         status,
-        elapsed_ms,
+        elapsed_ms: ctx.elapsed_ms,
     }))
 }
 

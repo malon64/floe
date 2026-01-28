@@ -9,7 +9,7 @@ use aws_sdk_s3::Client;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Runtime;
 
-use crate::{ConfigError, FloeResult};
+use crate::{config, io, ConfigError, FloeResult};
 
 use super::StorageClient;
 
@@ -217,6 +217,45 @@ pub fn file_stem_from_name(name: &str) -> Option<String> {
     Path::new(name)
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
+}
+
+pub fn build_input_files(
+    client: &dyn StorageClient,
+    bucket: &str,
+    prefix: &str,
+    adapter: &dyn io::format::InputAdapter,
+    temp_dir: &Path,
+    entity: &config::EntityConfig,
+    storage: &str,
+) -> FloeResult<Vec<io::format::InputFile>> {
+    let suffixes = adapter.suffixes()?;
+    let keys = client.list(prefix)?;
+    let keys = filter_keys_by_suffixes(keys, &suffixes);
+    if keys.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
+            entity.name,
+            storage,
+            bucket,
+            prefix,
+            suffixes.join(",")
+        ))));
+    }
+    let mut inputs = Vec::with_capacity(keys.len());
+    for key in keys {
+        let local_path = temp_path_for_key(temp_dir, &key);
+        client.download(&key, &local_path)?;
+        let source_name = file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
+        let source_stem = file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
+        let source_uri = format_s3_uri(bucket, &key);
+        inputs.push(io::format::InputFile {
+            source_uri,
+            local_path,
+            source_name,
+            source_stem,
+        });
+    }
+    Ok(inputs)
 }
 
 #[cfg(test)]

@@ -311,28 +311,29 @@ pub(super) fn run_entity(
             continue;
         }
 
-        if let Some(outcome) = try_warn_counts(
+        let mut warn_ctx = process::WarnContext {
             entity,
-            &input_file,
+            input_file: &input_file,
             row_count,
-            raw_df.as_ref(),
-            &mut df,
-            &required_cols,
-            &normalized_columns,
+            raw_df: raw_df.as_ref(),
+            df: &mut df,
+            required_cols: &required_cols,
+            normalized_columns: &normalized_columns,
             track_cast_errors,
             severity,
-            &accepted_target,
-            &sink_options_warning,
-            &mut sink_options_warned,
+            accepted_target: &accepted_target,
+            sink_options_warning: &sink_options_warning,
+            sink_options_warned: &mut sink_options_warned,
             archive_enabled,
-            &archive_dir,
-            &mismatch,
+            archive_dir: &archive_dir,
+            mismatch: &mismatch,
             source_stem,
-            temp_dir.as_ref().map(|dir| dir.path()),
+            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
             cloud,
-            &context.storage_resolver,
-            file_timer.elapsed().as_millis() as u64,
-        )? {
+            resolver: &context.storage_resolver,
+            elapsed_ms: file_timer.elapsed().as_millis() as u64,
+        };
+        if let Some(outcome) = try_warn_counts(&mut warn_ctx)? {
             totals.rows_total += outcome.file_report.row_count;
             totals.accepted_total += outcome.file_report.accepted_count;
             totals.rejected_total += outcome.file_report.rejected_count;
@@ -659,20 +660,20 @@ pub(super) fn run_entity(
         run_status = report::RunStatus::SuccessWithWarnings;
     }
 
-    let run_report = build_run_report(
+    let run_report = build_run_report(entity_report::RunReportContext {
         context,
         entity,
         input,
-        &resolved_targets,
+        resolved_targets: &resolved_targets,
         resolved_mode,
-        &resolved_files,
+        resolved_files: &resolved_files,
         reported_files,
         totals,
         file_reports,
         severity,
         run_status,
         exit_code,
-    );
+    });
 
     if let Some(report_dir) = &context.report_dir {
         report::ReportWriter::write_report(report_dir, &context.run_id, &entity.name, &run_report)?;

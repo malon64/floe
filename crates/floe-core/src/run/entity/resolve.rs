@@ -34,7 +34,7 @@ pub(super) fn resolve_input_files(
         )?;
         let temp_dir =
             temp_dir.ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
-        let inputs = build_s3_inputs(
+        let inputs = io::storage::s3::build_input_files(
             s3_client,
             bucket,
             key,
@@ -121,45 +121,4 @@ fn build_local_inputs(files: &[PathBuf], entity: &config::EntityConfig) -> Vec<I
             }
         })
         .collect()
-}
-
-fn build_s3_inputs(
-    client: &dyn io::storage::StorageClient,
-    bucket: &str,
-    prefix: &str,
-    adapter: &dyn InputAdapter,
-    temp_dir: &Path,
-    entity: &config::EntityConfig,
-    storage: &str,
-) -> FloeResult<Vec<InputFile>> {
-    let suffixes = adapter.suffixes()?;
-    let keys = client.list(prefix)?;
-    let keys = io::storage::s3::filter_keys_by_suffixes(keys, &suffixes);
-    if keys.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
-            entity.name,
-            storage,
-            bucket,
-            prefix,
-            suffixes.join(",")
-        ))));
-    }
-    let mut inputs = Vec::with_capacity(keys.len());
-    for key in keys {
-        let local_path = io::storage::s3::temp_path_for_key(temp_dir, &key);
-        client.download(&key, &local_path)?;
-        let source_name =
-            io::storage::s3::file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
-        let source_stem = io::storage::s3::file_stem_from_name(&source_name)
-            .unwrap_or_else(|| entity.name.clone());
-        let source_uri = io::storage::s3::format_s3_uri(bucket, &key);
-        inputs.push(InputFile {
-            source_uri,
-            local_path,
-            source_name,
-            source_stem,
-        });
-    }
-    Ok(inputs)
 }

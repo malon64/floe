@@ -384,4 +384,30 @@ mod tests {
         .expect_err("error");
         assert!(err.to_string().contains("entity.name=customers"));
     }
+
+    #[test]
+    fn local_client_upload_copies_file() {
+        let root = temp_dir("floe-local-upload");
+        let src = root.join("src.txt");
+        let dest = root.join("dest.txt");
+        write_file(&src, "hello");
+        let client = LocalClient::new();
+        client
+            .upload(dest.to_string_lossy().as_ref(), &src)
+            .expect("upload");
+        assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
+    }
+
+    #[test]
+    fn local_client_download_copies_file() {
+        let root = temp_dir("floe-local-download");
+        let src = root.join("src.txt");
+        let dest = root.join("dest.txt");
+        write_file(&src, "hello");
+        let client = LocalClient::new();
+        client
+            .download(src.to_string_lossy().as_ref(), &dest)
+            .expect("download");
+        assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
+    }
 }

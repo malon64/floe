@@ -1,6 +1,3 @@
-use std::path::{Path, PathBuf};
-
-use crate::errors::RunError;
 use crate::{config, io, report, FloeResult};
 
 use crate::run::RunContext;
@@ -23,42 +20,25 @@ pub(super) fn resolve_input_files(
     source_is_s3: bool,
     temp_dir: Option<&tempfile::TempDir>,
 ) -> FloeResult<(Vec<InputFile>, report::ResolvedInputMode)> {
-    if source_is_s3 {
-        let (bucket, key) = resolved_targets
-            .source
-            .s3_parts()
-            .ok_or_else(|| Box::new(RunError("s3 target missing bucket".to_string())))?;
-        let s3_client = cloud.client_for(
+    let storage_client = if source_is_s3 {
+        Some(cloud.client_for(
             &context.storage_resolver,
             resolved_targets.source.storage(),
             entity,
-        )?;
-        let temp_dir =
-            temp_dir.ok_or_else(|| Box::new(RunError("s3 tempdir missing".to_string())))?;
-        let inputs = io::storage::s3::build_input_files(
-            s3_client,
-            bucket,
-            key,
-            input_adapter,
-            temp_dir.path(),
-            entity,
-            resolved_targets.source.storage(),
-        )?;
-        return Ok((inputs, report::ResolvedInputMode::Directory));
-    }
-
-    let resolved_inputs = input_adapter.resolve_local_inputs(
-        &context.config_dir,
-        &entity.name,
-        &entity.source,
-        resolved_targets.source.storage(),
-    )?;
-    let inputs = build_local_inputs(&resolved_inputs.files, entity);
-    let mode = match resolved_inputs.mode {
-        io::storage::local::LocalInputMode::File => report::ResolvedInputMode::File,
-        io::storage::local::LocalInputMode::Directory => report::ResolvedInputMode::Directory,
+        )? as &dyn io::storage::StorageClient)
+    } else {
+        None
     };
-    Ok((inputs, mode))
+    let temp_dir = temp_dir.map(|dir| dir.path());
+    let resolved = io::storage::inputs::resolve_inputs(
+        &context.config_dir,
+        entity,
+        input_adapter,
+        &resolved_targets.source,
+        temp_dir,
+        storage_client,
+    )?;
+    Ok((resolved.files, resolved.mode))
 }
 
 pub(super) fn resolve_entity_targets(
@@ -98,28 +78,4 @@ pub(super) fn resolve_entity_targets(
         accepted,
         rejected,
     })
-}
-
-fn build_local_inputs(files: &[PathBuf], entity: &config::EntityConfig) -> Vec<InputFile> {
-    files
-        .iter()
-        .map(|path| {
-            let source_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(entity.name.as_str())
-                .to_string();
-            let source_stem = Path::new(&source_name)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or(entity.name.as_str())
-                .to_string();
-            InputFile {
-                source_uri: path.display().to_string(),
-                source_local_path: path.clone(),
-                source_name,
-                source_stem,
-            }
-        })
-        .collect()
 }

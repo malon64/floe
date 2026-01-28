@@ -1,15 +1,28 @@
+//! Storage-agnostic output routing.
+//!
+//! This module centralizes "where to write" decisions so format writers only
+//! deal with serialization, and storage backends (local/S3/etc.) handle the
+//! final placement.
+
 use std::path::Path;
 
 use crate::{config, ConfigError, FloeResult};
 
 use super::{paths, CloudClient, Target};
 
+/// Determines how an output file should be positioned relative to the target base.
 #[derive(Debug, Clone, Copy)]
 pub enum OutputPlacement {
+    /// Write into the target path/key (file or directory).
     Output,
+    /// Write alongside the target (sibling of a file target).
     Sibling,
 }
 
+/// Write an output file to a storage target.
+///
+/// The caller supplies a filename and a writer callback; this function resolves the
+/// final local path (or S3 key), writes the file, and uploads if needed.
 pub fn write_output<F>(
     target: &Target,
     placement: OutputPlacement,

@@ -1,7 +1,7 @@
 use crate::{config, report};
 
 use super::resolve::ResolvedEntityTargets;
-use crate::run::reporting::{entity_metadata_json, project_metadata_json, source_options_json};
+use crate::run::reporting::{entity_metadata_json, source_options_json};
 use crate::run::RunContext;
 pub(super) struct RunReportContext<'a> {
     pub context: &'a RunContext,
@@ -14,52 +14,11 @@ pub(super) struct RunReportContext<'a> {
     pub totals: report::ResultsTotals,
     pub file_reports: Vec<report::FileReport>,
     pub severity: report::Severity,
-    pub run_status: report::RunStatus,
-    pub exit_code: i32,
 }
 
 pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
-    let report_path =
-        ctx.context.report_dir.as_ref().map(|dir| {
-            report::ReportWriter::report_path(dir, &ctx.context.run_id, &ctx.entity.name)
-        });
-    let report_base_path = ctx
-        .context
-        .report_base_path
-        .clone()
-        .unwrap_or_else(|| "disabled".to_string());
-    let report_file_path = report_path
-        .as_ref()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "disabled".to_string());
-    let finished_at = report::now_rfc3339();
-    let duration_ms = ctx.context.run_timer.elapsed().as_millis() as u64;
-
     report::RunReport {
         spec_version: ctx.context.config.version.clone(),
-        tool: report::ToolInfo {
-            name: "floe".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            git: None,
-        },
-        run: report::RunInfo {
-            run_id: ctx.context.run_id.clone(),
-            started_at: ctx.context.started_at.clone(),
-            finished_at,
-            duration_ms,
-            status: ctx.run_status,
-            exit_code: ctx.exit_code,
-        },
-        config: report::ConfigEcho {
-            path: ctx.context.config_path.display().to_string(),
-            version: ctx.context.config.version.clone(),
-            metadata: ctx
-                .context
-                .config
-                .metadata
-                .as_ref()
-                .map(project_metadata_json),
-        },
         entity: report::EntityEcho {
             name: ctx.entity.name.clone(),
             metadata: ctx.entity.metadata.as_ref().map(entity_metadata_json),
@@ -104,10 +63,6 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
                     .as_ref()
                     .map(|archive| archive.path.clone()),
             },
-        },
-        report: report::ReportEcho {
-            path: report_base_path,
-            report_file: report_file_path,
         },
         policy: report::PolicyEcho {
             severity: ctx.severity,

@@ -4,7 +4,6 @@ use serde_json::{Map, Value};
 
 use crate::{check, config, report};
 
-const MAX_EXAMPLES_PER_RULE: u64 = 3;
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
 
@@ -12,15 +11,9 @@ pub(super) fn summarize_validation(
     errors_per_row: &[Vec<check::RowError>],
     columns: &[config::ColumnConfig],
     severity: report::Severity,
-) -> (Vec<report::RuleSummary>, report::ExampleSummary) {
+) -> Vec<report::RuleSummary> {
     if errors_per_row.iter().all(|errors| errors.is_empty()) {
-        return (
-            Vec::new(),
-            report::ExampleSummary {
-                max_examples_per_rule: MAX_EXAMPLES_PER_RULE,
-                items: Vec::new(),
-            },
-        );
+        return Vec::new();
     }
 
     let mut column_types = HashMap::new();
@@ -29,9 +22,7 @@ pub(super) fn summarize_validation(
     }
 
     let mut accumulators = vec![RuleAccumulator::default(); RULE_COUNT];
-    let mut examples: Vec<Vec<report::ValidationExample>> = vec![Vec::new(); RULE_COUNT];
-
-    for (row_idx, errors) in errors_per_row.iter().enumerate() {
+    for errors in errors_per_row {
         for error in errors {
             let idx = rule_index(&error.rule);
             let accumulator = &mut accumulators[idx];
@@ -49,15 +40,6 @@ pub(super) fn summarize_validation(
                     target_type,
                 });
             entry.violations += 1;
-
-            if examples[idx].len() < MAX_EXAMPLES_PER_RULE as usize {
-                examples[idx].push(report::ValidationExample {
-                    rule: rule_from_index(idx),
-                    column: error.column.clone(),
-                    row_index: row_idx as u64,
-                    message: error.message.clone(),
-                });
-            }
         }
     }
 
@@ -82,18 +64,7 @@ pub(super) fn summarize_validation(
         });
     }
 
-    let mut items = Vec::new();
-    for example_list in &examples {
-        items.extend(example_list.iter().cloned());
-    }
-
-    (
-        rules,
-        report::ExampleSummary {
-            max_examples_per_rule: MAX_EXAMPLES_PER_RULE,
-            items,
-        },
-    )
+    rules
 }
 
 #[derive(Debug, Default, Clone)]

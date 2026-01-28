@@ -95,7 +95,7 @@ entities:
         path: "./out/rejected/orders/"
 
     policy:
-      severity: "reject"   # warn | reject | abort
+      severity: "warn"   # warn | reject | abort
 
     schema:
       mismatch:

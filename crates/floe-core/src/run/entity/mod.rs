@@ -21,18 +21,12 @@ mod process;
 mod resolve;
 
 use entity_report::build_run_report;
-use process::{append_sink_options_warning, sink_options_warning, try_warn_counts};
+use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
     pub abort_run: bool,
-}
-
-pub(super) struct WarnOutcome {
-    pub file_report: report::FileReport,
-    pub status: report::FileStatus,
-    pub elapsed_ms: u64,
 }
 
 pub(super) fn run_entity(
@@ -94,7 +88,7 @@ pub(super) fn run_entity(
         }
     };
     let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
-    let collect_raw = entity.policy.severity != "warn" || track_cast_errors;
+    let collect_raw = true;
 
     let inputs = read_inputs(
         input_adapter,
@@ -115,7 +109,6 @@ pub(super) fn run_entity(
         .collect::<Vec<_>>();
 
     let mut file_reports = Vec::with_capacity(inputs.len());
-    let mut file_statuses = Vec::with_capacity(inputs.len());
     let mut totals = report::ResultsTotals {
         files_total: 0,
         rows_total: 0,
@@ -198,15 +191,10 @@ pub(super) fn run_entity(
                         errors: 1,
                         warnings: 0,
                         rules: Vec::new(),
-                        examples: report::ExampleSummary {
-                            max_examples_per_rule: 3,
-                            items: Vec::new(),
-                        },
                     },
                 };
 
                 totals.errors_total += 1;
-                file_statuses.push(status);
                 file_reports.push(file_report);
                 file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
 
@@ -293,10 +281,6 @@ pub(super) fn run_entity(
                     errors,
                     warnings,
                     rules: Vec::new(),
-                    examples: report::ExampleSummary {
-                        max_examples_per_rule: 3,
-                        items: Vec::new(),
-                    },
                 },
             };
 
@@ -305,7 +289,6 @@ pub(super) fn run_entity(
             totals.rejected_total += rejected_count;
             totals.errors_total += errors;
             totals.warnings_total += warnings;
-            file_statuses.push(status);
             file_reports.push(file_report);
             file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
 
@@ -313,40 +296,6 @@ pub(super) fn run_entity(
                 abort_run = true;
                 break;
             }
-            continue;
-        }
-
-        let mut warn_ctx = process::WarnContext {
-            entity,
-            input_file: &input_file,
-            row_count,
-            raw_df: raw_df.as_ref(),
-            df: &mut df,
-            required_cols: &required_cols,
-            normalized_columns: &normalized_columns,
-            track_cast_errors,
-            severity,
-            accepted_target: &accepted_target,
-            sink_options_warning: &sink_options_warning,
-            sink_options_warned: &mut sink_options_warned,
-            archive_enabled,
-            archive_dir: &archive_dir,
-            mismatch: &mismatch,
-            source_stem,
-            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-            cloud,
-            resolver: &context.storage_resolver,
-            elapsed_ms: file_timer.elapsed().as_millis() as u64,
-        };
-        if let Some(outcome) = try_warn_counts(&mut warn_ctx)? {
-            totals.rows_total += outcome.file_report.row_count;
-            totals.accepted_total += outcome.file_report.accepted_count;
-            totals.rejected_total += outcome.file_report.rejected_count;
-            totals.errors_total += outcome.file_report.validation.errors;
-            totals.warnings_total += outcome.file_report.validation.warnings;
-            file_statuses.push(outcome.status);
-            file_reports.push(outcome.file_report);
-            file_timings_ms.push(Some(outcome.elapsed_ms));
             continue;
         }
 
@@ -431,22 +380,16 @@ pub(super) fn run_entity(
         let mut rejected_path = None;
         let mut errors_path = None;
         let mut archived_path = None;
-        let (mut rules, mut examples) = if has_errors {
+        let mut rules = if has_errors {
             summarize_validation(&error_lists, &normalized_columns, severity)
         } else {
-            (
-                Vec::new(),
-                report::ExampleSummary {
-                    max_examples_per_rule: 3,
-                    items: Vec::new(),
-                },
-            )
+            Vec::new()
         };
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;
             warnings::emit_once(&mut sink_options_warned, message);
-            append_sink_options_warning(&mut rules, &mut examples, message);
+            append_sink_options_warning(&mut rules, message);
         }
 
         match entity.policy.severity.as_str() {
@@ -462,6 +405,25 @@ pub(super) fn run_entity(
                     entity,
                 )?;
                 accepted_path = Some(output_path);
+                if has_errors {
+                    if let Some(rejected_target) = rejected_target.as_ref() {
+                        let errors_path_value = write_error_report_output(
+                            rejected_target,
+                            source_stem,
+                            &errors_json,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            cloud,
+                            &context.storage_resolver,
+                            entity,
+                        )?;
+                        errors_path = Some(errors_path_value);
+                    } else {
+                        warnings::emit(&format!(
+                            "entity.name={} sink.rejected missing; error report not written",
+                            entity.name
+                        ));
+                    }
+                }
             }
             "reject" => {
                 if has_errors {
@@ -638,7 +600,6 @@ pub(super) fn run_entity(
                 errors,
                 warnings,
                 rules,
-                examples,
             },
         };
 
@@ -647,17 +608,11 @@ pub(super) fn run_entity(
         totals.rejected_total += rejected_count;
         totals.errors_total += errors;
         totals.warnings_total += warnings;
-        file_statuses.push(status);
         file_reports.push(file_report);
         file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
     }
 
     totals.files_total = file_reports.len() as u64;
-
-    let (mut run_status, exit_code) = report::compute_run_outcome(&file_statuses);
-    if run_status == report::RunStatus::Success && totals.warnings_total > 0 {
-        run_status = report::RunStatus::SuccessWithWarnings;
-    }
 
     let run_report = build_run_report(entity_report::RunReportContext {
         context,
@@ -670,8 +625,6 @@ pub(super) fn run_entity(
         totals,
         file_reports,
         severity,
-        run_status,
-        exit_code,
     });
 
     if let Some(report_dir) = &context.report_dir {

@@ -1,0 +1,189 @@
+{
+  "spec_version": "0.1",
+  "entity": {
+    "name": "customer",
+    "metadata": {
+      "data_product": "customer_master",
+      "description": "Technical ingestion contract for customer dataset",
+      "domain": "sales",
+      "owner": "data-platform",
+      "tags": [
+        "prepared",
+        "masterdata"
+      ]
+    }
+  },
+  "source": {
+    "format": "csv",
+    "path": "local:///home/alexis/floe/example/./in/customer",
+    "options": {
+      "encoding": "utf-8",
+      "header": true,
+      "ndjson": false,
+      "null_values": [
+        "",
+        "NULL",
+        "null"
+      ],
+      "recursive": false,
+      "separator": ","
+    },
+    "cast_mode": "strict",
+    "read_plan": "raw_and_typed",
+    "resolved_inputs": {
+      "mode": "directory",
+      "file_count": 3,
+      "files": [
+        "/home/alexis/floe/example/./in/customer/customers_invalid.csv",
+        "/home/alexis/floe/example/./in/customer/customers_missing.csv",
+        "/home/alexis/floe/example/./in/customer/customers_valid.csv"
+      ]
+    }
+  },
+  "sink": {
+    "accepted": {
+      "format": "delta",
+      "path": "local:///home/alexis/floe/example/./out/accepted/customer_delta/"
+    },
+    "rejected": {
+      "format": "csv",
+      "path": "local:///home/alexis/floe/example/./out/rejected/customer/"
+    },
+    "archive": {
+      "enabled": false
+    }
+  },
+  "policy": {
+    "severity": "reject"
+  },
+  "results": {
+    "files_total": 3,
+    "rows_total": 17,
+    "accepted_total": 6,
+    "rejected_total": 11,
+    "warnings_total": 0,
+    "errors_total": 10
+  },
+  "files": [
+    {
+      "input_file": "/home/alexis/floe/example/./in/customer/customers_invalid.csv",
+      "status": "rejected",
+      "row_count": 7,
+      "accepted_count": 1,
+      "rejected_count": 6,
+      "mismatch": {
+        "declared_columns_count": 4,
+        "input_columns_count": 4,
+        "missing_columns": [],
+        "extra_columns": [],
+        "mismatch_action": "none"
+      },
+      "output": {
+        "accepted_path": "/home/alexis/floe/example/./out/accepted/customer_delta/",
+        "rejected_path": "/home/alexis/floe/example/./out/rejected/customer/customers_invalid_rejected.csv",
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 9,
+        "warnings": 0,
+        "rules": [
+          {
+            "rule": "not_null",
+            "severity": "reject",
+            "violations": 1,
+            "columns": [
+              {
+                "column": "customer_id",
+                "violations": 1
+              }
+            ]
+          },
+          {
+            "rule": "cast_error",
+            "severity": "reject",
+            "violations": 6,
+            "columns": [
+              {
+                "column": "created_at",
+                "violations": 6,
+                "target_type": "datetime"
+              }
+            ]
+          },
+          {
+            "rule": "unique",
+            "severity": "reject",
+            "violations": 2,
+            "columns": [
+              {
+                "column": "customer_id",
+                "violations": 1
+              },
+              {
+                "column": "email",
+                "violations": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "input_file": "/home/alexis/floe/example/./in/customer/customers_missing.csv",
+      "status": "rejected",
+      "row_count": 5,
+      "accepted_count": 0,
+      "rejected_count": 5,
+      "mismatch": {
+        "declared_columns_count": 4,
+        "input_columns_count": 3,
+        "missing_columns": [
+          "created_at"
+        ],
+        "extra_columns": [],
+        "mismatch_action": "rejected_file",
+        "error": {
+          "rule": "schema_mismatch",
+          "message": "entity.name=customer schema mismatch: missing=1 extra=0"
+        }
+      },
+      "output": {
+        "accepted_path": null,
+        "rejected_path": "/home/alexis/floe/example/./out/rejected/customer/customers_missing.csv",
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 1,
+        "warnings": 0,
+        "rules": []
+      }
+    },
+    {
+      "input_file": "/home/alexis/floe/example/./in/customer/customers_valid.csv",
+      "status": "success",
+      "row_count": 5,
+      "accepted_count": 5,
+      "rejected_count": 0,
+      "mismatch": {
+        "declared_columns_count": 4,
+        "input_columns_count": 4,
+        "missing_columns": [],
+        "extra_columns": [],
+        "mismatch_action": "none"
+      },
+      "output": {
+        "accepted_path": "/home/alexis/floe/example/./out/accepted/customer_delta/",
+        "rejected_path": null,
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 0,
+        "warnings": 0,
+        "rules": []
+      }
+    }
+  ]
+}

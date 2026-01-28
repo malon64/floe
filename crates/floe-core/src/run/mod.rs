@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::io::storage::CloudClient;
-use crate::{config, ConfigError, FloeResult, RunOptions, ValidateOptions};
+use crate::run::reporting::project_metadata_json;
+use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
 pub(crate) mod entity;
@@ -20,6 +21,7 @@ pub struct RunOutcome {
     pub run_id: String,
     pub report_base_path: Option<String>,
     pub entity_outcomes: Vec<EntityOutcome>,
+    pub summary: report::RunSummaryReport,
 }
 
 #[derive(Debug, Clone)]
@@ -73,9 +75,111 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
         }
     }
 
+    let summary = build_run_summary(&context, &entity_outcomes);
+    if let Some(report_dir) = &context.report_dir {
+        report::ReportWriter::write_summary(report_dir, &context.run_id, &summary)?;
+    }
+
     Ok(RunOutcome {
         run_id: context.run_id.clone(),
         report_base_path: context.report_base_path.clone(),
         entity_outcomes,
+        summary,
     })
+}
+
+fn build_run_summary(
+    context: &RunContext,
+    entity_outcomes: &[EntityOutcome],
+) -> report::RunSummaryReport {
+    let mut totals = report::ResultsTotals {
+        files_total: 0,
+        rows_total: 0,
+        accepted_total: 0,
+        rejected_total: 0,
+        warnings_total: 0,
+        errors_total: 0,
+    };
+    let mut statuses = Vec::new();
+    let mut entities = Vec::with_capacity(entity_outcomes.len());
+
+    for outcome in entity_outcomes {
+        let report = &outcome.report;
+        totals.files_total += report.results.files_total;
+        totals.rows_total += report.results.rows_total;
+        totals.accepted_total += report.results.accepted_total;
+        totals.rejected_total += report.results.rejected_total;
+        totals.warnings_total += report.results.warnings_total;
+        totals.errors_total += report.results.errors_total;
+
+        let file_statuses = report
+            .files
+            .iter()
+            .map(|file| file.status)
+            .collect::<Vec<_>>();
+        let (mut status, _) = report::compute_run_outcome(&file_statuses);
+        if status == report::RunStatus::Success && report.results.warnings_total > 0 {
+            status = report::RunStatus::SuccessWithWarnings;
+        }
+        statuses.extend(file_statuses);
+
+        let report_file = context
+            .report_dir
+            .as_ref()
+            .map(|dir| report::ReportWriter::report_path(dir, &context.run_id, &report.entity.name))
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "disabled".to_string());
+        entities.push(report::EntitySummary {
+            name: report.entity.name.clone(),
+            status,
+            results: report.results.clone(),
+            report_file,
+        });
+    }
+
+    let (mut status, exit_code) = report::compute_run_outcome(&statuses);
+    if status == report::RunStatus::Success && totals.warnings_total > 0 {
+        status = report::RunStatus::SuccessWithWarnings;
+    }
+
+    let finished_at = report::now_rfc3339();
+    let duration_ms = context.run_timer.elapsed().as_millis() as u64;
+    let report_base_path = context
+        .report_base_path
+        .clone()
+        .unwrap_or_else(|| "disabled".to_string());
+    let report_file = context
+        .report_dir
+        .as_ref()
+        .map(|dir| report::ReportWriter::summary_path(dir, &context.run_id))
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "disabled".to_string());
+
+    report::RunSummaryReport {
+        spec_version: context.config.version.clone(),
+        tool: report::ToolInfo {
+            name: "floe".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            git: None,
+        },
+        run: report::RunInfo {
+            run_id: context.run_id.clone(),
+            started_at: context.started_at.clone(),
+            finished_at,
+            duration_ms,
+            status,
+            exit_code,
+        },
+        config: report::ConfigEcho {
+            path: context.config_path.display().to_string(),
+            version: context.config.version.clone(),
+            metadata: context.config.metadata.as_ref().map(project_metadata_json),
+        },
+        report: report::ReportEcho {
+            path: report_base_path,
+            report_file,
+        },
+        results: totals,
+        entities,
+    }
 }

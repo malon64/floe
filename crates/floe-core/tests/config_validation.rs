@@ -42,6 +42,9 @@ fn base_entity(name: &str) -> String {
       accepted:
         format: "parquet"
         path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
     policy:
       severity: "warn"
     schema:

@@ -39,6 +39,7 @@ Example:
   floe run -c example/config.yml
 
 Reports are written to:
+  <report.path>/run_<run_id>/run.summary.json
   <report.path>/run_<run_id>/<entity.name>/run.json
 "#;
 

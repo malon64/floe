@@ -56,6 +56,7 @@ entities:
 - `report` (required)
   - `report.path` is the base directory where run reports are written.
   - Reports are written under:
+    `report.path/run_<run_id>/run.summary.json` and
     `report.path/run_<run_id>/<entity.name>/run.json`.
 - `storages` (optional)
   - Defines named storage clients for `source.storage` and `sink.*.storage`.

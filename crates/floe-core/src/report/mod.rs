@@ -10,16 +10,33 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 #[serde(rename_all = "snake_case")]
 pub struct RunReport {
     pub spec_version: String,
-    pub tool: ToolInfo,
-    pub run: RunInfo,
-    pub config: ConfigEcho,
     pub entity: EntityEcho,
     pub source: SourceEcho,
     pub sink: SinkEcho,
-    pub report: ReportEcho,
     pub policy: PolicyEcho,
     pub results: ResultsTotals,
     pub files: Vec<FileReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RunSummaryReport {
+    pub spec_version: String,
+    pub tool: ToolInfo,
+    pub run: RunInfo,
+    pub config: ConfigEcho,
+    pub report: ReportEcho,
+    pub results: ResultsTotals,
+    pub entities: Vec<EntitySummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct EntitySummary {
+    pub name: String,
+    pub status: RunStatus,
+    pub results: ResultsTotals,
+    pub report_file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +201,6 @@ pub struct FileValidation {
     pub errors: u64,
     pub warnings: u64,
     pub rules: Vec<RuleSummary>,
-    pub examples: ExampleSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,22 +219,6 @@ pub struct ColumnSummary {
     pub violations: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct ExampleSummary {
-    pub max_examples_per_rule: u64,
-    pub items: Vec<ValidationExample>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct ValidationExample {
-    pub rule: RuleName,
-    pub column: String,
-    pub row_index: u64,
-    pub message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -331,6 +331,10 @@ impl ReportWriter {
         "run.json".to_string()
     }
 
+    pub fn summary_file_name() -> String {
+        "run.summary.json".to_string()
+    }
+
     pub fn entity_report_dir(report_dir: &Path, run_id: &str, entity_name: &str) -> PathBuf {
         report_dir
             .join(Self::run_dir_name(run_id))
@@ -339,6 +343,12 @@ impl ReportWriter {
 
     pub fn report_path(report_dir: &Path, run_id: &str, entity_name: &str) -> PathBuf {
         Self::entity_report_dir(report_dir, run_id, entity_name).join(Self::report_file_name())
+    }
+
+    pub fn summary_path(report_dir: &Path, run_id: &str) -> PathBuf {
+        report_dir
+            .join(Self::run_dir_name(run_id))
+            .join(Self::summary_file_name())
     }
 
     pub fn write_report(
@@ -353,6 +363,29 @@ impl ReportWriter {
         let tmp_path = entity_dir.join(format!(
             "{}.tmp-{}",
             Self::report_file_name(),
+            unique_suffix()
+        ));
+
+        let json = serde_json::to_string_pretty(report)?;
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp_path, &report_path)?;
+
+        Ok(report_path)
+    }
+
+    pub fn write_summary(
+        report_dir: &Path,
+        run_id: &str,
+        report: &RunSummaryReport,
+    ) -> Result<PathBuf, ReportError> {
+        let run_dir = report_dir.join(Self::run_dir_name(run_id));
+        std::fs::create_dir_all(&run_dir)?;
+        let report_path = Self::summary_path(report_dir, run_id);
+        let tmp_path = run_dir.join(format!(
+            "{}.tmp-{}",
+            Self::summary_file_name(),
             unique_suffix()
         ));
 
@@ -394,24 +427,6 @@ mod tests {
     fn sample_report() -> RunReport {
         RunReport {
             spec_version: "0.1".to_string(),
-            tool: ToolInfo {
-                name: "floe".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                git: None,
-            },
-            run: RunInfo {
-                run_id: "2026-01-19T10-23-45Z".to_string(),
-                started_at: "2026-01-19T10-23-45Z".to_string(),
-                finished_at: "2026-01-19T10-23-46Z".to_string(),
-                duration_ms: 1000,
-                status: RunStatus::Success,
-                exit_code: 0,
-            },
-            config: ConfigEcho {
-                path: "/tmp/config.yml".to_string(),
-                version: "0.1".to_string(),
-                metadata: None,
-            },
             entity: EntityEcho {
                 name: "customer".to_string(),
                 metadata: None,
@@ -441,11 +456,6 @@ mod tests {
                     enabled: false,
                     path: None,
                 },
-            },
-            report: ReportEcho {
-                path: "/tmp/out/reports".to_string(),
-                report_file: "/tmp/out/reports/run_2026-01-19T10-23-45Z/customer/run.json"
-                    .to_string(),
             },
             policy: PolicyEcho {
                 severity: Severity::Warn,
@@ -483,11 +493,58 @@ mod tests {
                     errors: 0,
                     warnings: 0,
                     rules: Vec::new(),
-                    examples: ExampleSummary {
-                        max_examples_per_rule: 3,
-                        items: Vec::new(),
-                    },
                 },
+            }],
+        }
+    }
+
+    fn sample_summary() -> RunSummaryReport {
+        RunSummaryReport {
+            spec_version: "0.1".to_string(),
+            tool: ToolInfo {
+                name: "floe".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                git: None,
+            },
+            run: RunInfo {
+                run_id: "2026-01-19T10-23-45Z".to_string(),
+                started_at: "2026-01-19T10-23-45Z".to_string(),
+                finished_at: "2026-01-19T10-23-46Z".to_string(),
+                duration_ms: 1000,
+                status: RunStatus::Success,
+                exit_code: 0,
+            },
+            config: ConfigEcho {
+                path: "/tmp/config.yml".to_string(),
+                version: "0.1".to_string(),
+                metadata: None,
+            },
+            report: ReportEcho {
+                path: "/tmp/out/reports".to_string(),
+                report_file: "/tmp/out/reports/run_2026-01-19T10-23-45Z/run.summary.json"
+                    .to_string(),
+            },
+            results: ResultsTotals {
+                files_total: 1,
+                rows_total: 10,
+                accepted_total: 10,
+                rejected_total: 0,
+                warnings_total: 0,
+                errors_total: 0,
+            },
+            entities: vec![EntitySummary {
+                name: "customer".to_string(),
+                status: RunStatus::Success,
+                results: ResultsTotals {
+                    files_total: 1,
+                    rows_total: 10,
+                    accepted_total: 10,
+                    rejected_total: 0,
+                    warnings_total: 0,
+                    errors_total: 0,
+                },
+                report_file: "/tmp/out/reports/run_2026-01-19T10-23-45Z/customer/run.json"
+                    .to_string(),
             }],
         }
     }
@@ -498,20 +555,12 @@ mod tests {
         let value = serde_json::to_value(&report).expect("serialize report");
         let object = value.as_object().expect("report object");
         assert!(object.contains_key("spec_version"));
-        assert!(object.contains_key("tool"));
-        assert!(object.contains_key("run"));
-        assert!(object.contains_key("config"));
         assert!(object.contains_key("entity"));
         assert!(object.contains_key("source"));
         assert!(object.contains_key("sink"));
-        assert!(object.contains_key("report"));
         assert!(object.contains_key("policy"));
         assert!(object.contains_key("results"));
         assert!(object.contains_key("files"));
-
-        let report_obj = object.get("report").expect("report");
-        let report_map = report_obj.as_object().expect("report map");
-        assert!(report_map.contains_key("report_file"));
     }
 
     #[test]
@@ -564,28 +613,23 @@ mod tests {
     #[test]
     fn write_report_writes_json_file() {
         let report = sample_report();
+        let run_id = "2026-01-19T10-23-45Z";
         let mut dir = std::env::temp_dir();
         dir.push(format!("floe-report-tests-{}", unique_suffix()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
 
-        let report_path = ReportWriter::write_report(&dir, &report.run.run_id, "customer", &report)
-            .expect("write report");
+        let report_path =
+            ReportWriter::write_report(&dir, run_id, "customer", &report).expect("write report");
 
         assert!(report_path.exists());
         let expected = dir
-            .join("run_2026-01-19T10-23-45Z")
+            .join(format!("run_{run_id}"))
             .join("customer")
             .join("run.json");
         assert_eq!(report_path, expected);
         let contents = std::fs::read_to_string(&report_path).expect("read report");
         let value: serde_json::Value = serde_json::from_str(&contents).expect("parse report");
-        assert_eq!(
-            value
-                .get("run")
-                .and_then(|run| run.get("run_id"))
-                .and_then(|run_id| run_id.as_str()),
-            Some("2026-01-19T10-23-45Z")
-        );
+        assert!(value.get("entity").is_some());
 
         let temp_files: Vec<_> = std::fs::read_dir(expected.parent().expect("entity dir"))
             .expect("read dir")
@@ -599,5 +643,24 @@ mod tests {
             })
             .collect();
         assert!(temp_files.is_empty());
+    }
+
+    #[test]
+    fn write_summary_writes_json_file() {
+        let summary = sample_summary();
+        let run_id = "2026-01-19T10-23-45Z";
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("floe-summary-tests-{}", unique_suffix()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        let report_path =
+            ReportWriter::write_summary(&dir, run_id, &summary).expect("write summary");
+
+        assert!(report_path.exists());
+        let expected = dir.join(format!("run_{run_id}")).join("run.summary.json");
+        assert_eq!(report_path, expected);
+        let contents = std::fs::read_to_string(&report_path).expect("read summary");
+        let value: serde_json::Value = serde_json::from_str(&contents).expect("parse summary");
+        assert!(value.get("run").is_some());
     }
 }

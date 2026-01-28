@@ -17,6 +17,7 @@ values are excluded.
 Reports are written under the configured report directory:
 
 ```
+<report.path>/run_<run_id>/run.summary.json
 <report.path>/run_<run_id>/<entity.name>/run.json
 ```
 
@@ -24,20 +25,28 @@ Reports are written under the configured report directory:
 (colons replaced by dashes). The report JSON must include the full
 `report_file` path.
 
-Each entity produces its own `run.json`.
+Each entity produces its own `run.json`. The run summary aggregates all entities.
 
 Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 
 ## Top-level sections
 
+### Run summary (`run.summary.json`)
+
 - `spec_version`: Config version string.
 - `tool`: Tool name/version and optional git info.
 - `run`: Run ID, timestamps, duration, status, and exit code.
 - `config`: Config path, version, and metadata (free-form).
+- `report`: Report base path and the full summary report file path.
+- `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
+- `entities`: Per-entity totals + entity report file paths.
+
+### Entity report (`<entity>/run.json`)
+
+- `spec_version`: Config version string.
 - `entity`: Entity name and metadata (free-form).
 - `source`: Input format, path, options, cast mode, read plan, and resolved inputs.
 - `sink`: Accepted/rejected/archive paths and formats.
-- `report`: Report base path and the full report file path.
 - `policy`: Severity.
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
@@ -65,14 +74,11 @@ Exit codes:
 
 ## Validation payloads
 
-Validation summaries report aggregated counts and examples only. Examples
-include rule, column, row index, and message (no raw values).
+Validation summaries report aggregated counts only (no row-level examples).
 
 Aggregations:
 - `validation.errors`/`warnings` are totals for the file.
 - `validation.rules[]` aggregates violations by rule and column.
-- `validation.examples.items[]` contains up to `max_examples_per_rule`
-  examples per rule (ordered by row index).
 
 Example rule summary:
 
@@ -87,13 +93,5 @@ Example rule summary:
 }
 ```
 
-Example item:
-
-```json
-{
-  "rule": "cast_error",
-  "column": "created_at",
-  "row_index": 17,
-  "message": "invalid value for target type"
-}
-```
+Row-level error details are written to the rejected error report JSON
+(`*_reject_errors.json`) when available; reports do not include examples.

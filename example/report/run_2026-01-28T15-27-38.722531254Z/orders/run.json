@@ -1,0 +1,120 @@
+{
+  "spec_version": "0.1",
+  "entity": {
+    "name": "orders",
+    "metadata": {
+      "data_product": "order_events",
+      "description": "Technical ingestion contract for order events",
+      "domain": "sales",
+      "owner": "data-platform",
+      "tags": [
+        "prepared",
+        "events"
+      ]
+    }
+  },
+  "source": {
+    "format": "json",
+    "path": "local:///home/alexis/floe/example/./in/orders",
+    "options": {
+      "encoding": "UTF8",
+      "header": true,
+      "ndjson": true,
+      "null_values": [],
+      "recursive": false,
+      "separator": ";"
+    },
+    "cast_mode": "strict",
+    "read_plan": "raw_and_typed",
+    "resolved_inputs": {
+      "mode": "directory",
+      "file_count": 2,
+      "files": [
+        "/home/alexis/floe/example/./in/orders/orders_invalid.json",
+        "/home/alexis/floe/example/./in/orders/orders_valid.json"
+      ]
+    }
+  },
+  "sink": {
+    "accepted": {
+      "format": "parquet",
+      "path": "local:///home/alexis/floe/example/./out/accepted/orders/"
+    },
+    "rejected": {
+      "format": "csv",
+      "path": "local:///home/alexis/floe/example/./out/rejected/orders/"
+    },
+    "archive": {
+      "enabled": false
+    }
+  },
+  "policy": {
+    "severity": "reject"
+  },
+  "results": {
+    "files_total": 2,
+    "rows_total": 8,
+    "accepted_total": 3,
+    "rejected_total": 5,
+    "warnings_total": 0,
+    "errors_total": 1
+  },
+  "files": [
+    {
+      "input_file": "/home/alexis/floe/example/./in/orders/orders_invalid.json",
+      "status": "rejected",
+      "row_count": 5,
+      "accepted_count": 0,
+      "rejected_count": 5,
+      "mismatch": {
+        "declared_columns_count": 7,
+        "input_columns_count": 8,
+        "missing_columns": [],
+        "extra_columns": [
+          "promo_code"
+        ],
+        "mismatch_action": "rejected_file",
+        "error": {
+          "rule": "schema_mismatch",
+          "message": "entity.name=orders schema mismatch: missing=0 extra=1"
+        }
+      },
+      "output": {
+        "accepted_path": null,
+        "rejected_path": "/home/alexis/floe/example/./out/rejected/orders/orders_invalid.json",
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 1,
+        "warnings": 0,
+        "rules": []
+      }
+    },
+    {
+      "input_file": "/home/alexis/floe/example/./in/orders/orders_valid.json",
+      "status": "success",
+      "row_count": 3,
+      "accepted_count": 3,
+      "rejected_count": 0,
+      "mismatch": {
+        "declared_columns_count": 7,
+        "input_columns_count": 7,
+        "missing_columns": [],
+        "extra_columns": [],
+        "mismatch_action": "none"
+      },
+      "output": {
+        "accepted_path": "/home/alexis/floe/example/./out/accepted/orders/orders_valid.parquet",
+        "rejected_path": null,
+        "errors_path": null,
+        "archived_path": null
+      },
+      "validation": {
+        "errors": 0,
+        "warnings": 0,
+        "rules": []
+      }
+    }
+  ]
+}

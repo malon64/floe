@@ -1,0 +1,68 @@
+{
+  "spec_version": "0.1",
+  "tool": {
+    "name": "floe",
+    "version": "0.1.4"
+  },
+  "run": {
+    "run_id": "2026-01-28T15-27-38.722531254Z",
+    "started_at": "2026-01-28T15:27:38.722531254Z",
+    "finished_at": "2026-01-28T15:27:38.881315058Z",
+    "duration_ms": 158,
+    "status": "rejected",
+    "exit_code": 0
+  },
+  "config": {
+    "path": "/home/alexis/floe/example/config.yml",
+    "version": "0.1",
+    "metadata": {
+      "description": "Example multi-entity technical ingestion config",
+      "owner": "data-platform",
+      "project": "floe",
+      "tags": [
+        "v0.1",
+        "examples"
+      ]
+    }
+  },
+  "report": {
+    "path": "/home/alexis/floe/example/./report",
+    "report_file": "/home/alexis/floe/example/./report/run_2026-01-28T15-27-38.722531254Z/run.summary.json"
+  },
+  "results": {
+    "files_total": 5,
+    "rows_total": 25,
+    "accepted_total": 9,
+    "rejected_total": 16,
+    "warnings_total": 0,
+    "errors_total": 11
+  },
+  "entities": [
+    {
+      "name": "customer",
+      "status": "rejected",
+      "results": {
+        "files_total": 3,
+        "rows_total": 17,
+        "accepted_total": 6,
+        "rejected_total": 11,
+        "warnings_total": 0,
+        "errors_total": 10
+      },
+      "report_file": "/home/alexis/floe/example/./report/run_2026-01-28T15-27-38.722531254Z/customer/run.json"
+    },
+    {
+      "name": "orders",
+      "status": "rejected",
+      "results": {
+        "files_total": 2,
+        "rows_total": 8,
+        "accepted_total": 3,
+        "rejected_total": 5,
+        "warnings_total": 0,
+        "errors_total": 1
+      },
+      "report_file": "/home/alexis/floe/example/./report/run_2026-01-28T15-27-38.722531254Z/orders/run.json"
+    }
+  ]
+}

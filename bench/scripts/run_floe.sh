@@ -6,11 +6,18 @@ RESULTS_FILE="$ROOT/results/results.csv"
 CONFIG_BASE="$ROOT/config/bench.yml"
 REPORT_DIR="$ROOT/results/report"
 if [[ -z "${FLOE_BIN:-}" ]]; then
-  candidate="$ROOT/../target/release/floe"
-  if [[ -x "$candidate" ]]; then
-    FLOE_BIN="$candidate"
+  if command -v brew >/dev/null 2>&1; then
+    candidate="$(brew --prefix)/bin/floe"
+    if [[ -x "$candidate" ]]; then
+      FLOE_BIN="$candidate"
+    else
+      echo "floe not found via Homebrew at $candidate" >&2
+      echo "Install with: brew install floe or set FLOE_BIN" >&2
+      exit 1
+    fi
   else
-    FLOE_BIN="floe"
+    echo "Homebrew not found; set FLOE_BIN to the brew-installed floe" >&2
+    exit 1
   fi
 fi
 

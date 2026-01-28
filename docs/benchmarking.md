@@ -101,9 +101,8 @@ Source: `bench/results/results.csv`.
 - The 5M dataset is constructed by replaying the base file; it is not a distinct
   source file.
 
-## Hardware notes (fill in)
+## Machine Specs
 
-- CPU:
-- RAM:
-- OS:
-- Storage:
+- CPU: AMD Ryzen AI 7 350
+- RAM: 32 GB
+- OS: Windows (WSL)

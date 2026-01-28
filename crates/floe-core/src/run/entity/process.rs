@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::errors::RunError;
-use crate::{check, config, io, report, FloeResult};
+use crate::{check, config, io, report, warnings, FloeResult};
 
 use super::WarnOutcome;
 use crate::run::output::write_accepted_output;
@@ -112,10 +112,7 @@ pub(super) fn try_warn_counts(ctx: &mut WarnContext<'_>) -> FloeResult<Option<Wa
     let mut sink_options_warnings = 0;
     if let Some(message) = ctx.sink_options_warning.as_deref() {
         sink_options_warnings = 1;
-        if !*ctx.sink_options_warned {
-            eprintln!("warn: {message}");
-            *ctx.sink_options_warned = true;
-        }
+        warnings::emit_once(ctx.sink_options_warned, message);
         append_sink_options_warning(&mut rules, &mut examples, message);
     }
 
@@ -133,7 +130,8 @@ pub(super) fn try_warn_counts(ctx: &mut WarnContext<'_>) -> FloeResult<Option<Wa
 
     if ctx.archive_enabled {
         if let Some(dir) = ctx.archive_dir {
-            let archived_path_buf = io::write::archive_input(&ctx.input_file.local_path, dir)?;
+            let archived_path_buf =
+                io::write::archive_input(&ctx.input_file.source_local_path, dir)?;
             archived_path = Some(archived_path_buf.display().to_string());
         }
     }

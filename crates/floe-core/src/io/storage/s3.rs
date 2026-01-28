@@ -251,7 +251,7 @@ pub fn build_input_files(
         let source_uri = format_s3_uri(bucket, &key);
         inputs.push(io::format::InputFile {
             source_uri,
-            local_path,
+            source_local_path: local_path,
             source_name,
             source_stem,
         });

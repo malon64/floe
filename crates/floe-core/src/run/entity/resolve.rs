@@ -116,7 +116,7 @@ fn build_local_inputs(files: &[PathBuf], entity: &config::EntityConfig) -> Vec<I
                 .to_string();
             InputFile {
                 source_uri: path.display().to_string(),
-                local_path: path.clone(),
+                source_local_path: path.clone(),
                 source_name,
                 source_stem,
             }

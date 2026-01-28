@@ -51,7 +51,7 @@ pub(super) fn write_rejected_raw_output(
         resolver,
         entity,
         |path| {
-            io::write::write_rejected_raw(&input_file.local_path, path)?;
+            io::write::write_rejected_raw(&input_file.source_local_path, path)?;
             Ok(())
         },
     )

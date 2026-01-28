@@ -78,10 +78,6 @@ pub fn apply_schema_mismatch(
         ));
         effective_missing = "fill_nulls";
         effective_extra = "ignore";
-        eprintln!(
-            "warn: {}",
-            warning.as_deref().unwrap_or("schema mismatch override")
-        );
     }
 
     let mut rejected = false;

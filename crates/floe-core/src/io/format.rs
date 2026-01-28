@@ -10,7 +10,7 @@ use crate::{check, config, io, ConfigError, FloeResult};
 #[derive(Debug, Clone)]
 pub struct InputFile {
     pub source_uri: String,
-    pub local_path: PathBuf,
+    pub source_local_path: PathBuf,
     pub source_name: String,
     pub source_stem: String,
 }

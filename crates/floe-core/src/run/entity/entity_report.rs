@@ -66,7 +66,7 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
         },
         source: report::SourceEcho {
             format: ctx.input.format.clone(),
-            path: ctx.resolved_targets.source.uri().to_string(),
+            path: ctx.resolved_targets.source.target_uri().to_string(),
             options: ctx.input.options.as_ref().map(source_options_json),
             cast_mode: ctx.input.cast_mode.clone(),
             read_plan: report::SourceReadPlan::RawAndTyped,
@@ -79,7 +79,7 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
         sink: report::SinkEcho {
             accepted: report::SinkTargetEcho {
                 format: ctx.entity.sink.accepted.format.clone(),
-                path: ctx.resolved_targets.accepted.uri().to_string(),
+                path: ctx.resolved_targets.accepted.target_uri().to_string(),
             },
             rejected: ctx
                 .entity
@@ -92,7 +92,7 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
                         .resolved_targets
                         .rejected
                         .as_ref()
-                        .map(|target| target.uri().to_string())
+                        .map(|target| target.target_uri().to_string())
                         .unwrap_or_else(|| rejected.path.clone()),
                 }),
             archive: report::SinkArchiveEcho {

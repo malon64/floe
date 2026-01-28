@@ -109,7 +109,7 @@ impl InputAdapter for JsonInputAdapter {
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.local_path;
+            let path = &input_file.source_local_path;
             match read_ndjson_file(path) {
                 Ok(df) => {
                     let input = format::read_input_from_df(

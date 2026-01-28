@@ -39,7 +39,7 @@ impl Target {
         }
     }
 
-    pub fn uri(&self) -> &str {
+    pub fn target_uri(&self) -> &str {
         match self {
             Target::Local { uri, .. } | Target::S3 { uri, .. } => uri.as_str(),
         }

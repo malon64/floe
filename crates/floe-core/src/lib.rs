@@ -6,6 +6,7 @@ pub mod errors;
 mod io;
 pub mod report;
 pub mod run;
+pub mod warnings;
 
 pub use checks as check;
 pub use run::{run, EntityOutcome, RunOutcome};

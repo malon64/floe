@@ -90,7 +90,7 @@ impl InputAdapter for CsvInputAdapter {
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.local_path;
+            let path = &input_file.source_local_path;
             let input_columns = resolve_input_columns(path, source_options, columns)?;
             let typed_projection = if collect_raw {
                 projected_columns(&input_columns, columns)

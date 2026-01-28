@@ -68,7 +68,7 @@ impl InputAdapter for ParquetInputAdapter {
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.local_path;
+            let path = &input_file.source_local_path;
             let input_columns = read_parquet_schema_names(path)?;
             let projection = projected_columns(&input_columns, columns);
             let df = read_parquet_lazy(path, projection.as_deref())?;

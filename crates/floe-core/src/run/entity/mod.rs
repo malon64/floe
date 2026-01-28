@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::errors::{IoError, RunError};
-use crate::{check, config, io, report, ConfigError, FloeResult};
+use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
 use super::file::{collect_errors, read_inputs, required_columns};
 use super::normalize::normalize_schema_columns;
@@ -226,6 +226,9 @@ pub(super) fn run_entity(
             raw_df.as_mut(),
             &mut df,
         )?;
+        if let Some(message) = mismatch.report.warning.as_deref() {
+            warnings::emit(message);
+        }
         let row_count = raw_df
             .as_ref()
             .map(|df| df.height())
@@ -253,7 +256,8 @@ pub(super) fn run_entity(
 
             let archived_path = if archive_enabled {
                 if let Some(dir) = &archive_dir {
-                    let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
+                    let archived_path_buf =
+                        io::write::archive_input(&input_file.source_local_path, dir)?;
                     Some(archived_path_buf.display().to_string())
                 } else {
                     None
@@ -441,10 +445,7 @@ pub(super) fn run_entity(
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;
-            if !sink_options_warned {
-                eprintln!("warn: {message}");
-                sink_options_warned = true;
-            }
+            warnings::emit_once(&mut sink_options_warned, message);
             append_sink_options_warning(&mut rules, &mut examples, message);
         }
 
@@ -574,7 +575,8 @@ pub(super) fn run_entity(
 
         if archive_enabled {
             if let Some(dir) = &archive_dir {
-                let archived_path_buf = io::write::archive_input(&input_file.local_path, dir)?;
+                let archived_path_buf =
+                    io::write::archive_input(&input_file.source_local_path, dir)?;
                 archived_path = Some(archived_path_buf.display().to_string());
             }
         }

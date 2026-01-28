@@ -5,7 +5,8 @@ pub mod parquet;
 
 use std::path::{Path, PathBuf};
 
-use crate::{ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::FloeResult;
 
 pub fn write_error_report(
     output_path: &Path,
@@ -39,7 +40,7 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
     }
     std::fs::create_dir_all(archive_dir)?;
     let file_name = source_path.file_name().ok_or_else(|| {
-        Box::new(ConfigError("source file name missing".to_string()))
+        Box::new(RunError("source file name missing".to_string()))
             as Box<dyn std::error::Error + Send + Sync>
     })?;
     let destination = archive_dir.join(file_name);

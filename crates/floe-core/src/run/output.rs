@@ -2,6 +2,7 @@ use std::path::Path;
 
 use polars::prelude::DataFrame;
 
+use crate::errors::RunError;
 use crate::{check, config, io, ConfigError, FloeResult};
 
 use io::format::{self, InputFile};
@@ -105,12 +106,9 @@ pub(super) fn append_rejection_columns(
     include_all_rows: bool,
 ) -> FloeResult<()> {
     let (row_index, errors) = check::rejected_error_columns(errors_per_row, include_all_rows);
-    df.with_column(row_index).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "failed to add __floe_row_index: {err}"
-        )))
-    })?;
+    df.with_column(row_index)
+        .map_err(|err| Box::new(RunError(format!("failed to add __floe_row_index: {err}"))))?;
     df.with_column(errors)
-        .map_err(|err| Box::new(ConfigError(format!("failed to add __floe_errors: {err}"))))?;
+        .map_err(|err| Box::new(RunError(format!("failed to add __floe_errors: {err}"))))?;
     Ok(())
 }

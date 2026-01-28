@@ -9,6 +9,7 @@ use aws_sdk_s3::Client;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Runtime;
 
+use crate::errors::{RunError, StorageError};
 use crate::{config, io, ConfigError, FloeResult};
 
 use super::StorageClient;
@@ -24,7 +25,7 @@ impl S3Client {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(ConfigError(format!("failed to build aws runtime: {err}"))))?;
+            .map_err(|err| Box::new(StorageError(format!("failed to build aws runtime: {err}"))))?;
         let config = runtime.block_on(async {
             let region_provider = match region {
                 Some(region) => RegionProviderChain::first_try(Region::new(region.to_string()))
@@ -65,7 +66,7 @@ impl StorageClient for S3Client {
                     request = request.continuation_token(token);
                 }
                 let response = request.send().await.map_err(|err| {
-                    Box::new(ConfigError(format!(
+                    Box::new(StorageError(format!(
                         "s3 list objects failed for bucket {}: {err}",
                         bucket
                     ))) as Box<dyn std::error::Error + Send + Sync>
@@ -103,7 +104,7 @@ impl StorageClient for S3Client {
                 .send()
                 .await
                 .map_err(|err| {
-                    Box::new(ConfigError(format!("s3 get object failed: {err}")))
+                    Box::new(StorageError(format!("s3 get object failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             if let Some(parent) = dest.parent() {
@@ -123,7 +124,7 @@ impl StorageClient for S3Client {
         let path = path.to_path_buf();
         self.runtime.block_on(async move {
             let body = ByteStream::from_path(path).await.map_err(|err| {
-                Box::new(ConfigError(format!("s3 upload body failed: {err}")))
+                Box::new(StorageError(format!("s3 upload body failed: {err}")))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             self.client
@@ -134,7 +135,7 @@ impl StorageClient for S3Client {
                 .send()
                 .await
                 .map_err(|err| {
-                    Box::new(ConfigError(format!("s3 put object failed: {err}")))
+                    Box::new(StorageError(format!("s3 put object failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
@@ -232,7 +233,7 @@ pub fn build_input_files(
     let keys = client.list(prefix)?;
     let keys = filter_keys_by_suffixes(keys, &suffixes);
     if keys.is_empty() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(Box::new(RunError(format!(
             "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
             entity.name,
             storage,

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use polars::prelude::{DataFrame, DataType, Series};
 
-use crate::{config, report, ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::{config, report, FloeResult};
 
 const MAX_MISMATCH_COLUMNS: usize = 50;
 
@@ -179,7 +180,7 @@ fn add_missing_columns(
     for name in missing {
         let raw_series = Series::full_null(name.as_str().into(), height, &DataType::String);
         raw_df.with_column(raw_series).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "failed to add missing column {}: {err}",
                 name
             )))
@@ -191,7 +192,7 @@ fn add_missing_columns(
             .unwrap_or(DataType::String);
         let typed_series = Series::full_null(name.as_str().into(), height, &dtype);
         typed_df.with_column(typed_series).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "failed to add missing column {}: {err}",
                 name
             )))
@@ -221,7 +222,7 @@ fn add_missing_columns_typed(
             .unwrap_or(DataType::String);
         let typed_series = Series::full_null(name.as_str().into(), height, &dtype);
         typed_df.with_column(typed_series).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "failed to add missing column {}: {err}",
                 name
             )))
@@ -238,7 +239,7 @@ fn drop_extra_columns(
     for name in extra {
         if raw_df.get_column_index(name).is_some() {
             raw_df.drop_in_place(name).map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "failed to drop extra column {}: {err}",
                     name
                 )))
@@ -249,7 +250,7 @@ fn drop_extra_columns(
     for name in extra {
         if typed_df.get_column_index(name).is_some() {
             typed_df.drop_in_place(name).map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "failed to drop extra column {}: {err}",
                     name
                 )))
@@ -263,7 +264,7 @@ fn drop_extra_columns_typed(typed_df: &mut DataFrame, extra: &[String]) -> FloeR
     for name in extra {
         if typed_df.get_column_index(name).is_some() {
             typed_df.drop_in_place(name).map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "failed to drop extra column {}: {err}",
                     name
                 )))

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, ConfigError, FloeResult};
 
 use super::file::{collect_errors, read_inputs, required_columns};
@@ -66,7 +67,7 @@ pub(super) fn run_entity(
     let temp_dir = if needs_temp {
         Some(
             tempfile::TempDir::new()
-                .map_err(|err| Box::new(ConfigError(format!("tempdir failed: {err}"))))?,
+                .map_err(|err| Box::new(IoError(format!("tempdir failed: {err}"))))?,
         )
     } else {
         None
@@ -346,7 +347,7 @@ pub(super) fn run_entity(
         }
 
         let raw_df = raw_df.ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "entity.name={} raw dataframe unavailable for rejection checks",
                 entity.name
             )))
@@ -467,14 +468,10 @@ pub(super) fn run_entity(
 
                     let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
                     let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to filter accepted rows: {err}"
-                        )))
+                        Box::new(RunError(format!("failed to filter accepted rows: {err}")))
                     })?;
                     let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to filter rejected rows: {err}"
-                        )))
+                        Box::new(RunError(format!("failed to filter rejected rows: {err}")))
                     })?;
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
 

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::{config, io, report, ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::{config, io, report, FloeResult};
 
 use crate::run::RunContext;
 use io::format::{InputAdapter, InputFile};
@@ -26,14 +27,14 @@ pub(super) fn resolve_input_files(
         let (bucket, key) = resolved_targets
             .source
             .s3_parts()
-            .ok_or_else(|| Box::new(ConfigError("s3 target missing bucket".to_string())))?;
+            .ok_or_else(|| Box::new(RunError("s3 target missing bucket".to_string())))?;
         let s3_client = cloud.client_for(
             &context.storage_resolver,
             resolved_targets.source.storage(),
             entity,
         )?;
         let temp_dir =
-            temp_dir.ok_or_else(|| Box::new(ConfigError("s3 tempdir missing".to_string())))?;
+            temp_dir.ok_or_else(|| Box::new(RunError("s3 tempdir missing".to_string())))?;
         let inputs = io::storage::s3::build_input_files(
             s3_client,
             bucket,

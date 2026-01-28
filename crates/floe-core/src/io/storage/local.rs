@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use glob::glob;
 
+use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
 
 use super::StorageClient;
@@ -41,7 +42,7 @@ impl StorageClient for LocalClient {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::copy(&src, dest).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(StorageError(format!(
                 "local download failed from {}: {err}",
                 src.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
@@ -55,7 +56,7 @@ impl StorageClient for LocalClient {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::copy(path, &dest).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(StorageError(format!(
                 "local upload failed to {}: {err}",
                 dest.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
@@ -95,7 +96,7 @@ pub fn resolve_local_inputs(
         let files = collect_glob_files(&pattern)?;
         if files.is_empty() {
             let (base_path, glob_used) = split_glob_details(&pattern_path, raw_path);
-            return Err(Box::new(ConfigError(no_match_message(
+            return Err(Box::new(RunError(no_match_message(
                 entity_name,
                 storage,
                 &base_path,
@@ -123,7 +124,7 @@ pub fn resolve_local_inputs(
         default_globs.to_vec()
     };
     if !base_path.is_dir() {
-        return Err(Box::new(ConfigError(no_match_message(
+        return Err(Box::new(RunError(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),
@@ -145,7 +146,7 @@ pub fn resolve_local_inputs(
     };
     let files = collect_glob_files_multi(&pattern_paths)?;
     if files.is_empty() {
-        return Err(Box::new(ConfigError(no_match_message(
+        return Err(Box::new(RunError(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),

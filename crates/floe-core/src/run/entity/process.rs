@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::{check, config, io, report, ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::{check, config, io, report, FloeResult};
 
 use super::WarnOutcome;
 use crate::run::output::write_accepted_output;
@@ -37,7 +38,7 @@ pub(super) fn try_warn_counts(ctx: &mut WarnContext<'_>) -> FloeResult<Option<Wa
 
     let cast_counts = if ctx.track_cast_errors {
         let raw_df = ctx.raw_df.ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "entity.name={} raw dataframe unavailable for cast checks",
                 ctx.entity.name
             )))

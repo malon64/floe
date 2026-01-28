@@ -1,7 +1,8 @@
 use polars::prelude::{is_duplicated, is_first_distinct, DataFrame};
 
 use super::{ColumnIndex, RowError};
-use crate::{config, ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::{config, FloeResult};
 
 pub fn unique_errors(
     df: &DataFrame,
@@ -19,16 +20,10 @@ pub fn unique_errors(
 
     for column in unique_columns {
         let index = indices.get(&column.name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "unique column {} not found",
-                column.name
-            )))
+            Box::new(RunError(format!("unique column {} not found", column.name)))
         })?;
         let series = df.select_at_idx(*index).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "unique column {} not found",
-                column.name
-            )))
+            Box::new(RunError(format!("unique column {} not found", column.name)))
         })?;
         let series = series.as_materialized_series();
         let non_null = series.len().saturating_sub(series.null_count());
@@ -36,7 +31,7 @@ pub fn unique_errors(
             continue;
         }
         let mut duplicate_mask = is_duplicated(series).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "unique column {} read failed: {err}",
                 column.name
             )))
@@ -44,7 +39,7 @@ pub fn unique_errors(
         let not_null = series.is_not_null();
         duplicate_mask = &duplicate_mask & &not_null;
         let mut first_mask = is_first_distinct(series).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "unique column {} read failed: {err}",
                 column.name
             )))
@@ -84,7 +79,7 @@ pub fn unique_counts(
     let mut counts = Vec::new();
     for column in unique_columns {
         let series = df.column(&column.name).map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "unique column {} not found: {err}",
                 column.name
             )))
@@ -94,7 +89,7 @@ pub fn unique_counts(
             continue;
         }
         let unique = series.drop_nulls().n_unique().map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "unique column {} read failed: {err}",
                 column.name
             )))

@@ -5,8 +5,9 @@ use polars::prelude::{
     col, DataFrame, DataType, LazyCsvReader, LazyFileListReader, PlPath, Schema, SerReader,
 };
 
+use crate::errors::{IoError, RunError};
 use crate::io::format::{self, InputAdapter, InputFile, ReadInput};
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 struct CsvInputAdapter;
 
@@ -56,13 +57,13 @@ pub fn read_csv_header(
     let reader = read_options
         .try_into_reader_with_file_path(None)
         .map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(IoError(format!(
                 "failed to open csv at {}: {err}",
                 input_path.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
     let df = reader.finish().map_err(|err| {
-        Box::new(ConfigError(format!("csv header read failed: {err}")))
+        Box::new(IoError(format!("csv header read failed: {err}")))
             as Box<dyn std::error::Error + Send + Sync>
     })?;
     Ok(df
@@ -105,9 +106,7 @@ impl InputAdapter for CsvInputAdapter {
                 let mut typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
                 if let Some(projection) = typed_projection.as_ref() {
                     typed_df = typed_df.select(projection).map_err(|err| {
-                        Box::new(ConfigError(format!(
-                            "failed to project typed columns: {err}"
-                        )))
+                        Box::new(RunError(format!("failed to project typed columns: {err}")))
                     })?;
                 }
                 format::finalize_read_input(
@@ -198,7 +197,7 @@ fn read_csv_lazy(
     }
 
     let mut lf = reader.finish().map_err(|err| {
-        Box::new(ConfigError(format!(
+        Box::new(IoError(format!(
             "failed to scan csv at {}: {err}",
             input_path.display()
         ))) as Box<dyn std::error::Error + Send + Sync>
@@ -210,7 +209,7 @@ fn read_csv_lazy(
     }
 
     lf.collect().map_err(|err| {
-        Box::new(ConfigError(format!("csv read failed: {err}")))
+        Box::new(IoError(format!("csv read failed: {err}")))
             as Box<dyn std::error::Error + Send + Sync>
     })
 }

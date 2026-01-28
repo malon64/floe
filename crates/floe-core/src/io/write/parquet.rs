@@ -2,6 +2,7 @@ use std::path::Path;
 
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
+use crate::errors::IoError;
 use crate::io::format::AcceptedSinkAdapter;
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
@@ -39,7 +40,7 @@ pub fn write_parquet_to_path(
     }
     writer
         .finish(df)
-        .map_err(|err| Box::new(ConfigError(format!("parquet write failed: {err}"))))?;
+        .map_err(|err| Box::new(IoError(format!("parquet write failed: {err}"))))?;
     Ok(())
 }
 

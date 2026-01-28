@@ -14,8 +14,8 @@ properties:
     type: string
   metadata:
     $ref: "#/$defs/project_metadata"
-  filesystems:
-    $ref: "#/$defs/filesystems"
+  storages:
+    $ref: "#/$defs/storages"
   report:
     $ref: "#/$defs/report"
   entities:
@@ -122,7 +122,7 @@ $defs:
         enum: [csv, parquet, json]
       path:
         type: string
-      filesystem:
+      storage:
         type: string
       options:
         $ref: "#/$defs/source_options"
@@ -176,7 +176,7 @@ $defs:
         enum: [parquet, delta]
       path:
         type: string
-      filesystem:
+      storage:
         type: string
       options:
         type: object
@@ -201,7 +201,7 @@ $defs:
         enum: [csv]
       path:
         type: string
-      filesystem:
+      storage:
         type: string
 
   report:
@@ -212,8 +212,11 @@ $defs:
     properties:
       path:
         type: string
+      formatter:
+        type: string
+        enum: [json, csv, text]
 
-  filesystems:
+  storages:
     type: object
     additionalProperties: false
     required:
@@ -225,9 +228,9 @@ $defs:
       definitions:
         type: array
         items:
-          $ref: "#/$defs/filesystem_definition"
+          $ref: "#/$defs/storage_definition"
 
-  filesystem_definition:
+  storage_definition:
     type: object
     additionalProperties: false
     required:

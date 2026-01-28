@@ -2,8 +2,9 @@ use std::path::Path;
 
 use polars::prelude::{col, DataFrame, LazyFrame, ParquetReader, PlPath, SerReader};
 
+use crate::errors::IoError;
 use crate::io::format::{self, InputAdapter, InputFile, ReadInput};
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 struct ParquetInputAdapter;
 
@@ -15,14 +16,14 @@ pub(crate) fn parquet_input_adapter() -> &'static dyn InputAdapter {
 
 pub fn read_parquet_schema_names(input_path: &Path) -> FloeResult<Vec<String>> {
     let file = std::fs::File::open(input_path).map_err(|err| {
-        Box::new(ConfigError(format!(
+        Box::new(IoError(format!(
             "failed to open parquet at {}: {err}",
             input_path.display()
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
     let mut reader = ParquetReader::new(file);
     let schema = reader.schema().map_err(|err| {
-        Box::new(ConfigError(format!(
+        Box::new(IoError(format!(
             "failed to read parquet schema at {}: {err}",
             input_path.display()
         ))) as Box<dyn std::error::Error + Send + Sync>
@@ -37,7 +38,7 @@ pub fn read_parquet_lazy(
     let path_str = input_path.to_string_lossy();
     let mut lf = LazyFrame::scan_parquet(PlPath::new(path_str.as_ref()), Default::default())
         .map_err(|err| {
-            Box::new(ConfigError(format!(
+            Box::new(IoError(format!(
                 "failed to scan parquet at {}: {err}",
                 input_path.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
@@ -47,7 +48,7 @@ pub fn read_parquet_lazy(
         lf = lf.select(exprs);
     }
     lf.collect().map_err(|err| {
-        Box::new(ConfigError(format!("parquet read failed: {err}")))
+        Box::new(IoError(format!("parquet read failed: {err}")))
             as Box<dyn std::error::Error + Send + Sync>
     })
 }
@@ -67,7 +68,7 @@ impl InputAdapter for ParquetInputAdapter {
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.local_path;
+            let path = &input_file.source_local_path;
             let input_columns = read_parquet_schema_names(path)?;
             let projection = projected_columns(&input_columns, columns);
             let df = read_parquet_lazy(path, projection.as_deref())?;

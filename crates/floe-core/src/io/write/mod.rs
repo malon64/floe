@@ -5,14 +5,13 @@ pub mod parquet;
 
 use std::path::{Path, PathBuf};
 
-use crate::{ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::FloeResult;
 
 pub fn write_error_report(
-    base_path: &str,
-    source_stem: &str,
+    output_path: &Path,
     errors_per_row: &[Option<String>],
 ) -> FloeResult<PathBuf> {
-    let output_path = build_reject_errors_path(base_path, source_stem);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -23,17 +22,16 @@ pub fn write_error_report(
         }
     }
     let content = format!("[{}]", items.join(","));
-    std::fs::write(&output_path, content)?;
-    Ok(output_path)
+    std::fs::write(output_path, content)?;
+    Ok(output_path.to_path_buf())
 }
 
-pub fn write_rejected_raw(source_path: &Path, base_path: &str) -> FloeResult<PathBuf> {
-    let output_path = build_rejected_raw_path(base_path, source_path);
+pub fn write_rejected_raw(source_path: &Path, output_path: &Path) -> FloeResult<PathBuf> {
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::copy(source_path, &output_path)?;
-    Ok(output_path)
+    std::fs::copy(source_path, output_path)?;
+    Ok(output_path.to_path_buf())
 }
 
 pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathBuf> {
@@ -42,7 +40,7 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
     }
     std::fs::create_dir_all(archive_dir)?;
     let file_name = source_path.file_name().ok_or_else(|| {
-        Box::new(ConfigError("source file name missing".to_string()))
+        Box::new(RunError("source file name missing".to_string()))
             as Box<dyn std::error::Error + Send + Sync>
     })?;
     let destination = archive_dir.join(file_name);
@@ -51,25 +49,4 @@ pub fn archive_input(source_path: &Path, archive_dir: &Path) -> FloeResult<PathB
         std::fs::remove_file(source_path)?;
     }
     Ok(destination)
-}
-fn build_reject_errors_path(base_path: &str, source_stem: &str) -> PathBuf {
-    let base = Path::new(base_path);
-    let dir = if base.extension().is_some() {
-        base.parent().unwrap_or(base)
-    } else {
-        base
-    };
-    dir.join(format!("{source_stem}_reject_errors.json"))
-}
-
-fn build_rejected_raw_path(base_path: &str, source_path: &Path) -> PathBuf {
-    let base = Path::new(base_path);
-    if base.extension().is_some() {
-        base.to_path_buf()
-    } else {
-        let file_name = source_path
-            .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new("rejected.csv"));
-        base.join(file_name)
-    }
 }

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
-use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
+use crate::errors::IoError;
+use crate::io::format::AcceptedSinkAdapter;
+use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
 struct ParquetAcceptedAdapter;
@@ -14,17 +15,15 @@ pub(crate) fn parquet_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &PARQUET_ACCEPTED_ADAPTER
 }
 
-pub fn write_parquet(
+pub fn write_parquet_to_path(
     df: &mut DataFrame,
-    base_path: &str,
-    source_stem: &str,
+    output_path: &Path,
     options: Option<&config::SinkOptions>,
-) -> FloeResult<PathBuf> {
-    let output_path = build_parquet_path(base_path, source_stem);
+) -> FloeResult<()> {
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let file = std::fs::File::create(&output_path)?;
+    let file = std::fs::File::create(output_path)?;
     let mut writer = ParquetWriter::new(file);
     if let Some(options) = options {
         if let Some(compression) = &options.compression {
@@ -41,65 +40,32 @@ pub fn write_parquet(
     }
     writer
         .finish(df)
-        .map_err(|err| Box::new(ConfigError(format!("parquet write failed: {err}"))))?;
-    Ok(output_path)
+        .map_err(|err| Box::new(IoError(format!("parquet write failed: {err}"))))?;
+    Ok(())
 }
 
 impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
     fn write_accepted(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
         temp_dir: Option<&Path>,
-        s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        cloud: &mut io::storage::CloudClient,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
-        match target {
-            StorageTarget::Local { base_path } => {
-                let output_path = write_parquet(
-                    df,
-                    base_path,
-                    source_stem,
-                    entity.sink.accepted.options.as_ref(),
-                )?;
-                Ok(output_path.display().to_string())
-            }
-            StorageTarget::S3 {
-                filesystem,
-                bucket,
-                base_key,
-            } => {
-                let temp_dir = temp_dir.ok_or_else(|| {
-                    Box::new(ConfigError(format!(
-                        "entity.name={} missing temp dir for s3 output",
-                        entity.name
-                    )))
-                })?;
-                let temp_base = temp_dir.display().to_string();
-                let local_path = write_parquet(
-                    df,
-                    &temp_base,
-                    source_stem,
-                    entity.sink.accepted.options.as_ref(),
-                )?;
-                let key = io::fs::s3::build_parquet_key(base_key, source_stem);
-                let client =
-                    crate::run::entity::s3_client_for(s3_clients, resolver, filesystem, entity)?;
-                client.upload_file(bucket, &key, &local_path)?;
-                Ok(io::fs::s3::format_s3_uri(bucket, &key))
-            }
-        }
-    }
-}
-
-fn build_parquet_path(base_path: &str, source_stem: &str) -> PathBuf {
-    let path = Path::new(base_path);
-    if path.extension().is_some() {
-        path.to_path_buf()
-    } else {
-        path.join(format!("{source_stem}.parquet"))
+        let filename = io::storage::paths::build_output_filename(source_stem, "", "parquet");
+        io::storage::output::write_output(
+            target,
+            io::storage::output::OutputPlacement::Output,
+            &filename,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
+        )
     }
 }
 

@@ -6,6 +6,8 @@ mod unique;
 use polars::prelude::{BooleanChunked, DataFrame, NamedFrom, NewChunkedArray, Series};
 use std::collections::HashMap;
 
+use crate::{ConfigError, FloeResult};
+
 pub use cast::{cast_mismatch_counts, cast_mismatch_errors};
 pub use mismatch::{apply_schema_mismatch, MismatchOutcome};
 pub use not_null::{not_null_counts, not_null_errors};
@@ -47,6 +49,65 @@ impl RowError {
     }
 }
 
+pub trait RowErrorFormatter {
+    fn format(&self, errors: &[RowError]) -> String;
+}
+
+pub struct JsonRowErrorFormatter;
+pub struct CsvRowErrorFormatter;
+pub struct TextRowErrorFormatter;
+
+impl RowErrorFormatter for JsonRowErrorFormatter {
+    fn format(&self, errors: &[RowError]) -> String {
+        let json_items = errors
+            .iter()
+            .map(RowError::to_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("[{}]", json_items)
+    }
+}
+
+impl RowErrorFormatter for CsvRowErrorFormatter {
+    fn format(&self, errors: &[RowError]) -> String {
+        let lines = errors
+            .iter()
+            .map(|error| {
+                format!(
+                    "{},{},{}",
+                    csv_escape(&error.rule),
+                    csv_escape(&error.column),
+                    csv_escape(&error.message)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        json_string(&lines)
+    }
+}
+
+impl RowErrorFormatter for TextRowErrorFormatter {
+    fn format(&self, errors: &[RowError]) -> String {
+        let text = errors
+            .iter()
+            .map(|error| format!("{}:{} {}", error.rule, error.column, error.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        json_string(&text)
+    }
+}
+
+pub fn row_error_formatter(name: &str) -> FloeResult<Box<dyn RowErrorFormatter>> {
+    match name {
+        "json" => Ok(Box::new(JsonRowErrorFormatter)),
+        "csv" => Ok(Box::new(CsvRowErrorFormatter)),
+        "text" => Ok(Box::new(TextRowErrorFormatter)),
+        other => Err(Box::new(ConfigError(format!(
+            "unsupported report.formatter: {other}"
+        )))),
+    }
+}
+
 pub fn build_accept_rows(errors_per_row: &[Vec<RowError>]) -> Vec<bool> {
     let mut accept_rows = Vec::with_capacity(errors_per_row.len());
     for errors in errors_per_row {
@@ -59,20 +120,23 @@ pub fn build_errors_json(
     errors_per_row: &[Vec<RowError>],
     accept_rows: &[bool],
 ) -> Vec<Option<String>> {
-    let mut errors_json = Vec::with_capacity(errors_per_row.len());
+    build_errors_formatted(errors_per_row, accept_rows, &JsonRowErrorFormatter)
+}
+
+pub fn build_errors_formatted(
+    errors_per_row: &[Vec<RowError>],
+    accept_rows: &[bool],
+    formatter: &dyn RowErrorFormatter,
+) -> Vec<Option<String>> {
+    let mut errors_out = Vec::with_capacity(errors_per_row.len());
     for (errors, accepted) in errors_per_row.iter().zip(accept_rows.iter()) {
         if *accepted {
-            errors_json.push(None);
+            errors_out.push(None);
             continue;
         }
-        let json_items = errors
-            .iter()
-            .map(RowError::to_json)
-            .collect::<Vec<_>>()
-            .join(",");
-        errors_json.push(Some(format!("[{}]", json_items)));
+        errors_out.push(Some(formatter.format(errors)));
     }
-    errors_json
+    errors_out
 }
 
 pub fn build_row_masks(accept_rows: &[bool]) -> (BooleanChunked, BooleanChunked) {
@@ -114,7 +178,25 @@ pub fn rejected_error_columns(
 }
 
 fn json_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\"', "\\\"")
+    value
+        .replace('\\', "\\\\")
+        .replace('\"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+fn json_string(value: &str) -> String {
+    format!("\"{}\"", json_escape(value))
+}
+
+fn csv_escape(value: &str) -> String {
+    let escaped = value.replace('"', "\"\"");
+    if escaped.contains(',') || escaped.contains('\n') || escaped.contains('\r') {
+        format!("\"{}\"", escaped)
+    } else {
+        escaped
+    }
 }
 
 #[cfg(test)]
@@ -226,5 +308,25 @@ mod tests {
         assert_eq!(accept_rows, vec![true, false]);
         assert!(errors_json[0].is_none());
         assert!(errors_json[1].as_ref().unwrap().contains("not_null"));
+    }
+
+    #[test]
+    fn csv_formatter_outputs_json_string() {
+        let errors = vec![
+            RowError::new("not_null", "customer_id", "missing"),
+            RowError::new("unique", "order_id", "duplicate"),
+        ];
+        let formatted = CsvRowErrorFormatter.format(&errors);
+        assert_eq!(
+            formatted,
+            "\"not_null,customer_id,missing\\nunique,order_id,duplicate\""
+        );
+    }
+
+    #[test]
+    fn text_formatter_outputs_json_string() {
+        let errors = vec![RowError::new("unique", "order_id", "duplicate")];
+        let formatted = TextRowErrorFormatter.format(&errors);
+        assert_eq!(formatted, "\"unique:order_id duplicate\"");
     }
 }

@@ -1,7 +1,8 @@
 use polars::prelude::{BooleanChunked, DataFrame, StringChunked};
 
 use super::{ColumnIndex, RowError};
-use crate::{config, ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::{config, FloeResult};
 
 /// Detect cast mismatches by comparing raw (string) values to typed values.
 /// If a raw value exists but the typed value is null, we treat it as a cast error.
@@ -21,33 +22,25 @@ pub fn cast_mismatch_errors(
         if is_string_type(&column.column_type) {
             continue;
         }
-        let raw_index = raw_indices.get(&column.name).ok_or_else(|| {
-            Box::new(ConfigError(format!("raw column {} not found", column.name)))
-        })?;
-        let typed_index = typed_indices.get(&column.name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "typed column {} not found",
-                column.name
-            )))
-        })?;
+        let raw_index = raw_indices
+            .get(&column.name)
+            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?;
+        let typed_index = typed_indices
+            .get(&column.name)
+            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?;
         let raw = raw_df
             .select_at_idx(*raw_index)
-            .ok_or_else(|| Box::new(ConfigError(format!("raw column {} not found", column.name))))?
+            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?
             .str()
             .map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "raw column {} is not utf8: {err}",
                     column.name
                 )))
             })?;
         let typed_nulls = typed_df
             .select_at_idx(*typed_index)
-            .ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "typed column {} not found",
-                    column.name
-                )))
-            })?
+            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?
             .is_null();
 
         append_cast_errors(&mut errors_per_row, &column.name, raw, &typed_nulls)?;
@@ -74,14 +67,14 @@ pub fn cast_mismatch_counts(
         let raw = raw_df
             .column(&column.name)
             .map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "raw column {} not found: {err}",
                     column.name
                 )))
             })?
             .str()
             .map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "raw column {} is not utf8: {err}",
                     column.name
                 )))
@@ -89,7 +82,7 @@ pub fn cast_mismatch_counts(
         let typed_nulls = typed_df
             .column(&column.name)
             .map_err(|err| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "typed column {} not found: {err}",
                     column.name
                 )))

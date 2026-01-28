@@ -11,7 +11,7 @@ use crate::{ConfigError, FloeResult};
 pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
-    pub filesystems: Option<FilesystemsConfig>,
+    pub storages: Option<StoragesConfig>,
     pub report: Option<ReportConfig>,
     pub entities: Vec<EntityConfig>,
 }
@@ -47,7 +47,7 @@ pub struct EntityMetadata {
 pub struct SourceConfig {
     pub format: String,
     pub path: String,
-    pub filesystem: Option<String>,
+    pub storage: Option<String>,
     pub options: Option<SourceOptions>,
     pub cast_mode: Option<String>,
 }
@@ -150,7 +150,7 @@ pub struct SinkConfig {
 pub struct SinkTarget {
     pub format: String,
     pub path: String,
-    pub filesystem: Option<String>,
+    pub storage: Option<String>,
     pub options: Option<SinkOptions>,
 }
 
@@ -161,13 +161,13 @@ pub struct SinkOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct FilesystemsConfig {
+pub struct StoragesConfig {
     pub default: Option<String>,
-    pub definitions: Vec<FilesystemDefinition>,
+    pub definitions: Vec<StorageDefinition>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FilesystemDefinition {
+pub struct StorageDefinition {
     pub name: String,
     pub fs_type: String,
     pub bucket: Option<String>,
@@ -178,6 +178,7 @@ pub struct FilesystemDefinition {
 #[derive(Debug)]
 pub struct ReportConfig {
     pub path: String,
+    pub formatter: Option<String>,
 }
 
 #[derive(Debug)]

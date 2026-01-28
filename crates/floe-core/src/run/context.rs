@@ -7,7 +7,7 @@ pub struct RunContext {
     pub config: config::RootConfig,
     pub config_path: PathBuf,
     pub config_dir: PathBuf,
-    pub filesystem_resolver: config::FilesystemResolver,
+    pub storage_resolver: config::StorageResolver,
     pub report_dir: Option<PathBuf>,
     pub report_base_path: Option<String>,
     pub run_id: String,
@@ -18,7 +18,7 @@ pub struct RunContext {
 impl RunContext {
     pub fn new(config_path: &Path, options: &RunOptions) -> FloeResult<Self> {
         let config = config::parse_config(config_path)?;
-        let filesystem_resolver = config::FilesystemResolver::new(&config, config_path)?;
+        let storage_resolver = config::StorageResolver::new(&config, config_path)?;
         let config_dir = config_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -38,7 +38,7 @@ impl RunContext {
             config,
             config_path: config_path.to_path_buf(),
             config_dir,
-            filesystem_resolver,
+            storage_resolver,
             report_dir,
             report_base_path,
             run_id,

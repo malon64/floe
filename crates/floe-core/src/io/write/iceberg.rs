@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use polars::prelude::DataFrame;
 
-use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
+use crate::io::format::AcceptedSinkAdapter;
+use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
 struct IcebergAcceptedAdapter;
@@ -17,16 +17,16 @@ pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
     fn write_accepted(
         &self,
-        _target: &StorageTarget,
+        _target: &Target,
         _df: &mut DataFrame,
         _source_stem: &str,
         _temp_dir: Option<&Path>,
-        _s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        _resolver: &config::FilesystemResolver,
+        _cloud: &mut io::storage::CloudClient,
+        _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.format=iceberg is not supported yet (filesystem catalog writer not implemented)",
+            "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",
             entity.name
         ))))
     }

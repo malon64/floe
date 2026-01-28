@@ -1,1 +1,4 @@
-# Placeholder for future clippy configuration.
+# Clippy configuration overrides.
+
+# Allow up to 8 arguments before warning.
+too-many-arguments-threshold = 8

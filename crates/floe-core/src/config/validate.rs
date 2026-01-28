@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::config::{EntityConfig, FilesystemDefinition, RootConfig};
+use crate::config::{EntityConfig, RootConfig, StorageDefinition};
 use crate::io::format;
 use crate::{ConfigError, FloeResult};
 
@@ -10,8 +10,7 @@ const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_ca
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
-const ALLOWED_FILESYSTEM_TYPES: &[&str] = &["local", "s3"];
-const ALLOWED_PARQUET_COMPRESSIONS: &[&str] = &["snappy", "gzip", "zstd", "uncompressed"];
+const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -20,11 +19,11 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
         )));
     }
 
-    let filesystem_registry = FilesystemRegistry::new(config)?;
+    let storage_registry = StorageRegistry::new(config)?;
 
     let mut names = HashSet::new();
     for entity in &config.entities {
-        validate_entity(entity, &filesystem_registry)?;
+        validate_entity(entity, &storage_registry)?;
         if !names.insert(entity.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} is duplicated in config",
@@ -36,15 +35,15 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     Ok(())
 }
 
-fn validate_entity(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
-    validate_source(entity, filesystems)?;
+fn validate_entity(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
+    validate_source(entity, storages)?;
     validate_policy(entity)?;
-    validate_sink(entity, filesystems)?;
+    validate_sink(entity, storages)?;
     validate_schema(entity)?;
     Ok(())
 }
 
-fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
+fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
     format::ensure_input_format(&entity.name, entity.source.format.as_str())?;
 
     if let Some(cast_mode) = &entity.source.cast_mode {
@@ -58,12 +57,9 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
         }
     }
 
-    let fs_name = filesystems.resolve_name(
-        entity,
-        "source.filesystem",
-        entity.source.filesystem.as_deref(),
-    )?;
-    filesystems.validate_reference(entity, "source.filesystem", &fs_name)?;
+    let storage_name =
+        storages.resolve_name(entity, "source.storage", entity.source.storage.as_deref())?;
+    storages.validate_reference(entity, "source.storage", &storage_name)?;
 
     if entity.source.format == "json" {
         let ndjson = entity
@@ -81,11 +77,11 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
     }
 
     if entity.source.format == "parquet" {
-        if let Some(fs_type) = filesystems.definition_type(&fs_name) {
-            if fs_type != "local" {
+        if let Some(storage_type) = storages.definition_type(&storage_name) {
+            if storage_type != "local" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} source.format=parquet is only supported on local filesystem (got {})",
-                    entity.name, fs_type
+                    "entity.name={} source.format=parquet is only supported on local storage (got {})",
+                    entity.name, storage_type
                 ))));
             }
         }
@@ -94,36 +90,19 @@ fn validate_source(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> F
     Ok(())
 }
 
-fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> FloeResult<()> {
+fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
     format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
     if entity.sink.accepted.format == "iceberg" {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.format=iceberg is not supported yet (filesystem catalog writer not implemented)",
+            "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",
             entity.name
         ))));
     }
-    if let Some(options) = &entity.sink.accepted.options {
-        if entity.sink.accepted.format == "parquet" {
-            if let Some(compression) = &options.compression {
-                if !ALLOWED_PARQUET_COMPRESSIONS.contains(&compression.as_str()) {
-                    return Err(Box::new(ConfigError(format!(
-                        "entity.name={} sink.accepted.options.compression={} is unsupported (allowed: {})",
-                        entity.name,
-                        compression,
-                        ALLOWED_PARQUET_COMPRESSIONS.join(", ")
-                    ))));
-                }
-            }
-            if let Some(row_group_size) = options.row_group_size {
-                if row_group_size == 0 {
-                    return Err(Box::new(ConfigError(format!(
-                        "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
-                        entity.name
-                    ))));
-                }
-            }
-        }
-    }
+    format::validate_sink_options(
+        &entity.name,
+        entity.sink.accepted.format.as_str(),
+        entity.sink.accepted.options.as_ref(),
+    )?;
 
     if entity.policy.severity == "reject" && entity.sink.rejected.is_none() {
         return Err(Box::new(ConfigError(format!(
@@ -136,30 +115,27 @@ fn validate_sink(entity: &EntityConfig, filesystems: &FilesystemRegistry) -> Flo
         format::ensure_rejected_sink_format(&entity.name, rejected.format.as_str())?;
     }
 
-    let accepted_fs = filesystems.resolve_name(
+    let accepted_storage = storages.resolve_name(
         entity,
-        "sink.accepted.filesystem",
-        entity.sink.accepted.filesystem.as_deref(),
+        "sink.accepted.storage",
+        entity.sink.accepted.storage.as_deref(),
     )?;
-    filesystems.validate_reference(entity, "sink.accepted.filesystem", &accepted_fs)?;
+    storages.validate_reference(entity, "sink.accepted.storage", &accepted_storage)?;
     if entity.sink.accepted.format == "delta" {
-        if let Some(fs_type) = filesystems.definition_type(&accepted_fs) {
-            if fs_type != "local" {
+        if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+            if storage_type != "local" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format=delta is only supported on local filesystem (got {})",
-                    entity.name, fs_type
+                    "entity.name={} sink.accepted.format=delta is only supported on local storage (got {})",
+                    entity.name, storage_type
                 ))));
             }
         }
     }
 
     if let Some(rejected) = &entity.sink.rejected {
-        let rejected_fs = filesystems.resolve_name(
-            entity,
-            "sink.rejected.filesystem",
-            rejected.filesystem.as_deref(),
-        )?;
-        filesystems.validate_reference(entity, "sink.rejected.filesystem", &rejected_fs)?;
+        let rejected_storage =
+            storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
+        storages.validate_reference(entity, "sink.rejected.storage", &rejected_storage)?;
     }
 
     Ok(())
@@ -256,15 +232,15 @@ fn normalize_value(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['-', '_'], "")
 }
 
-struct FilesystemRegistry {
+struct StorageRegistry {
     has_config: bool,
     default_name: Option<String>,
-    definitions: std::collections::HashMap<String, FilesystemDefinition>,
+    definitions: std::collections::HashMap<String, StorageDefinition>,
 }
 
-impl FilesystemRegistry {
+impl StorageRegistry {
     fn new(config: &RootConfig) -> FloeResult<Self> {
-        let Some(filesystems) = &config.filesystems else {
+        let Some(storages) = &config.storages else {
             return Ok(Self {
                 has_config: false,
                 default_name: None,
@@ -272,32 +248,32 @@ impl FilesystemRegistry {
             });
         };
 
-        if filesystems.definitions.is_empty() {
+        if storages.definitions.is_empty() {
             return Err(Box::new(ConfigError(
-                "filesystems.definitions must not be empty".to_string(),
+                "storages.definitions must not be empty".to_string(),
             )));
         }
 
         let mut definitions = std::collections::HashMap::new();
-        for definition in &filesystems.definitions {
-            if !ALLOWED_FILESYSTEM_TYPES.contains(&definition.fs_type.as_str()) {
+        for definition in &storages.definitions {
+            if !ALLOWED_STORAGE_TYPES.contains(&definition.fs_type.as_str()) {
                 return Err(Box::new(ConfigError(format!(
-                    "filesystems.definitions name={} type={} is unsupported (allowed: {})",
+                    "storages.definitions name={} type={} is unsupported (allowed: {})",
                     definition.name,
                     definition.fs_type,
-                    ALLOWED_FILESYSTEM_TYPES.join(", ")
+                    ALLOWED_STORAGE_TYPES.join(", ")
                 ))));
             }
             if definition.fs_type == "s3" {
                 if definition.bucket.is_none() {
                     return Err(Box::new(ConfigError(format!(
-                        "filesystems.definitions name={} requires bucket for type s3",
+                        "storages.definitions name={} requires bucket for type s3",
                         definition.name
                     ))));
                 }
                 if definition.region.is_none() {
                     return Err(Box::new(ConfigError(format!(
-                        "filesystems.definitions name={} requires region for type s3",
+                        "storages.definitions name={} requires region for type s3",
                         definition.name
                     ))));
                 }
@@ -307,28 +283,28 @@ impl FilesystemRegistry {
                 .is_some()
             {
                 return Err(Box::new(ConfigError(format!(
-                    "filesystems.definitions name={} is duplicated",
+                    "storages.definitions name={} is duplicated",
                     definition.name
                 ))));
             }
         }
 
-        if let Some(default_name) = &filesystems.default {
+        if let Some(default_name) = &storages.default {
             if !definitions.contains_key(default_name) {
                 return Err(Box::new(ConfigError(format!(
-                    "filesystems.default={} does not match any definition",
+                    "storages.default={} does not match any definition",
                     default_name
                 ))));
             }
         } else {
             return Err(Box::new(ConfigError(
-                "filesystems.default is required when filesystems is set".to_string(),
+                "storages.default is required when storages is set".to_string(),
             )));
         }
 
         Ok(Self {
             has_config: true,
-            default_name: filesystems.default.clone(),
+            default_name: storages.default.clone(),
             definitions,
         })
     }
@@ -345,7 +321,7 @@ impl FilesystemRegistry {
         if self.has_config {
             let default_name = self.default_name.clone().ok_or_else(|| {
                 Box::new(ConfigError(format!(
-                    "entity.name={} {field} requires filesystems.default",
+                    "entity.name={} {field} requires storages.default",
                     entity.name
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
@@ -358,7 +334,7 @@ impl FilesystemRegistry {
         if !self.has_config {
             if name != "local" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} {field} references unknown filesystem {} (no filesystems block)",
+                    "entity.name={} {field} references unknown storage {} (no storages block)",
                     entity.name, name
                 ))));
             }
@@ -367,7 +343,7 @@ impl FilesystemRegistry {
 
         let _definition = self.definitions.get(name).ok_or_else(|| {
             Box::new(ConfigError(format!(
-                "entity.name={} {field} references unknown filesystem {}",
+                "entity.name={} {field} references unknown storage {}",
                 entity.name, name
             )))
         })?;

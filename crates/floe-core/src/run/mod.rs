@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use std::path::Path;
 
+use crate::io::storage::CloudClient;
 use crate::{config, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
@@ -60,12 +60,12 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
 
     let mut entity_outcomes = Vec::new();
     let mut abort_run = false;
-    let mut s3_clients = HashMap::new();
+    let mut cloud = CloudClient::new();
     for entity in &context.config.entities {
         let EntityRunResult {
             outcome,
             abort_run: aborted,
-        } = run_entity(&context, &mut s3_clients, entity)?;
+        } = run_entity(&context, &mut cloud, entity)?;
         entity_outcomes.push(outcome);
         abort_run = abort_run || aborted;
         if abort_run {

@@ -1,48 +1,49 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::config::{FilesystemDefinition, RootConfig};
+use crate::config::{RootConfig, StorageDefinition};
 use crate::{ConfigError, FloeResult};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedPath {
-    pub filesystem: String,
+    pub storage: String,
     pub uri: String,
     pub local_path: Option<PathBuf>,
 }
 
-pub struct FilesystemResolver {
+pub struct StorageResolver {
     config_dir: PathBuf,
     default_name: String,
-    definitions: HashMap<String, FilesystemDefinition>,
+    definitions: HashMap<String, StorageDefinition>,
     has_config: bool,
 }
 
-impl FilesystemResolver {
+impl StorageResolver {
     pub fn new(config: &RootConfig, config_path: &Path) -> FloeResult<Self> {
         let config_dir = config_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        if let Some(filesystems) = &config.filesystems {
+        if let Some(storages) = &config.storages {
             let mut definitions = HashMap::new();
-            for definition in &filesystems.definitions {
+            for definition in &storages.definitions {
                 if definitions
                     .insert(definition.name.clone(), definition.clone())
                     .is_some()
                 {
                     return Err(Box::new(ConfigError(format!(
-                        "filesystems.definitions name={} is duplicated",
+                        "storages.definitions name={} is duplicated",
                         definition.name
                     ))));
                 }
             }
-            let default_name = filesystems.default.clone().ok_or_else(|| {
-                Box::new(ConfigError("filesystems.default is required".to_string()))
-            })?;
+            let default_name = storages
+                .default
+                .clone()
+                .ok_or_else(|| Box::new(ConfigError("storages.default is required".to_string())))?;
             if !definitions.contains_key(&default_name) {
                 return Err(Box::new(ConfigError(format!(
-                    "filesystems.default={} does not match any definition",
+                    "storages.default={} does not match any definition",
                     default_name
                 ))));
             }
@@ -66,13 +67,13 @@ impl FilesystemResolver {
         &self,
         entity_name: &str,
         field: &str,
-        filesystem_name: Option<&str>,
+        storage_name: Option<&str>,
         raw_path: &str,
     ) -> FloeResult<ResolvedPath> {
-        let name = filesystem_name.unwrap_or(self.default_name.as_str());
+        let name = storage_name.unwrap_or(self.default_name.as_str());
         if !self.has_config && name != "local" {
             return Err(Box::new(ConfigError(format!(
-                "entity.name={} {field} references unknown filesystem {} (no filesystems block)",
+                "entity.name={} {field} references unknown storage {} (no storages block)",
                 entity_name, name
             ))));
         }
@@ -80,12 +81,12 @@ impl FilesystemResolver {
         let definition = if self.has_config {
             self.definitions.get(name).cloned().ok_or_else(|| {
                 Box::new(ConfigError(format!(
-                    "entity.name={} {field} references unknown filesystem {}",
+                    "entity.name={} {field} references unknown storage {}",
                     entity_name, name
                 )))
             })?
         } else {
-            FilesystemDefinition {
+            StorageDefinition {
                 name: "local".to_string(),
                 fs_type: "local".to_string(),
                 bucket: None,
@@ -98,7 +99,7 @@ impl FilesystemResolver {
             "local" => {
                 let resolved = resolve_local_path(&self.config_dir, raw_path);
                 Ok(ResolvedPath {
-                    filesystem: name.to_string(),
+                    storage: name.to_string(),
                     uri: local_uri(&resolved),
                     local_path: Some(resolved),
                 })
@@ -106,23 +107,23 @@ impl FilesystemResolver {
             "s3" => {
                 let uri = resolve_s3_uri(&definition, raw_path)?;
                 Ok(ResolvedPath {
-                    filesystem: name.to_string(),
+                    storage: name.to_string(),
                     uri,
                     local_path: None,
                 })
             }
             _ => Err(Box::new(ConfigError(format!(
-                "filesystem type {} is unsupported",
+                "storage type {} is unsupported",
                 definition.fs_type
             )))),
         }
     }
 
-    pub fn definition(&self, name: &str) -> Option<FilesystemDefinition> {
+    pub fn definition(&self, name: &str) -> Option<StorageDefinition> {
         if self.has_config {
             self.definitions.get(name).cloned()
         } else if name == "local" {
-            Some(FilesystemDefinition {
+            Some(StorageDefinition {
                 name: "local".to_string(),
                 fs_type: "local".to_string(),
                 bucket: None,
@@ -148,17 +149,17 @@ fn local_uri(path: &Path) -> String {
     format!("local://{}", path.display())
 }
 
-fn resolve_s3_uri(definition: &FilesystemDefinition, raw_path: &str) -> FloeResult<String> {
+fn resolve_s3_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
     let bucket = definition.bucket.as_ref().ok_or_else(|| {
         Box::new(ConfigError(format!(
-            "filesystem {} requires bucket for type s3",
+            "storage {} requires bucket for type s3",
             definition.name
         )))
     })?;
     if let Some((bucket_in_path, key)) = parse_s3_uri(raw_path) {
         if bucket_in_path != *bucket {
             return Err(Box::new(ConfigError(format!(
-                "filesystem {} bucket mismatch: {}",
+                "storage {} bucket mismatch: {}",
                 definition.name, bucket_in_path
             ))));
         }

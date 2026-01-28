@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 use polars::chunked_array::cast::CastOptions;
 use polars::prelude::{Column, DataFrame, DataType, NamedFrom, Schema, Series};
 
+use crate::io::storage::Target;
 use crate::{check, config, io, ConfigError, FloeResult};
 
 #[derive(Debug, Clone)]
 pub struct InputFile {
     pub source_uri: String,
-    pub local_path: PathBuf,
+    pub source_local_path: PathBuf,
     pub source_name: String,
     pub source_stem: String,
 }
@@ -33,28 +34,17 @@ pub enum ReadInput {
     },
 }
 
-pub enum StorageTarget {
-    Local {
-        base_path: String,
-    },
-    S3 {
-        filesystem: String,
-        bucket: String,
-        base_key: String,
-    },
-}
-
 pub type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 
     fn default_globs(&self) -> FloeResult<Vec<String>> {
-        io::fs::extensions::glob_patterns_for_format(self.format())
+        io::storage::extensions::glob_patterns_for_format(self.format())
     }
 
     fn suffixes(&self) -> FloeResult<Vec<String>> {
-        io::fs::extensions::suffixes_for_format(self.format())
+        io::storage::extensions::suffixes_for_format(self.format())
     }
 
     fn resolve_local_inputs(
@@ -62,14 +52,14 @@ pub trait InputAdapter: Send + Sync {
         config_dir: &Path,
         entity_name: &str,
         source: &config::SourceConfig,
-        filesystem: &str,
-    ) -> FloeResult<io::fs::local::ResolvedLocalInputs> {
+        storage: &str,
+    ) -> FloeResult<io::storage::local::ResolvedLocalInputs> {
         let default_globs = self.default_globs()?;
-        io::fs::local::resolve_local_inputs(
+        io::storage::local::resolve_local_inputs(
             config_dir,
             entity_name,
             source,
-            filesystem,
+            storage,
             &default_globs,
         )
     }
@@ -85,29 +75,27 @@ pub trait InputAdapter: Send + Sync {
 }
 
 pub trait AcceptedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
     fn write_accepted(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
         temp_dir: Option<&Path>,
-        s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        cloud: &mut io::storage::CloudClient,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;
 }
 
 pub trait RejectedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
     fn write_rejected(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         source_stem: &str,
         temp_dir: Option<&Path>,
-        s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        resolver: &config::FilesystemResolver,
+        cloud: &mut io::storage::CloudClient,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String>;
 }
@@ -182,6 +170,67 @@ pub fn ensure_rejected_sink_format(entity_name: &str, format: &str) -> FloeResul
             format,
             Some(entity_name),
         )));
+    }
+    Ok(())
+}
+
+pub fn sink_options_warning(
+    entity_name: &str,
+    format: &str,
+    options: Option<&config::SinkOptions>,
+) -> Option<String> {
+    let options = options?;
+    if format == "parquet" {
+        return None;
+    }
+    let mut keys = Vec::new();
+    if options.compression.is_some() {
+        keys.push("compression");
+    }
+    if options.row_group_size.is_some() {
+        keys.push("row_group_size");
+    }
+    let detail = if keys.is_empty() {
+        "options".to_string()
+    } else {
+        keys.join(", ")
+    };
+    Some(format!(
+        "entity.name={} sink.accepted.options ({detail}) ignored for format={}",
+        entity_name, format
+    ))
+}
+
+pub fn validate_sink_options(
+    entity_name: &str,
+    format: &str,
+    options: Option<&config::SinkOptions>,
+) -> FloeResult<()> {
+    let options = match options {
+        Some(options) => options,
+        None => return Ok(()),
+    };
+    if format != "parquet" {
+        return Ok(());
+    }
+    if let Some(compression) = &options.compression {
+        match compression.as_str() {
+            "snappy" | "gzip" | "zstd" | "uncompressed" => {}
+            _ => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.options.compression={} is unsupported (allowed: snappy, gzip, zstd, uncompressed)",
+                    entity_name, compression
+                ))))
+            }
+        }
+    }
+    if let Some(row_group_size) = options.row_group_size {
+        if row_group_size == 0 {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
+                entity_name
+            ))));
+        }
     }
     Ok(())
 }
@@ -392,7 +441,6 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
     }
     Ok(out)
 }
-
 pub fn collect_errors(
     raw_df: &DataFrame,
     typed_df: &DataFrame,
@@ -401,6 +449,7 @@ pub fn collect_errors(
     track_cast_errors: bool,
     raw_indices: &check::ColumnIndex,
     typed_indices: &check::ColumnIndex,
+    formatter: &dyn check::RowErrorFormatter,
 ) -> FloeResult<ValidationCollect> {
     let mut error_lists = check::not_null_errors(typed_df, required_cols, typed_indices)?;
     if track_cast_errors {
@@ -415,7 +464,7 @@ pub fn collect_errors(
         errors.extend(unique);
     }
     let accept_rows = check::build_accept_rows(&error_lists);
-    let errors_json = check::build_errors_json(&error_lists, &accept_rows);
+    let errors_json = check::build_errors_formatted(&error_lists, &accept_rows, formatter);
     Ok((accept_rows, errors_json, error_lists))
 }
 

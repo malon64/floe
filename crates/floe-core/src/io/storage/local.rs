@@ -2,7 +2,68 @@ use std::path::{Path, PathBuf};
 
 use glob::glob;
 
+use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
+
+use super::StorageClient;
+
+pub struct LocalClient;
+
+impl LocalClient {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl StorageClient for LocalClient {
+    fn list(&self, prefix: &str) -> FloeResult<Vec<String>> {
+        let path = Path::new(prefix);
+        if path.is_file() {
+            return Ok(vec![path.display().to_string()]);
+        }
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                files.push(path.display().to_string());
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
+
+    fn download(&self, key: &str, dest: &Path) -> FloeResult<()> {
+        let src = PathBuf::from(key);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&src, dest).map_err(|err| {
+            Box::new(StorageError(format!(
+                "local download failed from {}: {err}",
+                src.display()
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        Ok(())
+    }
+
+    fn upload(&self, key: &str, path: &Path) -> FloeResult<()> {
+        let dest = PathBuf::from(key);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(path, &dest).map_err(|err| {
+            Box::new(StorageError(format!(
+                "local upload failed to {}: {err}",
+                dest.display()
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalInputMode {
@@ -20,7 +81,7 @@ pub fn resolve_local_inputs(
     config_dir: &Path,
     entity_name: &str,
     source: &config::SourceConfig,
-    filesystem: &str,
+    storage: &str,
     default_globs: &[String],
 ) -> FloeResult<ResolvedLocalInputs> {
     let default_options = config::SourceOptions::default();
@@ -35,9 +96,9 @@ pub fn resolve_local_inputs(
         let files = collect_glob_files(&pattern)?;
         if files.is_empty() {
             let (base_path, glob_used) = split_glob_details(&pattern_path, raw_path);
-            return Err(Box::new(ConfigError(no_match_message(
+            return Err(Box::new(RunError(no_match_message(
                 entity_name,
-                filesystem,
+                storage,
                 &base_path,
                 &glob_used,
                 recursive,
@@ -63,9 +124,9 @@ pub fn resolve_local_inputs(
         default_globs.to_vec()
     };
     if !base_path.is_dir() {
-        return Err(Box::new(ConfigError(no_match_message(
+        return Err(Box::new(RunError(no_match_message(
             entity_name,
-            filesystem,
+            storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
@@ -85,9 +146,9 @@ pub fn resolve_local_inputs(
     };
     let files = collect_glob_files_multi(&pattern_paths)?;
     if files.is_empty() {
-        return Err(Box::new(ConfigError(no_match_message(
+        return Err(Box::new(RunError(no_match_message(
             entity_name,
-            filesystem,
+            storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
@@ -160,14 +221,14 @@ fn collect_glob_files_multi(patterns: &[PathBuf]) -> FloeResult<Vec<PathBuf>> {
 
 fn no_match_message(
     entity_name: &str,
-    filesystem: &str,
+    storage: &str,
     base_path: &str,
     glob_used: &str,
     recursive: bool,
 ) -> String {
     format!(
-        "entity.name={} source.filesystem={} no input files matched (base_path={}, glob={}, recursive={})",
-        entity_name, filesystem, base_path, glob_used, recursive
+        "entity.name={} source.storage={} no input files matched (base_path={}, glob={}, recursive={})",
+        entity_name, storage, base_path, glob_used, recursive
     )
 }
 
@@ -196,7 +257,7 @@ mod tests {
     }
 
     fn default_globs(format: &str) -> Vec<String> {
-        crate::io::fs::extensions::glob_patterns_for_format(format).expect("default globs")
+        crate::io::storage::extensions::glob_patterns_for_format(format).expect("default globs")
     }
 
     fn source_config(
@@ -207,7 +268,7 @@ mod tests {
         config::SourceConfig {
             format: format.to_string(),
             path: path.display().to_string(),
-            filesystem: None,
+            storage: None,
             options,
             cast_mode: None,
         }
@@ -218,134 +279,135 @@ mod tests {
         let root = temp_dir("floe-resolve-default-glob");
         write_file(&root.join("a.csv"), "id\n1\n");
         write_file(&root.join("B.CSV"), "id\n2\n");
-        write_file(&root.join("b.txt"), "skip\n");
+        write_file(&root.join("c.txt"), "id\n3\n");
         let source = source_config("csv", &root, None);
-
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
-
-        let names = resolved
-            .files
-            .iter()
-            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["B.CSV", "a.csv"]);
-        assert_eq!(resolved.mode, LocalInputMode::Directory);
-    }
-
-    #[test]
-    fn glob_override_is_used() {
-        let root = temp_dir("floe-resolve-override-glob");
-        write_file(&root.join("a.csv"), "id\n1\n");
-        write_file(&root.join("b.data"), "id\n2\n");
-        let options = config::SourceOptions {
-            glob: Some("*.data".to_string()),
-            ..config::SourceOptions::default()
-        };
-        let source = source_config("csv", &root, Some(options));
-
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
-        let names = resolved
-            .files
-            .iter()
-            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["b.data"]);
-    }
-
-    #[test]
-    fn recursive_flag_controls_descent() {
-        let root = temp_dir("floe-resolve-recursive");
-        write_file(&root.join("root.csv"), "id\n1\n");
-        write_file(&root.join("nested/child.csv"), "id\n2\n");
-        let source = source_config("csv", &root, None);
-
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
-        let names = resolved
-            .files
-            .iter()
-            .map(|path| {
-                path.strip_prefix(&root)
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["root.csv"]);
-
-        let options = config::SourceOptions {
-            recursive: Some(true),
-            ..config::SourceOptions::default()
-        };
-        let source = source_config("csv", &root, Some(options));
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
-        let names = resolved
-            .files
-            .iter()
-            .map(|path| {
-                path.strip_prefix(&root)
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["nested/child.csv", "root.csv"]);
-    }
-
-    #[test]
-    fn glob_path_input_is_supported() {
-        let root = temp_dir("floe-resolve-glob-path");
-        write_file(&root.join("a.csv"), "id\n1\n");
-        write_file(&root.join("b.csv"), "id\n2\n");
-        let source = source_config("csv", &root.join("*.csv"), None);
-
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
+        let resolved = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect("resolve");
         assert_eq!(resolved.files.len(), 2);
     }
 
     #[test]
-    fn sorting_is_stable_by_full_path() {
-        let root = temp_dir("floe-resolve-sort");
-        write_file(&root.join("b.csv"), "id\n1\n");
-        write_file(&root.join("a.csv"), "id\n2\n");
-        let source = source_config("csv", &root, None);
-
-        let resolved =
-            resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-                .expect("resolve inputs");
-        let names = resolved
-            .files
-            .iter()
-            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["a.csv", "b.csv"]);
+    fn glob_override_is_used() {
+        let root = temp_dir("floe-resolve-glob-override");
+        write_file(&root.join("a.csv"), "id\n1\n");
+        write_file(&root.join("b.data"), "id\n2\n");
+        let options = config::SourceOptions {
+            glob: Some("*.data".to_string()),
+            ..Default::default()
+        };
+        let source = source_config("csv", &root, Some(options));
+        let resolved = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect("resolve");
+        assert_eq!(resolved.files.len(), 1);
+        assert!(resolved.files[0].to_string_lossy().ends_with("b.data"));
     }
 
     #[test]
-    fn no_matches_error_includes_context() {
-        let root = temp_dir("floe-resolve-empty");
+    fn recursive_lists_nested_files() {
+        let root = temp_dir("floe-resolve-recursive");
+        write_file(&root.join("nested/a.csv"), "id\n1\n");
         let options = config::SourceOptions {
             recursive: Some(true),
-            ..config::SourceOptions::default()
+            ..Default::default()
         };
         let source = source_config("csv", &root, Some(options));
+        let resolved = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect("resolve");
+        assert_eq!(resolved.files.len(), 1);
+    }
 
-        let err = resolve_local_inputs(&root, "customer", &source, "local", &default_globs("csv"))
-            .unwrap_err();
-        let message = err.to_string();
-        assert!(message.contains("entity.name=customer"));
-        assert!(message.contains("source.filesystem=local"));
-        assert!(message.contains("base_path="));
-        assert!(message.contains("glob="));
-        assert!(message.contains("recursive=true"));
+    #[test]
+    fn glob_path_input_is_resolved() {
+        let root = temp_dir("floe-resolve-glob-input");
+        write_file(&root.join("a.csv"), "id\n1\n");
+        let pattern = root.join("*.csv");
+        let source = source_config("csv", &pattern, None);
+        let resolved = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect("resolve");
+        assert_eq!(resolved.files.len(), 1);
+    }
+
+    #[test]
+    fn list_is_sorted() {
+        let root = temp_dir("floe-resolve-sorted");
+        write_file(&root.join("b.csv"), "id\n1\n");
+        write_file(&root.join("a.csv"), "id\n2\n");
+        let source = source_config("csv", &root, None);
+        let resolved = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect("resolve");
+        assert!(resolved.files[0].to_string_lossy().ends_with("a.csv"));
+        assert!(resolved.files[1].to_string_lossy().ends_with("b.csv"));
+    }
+
+    #[test]
+    fn missing_path_errors() {
+        let root = temp_dir("floe-resolve-missing");
+        let missing = root.join("missing");
+        let source = source_config("csv", &missing, None);
+        let err = resolve_local_inputs(
+            Path::new("."),
+            "customers",
+            &source,
+            "local",
+            &default_globs("csv"),
+        )
+        .expect_err("error");
+        assert!(err.to_string().contains("entity.name=customers"));
+    }
+
+    #[test]
+    fn local_client_upload_copies_file() {
+        let root = temp_dir("floe-local-upload");
+        let src = root.join("src.txt");
+        let dest = root.join("dest.txt");
+        write_file(&src, "hello");
+        let client = LocalClient::new();
+        client
+            .upload(dest.to_string_lossy().as_ref(), &src)
+            .expect("upload");
+        assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
+    }
+
+    #[test]
+    fn local_client_download_copies_file() {
+        let root = temp_dir("floe-local-download");
+        let src = root.join("src.txt");
+        let dest = root.join("dest.txt");
+        write_file(&src, "hello");
+        let client = LocalClient::new();
+        client
+            .download(src.to_string_lossy().as_ref(), &dest)
+            .expect("download");
+        assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
     }
 }

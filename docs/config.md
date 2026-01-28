@@ -57,6 +57,9 @@ entities:
   - `report.path` is the base directory where run reports are written.
   - Reports are written under:
     `report.path/run_<run_id>/<entity.name>/run.json`.
+- `storages` (optional)
+  - Defines named storage clients for `source.storage` and `sink.*.storage`.
+  - If omitted, `local` is assumed.
 - `entities` (required)
   - Array of entity definitions (datasets). A single CLI run may process
     multiple entities.
@@ -80,6 +83,9 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     (example: `/data/in/*.csv`).
   - If a directory is provided, a glob is applied to select files.
   - Relative paths resolve against the config file directory.
+- `storage` (optional)
+  - Name of the storage client to use for this source.
+  - Defaults to `storages.default` when defined, otherwise `local`.
 - `options` (optional)
   - CSV/JSON options.
   - Defaults if omitted:
@@ -113,6 +119,9 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
   - `format`: `parquet` or `delta` (local). `iceberg` is recognized but not
     implemented yet.
   - `path`: output directory for accepted records.
+  - `storage` (optional)
+    - Name of the storage client to use for this sink target.
+    - Defaults to `storages.default` when defined, otherwise `local`.
   - `options` (optional)
     - Parquet-only sink options. When provided for other formats, Floe logs a
       warning and records it in the run report.

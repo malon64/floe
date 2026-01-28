@@ -9,25 +9,23 @@ use aws_sdk_s3::Client;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Runtime;
 
-use crate::{ConfigError, FloeResult};
+use crate::errors::{RunError, StorageError};
+use crate::{config, io, ConfigError, FloeResult};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct S3Location {
-    pub bucket: String,
-    pub key: String,
-}
+use super::StorageClient;
 
 pub struct S3Client {
+    bucket: String,
     client: Client,
     runtime: Runtime,
 }
 
 impl S3Client {
-    pub fn new(region: Option<&str>) -> FloeResult<Self> {
+    pub fn new(bucket: String, region: Option<&str>) -> FloeResult<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(ConfigError(format!("failed to build aws runtime: {err}"))))?;
+            .map_err(|err| Box::new(StorageError(format!("failed to build aws runtime: {err}"))))?;
         let config = runtime.block_on(async {
             let region_provider = match region {
                 Some(region) => RegionProviderChain::first_try(Region::new(region.to_string()))
@@ -40,23 +38,35 @@ impl S3Client {
                 .await
         });
         let client = Client::new(&config);
-        Ok(Self { client, runtime })
+        Ok(Self {
+            bucket,
+            client,
+            runtime,
+        })
     }
 
-    pub fn list_objects(&self, bucket: &str, prefix: &str) -> FloeResult<Vec<String>> {
+    fn bucket(&self) -> &str {
+        self.bucket.as_str()
+    }
+}
+
+impl StorageClient for S3Client {
+    fn list(&self, prefix: &str) -> FloeResult<Vec<String>> {
+        let bucket = self.bucket().to_string();
+        let prefix = prefix.to_string();
         self.runtime.block_on(async {
             let mut keys = Vec::new();
             let mut continuation = None;
             loop {
-                let mut request = self.client.list_objects_v2().bucket(bucket);
+                let mut request = self.client.list_objects_v2().bucket(&bucket);
                 if !prefix.is_empty() {
-                    request = request.prefix(prefix);
+                    request = request.prefix(&prefix);
                 }
                 if let Some(token) = continuation {
                     request = request.continuation_token(token);
                 }
                 let response = request.send().await.map_err(|err| {
-                    Box::new(ConfigError(format!(
+                    Box::new(StorageError(format!(
                         "s3 list objects failed for bucket {}: {err}",
                         bucket
                     ))) as Box<dyn std::error::Error + Send + Sync>
@@ -81,8 +91,8 @@ impl S3Client {
         })
     }
 
-    pub fn download_object(&self, bucket: &str, key: &str, dest: &Path) -> FloeResult<()> {
-        let bucket = bucket.to_string();
+    fn download(&self, key: &str, dest: &Path) -> FloeResult<()> {
+        let bucket = self.bucket().to_string();
         let key = key.to_string();
         let dest = dest.to_path_buf();
         self.runtime.block_on(async move {
@@ -94,7 +104,7 @@ impl S3Client {
                 .send()
                 .await
                 .map_err(|err| {
-                    Box::new(ConfigError(format!("s3 get object failed: {err}")))
+                    Box::new(StorageError(format!("s3 get object failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             if let Some(parent) = dest.parent() {
@@ -108,13 +118,13 @@ impl S3Client {
         })
     }
 
-    pub fn upload_file(&self, bucket: &str, key: &str, path: &Path) -> FloeResult<()> {
-        let bucket = bucket.to_string();
+    fn upload(&self, key: &str, path: &Path) -> FloeResult<()> {
+        let bucket = self.bucket().to_string();
         let key = key.to_string();
         let path = path.to_path_buf();
         self.runtime.block_on(async move {
             let body = ByteStream::from_path(path).await.map_err(|err| {
-                Box::new(ConfigError(format!("s3 upload body failed: {err}")))
+                Box::new(StorageError(format!("s3 upload body failed: {err}")))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             self.client
@@ -125,12 +135,18 @@ impl S3Client {
                 .send()
                 .await
                 .map_err(|err| {
-                    Box::new(ConfigError(format!("s3 put object failed: {err}")))
+                    Box::new(StorageError(format!("s3 put object failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S3Location {
+    pub bucket: String,
+    pub key: String,
 }
 
 pub fn parse_s3_uri(uri: &str) -> FloeResult<S3Location> {
@@ -156,10 +172,6 @@ pub fn format_s3_uri(bucket: &str, key: &str) -> String {
     } else {
         format!("s3://{}/{}", bucket, key)
     }
-}
-
-pub fn normalize_base_key(base_key: &str) -> String {
-    base_key.trim_matches('/').to_string()
 }
 
 pub fn filter_keys_by_suffixes(mut keys: Vec<String>, suffixes: &[String]) -> Vec<String> {
@@ -208,58 +220,43 @@ pub fn file_stem_from_name(name: &str) -> Option<String> {
         .map(|stem| stem.to_string_lossy().to_string())
 }
 
-pub fn build_parquet_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        format!("{source_stem}.parquet")
-    } else {
-        format!("{base}/{source_stem}.parquet")
+pub fn build_input_files(
+    client: &dyn StorageClient,
+    bucket: &str,
+    prefix: &str,
+    adapter: &dyn io::format::InputAdapter,
+    temp_dir: &Path,
+    entity: &config::EntityConfig,
+    storage: &str,
+) -> FloeResult<Vec<io::format::InputFile>> {
+    let suffixes = adapter.suffixes()?;
+    let keys = client.list(prefix)?;
+    let keys = filter_keys_by_suffixes(keys, &suffixes);
+    if keys.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
+            entity.name,
+            storage,
+            bucket,
+            prefix,
+            suffixes.join(",")
+        ))));
     }
-}
-
-pub fn build_rejected_csv_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        format!("{source_stem}_rejected.csv")
-    } else {
-        format!("{base}/{source_stem}_rejected.csv")
+    let mut inputs = Vec::with_capacity(keys.len());
+    for key in keys {
+        let local_path = temp_path_for_key(temp_dir, &key);
+        client.download(&key, &local_path)?;
+        let source_name = file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
+        let source_stem = file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
+        let source_uri = format_s3_uri(bucket, &key);
+        inputs.push(io::format::InputFile {
+            source_uri,
+            source_local_path: local_path,
+            source_name,
+            source_stem,
+        });
     }
-}
-
-pub fn build_rejected_raw_key(base_key: &str, source_name: &str) -> String {
-    let base = normalize_base_key(base_key);
-    if Path::new(&base).extension().is_some() {
-        base
-    } else if base.is_empty() {
-        source_name.to_string()
-    } else {
-        format!("{base}/{source_name}")
-    }
-}
-
-pub fn build_reject_errors_key(base_key: &str, source_stem: &str) -> String {
-    let base = normalize_base_key(base_key);
-    let dir = if Path::new(&base).extension().is_some() {
-        parent_key(&base)
-    } else {
-        base
-    };
-    if dir.is_empty() {
-        format!("{source_stem}_reject_errors.json")
-    } else {
-        format!("{dir}/{source_stem}_reject_errors.json")
-    }
-}
-
-fn parent_key(base: &str) -> String {
-    match base.rsplit_once('/') {
-        Some((parent, _)) => parent.to_string(),
-        None => base.to_string(),
-    }
+    Ok(inputs)
 }
 
 #[cfg(test)]
@@ -278,24 +275,6 @@ mod tests {
         let loc = parse_s3_uri("s3://my-bucket").expect("parse");
         assert_eq!(loc.bucket, "my-bucket");
         assert_eq!(loc.key, "");
-    }
-
-    #[test]
-    fn build_keys_from_prefix() {
-        assert_eq!(build_parquet_key("out", "file"), "out/file.parquet");
-        assert_eq!(
-            build_parquet_key("out/file.parquet", "file"),
-            "out/file.parquet"
-        );
-        assert_eq!(
-            build_rejected_csv_key("out", "file"),
-            "out/file_rejected.csv"
-        );
-        assert_eq!(build_rejected_raw_key("out", "file.csv"), "out/file.csv");
-        assert_eq!(
-            build_reject_errors_key("out/errors.csv", "file"),
-            "out/file_reject_errors.json"
-        );
     }
 
     #[test]

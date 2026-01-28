@@ -1,7 +1,8 @@
 use polars::prelude::{AnyValue, DataFrame};
 
 use super::{ColumnIndex, RowError};
-use crate::{ConfigError, FloeResult};
+use crate::errors::RunError;
+use crate::FloeResult;
 
 pub fn not_null_errors(
     df: &DataFrame,
@@ -16,14 +17,14 @@ pub fn not_null_errors(
     let mut null_masks = Vec::with_capacity(required_cols.len());
     for name in required_cols {
         let index = indices.get(name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            Box::new(RunError(format!(
                 "required column {name} not found in dataframe"
             )))
         })?;
         let mask = df
             .select_at_idx(*index)
             .ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                Box::new(RunError(format!(
                     "required column {name} not found in dataframe"
                 )))
             })?
@@ -51,9 +52,7 @@ pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<V
     let mut counts = Vec::new();
     for name in required_cols {
         let series = null_counts.column(name).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "required column {name} not found: {err}"
-            )))
+            Box::new(RunError(format!("required column {name} not found: {err}")))
         })?;
         let value = series.get(0).unwrap_or(AnyValue::UInt32(0));
         let violations = match value {

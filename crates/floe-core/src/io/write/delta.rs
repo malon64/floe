@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,7 +11,9 @@ use deltalake::protocol::SaveMode;
 use deltalake::DeltaTable;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
-use crate::io::format::{AcceptedSinkAdapter, StorageTarget};
+use crate::errors::RunError;
+use crate::io::format::AcceptedSinkAdapter;
+use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 use url::Url;
 
@@ -30,7 +31,7 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
 
     let batch = dataframe_to_record_batch(df)?;
     let table_uri = Url::from_directory_path(&table_path).map_err(|_| {
-        Box::new(ConfigError(format!(
+        Box::new(RunError(format!(
             "delta table path is not a valid url: {}",
             table_path.display()
         )))
@@ -38,7 +39,7 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|err| Box::new(ConfigError(format!("delta runtime init failed: {err}"))))?;
+        .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
     runtime
         .block_on(async move {
             let table = DeltaTable::try_from_url(table_uri).await?;
@@ -48,7 +49,7 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
                 .await?;
             Ok::<(), deltalake::DeltaTableError>(())
         })
-        .map_err(|err| Box::new(ConfigError(format!("delta write failed: {err}"))))?;
+        .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?;
 
     Ok(table_path)
 }
@@ -56,21 +57,21 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
 impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
     fn write_accepted(
         &self,
-        target: &StorageTarget,
+        target: &Target,
         df: &mut DataFrame,
         _source_stem: &str,
         _temp_dir: Option<&Path>,
-        _s3_clients: &mut HashMap<String, io::fs::s3::S3Client>,
-        _resolver: &config::FilesystemResolver,
+        _cloud: &mut io::storage::CloudClient,
+        _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
         match target {
-            StorageTarget::Local { base_path } => {
+            Target::Local { base_path, .. } => {
                 let output_path = write_delta_table(df, base_path)?;
                 Ok(output_path.display().to_string())
             }
-            StorageTarget::S3 { .. } => Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.format=delta is only supported on local filesystem",
+            Target::S3 { .. } => Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.format=delta is only supported on local storage",
                 entity.name
             )))),
         }
@@ -85,11 +86,8 @@ fn dataframe_to_record_batch(df: &DataFrame) -> FloeResult<RecordBatch> {
         let array = series_to_arrow_array(series)?;
         columns.push((name, array));
     }
-    Ok(RecordBatch::try_from_iter(columns).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "delta record batch build failed: {err}"
-        )))
-    })?)
+    Ok(RecordBatch::try_from_iter(columns)
+        .map_err(|err| Box::new(RunError(format!("delta record batch build failed: {err}"))))?)
 }
 
 fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRef> {
@@ -161,7 +159,7 @@ fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRe
         }
         DataType::Null => Arc::new(NullArray::new(series.len())),
         dtype => {
-            return Err(Box::new(ConfigError(format!(
+            return Err(Box::new(RunError(format!(
                 "delta sink does not support dtype {dtype:?} for {}",
                 series.name()
             ))))
@@ -189,19 +187,12 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "delta test runtime init failed: {err}"
-                )))
-            })?;
-        let table_url = Url::from_directory_path(&table_path).map_err(|_| {
-            Box::new(ConfigError(
-                "delta test path is not a valid url".to_string(),
-            ))
-        })?;
+            .map_err(|err| Box::new(RunError(format!("delta test runtime init failed: {err}"))))?;
+        let table_url = Url::from_directory_path(&table_path)
+            .map_err(|_| Box::new(RunError("delta test path is not a valid url".to_string())))?;
         let table = runtime
             .block_on(async { deltalake::open_table(table_url).await })
-            .map_err(|err| Box::new(ConfigError(format!("delta test open failed: {err}"))))?;
+            .map_err(|err| Box::new(RunError(format!("delta test open failed: {err}"))))?;
 
         let field_names = table
             .snapshot()?

@@ -15,11 +15,10 @@ Thumbs.db
 # Test ouput files
 example/out/*
 example/report/*
-!example/report/run_2026-01-19T10-23-45Z/
-!example/report/run_2026-01-19T10-23-45Z/**
+!example/report/run_2026-01-28T15-27-38.722531254Z/
+!example/report/run_2026-01-28T15-27-38.722531254Z/**
 
 # Bench outputs
-bench/data/
 bench/generated/
 bench/out/
 bench/results/report/

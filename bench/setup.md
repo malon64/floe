@@ -1,7 +1,7 @@
 # Benchmarking Step-by-Step (Floe vs Pandas vs Spark)
 
-This is a full, reproducible walkthrough to run the benchmark end-to-end on a
-single machine.
+This is a reproducible walkthrough to run the benchmark end-to-end on a single
+machine. Run these steps from the repo root unless noted otherwise.
 
 ## 1) Install Floe (Homebrew)
 
@@ -13,8 +13,6 @@ floe --version
 
 ## 2) Create a Python virtual environment
 
-From the repo root:
-
 ```
 python3 -m venv .venv
 source .venv/bin/activate
@@ -22,18 +20,15 @@ python -m pip install --upgrade pip
 pip install -r bench/requirements.txt
 ```
 
-## 3) Install Spark (PySpark)
+PySpark requires Java (8+). If you hit a Java error, ensure `JAVA_HOME` points
+to a valid JDK.
+
+## 3) Prepare benchmark datasets
+
+From the `bench/` directory:
 
 ```
-pip install pyspark
-```
-
-Note: PySpark requires Java (8+). If you hit a Java error, ensure `JAVA_HOME`
-points to a valid JDK.
-
-## 4) Prepare benchmark datasets
-
-```
+cd bench
 python3 scripts/prepare_data.py
 ```
 
@@ -43,10 +38,9 @@ To limit sizes (optional):
 python3 scripts/prepare_data.py --sizes 100000,1000000
 ```
 
-## 5) Run the full benchmark
+## 4) Run the full benchmark
 
 ```
-cd bench
 ./scripts/run_all.sh
 ```
 
@@ -68,7 +62,7 @@ SKIP_SPARK=1 ./scripts/run_all.sh
 SIZES=100000,1000000 ./scripts/run_all.sh
 ```
 
-## 6) Review results
+## 5) Review results
 
 Results are written to:
 
@@ -77,4 +71,8 @@ bench/results/results.csv
 ```
 
 This CSV is slide-ready and includes tool, dataset, row count, wall time, and
-(best-effort) peak RSS.
+(best-effort) peak RSS. Per-run reports are written under:
+
+```
+bench/results/report/run_<run_id>/uber/run.json
+```

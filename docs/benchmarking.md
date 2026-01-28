@@ -58,6 +58,22 @@ Results land in:
 bench/results/results.csv
 ```
 
+## Latest results (January 28, 2026)
+
+Source: `bench/results/results.csv`.
+
+| Tool   | Rows     | Wall time (s) | Peak RSS (MB) | Accepted | Rejected | Notes      |
+|--------|----------|----------------|---------------|----------|----------|------------|
+| floe   | 100,000  | 0.0499         | 62.68         | 100,000  | 0        |            |
+| floe   | 1,000,000| 0.2201         | 223.14        | 1,000,000| 0        |            |
+| floe   | 5,000,000| 1.1455         | 909.99        | 5,000,000| 0        |            |
+| pandas | 100,000  | 0.2251         | 93.28         | 100,000  | 0        |            |
+| pandas | 1,000,000| 1.8774         | 221.13        | 1,000,000| 0        |            |
+| pandas | 5,000,000| 9.4574         | 713.82        | 5,000,000| 0        |            |
+| spark  | 100,000  | 6.1712         | 36.91         | 100,000  | 0        | local[*]   |
+| spark  | 1,000,000| 3.1249         | 36.91         | 1,000,000| 0        | local[*]   |
+| spark  | 5,000,000| 9.8129         | 36.91         | 5,000,000| 0        | local[*]   |
+
 ## Prerequisites
 
 - Floe installed (Homebrew recommended):

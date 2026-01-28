@@ -178,6 +178,7 @@ pub struct StorageDefinition {
 #[derive(Debug)]
 pub struct ReportConfig {
     pub path: String,
+    pub formatter: Option<String>,
 }
 
 #[derive(Debug)]

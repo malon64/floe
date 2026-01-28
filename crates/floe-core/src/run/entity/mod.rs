@@ -43,6 +43,13 @@ pub(super) fn run_entity(
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_s3 = matches!(resolved_targets.source, Target::S3 { .. });
+    let formatter_name = context
+        .config
+        .report
+        .as_ref()
+        .and_then(|report| report.formatter.as_deref())
+        .unwrap_or("json");
+    let row_error_formatter = check::row_error_formatter(formatter_name)?;
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
     let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
@@ -363,7 +370,11 @@ pub(super) fn run_entity(
                     &typed_indices,
                 )?;
                 let accept_rows = check::build_accept_rows(&cast_errors);
-                let errors_json = check::build_errors_json(&cast_errors, &accept_rows);
+                let errors_json = check::build_errors_formatted(
+                    &cast_errors,
+                    &accept_rows,
+                    row_error_formatter.as_ref(),
+                );
                 let row_error_count = cast_errors
                     .iter()
                     .filter(|errors| !errors.is_empty())
@@ -397,6 +408,7 @@ pub(super) fn run_entity(
                         track_cast_errors && cast_total > 0,
                         &raw_indices,
                         &typed_indices,
+                        row_error_formatter.as_ref(),
                     )?;
                     let row_error_count =
                         lists.iter().filter(|errors| !errors.is_empty()).count() as u64;

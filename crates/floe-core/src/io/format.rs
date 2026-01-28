@@ -391,6 +391,7 @@ pub fn collect_errors(
     track_cast_errors: bool,
     raw_indices: &check::ColumnIndex,
     typed_indices: &check::ColumnIndex,
+    formatter: &dyn check::RowErrorFormatter,
 ) -> FloeResult<ValidationCollect> {
     let mut error_lists = check::not_null_errors(typed_df, required_cols, typed_indices)?;
     if track_cast_errors {
@@ -405,7 +406,7 @@ pub fn collect_errors(
         errors.extend(unique);
     }
     let accept_rows = check::build_accept_rows(&error_lists);
-    let errors_json = check::build_errors_json(&error_lists, &accept_rows);
+    let errors_json = check::build_errors_formatted(&error_lists, &accept_rows, formatter);
     Ok((accept_rows, errors_json, error_lists))
 }
 

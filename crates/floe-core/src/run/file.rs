@@ -33,6 +33,7 @@ pub(super) fn collect_errors(
     track_cast_errors: bool,
     raw_indices: &check::ColumnIndex,
     typed_indices: &check::ColumnIndex,
+    formatter: &dyn check::RowErrorFormatter,
 ) -> FloeResult<ValidationCollect> {
     io::format::collect_errors(
         raw_df,
@@ -42,5 +43,6 @@ pub(super) fn collect_errors(
         track_cast_errors,
         raw_indices,
         typed_indices,
+        formatter,
     )
 }

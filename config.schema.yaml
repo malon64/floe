@@ -212,6 +212,9 @@ $defs:
     properties:
       path:
         type: string
+      formatter:
+        type: string
+        enum: [json, csv, text]
 
   storages:
     type: object

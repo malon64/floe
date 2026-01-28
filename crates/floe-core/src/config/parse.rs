@@ -276,9 +276,10 @@ fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
 
 fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     let hash = yaml_hash(value, "report")?;
-    validate_known_keys(hash, "report", &["path"])?;
+    validate_known_keys(hash, "report", &["path", "formatter"])?;
     Ok(ReportConfig {
         path: get_string(hash, "path", "report")?,
+        formatter: opt_string(hash, "formatter", "report")?,
     })
 }
 

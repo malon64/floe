@@ -1,0 +1,10 @@
+tool,dataset,rows,wall_time_s,peak_rss_mb,accepted_rows,rejected_rows,notes
+floe,uber,100000,0.0499,62.68,100000,0,
+floe,uber,1000000,0.2201,223.14,1000000,0,
+floe,uber,5000000,1.1455,909.99,5000000,0,
+pandas,uber,100000,0.2251,93.28,100000,0,
+pandas,uber,1000000,1.8774,221.13,1000000,0,
+pandas,uber,5000000,9.4574,713.82,5000000,0,
+spark,uber,100000,6.1712,36.91,100000,0,local[*]
+spark,uber,1000000,3.1249,36.91,1000000,0,local[*]
+spark,uber,5000000,9.8129,36.91,5000000,0,local[*]

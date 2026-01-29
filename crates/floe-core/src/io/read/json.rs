@@ -83,7 +83,6 @@ fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
     build_dataframe(&columns, &rows)
 }
 
-#[allow(dead_code)]
 fn read_ndjson_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {
     let file = std::fs::File::open(input_path).map_err(|err| JsonReadError {
         rule: "json_parse_error".to_string(),
@@ -221,64 +220,6 @@ fn build_dataframe(
         rule: "json_parse_error".to_string(),
         message: format!("failed to build dataframe: {err}"),
     })
-}
-
-pub fn read_ndjson_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {
-    let file = std::fs::File::open(input_path).map_err(|err| JsonReadError {
-        rule: "json_parse_error".to_string(),
-        message: format!("failed to read json at {}: {err}", input_path.display()),
-    })?;
-    let reader = std::io::BufReader::new(file);
-    let mut first_error: Option<JsonReadError> = None;
-
-    for (idx, line) in reader.lines().enumerate() {
-        let line = line.map_err(|err| JsonReadError {
-            rule: "json_parse_error".to_string(),
-            message: format!("failed to read json at {}: {err}", input_path.display()),
-        })?;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<Value>(line) {
-            Ok(value) => {
-                let object = value.as_object().ok_or_else(|| JsonReadError {
-                    rule: "json_parse_error".to_string(),
-                    message: format!("expected json object at line {}", idx + 1),
-                })?;
-                let mut keys = Vec::with_capacity(object.len());
-                for (key, value) in object {
-                    if value.is_object() || value.is_array() {
-                        return Err(JsonReadError {
-                            rule: "json_unsupported_value".to_string(),
-                            message: format!(
-                                "nested json values are not supported (line {}, key {})",
-                                idx + 1,
-                                key
-                            ),
-                        });
-                    }
-                    keys.push(key.clone());
-                }
-                keys.sort();
-                return Ok(keys);
-            }
-            Err(err) => {
-                if first_error.is_none() {
-                    first_error = Some(JsonReadError {
-                        rule: "json_parse_error".to_string(),
-                        message: format!("json parse error at line {}: {err}", idx + 1),
-                    });
-                }
-                continue;
-            }
-        }
-    }
-
-    Err(first_error.unwrap_or_else(|| JsonReadError {
-        rule: "json_parse_error".to_string(),
-        message: format!("no json objects found in {}", input_path.display()),
-    }))
 }
 
 fn read_json_array_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {

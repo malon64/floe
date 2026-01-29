@@ -220,6 +220,9 @@ $defs:
           row_group_size:
             type: integer
             minimum: 1
+          max_size_per_file:
+            type: integer
+            minimum: 1
 
   sink_rejected:
     type: object

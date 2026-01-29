@@ -3,13 +3,14 @@ use std::path::Path;
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
 use crate::errors::IoError;
-use crate::io::format::AcceptedSinkAdapter;
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
 struct ParquetAcceptedAdapter;
 
 static PARQUET_ACCEPTED_ADAPTER: ParquetAcceptedAdapter = ParquetAcceptedAdapter;
+const DEFAULT_MAX_SIZE_PER_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 pub(crate) fn parquet_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &PARQUET_ACCEPTED_ADAPTER
@@ -54,7 +55,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
-    ) -> FloeResult<String> {
+    ) -> FloeResult<AcceptedWriteOutput> {
         let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
         if let Target::Local { base_path, .. } = target {
             clear_local_output_dir(base_path)?;
@@ -64,16 +65,65 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         {
             clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
         }
-        io::storage::output::write_output(
-            target,
-            io::storage::output::OutputPlacement::Directory,
-            &filename,
-            temp_dir,
-            cloud,
-            resolver,
-            entity,
-            |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
-        )
+        let options = entity.sink.accepted.options.as_ref();
+        let max_size_per_file = options
+            .and_then(|options| options.max_size_per_file)
+            .unwrap_or(DEFAULT_MAX_SIZE_PER_FILE_BYTES);
+        let mut parts_written = 0;
+        let mut part_files = Vec::new();
+        let total_rows = df.height();
+        if total_rows > 0 {
+            let estimated_size = df.estimated_size() as u64;
+            let avg_row_size = if estimated_size == 0 {
+                1
+            } else {
+                estimated_size.div_ceil(total_rows as u64)
+            };
+            let max_rows = std::cmp::max(1, max_size_per_file / avg_row_size) as usize;
+            let mut offset = 0usize;
+            let mut part_index = 0usize;
+            while offset < total_rows {
+                let len = std::cmp::min(max_rows, total_rows - offset);
+                let mut chunk = df.slice(offset as i64, len);
+                let part_stem = io::storage::paths::build_part_stem(part_index);
+                let part_filename =
+                    io::storage::paths::build_output_filename(&part_stem, "", "parquet");
+                io::storage::output::write_output(
+                    target,
+                    io::storage::output::OutputPlacement::Directory,
+                    &part_filename,
+                    temp_dir,
+                    cloud,
+                    resolver,
+                    entity,
+                    |path| write_parquet_to_path(&mut chunk, path, options),
+                )?;
+                if part_files.len() < 50 {
+                    part_files.push(part_filename);
+                }
+                parts_written += 1;
+                part_index += 1;
+                offset += len;
+            }
+        } else {
+            io::storage::output::write_output(
+                target,
+                io::storage::output::OutputPlacement::Directory,
+                &filename,
+                temp_dir,
+                cloud,
+                resolver,
+                entity,
+                |path| write_parquet_to_path(df, path, options),
+            )?;
+            parts_written = 1;
+            part_files.push(filename);
+        }
+
+        Ok(AcceptedWriteOutput {
+            parts_written,
+            part_files,
+        })
     }
 }
 

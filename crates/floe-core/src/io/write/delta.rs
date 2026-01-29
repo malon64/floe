@@ -12,7 +12,7 @@ use deltalake::DeltaTable;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
 use crate::errors::RunError;
-use crate::io::format::AcceptedSinkAdapter;
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 use url::Url;
@@ -64,11 +64,14 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _cloud: &mut io::storage::CloudClient,
         _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
-    ) -> FloeResult<String> {
+    ) -> FloeResult<AcceptedWriteOutput> {
         match target {
             Target::Local { base_path, .. } => {
-                let output_path = write_delta_table(df, base_path)?;
-                Ok(output_path.display().to_string())
+                write_delta_table(df, base_path)?;
+                Ok(AcceptedWriteOutput {
+                    parts_written: 1,
+                    part_files: Vec::new(),
+                })
             }
             Target::S3 { .. } => Err(Box::new(ConfigError(format!(
                 "entity.name={} sink.accepted.format=delta is only supported on local storage",

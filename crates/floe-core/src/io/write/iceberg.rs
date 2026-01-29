@@ -2,7 +2,7 @@ use std::path::Path;
 
 use polars::prelude::DataFrame;
 
-use crate::io::format::AcceptedSinkAdapter;
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
@@ -24,7 +24,7 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
         _cloud: &mut io::storage::CloudClient,
         _resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
-    ) -> FloeResult<String> {
+    ) -> FloeResult<AcceptedWriteOutput> {
         Err(Box::new(ConfigError(format!(
             "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",
             entity.name

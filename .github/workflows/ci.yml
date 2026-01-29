@@ -14,6 +14,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -24,6 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Lint with clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -31,6 +33,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            floe_core:
+              - "crates/floe-core/**"
+            floe_cli:
+              - "crates/floe-cli/**"
+            core_io:
+              - "crates/floe-core/src/io/**"
+              - "crates/floe-core/tests/io/**"
+              - "crates/floe-core/tests/io.rs"
+            core_run:
+              - "crates/floe-core/src/run/**"
+              - "crates/floe-core/tests/run/**"
+              - "crates/floe-core/tests/run.rs"
+            core_config:
+              - "crates/floe-core/src/config/**"
+              - "crates/floe-core/tests/config/**"
+              - "crates/floe-core/tests/config.rs"
+            docs:
+              - "docs/**"
+              - "README.md"
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace
+        env:
+          CARGO_BUILD_JOBS: "1"
+          RUST_TEST_THREADS: "1"
+          RUSTFLAGS: "-C debuginfo=0"
+        run: |
+          if [ "${{ steps.changes.outputs.floe_core }}" = "true" ]; then
+            cargo test -p floe-core --lib
+            if [ "${{ steps.changes.outputs.core_config }}" = "true" ]; then
+              cargo test -p floe-core --test config
+            fi
+            if [ "${{ steps.changes.outputs.core_io }}" = "true" ]; then
+              cargo test -p floe-core --test io
+            fi
+            if [ "${{ steps.changes.outputs.core_run }}" = "true" ]; then
+              cargo test -p floe-core --test run
+            fi
+            cargo test -p floe-core --doc
+          fi
+          if [ "${{ steps.changes.outputs.floe_cli }}" = "true" ]; then
+            cargo test -p floe-cli --tests
+          fi

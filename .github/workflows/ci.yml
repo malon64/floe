@@ -33,4 +33,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
-        run: cargo test --workspace
+        env:
+          CARGO_BUILD_JOBS: "1"
+          RUST_TEST_THREADS: "1"
+          RUSTFLAGS: "-C debuginfo=0"
+        run: |
+          cargo test -p floe-core --tests
+          cargo test -p floe-core --doc
+          cargo test -p floe-cli --tests

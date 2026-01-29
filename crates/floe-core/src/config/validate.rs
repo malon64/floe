@@ -62,17 +62,18 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
     storages.validate_reference(entity, "source.storage", &storage_name)?;
 
     if entity.source.format == "json" {
-        let ndjson = entity
-            .source
-            .options
-            .as_ref()
-            .and_then(|options| options.ndjson)
-            .unwrap_or(false);
-        if !ndjson {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} source.format=json requires source.options.ndjson=true (json array mode not supported yet)",
-                entity.name
-            ))));
+        let options = entity.source.options.as_ref();
+        let mode = options
+            .and_then(|options| options.json_mode.as_deref())
+            .unwrap_or("array");
+        match mode {
+            "array" | "ndjson" => {}
+            _ => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.options.json_mode={} is unsupported (allowed: array, ndjson)",
+                    entity.name, mode
+                ))));
+            }
         }
     }
 

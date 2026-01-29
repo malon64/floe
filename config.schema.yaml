@@ -148,8 +148,9 @@ $defs:
         type: boolean
       glob:
         type: string
-      ndjson:
-        type: boolean
+      json_mode:
+        type: string
+        enum: ["array", "ndjson"]
 
   sink:
     type: object

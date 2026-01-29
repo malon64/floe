@@ -200,7 +200,7 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
             "null_values",
             "recursive",
             "glob",
-            "ndjson",
+            "json_mode",
         ],
     )?;
     let defaults = SourceOptions::default();
@@ -212,7 +212,7 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
             .or(defaults.null_values),
         recursive: opt_bool(hash, "recursive", "source.options")?.or(defaults.recursive),
         glob: opt_string(hash, "glob", "source.options")?.or(defaults.glob),
-        ndjson: opt_bool(hash, "ndjson", "source.options")?.or(defaults.ndjson),
+        json_mode: opt_string(hash, "json_mode", "source.options")?.or(defaults.json_mode),
     })
 }
 

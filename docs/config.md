@@ -77,8 +77,8 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv` and `parquet` (local). `json` is supported only in NDJSON
-    mode via `source.options.ndjson: true`.
+  - Supported: `csv` and `parquet` (local). `json` supports NDJSON and JSON
+    array modes.
 - `path` (required)
   - Input location. Can be a file, a directory, or a glob pattern
     (example: `/data/in/*.csv`).
@@ -96,7 +96,7 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - `null_values`: `[]`
     - `recursive`: `false`
     - `glob`: (none; default is based on `source.format`)
-    - `ndjson`: `false`
+    - `json_mode`: `"array"`
   - `glob` (optional)
     - Used only when `source.path` is a directory.
     - Overrides the default file pattern for the source format:
@@ -106,10 +106,10 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).
-  - `ndjson` (optional)
-    - Set to `true` to enable NDJSON ingestion when `source.format: json`.
-    - If `false` or omitted, JSON array mode is not supported yet.
-    - NDJSON lines must be flat objects; nested objects/arrays are rejected.
+  - `json_mode` (optional)
+    - `array` (default): JSON array ingestion when `source.format: json`.
+    - `ndjson`: newline-delimited JSON ingestion.
+    - JSON values must be flat objects; nested objects/arrays are rejected.
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).

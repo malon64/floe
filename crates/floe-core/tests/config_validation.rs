@@ -155,7 +155,7 @@ fn invalid_source_format_errors() {
 }
 
 #[test]
-fn json_source_requires_ndjson_option() {
+fn json_source_defaults_to_array_mode() {
     let entity = r#"  - name: "customer"
     source:
       format: "json"
@@ -172,9 +172,37 @@ fn json_source_requires_ndjson_option() {
           type: "string"
 "#;
     let yaml = base_config(entity);
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn json_source_rejects_unknown_mode() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "json"
+      path: "/tmp/input"
+      options:
+        json_mode: "lines"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
     assert_validation_error(
         &yaml,
-        &["entity.name=customer", "source.format=json", "ndjson=true"],
+        &[
+            "entity.name=customer",
+            "source.options.json_mode=lines",
+            "array",
+            "ndjson",
+        ],
     );
 }
 

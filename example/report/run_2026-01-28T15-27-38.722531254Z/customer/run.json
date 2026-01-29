@@ -19,7 +19,6 @@
     "options": {
       "encoding": "utf-8",
       "header": true,
-      "ndjson": false,
       "null_values": [
         "",
         "NULL",

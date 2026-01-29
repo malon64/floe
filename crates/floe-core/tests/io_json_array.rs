@@ -17,9 +17,9 @@ fn temp_dir(prefix: &str) -> PathBuf {
     path
 }
 
-fn write_ndjson(dir: &Path, name: &str, contents: &str) -> PathBuf {
+fn write_json(dir: &Path, name: &str, contents: &str) -> PathBuf {
     let path = dir.join(name);
-    fs::write(&path, contents).expect("write ndjson");
+    fs::write(&path, contents).expect("write json");
     path
 }
 
@@ -41,13 +41,13 @@ fn run_config(path: &Path) -> floe_core::RunOutcome {
 }
 
 #[test]
-fn ndjson_missing_columns_fill_nulls() {
-    let root = temp_dir("floe-ndjson-missing");
+fn json_array_valid_succeeds() {
+    let root = temp_dir("floe-json-array-valid");
     let input_dir = root.join("in");
     let accepted_dir = root.join("out/accepted");
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
-    write_ndjson(&input_dir, "input.json", "{\"id\":\"1\"}\n{\"id\":\"2\"}\n");
+    write_json(&input_dir, "input.json", r#"[{"id":"1"},{"id":"2"}]"#);
 
     let yaml = format!(
         r#"version: "0.1"
@@ -59,7 +59,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        json_mode: "ndjson"
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -67,8 +67,52 @@ entities:
     policy:
       severity: "warn"
     schema:
-      mismatch:
-        missing_columns: "fill_nulls"
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let file = &outcome.entity_outcomes[0].report.files[0];
+    assert_eq!(file.status, FileStatus::Success);
+}
+
+#[test]
+fn json_array_missing_keys_become_nulls() {
+    let root = temp_dir("floe-json-array-missing");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_json(
+        &input_dir,
+        "input.json",
+        r#"[{"id":"1","name":"Ada"},{"id":"2"}]"#,
+    );
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "json"
+      path: "{input_dir}"
+      options:
+        json_mode: "array"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
       columns:
         - name: "id"
           type: "string"
@@ -84,7 +128,6 @@ entities:
     let outcome = run_config(&config_path);
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
-    assert_eq!(file.mismatch.mismatch_action, MismatchAction::FilledNulls);
 
     let output_path = accepted_dir.join("input.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
@@ -92,20 +135,20 @@ entities:
         .finish()
         .expect("read output parquet");
     let name_col = df.column("name").expect("missing name column");
-    assert_eq!(name_col.null_count(), df.height());
+    assert_eq!(name_col.null_count(), 1);
 }
 
 #[test]
-fn ndjson_extra_columns_ignore() {
-    let root = temp_dir("floe-ndjson-extra");
+fn json_array_extra_columns_ignore() {
+    let root = temp_dir("floe-json-array-extra");
     let input_dir = root.join("in");
     let accepted_dir = root.join("out/accepted");
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
-    write_ndjson(
+    write_json(
         &input_dir,
         "input.json",
-        "{\"id\":\"1\",\"extra\":\"skip\"}\n",
+        r#"[{"id":"1"},{"id":"2","extra":"skip"}]"#,
     );
 
     let yaml = format!(
@@ -118,7 +161,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        json_mode: "ndjson"
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -141,7 +184,7 @@ entities:
     let outcome = run_config(&config_path);
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
-    assert_eq!(file.mismatch.mismatch_action, MismatchAction::IgnoredExtras);
+    assert_eq!(file.mismatch.mismatch_action, MismatchAction::None);
 
     let output_path = accepted_dir.join("input.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
@@ -152,14 +195,14 @@ entities:
 }
 
 #[test]
-fn ndjson_invalid_line_rejects_file() {
-    let root = temp_dir("floe-ndjson-invalid");
+fn json_array_invalid_json_rejects_file() {
+    let root = temp_dir("floe-json-array-invalid");
     let input_dir = root.join("in");
     let accepted_dir = root.join("out/accepted");
     let rejected_dir = root.join("out/rejected");
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
-    write_ndjson(&input_dir, "input.json", "{\"id\":\"1\"}\n{bad}\n");
+    write_json(&input_dir, "input.json", "{bad}");
 
     let yaml = format!(
         r#"version: "0.1"
@@ -171,7 +214,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        json_mode: "ndjson"
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -202,18 +245,14 @@ entities:
 }
 
 #[test]
-fn ndjson_nested_values_reject_file() {
-    let root = temp_dir("floe-ndjson-nested");
+fn json_array_nested_values_reject_file() {
+    let root = temp_dir("floe-json-array-nested");
     let input_dir = root.join("in");
     let accepted_dir = root.join("out/accepted");
     let rejected_dir = root.join("out/rejected");
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
-    write_ndjson(
-        &input_dir,
-        "input.json",
-        "{\"id\":\"1\",\"meta\":{\"a\":1}}\n",
-    );
+    write_json(&input_dir, "input.json", r#"[{"id":"1","meta":{"a":1}}]"#);
 
     let yaml = format!(
         r#"version: "0.1"
@@ -225,7 +264,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        json_mode: "ndjson"
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"

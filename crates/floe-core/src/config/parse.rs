@@ -1,16 +1,18 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::Yaml;
 
+use crate::config::apply_templates;
 use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::config::{
-    ArchiveTarget, ColumnConfig, EntityConfig, EntityMetadata, NormalizeColumnsConfig,
-    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig,
-    SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition,
-    StoragesConfig,
+    ArchiveTarget, ColumnConfig, DomainConfig, EntityConfig, EntityMetadata, EnvConfig,
+    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
+    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
+    StorageDefinition, StoragesConfig,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -24,7 +26,10 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
             "YAML contains multiple documents; expected one".to_string(),
         )));
     }
-    parse_root(&docs[0])
+    let mut config = parse_root(&docs[0])?;
+    let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    apply_templates(&mut config, config_dir)?;
+    Ok(config)
 }
 
 fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
@@ -37,6 +42,8 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
             "metadata",
             "storages",
             "filesystems",
+            "env",
+            "domains",
             "report",
             "entities",
         ],
@@ -57,6 +64,16 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         (Some(value), None) => Some(parse_storages(value)?),
         (None, Some(value)) => Some(parse_storages(value)?),
         (None, None) => None,
+    };
+
+    let env = match hash_get(root, "env") {
+        Some(value) => Some(parse_env(value)?),
+        None => None,
+    };
+
+    let domains = match hash_get(root, "domains") {
+        Some(value) => parse_domains(value)?,
+        None => Vec::new(),
     };
 
     let report = match hash_get(root, "report") {
@@ -81,6 +98,8 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         version,
         metadata,
         storages,
+        env,
+        domains,
         report,
         entities,
     })
@@ -101,7 +120,9 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
     validate_known_keys(
         hash,
         "entity",
-        &["name", "metadata", "source", "sink", "policy", "schema"],
+        &[
+            "name", "metadata", "domain", "source", "sink", "policy", "schema",
+        ],
     )?;
     let name = get_string(hash, "name", "entity")?;
 
@@ -109,6 +130,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         Some(value) => Some(parse_entity_metadata(value)?),
         None => None,
     };
+    let domain = opt_string(hash, "domain", "entity")?;
 
     let source = parse_source(get_value(hash, "source", "entity")?)?;
     let sink = parse_sink(get_value(hash, "sink", "entity")?)?;
@@ -118,6 +140,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
     Ok(EntityConfig {
         name,
         metadata,
+        domain,
         source,
         sink,
         policy,
@@ -150,6 +173,45 @@ fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {
         description: opt_string(hash, "description", "entity.metadata")?,
         tags: opt_vec_string(hash, "tags", "entity.metadata")?,
     })
+}
+
+fn parse_env(value: &Yaml) -> FloeResult<EnvConfig> {
+    let hash = yaml_hash(value, "env")?;
+    validate_known_keys(hash, "env", &["file", "vars"])?;
+    let file = opt_string(hash, "file", "env")?;
+    let vars = match hash_get(hash, "vars") {
+        Some(value) => parse_string_map(value, "env.vars")?,
+        None => HashMap::new(),
+    };
+    Ok(EnvConfig { file, vars })
+}
+
+fn parse_domains(value: &Yaml) -> FloeResult<Vec<DomainConfig>> {
+    let array = yaml_array(value, "domains")?;
+    let mut domains = Vec::with_capacity(array.len());
+    for item in array.iter() {
+        let hash = yaml_hash(item, "domains")?;
+        validate_known_keys(hash, "domains", &["name", "incoming_dir"])?;
+        let name = get_string(hash, "name", "domains")?;
+        let incoming_dir = get_string(hash, "incoming_dir", "domains")?;
+        domains.push(DomainConfig {
+            name,
+            incoming_dir,
+            resolved_incoming_dir: None,
+        });
+    }
+    Ok(domains)
+}
+
+fn parse_string_map(value: &Yaml, context: &str) -> FloeResult<HashMap<String, String>> {
+    let hash = yaml_hash(value, context)?;
+    let mut map = HashMap::new();
+    for (key, val) in hash {
+        let key_str = yaml_string(key, context)?;
+        let value_str = yaml_string(val, context)?;
+        map.insert(key_str, value_str);
+    }
+    Ok(map)
 }
 
 fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {

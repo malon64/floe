@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use polars::polars_utils::pl_str::PlSmallStr;
@@ -12,6 +13,8 @@ pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
     pub storages: Option<StoragesConfig>,
+    pub env: Option<EnvConfig>,
+    pub domains: Vec<DomainConfig>,
     pub report: Option<ReportConfig>,
     pub entities: Vec<EntityConfig>,
 }
@@ -25,9 +28,23 @@ pub struct ProjectMetadata {
 }
 
 #[derive(Debug)]
+pub struct EnvConfig {
+    pub file: Option<String>,
+    pub vars: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainConfig {
+    pub name: String,
+    pub incoming_dir: String,
+    pub resolved_incoming_dir: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct EntityConfig {
     pub name: String,
     pub metadata: Option<EntityMetadata>,
+    pub domain: Option<String>,
     pub source: SourceConfig,
     pub sink: SinkConfig,
     pub policy: PolicyConfig,

@@ -10,12 +10,20 @@ version: "0.1"
 metadata: { ... }
 report:
   path: "/abs/or/relative/report/dir"
+env:
+  file: "metadata/env.dev.yml"
+  vars:
+    incoming_path: "/data/incoming"
+domains:
+  - name: "sales"
+    incoming_dir: "{{incoming_path}}/sales"
 entities:
   - name: "customer"
+    domain: "sales"
     metadata: { ... }
     source:
       format: "csv"
-      path: "/path/to/input/or/dir"
+      path: "{{domain.incoming_dir}}/customer"
       options:
         header: true
         separator: ","
@@ -58,9 +66,18 @@ entities:
   - Reports are written under:
     `report.path/run_<run_id>/run.summary.json` and
     `report.path/run_<run_id>/<entity.name>/run.json`.
+  - Supports `{{var}}` templating (see "Templating & domains").
 - `storages` (optional)
   - Defines named storage clients for `source.storage` and `sink.*.storage`.
   - If omitted, `local` is assumed.
+- `env` (optional)
+  - Enables variable templating for string fields using `{{var}}` syntax.
+  - `env.file` (optional) loads variables from a YAML file (path relative to the
+    main config file).
+  - `env.vars` (optional) provides inline variables and overrides `env.file`.
+- `domains` (optional)
+  - Named domain roots that can be referenced by entities via `entity.domain`.
+  - Example entry: `{ name: "sales", incoming_dir: "{{incoming_path}}/sales" }`.
 - `entities` (required)
   - Array of entity definitions (datasets). A single CLI run may process
     multiple entities.
@@ -74,6 +91,10 @@ Logical dataset name. Used in report and output paths.
 Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 `description`, `tags`.
 
+### `domain` (optional)
+Reference to a domain defined in `domains`. When set, `{{domain.incoming_dir}}`
+is available for templating within that entity.
+
 ### `source` (required)
 
 - `format` (required)
@@ -84,6 +105,7 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     (example: `/data/in/*.csv`).
   - If a directory is provided, a glob is applied to select files.
   - Relative paths resolve against the config file directory.
+  - Supports `{{var}}` templating (see "Templating & domains").
 - `storage` (optional)
   - Name of the storage client to use for this source.
   - Defaults to `storages.default` when defined, otherwise `local`.
@@ -119,7 +141,8 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 - `accepted` (required)
   - `format`: `parquet` or `delta` (local). `iceberg` is recognized but not
     implemented yet.
-  - `path`: output directory for accepted records.
+- `path`: output directory for accepted records.
+  - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)
     - Name of the storage client to use for this sink target.
     - Defaults to `storages.default` when defined, otherwise `local`.
@@ -130,10 +153,12 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - `row_group_size`: positive integer (rows per row group)
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
-  - `path`: output directory for rejected rows.
+- `path`: output directory for rejected rows.
+  - Supports `{{var}}` templating (see "Templating & domains").
 - `archive` (optional)
-  - `path`: directory where raw input files are archived after ingestion.
+- `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.
+  - Supports `{{var}}` templating (see "Templating & domains").
 
 ### `policy` (required)
 
@@ -174,3 +199,17 @@ ignored):
 
 For more details about checks and severity behavior, see `docs/checks.md`.
 Execution order and pipeline phases are documented in `docs/how-it-works.md`.
+
+## Templating & domains
+
+Floe supports simple placeholder substitution in string fields using `{{var}}`
+syntax. Variables are resolved in this order (lowest to highest precedence):
+
+1) `env.file` variables (YAML map)
+2) `env.vars` inline variables (override file values)
+
+If an entity sets `domain: "<name>"`, the following is also available:
+
+- `{{domain.incoming_dir}}` resolved from the matching domain entry.
+
+Unresolved placeholders (or unknown domains) are configuration errors.

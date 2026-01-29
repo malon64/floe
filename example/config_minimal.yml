@@ -1,13 +1,24 @@
 version: "0.1"
 
+env:
+  vars:
+    report_root: "./report"
+    out_root: "./out"
+    incoming_root: "./in"
+
+domains:
+  - name: "sales"
+    incoming_dir: "{{incoming_root}}/customer"
+
 report:
-  path: "./report"
+  path: "{{report_root}}"
 
 entities:
   - name: "customer"
+    domain: "sales"
     source:
       format: "csv"
-      path: "./in/customer"
+      path: "{{domain.incoming_dir}}"
       options:
         header: true
         separator: ","
@@ -17,12 +28,12 @@ entities:
     sink:
       accepted:
         format: "parquet"
-        path: "./out/accepted/customer/"
+        path: "{{out_root}}/accepted/customer/"
       rejected:
         format: "csv"
-        path: "./out/rejected/customer/"
+        path: "{{out_root}}/rejected/customer/"
       archive:
-        path: "./out/accepted/customer/archived"
+        path: "{{out_root}}/accepted/customer/archived"
 
     policy:
       severity: "reject"

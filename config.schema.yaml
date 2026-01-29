@@ -16,6 +16,10 @@ properties:
     $ref: "#/$defs/project_metadata"
   storages:
     $ref: "#/$defs/storages"
+  env:
+    $ref: "#/$defs/env"
+  domains:
+    $ref: "#/$defs/domains"
   report:
     $ref: "#/$defs/report"
   entities:
@@ -62,6 +66,8 @@ $defs:
         type: string
       metadata:
         $ref: "#/$defs/entity_metadata"
+      domain:
+        type: string
       source:
         $ref: "#/$defs/source"
       sink:
@@ -108,6 +114,31 @@ $defs:
       tags:
         type: array
         items:
+          type: string
+
+  env:
+    type: object
+    additionalProperties: false
+    properties:
+      file:
+        type: string
+      vars:
+        type: object
+        additionalProperties:
+          type: string
+
+  domains:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - incoming_dir
+      properties:
+        name:
+          type: string
+        incoming_dir:
           type: string
 
   source:

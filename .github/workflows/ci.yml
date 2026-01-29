@@ -15,6 +15,9 @@ jobs:
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-rust
+          add-job-id-key: false
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -26,6 +29,9 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-rust
+          add-job-id-key: false
       - name: Lint with clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -58,6 +64,9 @@ jobs:
               - "README.md"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-rust
+          add-job-id-key: false
       - name: Run tests
         env:
           CARGO_BUILD_JOBS: "1"

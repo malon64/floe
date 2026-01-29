@@ -167,6 +167,7 @@ mod tests {
         config::EntityConfig {
             name: name.to_string(),
             metadata: None,
+            domain: None,
             source: config::SourceConfig {
                 format: "csv".to_string(),
                 path: "unused".to_string(),

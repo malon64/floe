@@ -200,8 +200,8 @@ pub fn sink_options_warning(
     if options.row_group_size.is_some() {
         keys.push("row_group_size");
     }
-    if options.max_rows_per_file.is_some() {
-        keys.push("max_rows_per_file");
+    if options.max_size_per_file.is_some() {
+        keys.push("max_size_per_file");
     }
     let detail = if keys.is_empty() {
         "options".to_string()
@@ -245,10 +245,10 @@ pub fn validate_sink_options(
             ))));
         }
     }
-    if let Some(max_rows_per_file) = options.max_rows_per_file {
-        if max_rows_per_file == 0 {
+    if let Some(max_size_per_file) = options.max_size_per_file {
+        if max_size_per_file == 0 {
             return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.options.max_rows_per_file must be greater than 0",
+                "entity.name={} sink.accepted.options.max_size_per_file must be greater than 0",
                 entity_name
             ))));
         }

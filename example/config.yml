@@ -90,6 +90,8 @@ entities:
       accepted:
         format: "parquet"
         path: "./out/accepted/orders/"
+        options:
+          max_size_per_file: 1
       rejected:
         format: "csv"
         path: "./out/rejected/orders/"

@@ -220,7 +220,7 @@ $defs:
           row_group_size:
             type: integer
             minimum: 1
-          max_rows_per_file:
+          max_size_per_file:
             type: integer
             minimum: 1
 

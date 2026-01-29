@@ -332,12 +332,12 @@ fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
     validate_known_keys(
         hash,
         ctx,
-        &["compression", "row_group_size", "max_rows_per_file"],
+        &["compression", "row_group_size", "max_size_per_file"],
     )?;
     Ok(SinkOptions {
         compression: opt_string(hash, "compression", ctx)?,
         row_group_size: opt_u64(hash, "row_group_size", ctx)?,
-        max_rows_per_file: opt_u64(hash, "max_rows_per_file", ctx)?,
+        max_size_per_file: opt_u64(hash, "max_size_per_file", ctx)?,
     })
 }
 

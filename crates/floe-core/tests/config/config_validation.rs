@@ -407,7 +407,7 @@ fn parquet_sink_options_are_valid() {
         options:
           compression: "gzip"
           row_group_size: 1000
-          max_rows_per_file: 5000
+          max_size_per_file: 268435456
     policy:
       severity: "warn"
     schema:
@@ -479,7 +479,7 @@ fn parquet_sink_row_group_size_must_be_positive() {
 }
 
 #[test]
-fn parquet_sink_max_rows_per_file_must_be_positive() {
+fn parquet_sink_max_size_per_file_must_be_positive() {
     let entity = r#"  - name: "customer"
     source:
       format: "csv"
@@ -489,7 +489,7 @@ fn parquet_sink_max_rows_per_file_must_be_positive() {
         format: "parquet"
         path: "/tmp/out"
         options:
-          max_rows_per_file: 0
+          max_size_per_file: 0
     policy:
       severity: "warn"
     schema:
@@ -502,7 +502,7 @@ fn parquet_sink_max_rows_per_file_must_be_positive() {
         &yaml,
         &[
             "entity.name=customer",
-            "sink.accepted.options.max_rows_per_file",
+            "sink.accepted.options.max_size_per_file",
         ],
     );
 }

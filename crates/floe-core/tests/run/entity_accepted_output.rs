@@ -130,7 +130,7 @@ entities:
         format: "parquet"
         path: "{accepted_dir}"
         options:
-          max_rows_per_file: 2
+          max_size_per_file: 1
     policy:
       severity: "warn"
     schema:
@@ -149,7 +149,7 @@ entities:
     let outcome = run_config(&config_path);
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.results.accepted_total, 6);
-    assert_eq!(report.accepted_output.parts_written, 3);
+    assert_eq!(report.accepted_output.parts_written, 6);
 
     let mut part_files = Vec::new();
     for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
@@ -164,7 +164,10 @@ entities:
         vec![
             "part-00000.parquet".to_string(),
             "part-00001.parquet".to_string(),
-            "part-00002.parquet".to_string()
+            "part-00002.parquet".to_string(),
+            "part-00003.parquet".to_string(),
+            "part-00004.parquet".to_string(),
+            "part-00005.parquet".to_string()
         ]
     );
 

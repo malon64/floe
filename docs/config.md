@@ -151,7 +151,7 @@ is available for templating within that entity.
       warning and records it in the run report.
     - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
     - `row_group_size`: positive integer (rows per row group)
-    - `max_rows_per_file`: positive integer (split accepted parquet into parts)
+    - `max_size_per_file`: positive integer bytes (default: 256MB; split accepted parquet into parts)
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.

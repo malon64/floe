@@ -673,9 +673,10 @@ pub(super) fn run_entity(
 
     let accepted_target_uri = accepted_target.target_uri().to_string();
     let mut accepted_parts_written = 0;
+    let mut accepted_part_files = Vec::new();
     if let Some(mut accepted_df) = accepted_accum {
         let output_stem = io::storage::paths::build_part_stem(0);
-        write_accepted_output(
+        let accepted_output = write_accepted_output(
             entity.sink.accepted.format.as_str(),
             &accepted_target,
             &mut accepted_df,
@@ -685,7 +686,8 @@ pub(super) fn run_entity(
             &context.storage_resolver,
             entity,
         )?;
-        accepted_parts_written = 1;
+        accepted_parts_written = accepted_output.parts_written;
+        accepted_part_files = accepted_output.part_files;
     }
     if accepted_parts_written > 0 {
         for file_report in &mut file_reports {
@@ -705,6 +707,7 @@ pub(super) fn run_entity(
         file_reports,
         severity,
         accepted_parts_written,
+        accepted_part_files,
     });
 
     if let Some(report_dir) = &context.report_dir {

@@ -120,6 +120,8 @@ pub struct AcceptedOutputSummary {
     pub path: String,
     pub accepted_rows: u64,
     pub parts_written: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub part_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,6 +475,7 @@ mod tests {
                 path: "/tmp/out/accepted".to_string(),
                 accepted_rows: 10,
                 parts_written: 1,
+                part_files: vec!["part-00000.parquet".to_string()],
             },
             results: ResultsTotals {
                 files_total: 1,

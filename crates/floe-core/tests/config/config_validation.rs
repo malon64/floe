@@ -407,6 +407,7 @@ fn parquet_sink_options_are_valid() {
         options:
           compression: "gzip"
           row_group_size: 1000
+          max_rows_per_file: 5000
     policy:
       severity: "warn"
     schema:
@@ -473,6 +474,35 @@ fn parquet_sink_row_group_size_must_be_positive() {
         &[
             "entity.name=customer",
             "sink.accepted.options.row_group_size",
+        ],
+    );
+}
+
+#[test]
+fn parquet_sink_max_rows_per_file_must_be_positive() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        options:
+          max_rows_per_file: 0
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.options.max_rows_per_file",
         ],
     );
 }

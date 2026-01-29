@@ -231,6 +231,7 @@ mod tests {
                 path: "/tmp/out/accepted".to_string(),
                 accepted_rows: 8,
                 parts_written: 1,
+                part_files: vec!["part-00000.parquet".to_string()],
             },
             results: report::ResultsTotals {
                 files_total: 1,

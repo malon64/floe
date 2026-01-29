@@ -175,6 +175,7 @@ pub struct SinkTarget {
 pub struct SinkOptions {
     pub compression: Option<String>,
     pub row_group_size: Option<u64>,
+    pub max_rows_per_file: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

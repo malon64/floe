@@ -3,7 +3,7 @@ use std::path::Path;
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
 use crate::errors::IoError;
-use crate::io::format::AcceptedSinkAdapter;
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
@@ -54,7 +54,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
-    ) -> FloeResult<String> {
+    ) -> FloeResult<AcceptedWriteOutput> {
         let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
         if let Target::Local { base_path, .. } = target {
             clear_local_output_dir(base_path)?;
@@ -64,16 +64,77 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         {
             clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
         }
-        io::storage::output::write_output(
-            target,
-            io::storage::output::OutputPlacement::Directory,
-            &filename,
-            temp_dir,
-            cloud,
-            resolver,
-            entity,
-            |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
-        )
+        let options = entity.sink.accepted.options.as_ref();
+        let max_rows_per_file = options.and_then(|options| options.max_rows_per_file);
+        let mut parts_written = 0;
+        let mut part_files = Vec::new();
+        if let Some(max_rows) = max_rows_per_file {
+            let max_rows = usize::try_from(max_rows).map_err(|_| {
+                Box::new(ConfigError(format!(
+                    "parquet max_rows_per_file is too large: {max_rows}"
+                )))
+            })?;
+            let mut offset = 0usize;
+            let total_rows = df.height();
+            let mut part_index = 0usize;
+            while offset < total_rows {
+                let len = std::cmp::min(max_rows, total_rows - offset);
+                let mut chunk = df.slice(offset as i64, len);
+                let part_stem = io::storage::paths::build_part_stem(part_index);
+                let part_filename =
+                    io::storage::paths::build_output_filename(&part_stem, "", "parquet");
+                io::storage::output::write_output(
+                    target,
+                    io::storage::output::OutputPlacement::Directory,
+                    &part_filename,
+                    temp_dir,
+                    cloud,
+                    resolver,
+                    entity,
+                    |path| write_parquet_to_path(&mut chunk, path, options),
+                )?;
+                if part_files.len() < 50 {
+                    part_files.push(part_filename);
+                }
+                parts_written += 1;
+                part_index += 1;
+                offset += len;
+            }
+            if total_rows == 0 {
+                io::storage::output::write_output(
+                    target,
+                    io::storage::output::OutputPlacement::Directory,
+                    &filename,
+                    temp_dir,
+                    cloud,
+                    resolver,
+                    entity,
+                    |path| write_parquet_to_path(df, path, options),
+                )?;
+                parts_written = 1;
+                if part_files.len() < 50 {
+                    part_files.push(filename);
+                }
+            }
+        } else {
+            io::storage::output::write_output(
+                target,
+                io::storage::output::OutputPlacement::Directory,
+                &filename,
+                temp_dir,
+                cloud,
+                resolver,
+                entity,
+                |path| write_parquet_to_path(df, path, options),
+            )?;
+            parts_written = 1;
+            part_files.push(filename);
+        }
+
+        Ok(AcceptedWriteOutput {
+            parts_written,
+            part_files,
+        })
     }
 }
 

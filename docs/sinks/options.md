@@ -7,6 +7,7 @@ but emit a warning and record it in the run report.
 
 - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
 - `row_group_size`: positive integer (rows per row group)
+- `max_rows_per_file`: positive integer (split accepted parquet into parts)
 
 Example:
 
@@ -18,4 +19,5 @@ sink:
     options:
       compression: "zstd"
       row_group_size: 50000
+      max_rows_per_file: 250000
 ```

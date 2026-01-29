@@ -16,7 +16,7 @@ pub(super) fn write_accepted_output(
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
-) -> FloeResult<String> {
+) -> FloeResult<format::AcceptedWriteOutput> {
     let adapter = format::accepted_sink_adapter(format)?;
     adapter.write_accepted(target, df, output_stem, temp_dir, cloud, resolver, entity)
 }

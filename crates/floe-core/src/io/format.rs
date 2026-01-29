@@ -33,6 +33,12 @@ pub enum ReadInput {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct AcceptedWriteOutput {
+    pub parts_written: u64,
+    pub part_files: Vec<String>,
+}
+
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 
@@ -88,7 +94,7 @@ pub trait AcceptedSinkAdapter: Send + Sync {
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
-    ) -> FloeResult<String>;
+    ) -> FloeResult<AcceptedWriteOutput>;
 }
 
 pub trait RejectedSinkAdapter: Send + Sync {
@@ -194,6 +200,9 @@ pub fn sink_options_warning(
     if options.row_group_size.is_some() {
         keys.push("row_group_size");
     }
+    if options.max_rows_per_file.is_some() {
+        keys.push("max_rows_per_file");
+    }
     let detail = if keys.is_empty() {
         "options".to_string()
     } else {
@@ -232,6 +241,14 @@ pub fn validate_sink_options(
         if row_group_size == 0 {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
+                entity_name
+            ))));
+        }
+    }
+    if let Some(max_rows_per_file) = options.max_rows_per_file {
+        if max_rows_per_file == 0 {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.options.max_rows_per_file must be greater than 0",
                 entity_name
             ))));
         }

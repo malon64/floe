@@ -9,11 +9,24 @@ pub fn build_output_filename(stem: &str, suffix: &str, extension: &str) -> Strin
     }
 }
 
+pub fn build_part_stem(index: usize) -> String {
+    format!("part-{index:05}")
+}
+
 pub fn resolve_output_path(base_path: &str, filename: &str) -> PathBuf {
     let base = Path::new(base_path);
     if base.extension().is_some() {
         base.to_path_buf()
     } else if base.as_os_str().is_empty() {
+        PathBuf::from(filename)
+    } else {
+        base.join(filename)
+    }
+}
+
+pub fn resolve_output_dir_path(base_path: &str, filename: &str) -> PathBuf {
+    let base = Path::new(base_path);
+    if base.as_os_str().is_empty() {
         PathBuf::from(filename)
     } else {
         base.join(filename)
@@ -37,6 +50,15 @@ pub fn resolve_output_key(base_key: &str, filename: &str) -> String {
     if Path::new(&base).extension().is_some() {
         base
     } else if base.is_empty() {
+        filename.to_string()
+    } else {
+        format!("{base}/{filename}")
+    }
+}
+
+pub fn resolve_output_dir_key(base_key: &str, filename: &str) -> String {
+    let base = normalize_key(base_key);
+    if base.is_empty() {
         filename.to_string()
     } else {
         format!("{base}/{filename}")
@@ -82,6 +104,12 @@ mod tests {
     }
 
     #[test]
+    fn build_part_stem_zero_pads() {
+        assert_eq!(build_part_stem(0), "part-00000");
+        assert_eq!(build_part_stem(12), "part-00012");
+    }
+
+    #[test]
     fn resolve_output_key_respects_file_base() {
         assert_eq!(
             resolve_output_key("out/file.parquet", "ignored.parquet"),
@@ -92,6 +120,38 @@ mod tests {
             "out/file.parquet"
         );
         assert_eq!(resolve_output_key("", "file.parquet"), "file.parquet");
+    }
+
+    #[test]
+    fn resolve_output_dir_path_treats_base_as_directory() {
+        assert_eq!(
+            resolve_output_dir_path("out/file.parquet", "part-00000.parquet"),
+            PathBuf::from("out/file.parquet/part-00000.parquet")
+        );
+        assert_eq!(
+            resolve_output_dir_path("out", "part-00000.parquet"),
+            PathBuf::from("out/part-00000.parquet")
+        );
+        assert_eq!(
+            resolve_output_dir_path("", "part-00000.parquet"),
+            PathBuf::from("part-00000.parquet")
+        );
+    }
+
+    #[test]
+    fn resolve_output_dir_key_treats_base_as_directory() {
+        assert_eq!(
+            resolve_output_dir_key("out/file.parquet", "part-00000.parquet"),
+            "out/file.parquet/part-00000.parquet"
+        );
+        assert_eq!(
+            resolve_output_dir_key("out", "part-00000.parquet"),
+            "out/part-00000.parquet"
+        );
+        assert_eq!(
+            resolve_output_dir_key("", "part-00000.parquet"),
+            "part-00000.parquet"
+        );
     }
 
     #[test]

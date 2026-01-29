@@ -49,16 +49,24 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         &self,
         target: &Target,
         df: &mut DataFrame,
-        source_stem: &str,
+        output_stem: &str,
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
-        let filename = io::storage::paths::build_output_filename(source_stem, "", "parquet");
+        let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
+        if let Target::Local { base_path, .. } = target {
+            clear_local_output_dir(base_path)?;
+        } else if let Target::S3 {
+            storage, base_key, ..
+        } = target
+        {
+            clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
+        }
         io::storage::output::write_output(
             target,
-            io::storage::output::OutputPlacement::Output,
+            io::storage::output::OutputPlacement::Directory,
             &filename,
             temp_dir,
             cloud,
@@ -67,6 +75,53 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
         )
     }
+}
+
+fn clear_local_output_dir(base_path: &str) -> FloeResult<()> {
+    let path = Path::new(base_path);
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    if path.exists() {
+        if path.is_file() {
+            std::fs::remove_file(path)?;
+        } else {
+            std::fs::remove_dir_all(path)?;
+        }
+    }
+    std::fs::create_dir_all(path)?;
+    Ok(())
+}
+
+fn clear_s3_output_prefix(
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    storage: &str,
+    base_key: &str,
+    sample_filename: &str,
+) -> FloeResult<()> {
+    let prefix = base_key.trim_matches('/');
+    if prefix.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.path must not be bucket root for s3 outputs",
+            entity.name
+        ))));
+    }
+    let client = cloud.client_for(resolver, storage, entity)?;
+    let mut keys = client.list(prefix)?;
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
+    keys.retain(|key| key.starts_with(prefix) && !key.is_empty());
+    if keys.len() == 1 && keys[0] == sample {
+        return Ok(());
+    }
+    for key in keys {
+        client.delete(&key)?;
+    }
+    Ok(())
 }
 
 fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {

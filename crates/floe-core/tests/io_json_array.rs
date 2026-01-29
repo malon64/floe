@@ -129,7 +129,7 @@ entities:
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
 
-    let output_path = accepted_dir.join("input.parquet");
+    let output_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
     let df = ParquetReader::new(file)
         .finish()
@@ -186,7 +186,7 @@ entities:
     assert_eq!(file.status, FileStatus::Success);
     assert_eq!(file.mismatch.mismatch_action, MismatchAction::None);
 
-    let output_path = accepted_dir.join("input.parquet");
+    let output_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
     let df = ParquetReader::new(file)
         .finish()

@@ -17,6 +17,7 @@ pub trait StorageClient: Send + Sync {
     fn list(&self, prefix: &str) -> FloeResult<Vec<String>>;
     fn download(&self, key: &str, dest: &Path) -> FloeResult<()>;
     fn upload(&self, key: &str, path: &Path) -> FloeResult<()>;
+    fn delete(&self, key: &str) -> FloeResult<()>;
 }
 
 pub struct CloudClient {

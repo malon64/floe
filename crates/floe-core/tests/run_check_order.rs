@@ -104,12 +104,12 @@ entities:
         .iter()
         .any(|rule| rule.rule == RuleName::Unique));
 
-    let accepted_path = accepted_dir.join("b.parquet");
+    let accepted_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&accepted_path).expect("open accepted parquet");
     let df = ParquetReader::new(file)
         .finish()
         .expect("read accepted parquet");
-    assert_eq!(df.height(), 1);
+    assert_eq!(df.height(), 3);
 
     let rejected_path = rejected_dir.join("b_rejected.csv");
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");

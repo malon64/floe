@@ -125,6 +125,10 @@ mod tests {
         fn upload(&self, _key: &str, _path: &Path) -> FloeResult<()> {
             Ok(())
         }
+
+        fn delete(&self, _key: &str) -> FloeResult<()> {
+            Ok(())
+        }
     }
 
     struct MockAdapter;

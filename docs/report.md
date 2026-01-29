@@ -48,6 +48,7 @@ Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 - `source`: Input format, path, options, cast mode, read plan, and resolved inputs.
 - `sink`: Accepted/rejected/archive paths and formats.
 - `policy`: Severity.
+- `accepted_output`: Entity-level accepted output summary (path, accepted_rows, parts_written).
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
 

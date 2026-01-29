@@ -63,6 +63,19 @@ impl StorageClient for LocalClient {
         })?;
         Ok(())
     }
+
+    fn delete(&self, key: &str) -> FloeResult<()> {
+        let path = Path::new(key);
+        if path.exists() {
+            std::fs::remove_file(path).map_err(|err| {
+                Box::new(StorageError(format!(
+                    "local delete failed for {}: {err}",
+                    path.display()
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
+use polars::prelude::DataFrame;
 
 use super::file::{collect_row_errors, required_columns};
 use super::normalize::normalize_schema_columns;
@@ -291,6 +292,7 @@ pub(super) fn run_entity(
         });
     }
 
+    let mut accepted_accum: Option<DataFrame> = None;
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
 
     for prechecked in prechecked_inputs {
@@ -463,7 +465,7 @@ pub(super) fn run_entity(
         let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
         let reject_count = row_count.saturating_sub(accept_count);
         let has_errors = row_error_count > 0;
-        let mut accepted_path = None;
+        let mut accepted_df_opt: Option<DataFrame> = None;
         let mut rejected_path = None;
         let mut errors_path = None;
         let mut archived_path = None;
@@ -481,17 +483,7 @@ pub(super) fn run_entity(
 
         match entity.policy.severity.as_str() {
             "warn" => {
-                let output_path = write_accepted_output(
-                    entity.sink.accepted.format.as_str(),
-                    &accepted_target,
-                    &mut df,
-                    source_stem,
-                    temp_dir.as_ref().map(|dir| dir.path()),
-                    cloud,
-                    &context.storage_resolver,
-                    entity,
-                )?;
-                accepted_path = Some(output_path);
+                accepted_df_opt = Some(df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target.as_ref() {
                         let errors_path_value = write_error_report_output(
@@ -517,25 +509,14 @@ pub(super) fn run_entity(
                     validate_rejected_target(entity, "reject")?;
 
                     let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
-                    let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
+                    let accepted_df = df.filter(&accept_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter accepted rows: {err}")))
                     })?;
                     let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter rejected rows: {err}")))
                     })?;
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
-
-                    let output_path = write_accepted_output(
-                        entity.sink.accepted.format.as_str(),
-                        &accepted_target,
-                        &mut accepted_df,
-                        source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
-                        &context.storage_resolver,
-                        entity,
-                    )?;
-                    accepted_path = Some(output_path);
+                    accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
                             "entity.name={} sink.rejected.storage is required for rejection",
@@ -560,17 +541,7 @@ pub(super) fn run_entity(
                     )?;
                     rejected_path = Some(rejected_path_value);
                 } else {
-                    let output_path = write_accepted_output(
-                        entity.sink.accepted.format.as_str(),
-                        &accepted_target,
-                        &mut df,
-                        source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
-                        &context.storage_resolver,
-                        entity,
-                    )?;
-                    accepted_path = Some(output_path);
+                    accepted_df_opt = Some(df);
                 }
             }
             "abort" => {
@@ -602,17 +573,7 @@ pub(super) fn run_entity(
                     rejected_path = Some(rejected_path_value);
                     errors_path = Some(errors_path_value);
                 } else {
-                    let output_path = write_accepted_output(
-                        entity.sink.accepted.format.as_str(),
-                        &accepted_target,
-                        &mut df,
-                        source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
-                        &context.storage_resolver,
-                        entity,
-                    )?;
-                    accepted_path = Some(output_path);
+                    accepted_df_opt = Some(df);
                 }
             }
             severity => {
@@ -620,6 +581,10 @@ pub(super) fn run_entity(
                     "unsupported policy severity: {severity}"
                 ))))
             }
+        }
+
+        if let Some(accepted_df) = accepted_df_opt {
+            append_accepted(&mut accepted_accum, accepted_df)?;
         }
 
         if archive_enabled {
@@ -678,7 +643,7 @@ pub(super) fn run_entity(
             rejected_count,
             mismatch: mismatch.report,
             output: report::FileOutput {
-                accepted_path,
+                accepted_path: None,
                 rejected_path,
                 errors_path,
                 archived_path,
@@ -706,6 +671,28 @@ pub(super) fn run_entity(
 
     totals.files_total = file_reports.len() as u64;
 
+    let accepted_target_uri = accepted_target.target_uri().to_string();
+    let mut accepted_parts_written = 0;
+    if let Some(mut accepted_df) = accepted_accum {
+        let output_stem = io::storage::paths::build_part_stem(0);
+        write_accepted_output(
+            entity.sink.accepted.format.as_str(),
+            &accepted_target,
+            &mut accepted_df,
+            &output_stem,
+            temp_dir.as_ref().map(|dir| dir.path()),
+            cloud,
+            &context.storage_resolver,
+            entity,
+        )?;
+        accepted_parts_written = 1;
+    }
+    if accepted_parts_written > 0 {
+        for file_report in &mut file_reports {
+            file_report.output.accepted_path = Some(accepted_target_uri.clone());
+        }
+    }
+
     let run_report = build_run_report(entity_report::RunReportContext {
         context,
         entity,
@@ -717,6 +704,7 @@ pub(super) fn run_entity(
         totals,
         file_reports,
         severity,
+        accepted_parts_written,
     });
 
     if let Some(report_dir) = &context.report_dir {
@@ -730,4 +718,15 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+fn append_accepted(accum: &mut Option<DataFrame>, next: DataFrame) -> FloeResult<()> {
+    if let Some(current) = accum.as_mut() {
+        current
+            .vstack_mut(&next)
+            .map_err(|err| Box::new(RunError(format!("failed to append accepted rows: {err}"))))?;
+    } else {
+        *accum = Some(next);
+    }
+    Ok(())
 }

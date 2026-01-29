@@ -15,6 +15,8 @@ use super::{paths, CloudClient, Target};
 pub enum OutputPlacement {
     /// Write into the target path/key (file or directory).
     Output,
+    /// Write into the target path/key treating it as a directory.
+    Directory,
     /// Write alongside the target (sibling of a file target).
     Sibling,
 }
@@ -40,6 +42,7 @@ where
         Target::Local { base_path, .. } => {
             let output_path = match placement {
                 OutputPlacement::Output => paths::resolve_output_path(base_path, filename),
+                OutputPlacement::Directory => paths::resolve_output_dir_path(base_path, filename),
                 OutputPlacement::Sibling => paths::resolve_sibling_path(base_path, filename),
             };
             if let Some(parent) = output_path.parent() {
@@ -64,6 +67,7 @@ where
             writer(&temp_path)?;
             let key = match placement {
                 OutputPlacement::Output => paths::resolve_output_key(base_key, filename),
+                OutputPlacement::Directory => paths::resolve_output_dir_key(base_key, filename),
                 OutputPlacement::Sibling => paths::resolve_sibling_key(base_key, filename),
             };
             let client = cloud.client_for(resolver, storage, entity)?;

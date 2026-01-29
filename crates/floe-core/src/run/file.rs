@@ -2,10 +2,6 @@ use polars::prelude::DataFrame;
 
 use crate::{check, config, io, FloeResult};
 
-use io::format::{InputAdapter, InputFile, ReadInput};
-
-pub(super) type ValidationCollect = io::format::ValidationCollect;
-
 pub(super) fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> {
     columns
         .iter()
@@ -14,17 +10,7 @@ pub(super) fn required_columns(columns: &[config::ColumnConfig]) -> Vec<String> 
         .collect()
 }
 
-pub(super) fn read_inputs(
-    adapter: &dyn InputAdapter,
-    entity: &config::EntityConfig,
-    files: &[InputFile],
-    columns: &[config::ColumnConfig],
-    normalize_strategy: Option<&str>,
-    collect_raw: bool,
-) -> FloeResult<Vec<ReadInput>> {
-    adapter.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
-}
-pub(super) fn collect_errors(
+pub(super) fn collect_row_errors(
     raw_df: &DataFrame,
     typed_df: &DataFrame,
     required_cols: &[String],
@@ -32,9 +18,8 @@ pub(super) fn collect_errors(
     track_cast_errors: bool,
     raw_indices: &check::ColumnIndex,
     typed_indices: &check::ColumnIndex,
-    formatter: &dyn check::RowErrorFormatter,
-) -> FloeResult<ValidationCollect> {
-    io::format::collect_errors(
+) -> FloeResult<Vec<Vec<check::RowError>>> {
+    io::format::collect_row_errors(
         raw_df,
         typed_df,
         required_cols,
@@ -42,6 +27,5 @@ pub(super) fn collect_errors(
         track_cast_errors,
         raw_indices,
         typed_indices,
-        formatter,
     )
 }

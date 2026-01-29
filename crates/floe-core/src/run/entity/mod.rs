@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
-use super::file::{collect_errors, read_inputs, required_columns};
+use super::file::{collect_row_errors, required_columns};
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
@@ -27,6 +27,12 @@ use resolve::{resolve_entity_targets, resolve_input_files};
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
     pub abort_run: bool,
+}
+
+struct PrecheckedInput {
+    input_file: io::format::InputFile,
+    mismatch: check::MismatchOutcome,
+    file_timer: Instant,
 }
 
 pub(super) fn run_entity(
@@ -90,14 +96,6 @@ pub(super) fn run_entity(
     let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
     let collect_raw = true;
 
-    let inputs = read_inputs(
-        input_adapter,
-        entity,
-        &input_files,
-        &normalized_columns,
-        normalize_strategy.as_deref(),
-        collect_raw,
-    )?;
     let resolved_files = input_files
         .iter()
         .map(|input| input.source_uri.clone())
@@ -108,7 +106,7 @@ pub(super) fn run_entity(
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut file_reports = Vec::with_capacity(inputs.len());
+    let mut file_reports = Vec::with_capacity(input_files.len());
     let mut totals = report::ResultsTotals {
         files_total: 0,
         rows_total: 0,
@@ -124,107 +122,94 @@ pub(super) fn run_entity(
         .as_ref()
         .map(|archive| config::resolve_local_path(&context.config_dir, &archive.path));
 
-    let mut file_timings_ms = Vec::with_capacity(inputs.len());
+    let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
     let mut sink_options_warned = false;
     let mut abort_run = false;
-    for input in inputs {
+    let mut prechecked_inputs = Vec::with_capacity(input_files.len());
+    for input_file in input_files {
         let file_timer = Instant::now();
-        let (input_file, input_columns, mut raw_df, mut df) = match input {
-            ReadInput::Data {
-                input_file,
-                input_columns,
-                raw_df,
-                typed_df,
-            } => (input_file, input_columns, raw_df, typed_df),
-            ReadInput::FileError { input_file, error } => {
-                let status = if entity.policy.severity == "abort" {
-                    report::FileStatus::Aborted
-                } else {
-                    report::FileStatus::Rejected
-                };
-                let mismatch_action = if status == report::FileStatus::Aborted {
-                    report::MismatchAction::Aborted
-                } else {
-                    report::MismatchAction::RejectedFile
-                };
+        let input_columns =
+            match input_adapter.read_input_columns(entity, &input_file, &normalized_columns) {
+                Ok(columns) => columns,
+                Err(error) => {
+                    let status = if entity.policy.severity == "abort" {
+                        report::FileStatus::Aborted
+                    } else {
+                        report::FileStatus::Rejected
+                    };
+                    let mismatch_action = if status == report::FileStatus::Aborted {
+                        report::MismatchAction::Aborted
+                    } else {
+                        report::MismatchAction::RejectedFile
+                    };
 
-                let rejected_path = rejected_target
-                    .as_ref()
-                    .map(|target| {
-                        write_rejected_raw_output(
-                            target,
-                            &input_file,
-                            temp_dir.as_ref().map(|dir| dir.path()),
-                            cloud,
-                            &context.storage_resolver,
-                            entity,
-                        )
-                    })
-                    .transpose()?;
+                    let rejected_path = rejected_target
+                        .as_ref()
+                        .map(|target| {
+                            write_rejected_raw_output(
+                                target,
+                                &input_file,
+                                temp_dir.as_ref().map(|dir| dir.path()),
+                                cloud,
+                                &context.storage_resolver,
+                                entity,
+                            )
+                        })
+                        .transpose()?;
 
-                let file_report = report::FileReport {
-                    input_file: input_file.source_uri.clone(),
-                    status,
-                    row_count: 0,
-                    accepted_count: 0,
-                    rejected_count: 0,
-                    mismatch: report::FileMismatch {
-                        declared_columns_count: normalized_columns.len() as u64,
-                        input_columns_count: 0,
-                        missing_columns: Vec::new(),
-                        extra_columns: Vec::new(),
-                        mismatch_action,
-                        error: Some(report::MismatchIssue {
-                            rule: error.rule,
-                            message: format!("entity.name={} {}", entity.name, error.message),
-                        }),
-                        warning: None,
-                    },
-                    output: report::FileOutput {
-                        accepted_path: None,
-                        rejected_path,
-                        errors_path: None,
-                        archived_path: None,
-                    },
-                    validation: report::FileValidation {
-                        errors: 1,
-                        warnings: 0,
-                        rules: Vec::new(),
-                    },
-                };
+                    let file_report = report::FileReport {
+                        input_file: input_file.source_uri.clone(),
+                        status,
+                        row_count: 0,
+                        accepted_count: 0,
+                        rejected_count: 0,
+                        mismatch: report::FileMismatch {
+                            declared_columns_count: normalized_columns.len() as u64,
+                            input_columns_count: 0,
+                            missing_columns: Vec::new(),
+                            extra_columns: Vec::new(),
+                            mismatch_action,
+                            error: Some(report::MismatchIssue {
+                                rule: error.rule,
+                                message: format!("entity.name={} {}", entity.name, error.message),
+                            }),
+                            warning: None,
+                        },
+                        output: report::FileOutput {
+                            accepted_path: None,
+                            rejected_path,
+                            errors_path: None,
+                            archived_path: None,
+                        },
+                        validation: report::FileValidation {
+                            errors: 1,
+                            warnings: 0,
+                            rules: Vec::new(),
+                        },
+                    };
 
-                totals.errors_total += 1;
-                file_reports.push(file_report);
-                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+                    totals.errors_total += 1;
+                    file_reports.push(file_report);
+                    file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
 
-                if status == report::FileStatus::Aborted {
-                    abort_run = true;
-                    break;
+                    if status == report::FileStatus::Aborted {
+                        abort_run = true;
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
-        };
+            };
 
-        let source_stem = input_file.source_stem.as_str();
-        let mismatch = check::apply_schema_mismatch(
-            entity,
-            &normalized_columns,
-            &input_columns,
-            raw_df.as_mut(),
-            &mut df,
-        )?;
+        let mismatch = check::plan_schema_mismatch(entity, &normalized_columns, &input_columns)?;
         if let Some(message) = mismatch.report.warning.as_deref() {
             warnings::emit(message);
         }
-        let row_count = raw_df
-            .as_ref()
-            .map(|df| df.height())
-            .unwrap_or_else(|| df.height()) as u64;
 
         if mismatch.rejected || mismatch.aborted {
             let accepted_path = None;
             let errors_path = None;
+            let row_count = 0;
 
             validate_rejected_target(entity, if mismatch.aborted { "abort" } else { "reject" })?;
             let rejected_target = rejected_target.as_ref().ok_or_else(|| {
@@ -299,6 +284,118 @@ pub(super) fn run_entity(
             continue;
         }
 
+        prechecked_inputs.push(PrecheckedInput {
+            input_file,
+            mismatch,
+            file_timer,
+        });
+    }
+
+    let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
+
+    for prechecked in prechecked_inputs {
+        let PrecheckedInput {
+            input_file,
+            mismatch,
+            file_timer,
+        } = prechecked;
+        let mut inputs = input_adapter.read_inputs(
+            entity,
+            std::slice::from_ref(&input_file),
+            &normalized_columns,
+            normalize_strategy.as_deref(),
+            collect_raw,
+        )?;
+        let input = inputs.pop().ok_or_else(|| {
+            Box::new(RunError(format!(
+                "entity.name={} missing input data",
+                entity.name
+            )))
+        })?;
+        let (input_file, mut raw_df, mut df) = match input {
+            ReadInput::Data {
+                input_file,
+                raw_df,
+                typed_df,
+            } => (input_file, raw_df, typed_df),
+            ReadInput::FileError { input_file, error } => {
+                let status = if entity.policy.severity == "abort" {
+                    report::FileStatus::Aborted
+                } else {
+                    report::FileStatus::Rejected
+                };
+                let mismatch_action = if status == report::FileStatus::Aborted {
+                    report::MismatchAction::Aborted
+                } else {
+                    report::MismatchAction::RejectedFile
+                };
+
+                let rejected_path = rejected_target
+                    .as_ref()
+                    .map(|target| {
+                        write_rejected_raw_output(
+                            target,
+                            &input_file,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            cloud,
+                            &context.storage_resolver,
+                            entity,
+                        )
+                    })
+                    .transpose()?;
+
+                let file_report = report::FileReport {
+                    input_file: input_file.source_uri.clone(),
+                    status,
+                    row_count: 0,
+                    accepted_count: 0,
+                    rejected_count: 0,
+                    mismatch: report::FileMismatch {
+                        declared_columns_count: normalized_columns.len() as u64,
+                        input_columns_count: mismatch.report.input_columns_count,
+                        missing_columns: mismatch.report.missing_columns.clone(),
+                        extra_columns: mismatch.report.extra_columns.clone(),
+                        mismatch_action,
+                        error: Some(report::MismatchIssue {
+                            rule: error.rule,
+                            message: format!("entity.name={} {}", entity.name, error.message),
+                        }),
+                        warning: mismatch.report.warning.clone(),
+                    },
+                    output: report::FileOutput {
+                        accepted_path: None,
+                        rejected_path,
+                        errors_path: None,
+                        archived_path: None,
+                    },
+                    validation: report::FileValidation {
+                        errors: 1 + mismatch.errors,
+                        warnings: mismatch.warnings,
+                        rules: Vec::new(),
+                    },
+                };
+
+                totals.errors_total += 1 + mismatch.errors;
+                totals.warnings_total += mismatch.warnings;
+                file_reports.push(file_report);
+                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+
+                if status == report::FileStatus::Aborted {
+                    abort_run = true;
+                    break;
+                }
+                continue;
+            }
+        };
+
+        check::apply_mismatch_plan(&mismatch, &normalized_columns, raw_df.as_mut(), &mut df)?;
+
+        let row_count = raw_df
+            .as_ref()
+            .map(|df| df.height())
+            .unwrap_or_else(|| df.height()) as u64;
+        let source_stem = input_file.source_stem.as_str();
+
         let raw_df = raw_df.ok_or_else(|| {
             Box::new(RunError(format!(
                 "entity.name={} raw dataframe unavailable for rejection checks",
@@ -315,63 +412,53 @@ pub(super) fn run_entity(
         };
         let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
 
-        let (accept_rows, errors_json, error_lists, row_error_count, violation_count) =
-            if entity.policy.severity == "abort" && cast_total > 0 {
-                let cast_errors = check::cast_mismatch_errors(
+        let mut error_lists = if entity.policy.severity == "abort" && cast_total > 0 {
+            check::cast_mismatch_errors(
+                &raw_df,
+                &df,
+                &normalized_columns,
+                &raw_indices,
+                &typed_indices,
+            )?
+        } else {
+            let not_null_counts = check::not_null_counts(&df, &required_cols)?;
+            let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
+            let quick_total = cast_total + not_null_total;
+
+            if quick_total == 0 {
+                vec![Vec::new(); row_count as usize]
+            } else {
+                collect_row_errors(
                     &raw_df,
                     &df,
+                    &required_cols,
                     &normalized_columns,
+                    track_cast_errors && cast_total > 0,
                     &raw_indices,
                     &typed_indices,
-                )?;
-                let accept_rows = check::build_accept_rows(&cast_errors);
-                let errors_json = check::build_errors_formatted(
-                    &cast_errors,
-                    &accept_rows,
-                    row_error_formatter.as_ref(),
-                );
-                let row_error_count = cast_errors
-                    .iter()
-                    .filter(|errors| !errors.is_empty())
-                    .count() as u64;
-                let violation_count = cast_errors
-                    .iter()
-                    .map(|errors| errors.len() as u64)
-                    .sum::<u64>();
-                (
-                    accept_rows,
-                    errors_json,
-                    cast_errors,
-                    row_error_count,
-                    violation_count,
-                )
-            } else {
-                let not_null_counts = check::not_null_counts(&df, &required_cols)?;
-                let unique_counts = check::unique_counts(&df, &normalized_columns)?;
-                let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
-                let unique_total = unique_counts.iter().map(|(_, count)| *count).sum::<u64>();
-                let quick_total = cast_total + not_null_total + unique_total;
+                )?
+            }
+        };
 
-                if quick_total == 0 {
-                    (vec![true; row_count as usize], Vec::new(), Vec::new(), 0, 0)
-                } else {
-                    let (rows, json, lists) = collect_errors(
-                        &raw_df,
-                        &df,
-                        &required_cols,
-                        &normalized_columns,
-                        track_cast_errors && cast_total > 0,
-                        &raw_indices,
-                        &typed_indices,
-                        row_error_formatter.as_ref(),
-                    )?;
-                    let row_error_count =
-                        lists.iter().filter(|errors| !errors.is_empty()).count() as u64;
-                    let violation_count =
-                        lists.iter().map(|errors| errors.len() as u64).sum::<u64>();
-                    (rows, json, lists, row_error_count, violation_count)
-                }
-            };
+        if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
+            let unique_errors = unique_tracker.apply(&df, &normalized_columns)?;
+            for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
+                errors.extend(unique);
+            }
+        }
+
+        let accept_rows = check::build_accept_rows(&error_lists);
+        let errors_json =
+            check::build_errors_formatted(&error_lists, &accept_rows, row_error_formatter.as_ref());
+        let row_error_count = error_lists
+            .iter()
+            .filter(|errors| !errors.is_empty())
+            .count() as u64;
+        let violation_count = error_lists
+            .iter()
+            .map(|errors| errors.len() as u64)
+            .sum::<u64>();
+
         drop(raw_df);
         let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
         let reject_count = row_count.saturating_sub(accept_count);
@@ -610,6 +697,11 @@ pub(super) fn run_entity(
         totals.warnings_total += warnings;
         file_reports.push(file_report);
         file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+
+        if status == report::FileStatus::Aborted {
+            abort_run = true;
+            break;
+        }
     }
 
     totals.files_total = file_reports.len() as u64;

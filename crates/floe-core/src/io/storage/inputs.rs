@@ -138,6 +138,15 @@ mod tests {
             Ok(vec![".csv".to_string()])
         }
 
+        fn read_input_columns(
+            &self,
+            _entity: &config::EntityConfig,
+            _input_file: &io::format::InputFile,
+            _columns: &[config::ColumnConfig],
+        ) -> Result<Vec<String>, io::format::FileReadError> {
+            Ok(vec!["id".to_string()])
+        }
+
         fn read_inputs(
             &self,
             _entity: &config::EntityConfig,

@@ -14,14 +14,16 @@ pub struct MismatchOutcome {
     pub aborted: bool,
     pub warnings: u64,
     pub errors: u64,
+    pub missing: Vec<String>,
+    pub extra: Vec<String>,
+    pub fill_missing: bool,
+    pub ignore_extra: bool,
 }
 
-pub fn apply_schema_mismatch(
+pub fn plan_schema_mismatch(
     entity: &config::EntityConfig,
     declared_columns: &[config::ColumnConfig],
     input_names: &[String],
-    mut raw_df: Option<&mut DataFrame>,
-    typed_df: &mut DataFrame,
 ) -> FloeResult<MismatchOutcome> {
     let normalize_strategy = crate::run::normalize::resolve_normalize_strategy(entity)?;
     let declared_names = declared_columns
@@ -96,31 +98,20 @@ pub fn apply_schema_mismatch(
     }
 
     let mut errors = 0;
+    let mut fill_missing = false;
+    let mut ignore_extra = false;
     if rejected || aborted {
         errors = 1;
     } else {
-        let mut filled = false;
-        let mut ignored = false;
         if effective_missing == "fill_nulls" && !missing.is_empty() {
-            if let Some(raw_df) = raw_df.as_mut() {
-                add_missing_columns(raw_df, typed_df, declared_columns, &missing)?;
-            } else {
-                add_missing_columns_typed(typed_df, declared_columns, &missing)?;
-            }
-            filled = true;
+            fill_missing = true;
+            action = report::MismatchAction::FilledNulls;
         }
         if effective_extra == "ignore" && !extra.is_empty() {
-            if let Some(raw_df) = raw_df.as_mut() {
-                drop_extra_columns(raw_df, typed_df, &extra)?;
-            } else {
-                drop_extra_columns_typed(typed_df, &extra)?;
+            ignore_extra = true;
+            if !fill_missing {
+                action = report::MismatchAction::IgnoredExtras;
             }
-            ignored = true;
-        }
-        if filled {
-            action = report::MismatchAction::FilledNulls;
-        } else if ignored {
-            action = report::MismatchAction::IgnoredExtras;
         }
     }
 
@@ -155,7 +146,48 @@ pub fn apply_schema_mismatch(
         aborted,
         warnings,
         errors,
+        missing,
+        extra,
+        fill_missing,
+        ignore_extra,
     })
+}
+
+pub fn apply_schema_mismatch(
+    entity: &config::EntityConfig,
+    declared_columns: &[config::ColumnConfig],
+    input_names: &[String],
+    raw_df: Option<&mut DataFrame>,
+    typed_df: &mut DataFrame,
+) -> FloeResult<MismatchOutcome> {
+    let plan = plan_schema_mismatch(entity, declared_columns, input_names)?;
+    if !plan.rejected && !plan.aborted {
+        apply_mismatch_plan(&plan, declared_columns, raw_df, typed_df)?;
+    }
+    Ok(plan)
+}
+
+pub fn apply_mismatch_plan(
+    plan: &MismatchOutcome,
+    declared_columns: &[config::ColumnConfig],
+    mut raw_df: Option<&mut DataFrame>,
+    typed_df: &mut DataFrame,
+) -> FloeResult<()> {
+    if plan.fill_missing {
+        if let Some(raw_df) = raw_df.as_mut() {
+            add_missing_columns(raw_df, typed_df, declared_columns, &plan.missing)?;
+        } else {
+            add_missing_columns_typed(typed_df, declared_columns, &plan.missing)?;
+        }
+    }
+    if plan.ignore_extra {
+        if let Some(raw_df) = raw_df.as_mut() {
+            drop_extra_columns(raw_df, typed_df, &plan.extra)?;
+        } else {
+            drop_extra_columns_typed(typed_df, &plan.extra)?;
+        }
+    }
+    Ok(())
 }
 
 fn add_missing_columns(

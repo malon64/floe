@@ -141,6 +141,24 @@ impl StorageClient for S3Client {
             Ok(())
         })
     }
+
+    fn delete(&self, key: &str) -> FloeResult<()> {
+        let bucket = self.bucket().to_string();
+        let key = key.to_string();
+        self.runtime.block_on(async move {
+            self.client
+                .delete_object()
+                .bucket(bucket)
+                .key(key)
+                .send()
+                .await
+                .map_err(|err| {
+                    Box::new(StorageError(format!("s3 delete object failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            Ok(())
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

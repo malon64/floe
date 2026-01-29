@@ -58,6 +58,11 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
         if let Target::Local { base_path, .. } = target {
             clear_local_output_dir(base_path)?;
+        } else if let Target::S3 {
+            storage, base_key, ..
+        } = target
+        {
+            clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
         }
         io::storage::output::write_output(
             target,
@@ -85,6 +90,37 @@ fn clear_local_output_dir(base_path: &str) -> FloeResult<()> {
         }
     }
     std::fs::create_dir_all(path)?;
+    Ok(())
+}
+
+fn clear_s3_output_prefix(
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    storage: &str,
+    base_key: &str,
+    sample_filename: &str,
+) -> FloeResult<()> {
+    let prefix = base_key.trim_matches('/');
+    if prefix.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.path must not be bucket root for s3 outputs",
+            entity.name
+        ))));
+    }
+    let client = cloud.client_for(resolver, storage, entity)?;
+    let mut keys = client.list(prefix)?;
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
+    keys.retain(|key| key.starts_with(prefix) && !key.is_empty());
+    if keys.len() == 1 && keys[0] == sample {
+        return Ok(());
+    }
+    for key in keys {
+        client.delete(&key)?;
+    }
     Ok(())
 }
 

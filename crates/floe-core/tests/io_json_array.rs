@@ -59,7 +59,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        array: true
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -105,7 +105,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        array: true
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -161,7 +161,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        array: true
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -184,7 +184,7 @@ entities:
     let outcome = run_config(&config_path);
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
-    assert_eq!(file.mismatch.mismatch_action, MismatchAction::IgnoredExtras);
+    assert_eq!(file.mismatch.mismatch_action, MismatchAction::None);
 
     let output_path = accepted_dir.join("input.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
@@ -214,7 +214,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        array: true
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"
@@ -264,7 +264,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        array: true
+        json_mode: "array"
     sink:
       accepted:
         format: "parquet"

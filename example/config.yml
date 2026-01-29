@@ -83,7 +83,7 @@ entities:
       format: "json"
       path: "./in/orders"
       options:
-        array: true
+        json_mode: "array"
       cast_mode: "strict"   # strict | coerce
 
     sink:

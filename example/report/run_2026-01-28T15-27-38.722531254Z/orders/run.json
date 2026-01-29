@@ -19,7 +19,7 @@
     "options": {
       "encoding": "UTF8",
       "header": true,
-      "ndjson": true,
+      "json_mode": "array",
       "null_values": [],
       "recursive": false,
       "separator": ";"

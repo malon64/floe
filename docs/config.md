@@ -96,8 +96,7 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - `null_values`: `[]`
     - `recursive`: `false`
     - `glob`: (none; default is based on `source.format`)
-    - `ndjson`: `false`
-    - `array`: `false`
+    - `json_mode`: `"array"`
   - `glob` (optional)
     - Used only when `source.path` is a directory.
     - Overrides the default file pattern for the source format:
@@ -107,13 +106,10 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).
-  - `ndjson` (optional)
-    - Set to `true` to enable NDJSON ingestion when `source.format: json`.
-    - NDJSON lines must be flat objects; nested objects/arrays are rejected.
-  - `array` (optional)
-    - Set to `true` to enable JSON array ingestion when `source.format: json`.
-    - JSON arrays must contain flat objects; nested objects/arrays are rejected.
-    - `ndjson` and `array` are mutually exclusive; one must be `true`.
+  - `json_mode` (optional)
+    - `array` (default): JSON array ingestion when `source.format: json`.
+    - `ndjson`: newline-delimited JSON ingestion.
+    - JSON values must be flat objects; nested objects/arrays are rejected.
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).

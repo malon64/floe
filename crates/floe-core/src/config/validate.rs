@@ -63,19 +63,17 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
 
     if entity.source.format == "json" {
         let options = entity.source.options.as_ref();
-        let ndjson = options.and_then(|options| options.ndjson).unwrap_or(false);
-        let array = options.and_then(|options| options.array).unwrap_or(false);
-        if ndjson && array {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} source.options.ndjson and source.options.array are mutually exclusive",
-                entity.name,
-            ))));
-        }
-        if !(ndjson || array) {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} source.format=json requires source.options.ndjson=true or source.options.array=true",
-                entity.name
-            ))));
+        let mode = options
+            .and_then(|options| options.json_mode.as_deref())
+            .unwrap_or("array");
+        match mode {
+            "array" | "ndjson" => {}
+            _ => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.options.json_mode={} is unsupported (allowed: array, ndjson)",
+                    entity.name, mode
+                ))));
+            }
         }
     }
 

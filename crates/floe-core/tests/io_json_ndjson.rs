@@ -59,7 +59,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        ndjson: true
+        json_mode: "ndjson"
     sink:
       accepted:
         format: "parquet"
@@ -118,7 +118,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        ndjson: true
+        json_mode: "ndjson"
     sink:
       accepted:
         format: "parquet"
@@ -171,7 +171,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        ndjson: true
+        json_mode: "ndjson"
     sink:
       accepted:
         format: "parquet"
@@ -225,7 +225,7 @@ entities:
       format: "json"
       path: "{input_dir}"
       options:
-        ndjson: true
+        json_mode: "ndjson"
     sink:
       accepted:
         format: "parquet"

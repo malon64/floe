@@ -162,11 +162,8 @@ pub(super) fn source_options_json(options: &config::SourceOptions) -> Value {
     if let Some(glob) = &options.glob {
         map.insert("glob".to_string(), Value::String(glob.clone()));
     }
-    if let Some(ndjson) = options.ndjson {
-        map.insert("ndjson".to_string(), Value::Bool(ndjson));
-    }
-    if let Some(array) = options.array {
-        map.insert("array".to_string(), Value::Bool(array));
+    if let Some(json_mode) = &options.json_mode {
+        map.insert("json_mode".to_string(), Value::String(json_mode.clone()));
     }
     Value::Object(map)
 }

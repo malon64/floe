@@ -158,7 +158,6 @@ fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
 
     let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::with_capacity(array.len());
     let mut columns = Vec::new();
-    let mut known_columns = HashSet::new();
 
     for (idx, value) in array.iter().enumerate() {
         let object = value.as_object().ok_or_else(|| JsonReadError {
@@ -169,9 +168,7 @@ fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
         let mut row = BTreeMap::new();
         if columns.is_empty() {
             for key in object.keys() {
-                if known_columns.insert(key.clone()) {
-                    columns.push(key.clone());
-                }
+                columns.push(key.clone());
             }
         }
 
@@ -193,9 +190,6 @@ fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
                 _ => None,
             };
             row.insert(key.clone(), cell);
-            if known_columns.insert(key.clone()) {
-                columns.push(key.clone());
-            }
         }
         rows.push(row);
     }
@@ -273,26 +267,22 @@ impl InputAdapter for JsonInputAdapter {
         input_file: &InputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
-        let json_mode = entity.source.options.as_ref().map(|options| {
-            (
-                options.ndjson.unwrap_or(false),
-                options.array.unwrap_or(false),
-            )
-        });
+        let json_mode = entity
+            .source
+            .options
+            .as_ref()
+            .and_then(|options| options.json_mode.as_deref())
+            .unwrap_or("array");
         let path = &input_file.source_local_path;
         let read_result = match json_mode {
-            Some((true, false)) => read_ndjson_columns(path),
-            Some((false, true)) => read_json_array_columns(path),
-            Some((true, true)) => Err(JsonReadError {
+            "ndjson" => read_ndjson_columns(path),
+            "array" => read_json_array_columns(path),
+            other => Err(JsonReadError {
                 rule: "json_parse_error".to_string(),
-                message: "source.options.ndjson and source.options.array are mutually exclusive"
-                    .to_string(),
-            }),
-            _ => Err(JsonReadError {
-                rule: "json_parse_error".to_string(),
-                message:
-                    "source.format=json requires source.options.ndjson=true or source.options.array=true"
-                        .to_string(),
+                message: format!(
+                    "unsupported source.options.json_mode={} (allowed: array, ndjson)",
+                    other
+                ),
             }),
         };
         read_result.map_err(|err| FileReadError {
@@ -310,26 +300,23 @@ impl InputAdapter for JsonInputAdapter {
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
-        let json_mode = entity.source.options.as_ref().map(|options| {
-            (
-                options.ndjson.unwrap_or(false),
-                options.array.unwrap_or(false),
-            )
-        });
+        let json_mode = entity
+            .source
+            .options
+            .as_ref()
+            .and_then(|options| options.json_mode.as_deref())
+            .unwrap_or("array");
         for input_file in files {
             let path = &input_file.source_local_path;
             let read_result = match json_mode {
-                Some((true, false)) => read_ndjson_file(path),
-                Some((false, true)) => read_json_array_file(path),
-                Some((true, true)) => Err(JsonReadError {
+                "ndjson" => read_ndjson_file(path),
+                "array" => read_json_array_file(path),
+                other => Err(JsonReadError {
                     rule: "json_parse_error".to_string(),
-                    message: "source.options.ndjson and source.options.array are mutually exclusive"
-                        .to_string(),
-                }),
-                _ => Err(JsonReadError {
-                    rule: "json_parse_error".to_string(),
-                    message: "source.format=json requires source.options.ndjson=true or source.options.array=true"
-                        .to_string(),
+                    message: format!(
+                        "unsupported source.options.json_mode={} (allowed: array, ndjson)",
+                        other
+                    ),
                 }),
             };
             match read_result {

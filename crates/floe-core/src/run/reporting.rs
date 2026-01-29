@@ -165,6 +165,9 @@ pub(super) fn source_options_json(options: &config::SourceOptions) -> Value {
     if let Some(ndjson) = options.ndjson {
         map.insert("ndjson".to_string(), Value::Bool(ndjson));
     }
+    if let Some(array) = options.array {
+        map.insert("array".to_string(), Value::Bool(array));
+    }
     Value::Object(map)
 }
 

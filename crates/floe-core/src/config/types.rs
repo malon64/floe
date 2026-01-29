@@ -61,6 +61,7 @@ pub struct SourceOptions {
     pub recursive: Option<bool>,
     pub glob: Option<String>,
     pub ndjson: Option<bool>,
+    pub array: Option<bool>,
 }
 
 impl Default for SourceOptions {
@@ -73,6 +74,7 @@ impl Default for SourceOptions {
             recursive: Some(false),
             glob: None,
             ndjson: Some(false),
+            array: Some(false),
         }
     }
 }

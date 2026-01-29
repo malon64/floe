@@ -30,7 +30,7 @@ impl std::fmt::Display for JsonReadError {
 
 impl std::error::Error for JsonReadError {}
 
-pub fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
+fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
     let content = std::fs::read_to_string(input_path).map_err(|err| JsonReadError {
         rule: "json_parse_error".to_string(),
         message: format!("failed to read json at {}: {err}", input_path.display()),
@@ -77,13 +77,82 @@ pub fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
         rows.push(row);
     }
 
-    let mut columns = keys.into_iter().collect::<Vec<_>>();
+    let mut columns = keys.into_iter().collect::<Vec<String>>();
     columns.sort();
 
+    build_dataframe(&columns, &rows)
+}
+
+fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
+    let content = std::fs::read_to_string(input_path).map_err(|err| JsonReadError {
+        rule: "json_parse_error".to_string(),
+        message: format!("failed to read json at {}: {err}", input_path.display()),
+    })?;
+
+    let value: Value = serde_json::from_str(&content).map_err(|err| JsonReadError {
+        rule: "json_parse_error".to_string(),
+        message: format!("json parse error: {err}"),
+    })?;
+    let array = value.as_array().ok_or_else(|| JsonReadError {
+        rule: "json_parse_error".to_string(),
+        message: "expected json array at root".to_string(),
+    })?;
+
+    let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::with_capacity(array.len());
+    let mut columns = Vec::new();
+    let mut known_columns = HashSet::new();
+
+    for (idx, value) in array.iter().enumerate() {
+        let object = value.as_object().ok_or_else(|| JsonReadError {
+            rule: "json_parse_error".to_string(),
+            message: format!("expected json object at index {}", idx),
+        })?;
+
+        let mut row = BTreeMap::new();
+        if columns.is_empty() {
+            for key in object.keys() {
+                if known_columns.insert(key.clone()) {
+                    columns.push(key.clone());
+                }
+            }
+        }
+
+        for (key, value) in object {
+            if value.is_object() || value.is_array() {
+                return Err(JsonReadError {
+                    rule: "json_unsupported_value".to_string(),
+                    message: format!(
+                        "nested json values are not supported (index {}, key {})",
+                        idx, key
+                    ),
+                });
+            }
+            let cell = match value {
+                Value::Null => None,
+                Value::String(value) => Some(value.clone()),
+                Value::Bool(value) => Some(value.to_string()),
+                Value::Number(value) => Some(value.to_string()),
+                _ => None,
+            };
+            row.insert(key.clone(), cell);
+            if known_columns.insert(key.clone()) {
+                columns.push(key.clone());
+            }
+        }
+        rows.push(row);
+    }
+
+    build_dataframe(&columns, &rows)
+}
+
+fn build_dataframe(
+    columns: &[String],
+    rows: &[BTreeMap<String, Option<String>>],
+) -> Result<DataFrame, JsonReadError> {
     let mut series = Vec::with_capacity(columns.len());
-    for name in &columns {
+    for name in columns {
         let mut values = Vec::with_capacity(rows.len());
-        for row in &rows {
+        for row in rows {
             values.push(row.get(name).cloned().unwrap_or(None));
         }
         series.push(Series::new(name.as_str().into(), values).into());
@@ -172,16 +241,35 @@ impl InputAdapter for JsonInputAdapter {
 
     fn read_inputs(
         &self,
-        _entity: &config::EntityConfig,
+        entity: &config::EntityConfig,
         files: &[InputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
+        let json_mode = entity
+            .source
+            .options
+            .as_ref()
+            .map(|options| (options.ndjson.unwrap_or(false), options.array.unwrap_or(false)));
         for input_file in files {
             let path = &input_file.source_local_path;
-            match read_ndjson_file(path) {
+            let read_result = match json_mode {
+                Some((true, false)) => read_ndjson_file(path),
+                Some((false, true)) => read_json_array_file(path),
+                Some((true, true)) => Err(JsonReadError {
+                    rule: "json_parse_error".to_string(),
+                    message: "source.options.ndjson and source.options.array are mutually exclusive"
+                        .to_string(),
+                }),
+                _ => Err(JsonReadError {
+                    rule: "json_parse_error".to_string(),
+                    message: "source.format=json requires source.options.ndjson=true or source.options.array=true"
+                        .to_string(),
+                }),
+            };
+            match read_result {
                 Ok(df) => {
                     let input = format::read_input_from_df(
                         input_file,

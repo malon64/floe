@@ -150,6 +150,8 @@ $defs:
         type: string
       ndjson:
         type: boolean
+      array:
+        type: boolean
 
   sink:
     type: object

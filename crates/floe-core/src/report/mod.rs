@@ -123,6 +123,9 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub part_files: Vec<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table_version: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,6 +480,7 @@ mod tests {
                 accepted_rows: 10,
                 parts_written: 1,
                 part_files: vec!["part-00000.parquet".to_string()],
+                table_version: None,
             },
             results: ResultsTotals {
                 files_total: 1,

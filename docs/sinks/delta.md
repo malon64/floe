@@ -17,5 +17,6 @@ entities:
 
 Semantics:
 - `sink.accepted.format: delta` writes a Delta table at `sink.accepted.path`.
-- Write mode is `overwrite` (the table at the path is replaced on each run).
+- Write mode is `overwrite` via Delta transactions (a new `_delta_log` version is
+  committed; history is preserved).
 - Local storage only (S3 is not supported yet for delta output).

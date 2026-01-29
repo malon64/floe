@@ -16,6 +16,7 @@ pub(super) struct RunReportContext<'a> {
     pub severity: report::Severity,
     pub accepted_parts_written: u64,
     pub accepted_part_files: Vec<String>,
+    pub accepted_table_version: Option<i64>,
 }
 
 pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
@@ -74,6 +75,7 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
             accepted_rows: ctx.totals.accepted_total,
             parts_written: ctx.accepted_parts_written,
             part_files: ctx.accepted_part_files,
+            table_version: ctx.accepted_table_version,
         },
         results: ctx.totals,
         files: ctx.file_reports,

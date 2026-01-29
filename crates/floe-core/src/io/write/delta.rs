@@ -25,7 +25,7 @@ pub(crate) fn delta_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &DELTA_ACCEPTED_ADAPTER
 }
 
-pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<PathBuf> {
+pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<(PathBuf, i64)> {
     let table_path = Path::new(base_path).to_path_buf();
     std::fs::create_dir_all(&table_path)?;
 
@@ -40,18 +40,23 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<Path
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-    runtime
+    let version = runtime
         .block_on(async move {
             let table = DeltaTable::try_from_url(table_uri).await?;
-            table
+            let table = table
                 .write(vec![batch])
                 .with_save_mode(SaveMode::Overwrite)
                 .await?;
-            Ok::<(), deltalake::DeltaTableError>(())
+            let version = table.version().ok_or_else(|| {
+                deltalake::DeltaTableError::Generic(
+                    "delta table version missing after write".to_string(),
+                )
+            })?;
+            Ok::<i64, deltalake::DeltaTableError>(version)
         })
         .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?;
 
-    Ok(table_path)
+    Ok((table_path, version))
 }
 
 impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
@@ -67,10 +72,11 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
     ) -> FloeResult<AcceptedWriteOutput> {
         match target {
             Target::Local { base_path, .. } => {
-                write_delta_table(df, base_path)?;
+                let (_path, version) = write_delta_table(df, base_path)?;
                 Ok(AcceptedWriteOutput {
                     parts_written: 1,
                     part_files: Vec::new(),
+                    table_version: Some(version),
                 })
             }
             Target::S3 { .. } => Err(Box::new(ConfigError(format!(
@@ -184,8 +190,7 @@ mod tests {
             "id" => &[1i64, 2, 3],
             "name" => &["a", "b", "c"]
         )?;
-
-        write_delta_table(&mut df, table_path.to_str().unwrap())?;
+        let (_path, version1) = write_delta_table(&mut df, table_path.to_str().unwrap())?;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -212,6 +217,28 @@ mod tests {
             row_count += df_read.height();
         }
         assert_eq!(row_count, df.height());
+
+        let mut df_overwrite = df!(
+            "id" => &[4i64, 5],
+            "name" => &["d", "e"]
+        )?;
+        let (_path, version2) = write_delta_table(&mut df_overwrite, table_path.to_str().unwrap())?;
+        assert!(version2 > version1);
+
+        let table_url = Url::from_directory_path(&table_path)
+            .map_err(|_| Box::new(RunError("delta test path is not a valid url".to_string())))?;
+        let table = runtime
+            .block_on(async { deltalake::open_table(table_url).await })
+            .map_err(|err| Box::new(RunError(format!("delta test open failed: {err}"))))?;
+        assert!(table.version().unwrap_or(0) >= version2);
+
+        let log_dir = table_path.join("_delta_log");
+        assert!(log_dir.exists());
+        let log_entries = std::fs::read_dir(&log_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .count();
+        assert!(log_entries >= 2);
 
         Ok(())
     }

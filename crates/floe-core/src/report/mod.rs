@@ -120,6 +120,7 @@ pub struct AcceptedOutputSummary {
     pub path: String,
     pub accepted_rows: u64,
     pub parts_written: u64,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub part_files: Vec<String>,
 }

@@ -38,6 +38,8 @@ jobs:
           RUST_TEST_THREADS: "1"
           RUSTFLAGS: "-C debuginfo=0"
         run: |
-          cargo test -p floe-core --tests
+          cargo test -p floe-core --test config
+          cargo test -p floe-core --test io
+          cargo test -p floe-core --test run
           cargo test -p floe-core --doc
           cargo test -p floe-cli --tests

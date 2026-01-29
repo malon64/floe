@@ -214,3 +214,41 @@ entities:
     let msg = err.to_string();
     assert!(msg.contains("entity.name=customer references unknown domain missing"));
 }
+
+#[test]
+fn duplicate_domain_names_error() {
+    let root = temp_dir("floe-duplicate-domain");
+    let config_yaml = format!(
+        r#"version: "0.1"
+domains:
+  - name: "sales"
+    incoming_dir: "/data/sales"
+  - name: "sales"
+    incoming_dir: "/data/sales_v2"
+report:
+  path: "{root}/out"
+entities:
+  - name: "customer"
+    domain: "sales"
+    source:
+      format: "csv"
+      path: "/tmp"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{root}/out/accepted"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        root = root.display(),
+    );
+    let config_path = write_config(&root, &config_yaml);
+
+    let err = load_config(&config_path).expect_err("duplicate domain error");
+    let msg = err.to_string();
+    assert!(msg.contains("duplicate domain name sales"));
+}

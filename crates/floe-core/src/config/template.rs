@@ -15,7 +15,15 @@ pub fn apply_templates(config: &mut RootConfig, config_dir: &Path) -> FloeResult
         let resolved =
             replace_placeholders(&domain.incoming_dir, &vars, "domains.incoming_dir", None)?;
         domain.resolved_incoming_dir = Some(resolved.clone());
-        domain_lookup.insert(domain.name.clone(), resolved);
+        if domain_lookup
+            .insert(domain.name.clone(), resolved)
+            .is_some()
+        {
+            return Err(Box::new(ConfigError(format!(
+                "duplicate domain name {}",
+                domain.name
+            ))));
+        }
     }
 
     if let Some(report) = config.report.as_mut() {

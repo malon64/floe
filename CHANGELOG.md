@@ -2,6 +2,13 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.1.6
+
+- Added JSON array input mode alongside NDJSON, with config validation updates.
+- Added entity-level accepted output with part files and cleared stale S3 outputs.
+- Enforced validation order (file → row → entity) and fixed unique checks by rechunking.
+- Expanded and reorganized core test suites (grouped modules) and improved CI test caching.
+
 ## v0.1.5
 
 - Refactored storage configuration and IO to use a shared storage client abstraction.

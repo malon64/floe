@@ -227,6 +227,11 @@ mod tests {
             policy: report::PolicyEcho {
                 severity: report::Severity::Reject,
             },
+            accepted_output: report::AcceptedOutputSummary {
+                path: "/tmp/out/accepted".to_string(),
+                accepted_rows: 8,
+                parts_written: 1,
+            },
             results: report::ResultsTotals {
                 files_total: 1,
                 rows_total: 10,
@@ -251,7 +256,7 @@ mod tests {
                     warning: None,
                 },
                 output: report::FileOutput {
-                    accepted_path: Some("/tmp/out/accepted/customers.parquet".to_string()),
+                    accepted_path: Some("/tmp/out/accepted".to_string()),
                     rejected_path: Some("/tmp/out/rejected/customers.rejected.csv".to_string()),
                     errors_path: None,
                     archived_path: None,
@@ -330,7 +335,7 @@ mod tests {
             "run id: run-123",
             "report base: /tmp/reports",
             "==> entity customer (severity=reject, format=csv)",
-            "  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=customers.parquet rejected_out=customers.rejected.csv",
+            "  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=accepted rejected_out=customers.rejected.csv",
             "Totals: files=1 rows=10 accepted=8 rejected=2",
             "Overall: rejected (exit_code=0)",
             "Run summary: /tmp/reports/run_run-123/run.summary.json",

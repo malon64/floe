@@ -49,16 +49,19 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         &self,
         target: &Target,
         df: &mut DataFrame,
-        source_stem: &str,
+        output_stem: &str,
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<String> {
-        let filename = io::storage::paths::build_output_filename(source_stem, "", "parquet");
+        let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
+        if let Target::Local { base_path, .. } = target {
+            clear_local_output_dir(base_path)?;
+        }
         io::storage::output::write_output(
             target,
-            io::storage::output::OutputPlacement::Output,
+            io::storage::output::OutputPlacement::Directory,
             &filename,
             temp_dir,
             cloud,
@@ -67,6 +70,22 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             |path| write_parquet_to_path(df, path, entity.sink.accepted.options.as_ref()),
         )
     }
+}
+
+fn clear_local_output_dir(base_path: &str) -> FloeResult<()> {
+    let path = Path::new(base_path);
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    if path.exists() {
+        if path.is_file() {
+            std::fs::remove_file(path)?;
+        } else {
+            std::fs::remove_dir_all(path)?;
+        }
+    }
+    std::fs::create_dir_all(path)?;
+    Ok(())
 }
 
 fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {

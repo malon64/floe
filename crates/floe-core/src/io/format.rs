@@ -83,7 +83,7 @@ pub trait AcceptedSinkAdapter: Send + Sync {
         &self,
         target: &Target,
         df: &mut DataFrame,
-        source_stem: &str,
+        output_stem: &str,
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,

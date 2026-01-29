@@ -11,14 +11,14 @@ pub(super) fn write_accepted_output(
     format: &str,
     target: &Target,
     df: &mut DataFrame,
-    source_stem: &str,
+    output_stem: &str,
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<String> {
     let adapter = format::accepted_sink_adapter(format)?;
-    adapter.write_accepted(target, df, source_stem, temp_dir, cloud, resolver, entity)
+    adapter.write_accepted(target, df, output_stem, temp_dir, cloud, resolver, entity)
 }
 pub(super) fn write_rejected_output(
     format: &str,

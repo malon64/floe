@@ -92,7 +92,7 @@ More CLI details: [docs/cli.md](docs/cli.md)
 run id: run-123
 report base: ./reports
 ==> entity customer (severity=reject, format=csv)
-  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=customers.parquet rejected_out=customers_rejected.csv
+  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=customer rejected_out=customers_rejected.csv
 Totals: files=1 rows=10 accepted=8 rejected=2
 Overall: rejected (exit_code=0)
 Run summary: ./reports/run_run-123/run.summary.json

@@ -95,8 +95,13 @@ entities:
     let outcome = run_config(&config_path);
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.files.len(), 2);
-    assert!(accepted_dir.join("a.parquet").exists());
-    assert!(accepted_dir.join("b.parquet").exists());
+    let output_path = accepted_dir.join("part-00000.parquet");
+    assert!(output_path.exists());
+    let file = std::fs::File::open(&output_path).expect("open accepted parquet");
+    let df = ParquetReader::new(file)
+        .finish()
+        .expect("read accepted parquet");
+    assert_eq!(df.height(), 2);
 }
 
 #[test]
@@ -144,7 +149,7 @@ entities:
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
 
-    let output_path = accepted_dir.join("input.parquet");
+    let output_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
     let df = ParquetReader::new(file)
         .finish()
@@ -200,7 +205,7 @@ entities:
     let file = &outcome.entity_outcomes[0].report.files[0];
     assert_eq!(file.status, FileStatus::Success);
 
-    let output_path = accepted_dir.join("input.parquet");
+    let output_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&output_path).expect("open output parquet");
     let df = ParquetReader::new(file)
         .finish()

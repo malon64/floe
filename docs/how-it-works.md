@@ -42,6 +42,12 @@ After row-level validation, uniqueness is evaluated across the **entire entity**
 in file order. The first occurrence is accepted; later duplicates are flagged.
 This is the only entity-level check in v0.1/v0.2.
 
+### E) Entity-level accepted output (across files)
+
+Accepted rows from all input files are concatenated in file order and written
+once to the accepted sink. For parquet sinks, Floe writes a dataset directory
+containing `part-00000.parquet` (and additional parts in future chunking).
+
 ## Severity behavior
 
 - **warn**: keep rows, emit warnings and error reports.
@@ -52,6 +58,7 @@ This is the only entity-level check in v0.1/v0.2.
 
 - `files[].mismatch`: file-level precheck outcome (missing/extra + action).
 - `files[].validation`: row-level + entity-level checks (cast/not_null/unique).
+- `accepted_output`: entity-level accepted dataset summary (path + parts).
 - `results`: totals aggregated across files and checks.
 
 See `docs/report.md` for the report schema and `docs/checks.md` for rule details.

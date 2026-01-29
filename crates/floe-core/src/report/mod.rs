@@ -14,6 +14,7 @@ pub struct RunReport {
     pub source: SourceEcho,
     pub sink: SinkEcho,
     pub policy: PolicyEcho,
+    pub accepted_output: AcceptedOutputSummary,
     pub results: ResultsTotals,
     pub files: Vec<FileReport>,
 }
@@ -111,6 +112,14 @@ pub struct SinkEcho {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rejected: Option<SinkTargetEcho>,
     pub archive: SinkArchiveEcho,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AcceptedOutputSummary {
+    pub path: String,
+    pub accepted_rows: u64,
+    pub parts_written: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -460,6 +469,11 @@ mod tests {
             policy: PolicyEcho {
                 severity: Severity::Warn,
             },
+            accepted_output: AcceptedOutputSummary {
+                path: "/tmp/out/accepted".to_string(),
+                accepted_rows: 10,
+                parts_written: 1,
+            },
             results: ResultsTotals {
                 files_total: 1,
                 rows_total: 10,
@@ -484,7 +498,7 @@ mod tests {
                     warning: None,
                 },
                 output: FileOutput {
-                    accepted_path: Some("/tmp/out/accepted/file.parquet".to_string()),
+                    accepted_path: Some("/tmp/out/accepted".to_string()),
                     rejected_path: None,
                     errors_path: None,
                     archived_path: None,
@@ -559,6 +573,7 @@ mod tests {
         assert!(object.contains_key("source"));
         assert!(object.contains_key("sink"));
         assert!(object.contains_key("policy"));
+        assert!(object.contains_key("accepted_output"));
         assert!(object.contains_key("results"));
         assert!(object.contains_key("files"));
     }

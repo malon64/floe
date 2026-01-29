@@ -59,7 +59,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         &self,
         target: &Target,
         df: &mut DataFrame,
-        _source_stem: &str,
+        _output_stem: &str,
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,
         _resolver: &config::StorageResolver,

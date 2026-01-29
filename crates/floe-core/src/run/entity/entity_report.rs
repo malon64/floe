@@ -14,6 +14,7 @@ pub(super) struct RunReportContext<'a> {
     pub totals: report::ResultsTotals,
     pub file_reports: Vec<report::FileReport>,
     pub severity: report::Severity,
+    pub accepted_parts_written: u64,
 }
 
 pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
@@ -66,6 +67,11 @@ pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
         },
         policy: report::PolicyEcho {
             severity: ctx.severity,
+        },
+        accepted_output: report::AcceptedOutputSummary {
+            path: ctx.resolved_targets.accepted.target_uri().to_string(),
+            accepted_rows: ctx.totals.accepted_total,
+            parts_written: ctx.accepted_parts_written,
         },
         results: ctx.totals,
         files: ctx.file_reports,

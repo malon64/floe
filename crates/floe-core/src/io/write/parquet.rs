@@ -77,7 +77,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             let avg_row_size = if estimated_size == 0 {
                 1
             } else {
-                (estimated_size + total_rows as u64 - 1) / total_rows as u64
+                estimated_size.div_ceil(total_rows as u64)
             };
             let max_rows = std::cmp::max(1, max_size_per_file / avg_row_size) as usize;
             let mut offset = 0usize;

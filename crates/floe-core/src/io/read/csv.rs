@@ -6,7 +6,7 @@ use polars::prelude::{
 };
 
 use crate::errors::{IoError, RunError};
-use crate::io::format::{self, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct CsvInputAdapter;
@@ -78,6 +78,22 @@ impl InputAdapter for CsvInputAdapter {
         "csv"
     }
 
+    fn read_input_columns(
+        &self,
+        entity: &config::EntityConfig,
+        input_file: &InputFile,
+        columns: &[config::ColumnConfig],
+    ) -> Result<Vec<String>, FileReadError> {
+        let default_options = config::SourceOptions::default();
+        let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
+        resolve_input_columns(&input_file.source_local_path, source_options, columns).map_err(
+            |err| FileReadError {
+                rule: "csv_read_error".to_string(),
+                message: err.to_string(),
+            },
+        )
+    }
+
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
@@ -109,26 +125,14 @@ impl InputAdapter for CsvInputAdapter {
                         Box::new(RunError(format!("failed to project typed columns: {err}")))
                     })?;
                 }
-                format::finalize_read_input(
-                    input_file,
-                    input_columns.clone(),
-                    Some(raw_df),
-                    typed_df,
-                    normalize_strategy,
-                )?
+                format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy)?
             } else {
                 let typed_plan = CsvReadPlan {
                     schema: typed_schema,
                     ignore_errors: true,
                 };
                 let typed_df = read_csv_lazy(path, source_options, &typed_plan.schema, true, None)?;
-                format::finalize_read_input(
-                    input_file,
-                    input_columns.clone(),
-                    None,
-                    typed_df,
-                    normalize_strategy,
-                )?
+                format::finalize_read_input(input_file, None, typed_df, normalize_strategy)?
             };
             inputs.push(input);
         }

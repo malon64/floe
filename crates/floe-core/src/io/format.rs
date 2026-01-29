@@ -24,7 +24,6 @@ pub struct FileReadError {
 pub enum ReadInput {
     Data {
         input_file: InputFile,
-        input_columns: Vec<String>,
         raw_df: Option<DataFrame>,
         typed_df: DataFrame,
     },
@@ -33,8 +32,6 @@ pub enum ReadInput {
         error: FileReadError,
     },
 }
-
-pub type ValidationCollect = (Vec<bool>, Vec<Option<String>>, Vec<Vec<check::RowError>>);
 
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
@@ -63,6 +60,13 @@ pub trait InputAdapter: Send + Sync {
             &default_globs,
         )
     }
+
+    fn read_input_columns(
+        &self,
+        entity: &config::EntityConfig,
+        input_file: &InputFile,
+        columns: &[config::ColumnConfig],
+    ) -> Result<Vec<String>, FileReadError>;
 
     fn read_inputs(
         &self,
@@ -291,18 +295,11 @@ pub(crate) fn read_input_from_df(
         None
     };
     let typed_df = cast_df_to_schema(df, &typed_schema)?;
-    finalize_read_input(
-        input_file,
-        input_columns,
-        raw_df,
-        typed_df,
-        normalize_strategy,
-    )
+    finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)
 }
 
 pub(crate) fn finalize_read_input(
     input_file: &InputFile,
-    input_columns: Vec<String>,
     mut raw_df: Option<DataFrame>,
     mut typed_df: DataFrame,
     normalize_strategy: Option<&str>,
@@ -315,7 +312,6 @@ pub(crate) fn finalize_read_input(
     }
     Ok(ReadInput::Data {
         input_file: input_file.clone(),
-        input_columns,
         raw_df,
         typed_df,
     })
@@ -441,7 +437,7 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
     }
     Ok(out)
 }
-pub fn collect_errors(
+pub fn collect_row_errors(
     raw_df: &DataFrame,
     typed_df: &DataFrame,
     required_cols: &[String],
@@ -449,8 +445,7 @@ pub fn collect_errors(
     track_cast_errors: bool,
     raw_indices: &check::ColumnIndex,
     typed_indices: &check::ColumnIndex,
-    formatter: &dyn check::RowErrorFormatter,
-) -> FloeResult<ValidationCollect> {
+) -> FloeResult<Vec<Vec<check::RowError>>> {
     let mut error_lists = check::not_null_errors(typed_df, required_cols, typed_indices)?;
     if track_cast_errors {
         let cast_errors =
@@ -459,13 +454,7 @@ pub fn collect_errors(
             errors.extend(cast);
         }
     }
-    let unique_errors = check::unique_errors(typed_df, columns, typed_indices)?;
-    for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
-        errors.extend(unique);
-    }
-    let accept_rows = check::build_accept_rows(&error_lists);
-    let errors_json = check::build_errors_formatted(&error_lists, &accept_rows, formatter);
-    Ok((accept_rows, errors_json, error_lists))
+    Ok(error_lists)
 }
 
 #[cfg(test)]

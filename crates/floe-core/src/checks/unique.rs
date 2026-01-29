@@ -1,4 +1,5 @@
-use polars::prelude::{is_duplicated, is_first_distinct, DataFrame};
+use polars::prelude::{is_duplicated, is_first_distinct, AnyValue, DataFrame};
+use std::collections::{HashMap, HashSet};
 
 use super::{ColumnIndex, RowError};
 use crate::errors::RunError;
@@ -58,6 +59,76 @@ pub fn unique_errors(
     }
 
     Ok(errors_per_row)
+}
+
+#[derive(Debug, Default)]
+pub struct UniqueTracker {
+    seen: HashMap<String, HashSet<String>>,
+}
+
+impl UniqueTracker {
+    pub fn new(columns: &[config::ColumnConfig]) -> Self {
+        let mut seen = HashMap::new();
+        for column in columns.iter().filter(|col| col.unique == Some(true)) {
+            seen.insert(column.name.clone(), HashSet::new());
+        }
+        Self { seen }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
+
+    pub fn apply(
+        &mut self,
+        df: &DataFrame,
+        columns: &[config::ColumnConfig],
+    ) -> FloeResult<Vec<Vec<RowError>>> {
+        let mut errors_per_row = vec![Vec::new(); df.height()];
+        if df.height() == 0 {
+            return Ok(errors_per_row);
+        }
+        let unique_columns: Vec<&config::ColumnConfig> = columns
+            .iter()
+            .filter(|col| col.unique == Some(true))
+            .collect();
+        if unique_columns.is_empty() {
+            return Ok(errors_per_row);
+        }
+
+        for column in unique_columns {
+            let series = df.column(&column.name).map_err(|err| {
+                Box::new(RunError(format!(
+                    "unique column {} not found: {err}",
+                    column.name
+                )))
+            })?;
+            let series = series.as_materialized_series();
+            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not tracked",
+                    column.name
+                )))
+            })?;
+            for (row_idx, value) in series.iter().enumerate() {
+                if matches!(value, AnyValue::Null) {
+                    continue;
+                }
+                let key = value.to_string();
+                if seen.contains(&key) {
+                    errors_per_row[row_idx].push(RowError::new(
+                        "unique",
+                        &column.name,
+                        "duplicate value",
+                    ));
+                } else {
+                    seen.insert(key);
+                }
+            }
+        }
+
+        Ok(errors_per_row)
+    }
 }
 
 pub fn unique_counts(

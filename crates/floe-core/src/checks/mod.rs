@@ -9,9 +9,11 @@ use std::collections::HashMap;
 use crate::{ConfigError, FloeResult};
 
 pub use cast::{cast_mismatch_counts, cast_mismatch_errors};
-pub use mismatch::{apply_schema_mismatch, MismatchOutcome};
+pub use mismatch::{
+    apply_mismatch_plan, apply_schema_mismatch, plan_schema_mismatch, MismatchOutcome,
+};
 pub use not_null::{not_null_counts, not_null_errors};
-pub use unique::{unique_counts, unique_errors};
+pub use unique::{unique_counts, unique_errors, UniqueTracker};
 
 pub type ColumnIndex = HashMap<String, usize>;
 

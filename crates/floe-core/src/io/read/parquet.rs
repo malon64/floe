@@ -3,7 +3,7 @@ use std::path::Path;
 use polars::prelude::{col, DataFrame, LazyFrame, ParquetReader, PlPath, SerReader};
 
 use crate::errors::IoError;
-use crate::io::format::{self, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct ParquetInputAdapter;
@@ -58,6 +58,18 @@ impl InputAdapter for ParquetInputAdapter {
         "parquet"
     }
 
+    fn read_input_columns(
+        &self,
+        _entity: &config::EntityConfig,
+        input_file: &InputFile,
+        _columns: &[config::ColumnConfig],
+    ) -> Result<Vec<String>, FileReadError> {
+        read_parquet_schema_names(&input_file.source_local_path).map_err(|err| FileReadError {
+            rule: "parquet_read_error".to_string(),
+            message: err.to_string(),
+        })
+    }
+
     fn read_inputs(
         &self,
         _entity: &config::EntityConfig,
@@ -83,13 +95,8 @@ impl InputAdapter for ParquetInputAdapter {
                 None
             };
             let typed_df = format::cast_df_to_schema(&df, &typed_schema)?;
-            let input = format::finalize_read_input(
-                input_file,
-                input_columns,
-                raw_df,
-                typed_df,
-                normalize_strategy,
-            )?;
+            let input =
+                format::finalize_read_input(input_file, raw_df, typed_df, normalize_strategy)?;
             inputs.push(input);
         }
         Ok(inputs)

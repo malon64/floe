@@ -2,6 +2,8 @@
 
 This document describes the validation checks implemented in Floe, the supported
 column types for casting, and how `policy.severity` applies to each check.
+For the full execution order (file-level vs row-level vs entity-level), see
+`docs/how-it-works.md`.
 
 ## Checks
 
@@ -19,7 +21,7 @@ column types for casting, and how `policy.severity` applies to each check.
 - **Logic**: the first occurrence is accepted; any later duplicate values are flagged.
 - **Notes**:
   - Null values are ignored (they do not count as duplicates).
-  - Applies independently per column.
+  - Applies independently per column, across all input files in the entity.
 
 ### cast_error (type mismatch)
 

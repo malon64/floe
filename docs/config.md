@@ -173,3 +173,4 @@ ignored):
 - `time`: `time`
 
 For more details about checks and severity behavior, see `docs/checks.md`.
+Execution order and pipeline phases are documented in `docs/how-it-works.md`.

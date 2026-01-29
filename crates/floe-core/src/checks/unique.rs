@@ -103,7 +103,7 @@ impl UniqueTracker {
                     column.name
                 )))
             })?;
-            let series = series.as_materialized_series();
+            let series = series.as_materialized_series().rechunk();
             let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
                 Box::new(RunError(format!(
                     "unique column {} not tracked",

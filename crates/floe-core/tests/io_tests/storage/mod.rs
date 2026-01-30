@@ -1,5 +1,6 @@
 pub mod adls;
 pub mod adls_integration;
+pub mod gcs;
 pub mod inputs;
 pub mod local;
 pub mod paths;

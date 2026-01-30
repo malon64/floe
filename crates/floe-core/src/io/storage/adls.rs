@@ -7,8 +7,8 @@ use azure_storage_blobs::prelude::{BlobServiceClient, ContainerClient};
 use futures::StreamExt;
 use tokio::runtime::Runtime;
 
-use crate::errors::StorageError;
-use crate::{config, FloeResult};
+use crate::errors::{RunError, StorageError};
+use crate::{config, ConfigError, FloeResult};
 
 use super::{planner, ObjectRef, StorageClient};
 
@@ -64,18 +64,7 @@ impl AdlsClient {
     }
 
     fn format_abfs(&self, path: &str) -> String {
-        let trimmed = path.trim_start_matches('/');
-        if trimmed.is_empty() {
-            format!(
-                "abfs://{}@{}.dfs.core.windows.net",
-                self.container, self.account
-            )
-        } else {
-            format!(
-                "abfs://{}@{}.dfs.core.windows.net/{}",
-                self.container, self.account, trimmed
-            )
-        }
+        format_abfs_uri(&self.container, &self.account, path)
     }
 }
 
@@ -214,4 +203,89 @@ impl StorageClient for AdlsClient {
             Ok(())
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdlsLocation {
+    pub account: String,
+    pub container: String,
+    pub path: String,
+}
+
+pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {
+    let stripped = uri.strip_prefix("abfs://").ok_or_else(|| {
+        Box::new(ConfigError(format!("expected abfs uri, got {}", uri)))
+            as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    let (container, rest) = stripped.split_once('@').ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "missing container in abfs uri: {}",
+            uri
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    let (account, path) = rest.split_once(".dfs.core.windows.net").ok_or_else(|| {
+        Box::new(ConfigError(format!("missing account in abfs uri: {}", uri)))
+            as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    let path = path.trim_start_matches('/');
+    Ok(AdlsLocation {
+        account: account.to_string(),
+        container: container.to_string(),
+        path: path.to_string(),
+    })
+}
+
+pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        format!("abfs://{}@{}.dfs.core.windows.net", container, account)
+    } else {
+        format!(
+            "abfs://{}@{}.dfs.core.windows.net/{}",
+            container, account, trimmed
+        )
+    }
+}
+
+pub fn build_input_files(
+    client: &dyn StorageClient,
+    container: &str,
+    account: &str,
+    prefix: &str,
+    adapter: &dyn crate::io::format::InputAdapter,
+    temp_dir: &Path,
+    entity: &crate::config::EntityConfig,
+    storage: &str,
+) -> FloeResult<Vec<crate::io::format::InputFile>> {
+    let suffixes = adapter.suffixes()?;
+    let list_refs = client.list(prefix)?;
+    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
+    let filtered = planner::stable_sort_refs(filtered);
+    if filtered.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} source.storage={} no input objects matched (container={}, account={}, prefix={}, suffixes={})",
+            entity.name,
+            storage,
+            container,
+            account,
+            prefix,
+            suffixes.join(",")
+        ))));
+    }
+    let mut inputs = Vec::with_capacity(filtered.len());
+    for object in filtered {
+        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
+        let source_name = crate::io::storage::s3::file_name_from_key(&object.key)
+            .unwrap_or_else(|| entity.name.clone());
+        let source_stem = crate::io::storage::s3::file_stem_from_name(&source_name)
+            .unwrap_or_else(|| entity.name.clone());
+        let source_uri = object.uri;
+        inputs.push(crate::io::format::InputFile {
+            source_uri,
+            source_local_path: local_path,
+            source_name,
+            source_stem,
+        });
+    }
+    Ok(inputs)
 }

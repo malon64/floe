@@ -53,5 +53,13 @@ pub fn delta_store_config(
                 storage_options,
             })
         }
+        Target::Adls { .. } => Err(Box::new(ConfigError(format!(
+            "entity.name={} delta tables are not supported on adls yet",
+            entity.name
+        )))),
+        Target::Gcs { .. } => Err(Box::new(ConfigError(format!(
+            "entity.name={} delta tables are not supported on gcs yet",
+            entity.name
+        )))),
     }
 }

@@ -75,5 +75,54 @@ where
             client.upload_from_path(&temp_path, &uri)?;
             Ok(uri)
         }
+        Target::Gcs {
+            storage,
+            bucket,
+            base_key,
+            ..
+        } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(StorageError(format!(
+                    "entity.name={} missing temp dir for gcs output",
+                    entity.name
+                )))
+            })?;
+            let temp_path = temp_dir.join(filename);
+            writer(&temp_path)?;
+            let key = match placement {
+                OutputPlacement::Output => paths::resolve_output_key(base_key, filename),
+                OutputPlacement::Directory => paths::resolve_output_dir_key(base_key, filename),
+                OutputPlacement::Sibling => paths::resolve_sibling_key(base_key, filename),
+            };
+            let client = cloud.client_for(resolver, storage, entity)?;
+            let uri = super::gcs::format_gcs_uri(bucket, &key);
+            client.upload_from_path(&temp_path, &uri)?;
+            Ok(uri)
+        }
+        Target::Adls {
+            storage,
+            account,
+            container,
+            base_path,
+            ..
+        } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(StorageError(format!(
+                    "entity.name={} missing temp dir for adls output",
+                    entity.name
+                )))
+            })?;
+            let temp_path = temp_dir.join(filename);
+            writer(&temp_path)?;
+            let key = match placement {
+                OutputPlacement::Output => paths::resolve_output_key(base_path, filename),
+                OutputPlacement::Directory => paths::resolve_output_dir_key(base_path, filename),
+                OutputPlacement::Sibling => paths::resolve_sibling_key(base_path, filename),
+            };
+            let client = cloud.client_for(resolver, storage, entity)?;
+            let uri = super::adls::format_abfs_uri(container, account, &key);
+            client.upload_from_path(&temp_path, &uri)?;
+            Ok(uri)
+        }
     }
 }

@@ -48,7 +48,7 @@ entities:
 }
 
 #[test]
-fn gcs_storage_reference_is_not_supported_yet() {
+fn gcs_storage_reference_is_supported() {
     let yaml = r#"
 version: "0.1"
 storages:
@@ -76,10 +76,5 @@ entities:
           nullable: false
 "#;
     let path = write_temp_config(yaml);
-    let err = validate(&path, ValidateOptions::default()).expect_err("should fail");
-    let message = err.to_string();
-    assert!(message.contains("entity.name=customer"));
-    assert!(message.contains("source.storage=gcs_raw"));
-    assert!(message.contains("gcs"));
-    assert!(message.contains("not implemented yet"));
+    validate(&path, ValidateOptions::default()).expect("should validate");
 }

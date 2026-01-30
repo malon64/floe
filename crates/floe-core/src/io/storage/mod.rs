@@ -5,6 +5,7 @@ use crate::{config, ConfigError, FloeResult};
 
 pub mod adls;
 pub mod extensions;
+pub mod gcs;
 pub mod inputs;
 pub mod local;
 pub mod object_store;
@@ -64,10 +65,13 @@ impl CloudClient {
                 }
                 "adls" => Box::new(adls::AdlsClient::new(&definition)?),
                 "gcs" => {
-                    return Err(Box::new(ConfigError(format!(
-                        "storage {} type gcs is not implemented yet (list/get/put)",
-                        definition.name
-                    ))));
+                    let bucket = definition.bucket.clone().ok_or_else(|| {
+                        Box::new(ConfigError(format!(
+                            "storage {} requires bucket for type gcs",
+                            definition.name
+                        ))) as Box<dyn std::error::Error + Send + Sync>
+                    })?;
+                    Box::new(gcs::GcsClient::new(bucket)?)
                 }
                 other => {
                     return Err(Box::new(ConfigError(format!(

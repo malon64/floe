@@ -160,17 +160,20 @@ fn clear_s3_output_prefix(
         ))));
     }
     let client = cloud.client_for(resolver, storage, entity)?;
-    let mut keys = client.list(prefix)?;
+    let keys = client.list(prefix)?;
     if keys.is_empty() {
         return Ok(());
     }
     let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
-    keys.retain(|key| key.starts_with(prefix) && !key.is_empty());
-    if keys.len() == 1 && keys[0] == sample {
+    let keys = keys
+        .into_iter()
+        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .collect::<Vec<_>>();
+    if keys.len() == 1 && keys[0].key == sample {
         return Ok(());
     }
-    for key in keys {
-        client.delete(&key)?;
+    for object in keys {
+        client.delete(&object.uri)?;
     }
     Ok(())
 }

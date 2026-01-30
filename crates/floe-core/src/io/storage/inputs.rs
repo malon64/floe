@@ -44,7 +44,7 @@ pub fn resolve_inputs(
         Target::Local { storage, .. } => {
             let resolved =
                 adapter.resolve_local_inputs(config_dir, &entity.name, &entity.source, storage)?;
-            let files = build_local_inputs(&resolved.files, entity);
+            let files = build_local_inputs(&resolved.files, entity, storage_client);
             let mode = match resolved.mode {
                 io::storage::local::LocalInputMode::File => report::ResolvedInputMode::File,
                 io::storage::local::LocalInputMode::Directory => {
@@ -59,6 +59,7 @@ pub fn resolve_inputs(
 fn build_local_inputs(
     files: &[PathBuf],
     entity: &config::EntityConfig,
+    storage_client: Option<&dyn super::StorageClient>,
 ) -> Vec<io::format::InputFile> {
     files
         .iter()
@@ -73,8 +74,11 @@ fn build_local_inputs(
                 .and_then(|stem| stem.to_str())
                 .unwrap_or(entity.name.as_str())
                 .to_string();
+            let uri = storage_client
+                .and_then(|client| client.resolve_uri(&path.display().to_string()).ok())
+                .unwrap_or_else(|| path.display().to_string());
             io::format::InputFile {
-                source_uri: path.display().to_string(),
+                source_uri: uri,
                 source_local_path: path.clone(),
                 source_name,
                 source_stem,

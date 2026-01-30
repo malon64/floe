@@ -17,18 +17,14 @@ pub(super) fn resolve_input_files(
     entity: &config::EntityConfig,
     input_adapter: &dyn InputAdapter,
     resolved_targets: &ResolvedEntityTargets,
-    source_is_s3: bool,
+    _source_is_s3: bool,
     temp_dir: Option<&tempfile::TempDir>,
 ) -> FloeResult<(Vec<InputFile>, report::ResolvedInputMode)> {
-    let storage_client = if source_is_s3 {
-        Some(cloud.client_for(
-            &context.storage_resolver,
-            resolved_targets.source.storage(),
-            entity,
-        )? as &dyn io::storage::StorageClient)
-    } else {
-        None
-    };
+    let storage_client = Some(cloud.client_for(
+        &context.storage_resolver,
+        resolved_targets.source.storage(),
+        entity,
+    )? as &dyn io::storage::StorageClient);
     let temp_dir = temp_dir.map(|dir| dir.path());
     let resolved = io::storage::inputs::resolve_inputs(
         &context.config_dir,

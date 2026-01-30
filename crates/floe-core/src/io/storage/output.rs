@@ -71,8 +71,9 @@ where
                 OutputPlacement::Sibling => paths::resolve_sibling_key(base_key, filename),
             };
             let client = cloud.client_for(resolver, storage, entity)?;
-            client.upload(&key, &temp_path)?;
-            Ok(super::s3::format_s3_uri(bucket, &key))
+            let uri = super::s3::format_s3_uri(bucket, &key);
+            client.upload_from_path(&temp_path, &uri)?;
+            Ok(uri)
         }
     }
 }

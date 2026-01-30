@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{config, ConfigError, FloeResult};
 
@@ -9,16 +9,21 @@ pub mod local;
 pub mod object_store;
 pub mod output;
 pub mod paths;
+pub mod planner;
 pub mod s3;
 pub mod target;
 
+pub use planner::{filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs};
 pub use target::Target;
 
+pub use planner::ObjectRef;
+
 pub trait StorageClient: Send + Sync {
-    fn list(&self, prefix: &str) -> FloeResult<Vec<String>>;
-    fn download(&self, key: &str, dest: &Path) -> FloeResult<()>;
-    fn upload(&self, key: &str, path: &Path) -> FloeResult<()>;
-    fn delete(&self, key: &str) -> FloeResult<()>;
+    fn list(&self, prefix_or_path: &str) -> FloeResult<Vec<ObjectRef>>;
+    fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf>;
+    fn upload_from_path(&self, local_path: &Path, uri: &str) -> FloeResult<()>;
+    fn resolve_uri(&self, path: &str) -> FloeResult<String>;
+    fn delete(&self, uri: &str) -> FloeResult<()>;
 }
 
 pub struct CloudClient {

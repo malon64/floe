@@ -1,0 +1,7 @@
+[build]
+# Limit rustc concurrency to avoid WSL OOM
+jobs = 4
+
+[env]
+# Limit test threads globally for this repo
+RUST_TEST_THREADS = "4"

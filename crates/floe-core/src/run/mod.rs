@@ -7,7 +7,7 @@ use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions
 mod context;
 pub(crate) mod entity;
 mod file;
-pub(crate) mod normalize;
+pub mod normalize;
 mod output;
 mod reporting;
 

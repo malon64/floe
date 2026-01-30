@@ -123,6 +123,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         Ok(AcceptedWriteOutput {
             parts_written,
             part_files,
+            table_version: None,
         })
     }
 }

@@ -674,6 +674,7 @@ pub(super) fn run_entity(
     let accepted_target_uri = accepted_target.target_uri().to_string();
     let mut accepted_parts_written = 0;
     let mut accepted_part_files = Vec::new();
+    let mut accepted_table_version = None;
     if let Some(mut accepted_df) = accepted_accum {
         let output_stem = io::storage::paths::build_part_stem(0);
         let accepted_output = write_accepted_output(
@@ -688,6 +689,7 @@ pub(super) fn run_entity(
         )?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;
+        accepted_table_version = accepted_output.table_version;
     }
     if accepted_parts_written > 0 {
         for file_report in &mut file_reports {
@@ -708,6 +710,7 @@ pub(super) fn run_entity(
         severity,
         accepted_parts_written,
         accepted_part_files,
+        accepted_table_version,
     });
 
     if let Some(report_dir) = &context.report_dir {

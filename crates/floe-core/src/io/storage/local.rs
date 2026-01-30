@@ -5,7 +5,7 @@ use glob::glob;
 use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
 
-use super::StorageClient;
+use super::{planner, ObjectRef, StorageClient};
 
 pub struct LocalClient;
 
@@ -22,46 +22,60 @@ impl Default for LocalClient {
 }
 
 impl StorageClient for LocalClient {
-    fn list(&self, prefix: &str) -> FloeResult<Vec<String>> {
+    fn list(&self, prefix: &str) -> FloeResult<Vec<ObjectRef>> {
         let path = Path::new(prefix);
         if path.is_file() {
-            return Ok(vec![path.display().to_string()]);
+            let uri = self.resolve_uri(prefix)?;
+            return Ok(vec![ObjectRef {
+                uri,
+                key: prefix.to_string(),
+                last_modified: None,
+                size: None,
+            }]);
         }
         if !path.exists() {
             return Ok(Vec::new());
         }
-        let mut files = Vec::new();
+        let mut refs = Vec::new();
         for entry in std::fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
-                files.push(path.display().to_string());
+                let key = path.display().to_string();
+                let uri = self.resolve_uri(&key)?;
+                refs.push(ObjectRef {
+                    uri,
+                    key,
+                    last_modified: None,
+                    size: None,
+                });
             }
         }
-        files.sort();
-        Ok(files)
+        refs = planner::stable_sort_refs(refs);
+        Ok(refs)
     }
 
-    fn download(&self, key: &str, dest: &Path) -> FloeResult<()> {
-        let src = PathBuf::from(key);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::copy(&src, dest).map_err(|err| {
+    fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
+        let src = PathBuf::from(uri.trim_start_matches("local://"));
+        let dest = temp_dir.join(
+            src.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("object"),
+        );
+        planner::ensure_parent_dir(&dest)?;
+        std::fs::copy(&src, &dest).map_err(|err| {
             Box::new(StorageError(format!(
                 "local download failed from {}: {err}",
                 src.display()
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
-        Ok(())
+        Ok(dest)
     }
 
-    fn upload(&self, key: &str, path: &Path) -> FloeResult<()> {
-        let dest = PathBuf::from(key);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::copy(path, &dest).map_err(|err| {
+    fn upload_from_path(&self, local_path: &Path, uri: &str) -> FloeResult<()> {
+        let dest = PathBuf::from(uri.trim_start_matches("local://"));
+        planner::ensure_parent_dir(&dest)?;
+        std::fs::copy(local_path, &dest).map_err(|err| {
             Box::new(StorageError(format!(
                 "local upload failed to {}: {err}",
                 dest.display()
@@ -70,8 +84,18 @@ impl StorageClient for LocalClient {
         Ok(())
     }
 
-    fn delete(&self, key: &str) -> FloeResult<()> {
-        let path = Path::new(key);
+    fn resolve_uri(&self, path: &str) -> FloeResult<String> {
+        let path = Path::new(path);
+        if path.is_absolute() {
+            Ok(format!("local://{}", path.display()))
+        } else {
+            let abs = std::env::current_dir()?.join(path);
+            Ok(format!("local://{}", abs.display()))
+        }
+    }
+
+    fn delete(&self, uri: &str) -> FloeResult<()> {
+        let path = Path::new(uri.trim_start_matches("local://"));
         if path.exists() {
             std::fs::remove_file(path).map_err(|err| {
                 Box::new(StorageError(format!(

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use floe_core::io::storage::inputs::resolve_inputs;
-use floe_core::io::storage::{StorageClient, Target};
+use floe_core::io::storage::{ObjectRef, StorageClient, Target};
 use floe_core::{config, io, report, FloeResult};
 
 struct MockStorageClient {
@@ -21,28 +21,43 @@ impl MockStorageClient {
 }
 
 impl StorageClient for MockStorageClient {
-    fn list(&self, _prefix: &str) -> FloeResult<Vec<String>> {
-        Ok(self.keys.clone())
+    fn list(&self, _prefix: &str) -> FloeResult<Vec<ObjectRef>> {
+        Ok(self
+            .keys
+            .iter()
+            .map(|key| ObjectRef {
+                uri: format!("s3://bucket/{key}"),
+                key: key.clone(),
+                last_modified: None,
+                size: None,
+            })
+            .collect())
     }
 
-    fn download(&self, key: &str, dest: &Path) -> FloeResult<()> {
+    fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
+        let key = uri.strip_prefix("s3://bucket/").unwrap_or(uri).to_string();
+        let dest = temp_dir.join(key.replace('/', "_"));
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let content = self
             .contents
-            .get(key)
+            .get(&key)
             .cloned()
             .unwrap_or_else(|| "missing".to_string());
-        std::fs::write(dest, content)?;
+        std::fs::write(&dest, content)?;
+        Ok(dest)
+    }
+
+    fn upload_from_path(&self, _local_path: &Path, _uri: &str) -> FloeResult<()> {
         Ok(())
     }
 
-    fn upload(&self, _key: &str, _path: &Path) -> FloeResult<()> {
-        Ok(())
+    fn resolve_uri(&self, path: &str) -> FloeResult<String> {
+        Ok(format!("s3://bucket/{path}"))
     }
 
-    fn delete(&self, _key: &str) -> FloeResult<()> {
+    fn delete(&self, _uri: &str) -> FloeResult<()> {
         Ok(())
     }
 }

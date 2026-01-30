@@ -162,7 +162,7 @@ fn local_client_upload_copies_file() {
     write_file(&src, "hello");
     let client = LocalClient::new();
     client
-        .upload(dest.to_string_lossy().as_ref(), &src)
+        .upload_from_path(&src, dest.to_string_lossy().as_ref())
         .expect("upload");
     assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
 }
@@ -171,11 +171,11 @@ fn local_client_upload_copies_file() {
 fn local_client_download_copies_file() {
     let root = temp_dir("floe-local-download");
     let src = root.join("src.txt");
-    let dest = root.join("dest.txt");
+    let dest_dir = root.join("dest");
     write_file(&src, "hello");
     let client = LocalClient::new();
-    client
-        .download(src.to_string_lossy().as_ref(), &dest)
+    let downloaded = client
+        .download_to_temp(src.to_string_lossy().as_ref(), &dest_dir)
         .expect("download");
-    assert_eq!(fs::read_to_string(dest).expect("read"), "hello");
+    assert_eq!(fs::read_to_string(downloaded).expect("read"), "hello");
 }

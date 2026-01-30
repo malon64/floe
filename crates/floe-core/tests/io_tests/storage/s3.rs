@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use floe_core::io::storage::s3::{filter_keys_by_suffixes, parse_s3_uri, temp_path_for_key};
+use floe_core::io::storage::s3::{parse_s3_uri, temp_path_for_key};
+use floe_core::io::storage::{filter_by_suffixes, stable_sort_refs, ObjectRef};
 
 #[test]
 fn parse_s3_uri_extracts_bucket_and_key() {
@@ -18,13 +19,30 @@ fn parse_s3_uri_allows_bucket_only() {
 
 #[test]
 fn filter_keys_by_suffix_sorts_and_filters() {
-    let keys = vec![
-        "b.csv".to_string(),
-        "a.CSV".to_string(),
-        "c.txt".to_string(),
+    let refs = vec![
+        ObjectRef {
+            uri: "s3://bucket/b.csv".to_string(),
+            key: "b.csv".to_string(),
+            last_modified: None,
+            size: None,
+        },
+        ObjectRef {
+            uri: "s3://bucket/a.CSV".to_string(),
+            key: "a.CSV".to_string(),
+            last_modified: None,
+            size: None,
+        },
+        ObjectRef {
+            uri: "s3://bucket/c.txt".to_string(),
+            key: "c.txt".to_string(),
+            last_modified: None,
+            size: None,
+        },
     ];
-    let filtered = filter_keys_by_suffixes(keys, &[".csv".to_string()]);
-    assert_eq!(filtered, vec!["a.CSV", "b.csv"]);
+    let filtered = filter_by_suffixes(refs, &[".csv".to_string()]);
+    let sorted = stable_sort_refs(filtered);
+    let keys = sorted.into_iter().map(|obj| obj.key).collect::<Vec<_>>();
+    assert_eq!(keys, vec!["a.CSV", "b.csv"]);
 }
 
 #[test]

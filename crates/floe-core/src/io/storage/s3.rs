@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 use crate::errors::{RunError, StorageError};
 use crate::{config, io, ConfigError, FloeResult};
 
-use super::StorageClient;
+use super::{planner, ObjectRef, StorageClient};
 
 pub struct S3Client {
     bucket: String,
@@ -51,11 +51,11 @@ impl S3Client {
 }
 
 impl StorageClient for S3Client {
-    fn list(&self, prefix: &str) -> FloeResult<Vec<String>> {
+    fn list(&self, prefix: &str) -> FloeResult<Vec<ObjectRef>> {
         let bucket = self.bucket().to_string();
         let prefix = prefix.to_string();
         self.runtime.block_on(async {
-            let mut keys = Vec::new();
+            let mut refs = Vec::new();
             let mut continuation = None;
             loop {
                 let mut request = self.client.list_objects_v2().bucket(&bucket);
@@ -74,7 +74,16 @@ impl StorageClient for S3Client {
                 if let Some(contents) = response.contents {
                     for object in contents {
                         if let Some(key) = object.key {
-                            keys.push(key);
+                            let uri = format_s3_uri(&bucket, &key);
+                            refs.push(ObjectRef {
+                                uri,
+                                key,
+                                last_modified: object
+                                    .last_modified
+                                    .as_ref()
+                                    .map(|value| value.to_string()),
+                                size: object.size.map(|value| value as u64),
+                            });
                         }
                     }
                 }
@@ -87,41 +96,45 @@ impl StorageClient for S3Client {
                     break;
                 }
             }
-            Ok(keys)
+            Ok(refs)
         })
     }
 
-    fn download(&self, key: &str, dest: &Path) -> FloeResult<()> {
-        let bucket = self.bucket().to_string();
-        let key = key.to_string();
-        let dest = dest.to_path_buf();
+    fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
+        let location = parse_s3_uri(uri)?;
+        let bucket = location.bucket;
+        let key = location.key;
+        let dest = temp_path_for_key(temp_dir, &key);
+        let dest_clone = dest.clone();
         self.runtime.block_on(async move {
             let response = self
                 .client
                 .get_object()
                 .bucket(bucket)
-                .key(key)
+                .key(key.clone())
                 .send()
                 .await
                 .map_err(|err| {
                     Box::new(StorageError(format!("s3 get object failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
-            if let Some(parent) = dest.parent() {
+            if let Some(parent) = dest_clone.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-            let mut file = tokio::fs::File::create(&dest).await?;
+            let mut file = tokio::fs::File::create(&dest_clone).await?;
             let mut reader = response.body.into_async_read();
             tokio::io::copy(&mut reader, &mut file).await?;
             file.flush().await?;
-            Ok(())
-        })
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        })?;
+        Ok(dest)
     }
 
-    fn upload(&self, key: &str, path: &Path) -> FloeResult<()> {
-        let bucket = self.bucket().to_string();
-        let key = key.to_string();
-        let path = path.to_path_buf();
+    fn upload_from_path(&self, local_path: &Path, uri: &str) -> FloeResult<()> {
+        let location = parse_s3_uri(uri)?;
+        let bucket = location.bucket;
+        let key = location.key;
+        let path = local_path.to_path_buf();
         self.runtime.block_on(async move {
             let body = ByteStream::from_path(path).await.map_err(|err| {
                 Box::new(StorageError(format!("s3 upload body failed: {err}")))
@@ -142,9 +155,14 @@ impl StorageClient for S3Client {
         })
     }
 
-    fn delete(&self, key: &str) -> FloeResult<()> {
-        let bucket = self.bucket().to_string();
-        let key = key.to_string();
+    fn resolve_uri(&self, path: &str) -> FloeResult<String> {
+        Ok(format_s3_uri(self.bucket(), path.trim_start_matches('/')))
+    }
+
+    fn delete(&self, uri: &str) -> FloeResult<()> {
+        let location = parse_s3_uri(uri)?;
+        let bucket = location.bucket;
+        let key = location.key;
         self.runtime.block_on(async move {
             self.client
                 .delete_object()
@@ -193,16 +211,18 @@ pub fn format_s3_uri(bucket: &str, key: &str) -> String {
 }
 
 pub fn filter_keys_by_suffixes(mut keys: Vec<String>, suffixes: &[String]) -> Vec<String> {
-    let suffixes = suffixes
-        .iter()
-        .map(|suffix| suffix.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    keys.retain(|key| {
-        let lower = key.to_ascii_lowercase();
-        !lower.ends_with('/') && suffixes.iter().any(|suffix| lower.ends_with(suffix))
-    });
-    keys.sort();
-    keys
+    let mut refs = Vec::with_capacity(keys.len());
+    for key in keys.drain(..) {
+        refs.push(ObjectRef {
+            uri: key.clone(),
+            key,
+            last_modified: None,
+            size: None,
+        });
+    }
+    let filtered = planner::filter_by_suffixes(refs, suffixes);
+    let sorted = planner::stable_sort_refs(filtered);
+    sorted.into_iter().map(|obj| obj.key).collect()
 }
 
 pub fn temp_path_for_key(temp_dir: &Path, key: &str) -> PathBuf {
@@ -248,9 +268,10 @@ pub fn build_input_files(
     storage: &str,
 ) -> FloeResult<Vec<io::format::InputFile>> {
     let suffixes = adapter.suffixes()?;
-    let keys = client.list(prefix)?;
-    let keys = filter_keys_by_suffixes(keys, &suffixes);
-    if keys.is_empty() {
+    let list_refs = client.list(prefix)?;
+    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
+    let filtered = planner::stable_sort_refs(filtered);
+    if filtered.is_empty() {
         return Err(Box::new(RunError(format!(
             "entity.name={} source.storage={} no input objects matched (bucket={}, prefix={}, suffixes={})",
             entity.name,
@@ -260,13 +281,12 @@ pub fn build_input_files(
             suffixes.join(",")
         ))));
     }
-    let mut inputs = Vec::with_capacity(keys.len());
-    for key in keys {
-        let local_path = temp_path_for_key(temp_dir, &key);
-        client.download(&key, &local_path)?;
-        let source_name = file_name_from_key(&key).unwrap_or_else(|| entity.name.clone());
+    let mut inputs = Vec::with_capacity(filtered.len());
+    for object in filtered {
+        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
+        let source_name = file_name_from_key(&object.key).unwrap_or_else(|| entity.name.clone());
         let source_stem = file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
-        let source_uri = format_s3_uri(bucket, &key);
+        let source_uri = object.uri;
         inputs.push(io::format::InputFile {
             source_uri,
             source_local_path: local_path,

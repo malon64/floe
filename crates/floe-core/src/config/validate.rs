@@ -10,7 +10,7 @@ const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_ca
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
-const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls"];
+const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -60,6 +60,14 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
     let storage_name =
         storages.resolve_name(entity, "source.storage", entity.source.storage.as_deref())?;
     storages.validate_reference(entity, "source.storage", &storage_name)?;
+    if let Some(storage_type) = storages.definition_type(&storage_name) {
+        if storage_type == "gcs" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.storage={} uses gcs which is not implemented yet (list/get/put)",
+                entity.name, storage_name
+            ))));
+        }
+    }
 
     if entity.source.format == "json" {
         let options = entity.source.options.as_ref();
@@ -124,6 +132,14 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         entity.sink.accepted.storage.as_deref(),
     )?;
     storages.validate_reference(entity, "sink.accepted.storage", &accepted_storage)?;
+    if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+        if storage_type == "gcs" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.storage={} uses gcs which is not implemented yet (list/get/put)",
+                entity.name, accepted_storage
+            ))));
+        }
+    }
     if entity.sink.accepted.format == "delta" {
         if let Some(storage_type) = storages.definition_type(&accepted_storage) {
             if storage_type != "local" && storage_type != "s3" {
@@ -141,7 +157,14 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         let rejected_storage =
             storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
         storages.validate_reference(entity, "sink.rejected.storage", &rejected_storage)?;
-        let _ = storages.definition_type(&rejected_storage);
+        if let Some(storage_type) = storages.definition_type(&rejected_storage) {
+            if storage_type == "gcs" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.rejected.storage={} uses gcs which is not implemented yet (list/get/put)",
+                    entity.name, rejected_storage
+                ))));
+            }
+        }
     }
 
     Ok(())
@@ -297,6 +320,12 @@ impl StorageRegistry {
                         definition.name
                     ))));
                 }
+            }
+            if definition.fs_type == "gcs" && definition.bucket.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "storages.definitions name={} requires bucket for type gcs",
+                    definition.name
+                ))));
             }
             if definitions
                 .insert(definition.name.clone(), definition.clone())

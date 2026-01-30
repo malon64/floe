@@ -63,6 +63,12 @@ impl CloudClient {
                     Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
                 }
                 "adls" => Box::new(adls::AdlsClient::new(&definition)?),
+                "gcs" => {
+                    return Err(Box::new(ConfigError(format!(
+                        "storage {} type gcs is not implemented yet (list/get/put)",
+                        definition.name
+                    ))));
+                }
                 other => {
                     return Err(Box::new(ConfigError(format!(
                         "storage type {} is unsupported",

@@ -122,6 +122,14 @@ impl StorageResolver {
                     local_path: None,
                 })
             }
+            "gcs" => {
+                let uri = resolve_gcs_uri(&definition, raw_path)?;
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri,
+                    local_path: None,
+                })
+            }
             _ => Err(Box::new(ConfigError(format!(
                 "storage type {} is unsupported",
                 definition.fs_type
@@ -249,5 +257,56 @@ fn format_s3_uri(bucket: &str, key: &str) -> String {
         format!("s3://{}", bucket)
     } else {
         format!("s3://{}/{}", bucket, key)
+    }
+}
+
+fn resolve_gcs_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
+    let bucket = definition.bucket.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "storage {} requires bucket for type gcs",
+            definition.name
+        )))
+    })?;
+    if let Some((bucket_in_path, key)) = parse_gcs_uri(raw_path) {
+        if bucket_in_path != *bucket {
+            return Err(Box::new(ConfigError(format!(
+                "storage {} bucket mismatch: {}",
+                definition.name, bucket_in_path
+            ))));
+        }
+        return Ok(format_gcs_uri(bucket, &key));
+    }
+
+    let key = join_gcs_key(definition.prefix.as_deref().unwrap_or(""), raw_path);
+    Ok(format_gcs_uri(bucket, &key))
+}
+
+fn parse_gcs_uri(value: &str) -> Option<(String, String)> {
+    let stripped = value.strip_prefix("gs://")?;
+    let mut parts = stripped.splitn(2, '/');
+    let bucket = parts.next()?.to_string();
+    if bucket.is_empty() {
+        return None;
+    }
+    let key = parts.next().unwrap_or("").to_string();
+    Some((bucket, key))
+}
+
+fn join_gcs_key(prefix: &str, raw_path: &str) -> String {
+    let prefix = prefix.trim_matches('/');
+    let trimmed = raw_path.trim_start_matches('/');
+    match (prefix.is_empty(), trimmed.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => trimmed.to_string(),
+        (false, true) => prefix.to_string(),
+        (false, false) => format!("{}/{}", prefix, trimmed),
+    }
+}
+
+fn format_gcs_uri(bucket: &str, key: &str) -> String {
+    if key.is_empty() {
+        format!("gs://{}", bucket)
+    } else {
+        format!("gs://{}/{}", bucket, key)
     }
 }

@@ -52,11 +52,11 @@ jobs:
             core_io:
               - "crates/floe-core/src/io/**"
               - "crates/floe-core/tests/io/**"
-              - "crates/floe-core/tests/io_*.rs"
+              - "crates/floe-core/tests/io.rs"
             core_run:
               - "crates/floe-core/src/run/**"
               - "crates/floe-core/tests/run/**"
-              - "crates/floe-core/tests/run_*.rs"
+              - "crates/floe-core/tests/run.rs"
             core_config:
               - "crates/floe-core/src/config/**"
               - "crates/floe-core/tests/config/**"
@@ -72,8 +72,8 @@ jobs:
           shared-key: v0-rust-feature
       - name: Run tests
         env:
-          CARGO_BUILD_JOBS: "1"
-          RUST_TEST_THREADS: "1"
+          CARGO_BUILD_JOBS: "2"
+          RUST_TEST_THREADS: "2"
           RUSTFLAGS: "-C debuginfo=0"
         run: |
           if [ "${{ steps.changes.outputs.floe_core }}" = "true" ]; then

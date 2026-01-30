@@ -41,6 +41,50 @@ pub fn resolve_inputs(
                 mode: report::ResolvedInputMode::Directory,
             })
         }
+        Target::Gcs { storage, .. } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(crate::errors::RunError("gcs tempdir missing".to_string()))
+            })?;
+            let client = storage_client.ok_or_else(|| {
+                Box::new(crate::errors::RunError(
+                    "gcs storage client missing".to_string(),
+                ))
+            })?;
+            let (bucket, key) = target.gcs_parts().ok_or_else(|| {
+                Box::new(crate::errors::RunError(
+                    "gcs target missing bucket".to_string(),
+                ))
+            })?;
+            let files = io::storage::gcs::build_input_files(
+                client, bucket, key, adapter, temp_dir, entity, storage,
+            )?;
+            Ok(ResolvedInputs {
+                files,
+                mode: report::ResolvedInputMode::Directory,
+            })
+        }
+        Target::Adls { storage, .. } => {
+            let temp_dir = temp_dir.ok_or_else(|| {
+                Box::new(crate::errors::RunError("adls tempdir missing".to_string()))
+            })?;
+            let client = storage_client.ok_or_else(|| {
+                Box::new(crate::errors::RunError(
+                    "adls storage client missing".to_string(),
+                ))
+            })?;
+            let (container, account, base_path) = target.adls_parts().ok_or_else(|| {
+                Box::new(crate::errors::RunError(
+                    "adls target missing container".to_string(),
+                ))
+            })?;
+            let files = io::storage::adls::build_input_files(
+                client, container, account, base_path, adapter, temp_dir, entity, storage,
+            )?;
+            Ok(ResolvedInputs {
+                files,
+                mode: report::ResolvedInputMode::Directory,
+            })
+        }
         Target::Local { storage, .. } => {
             let resolved =
                 adapter.resolve_local_inputs(config_dir, &entity.name, &entity.source, storage)?;

@@ -44,7 +44,10 @@ pub(super) fn run_entity(
     let input = &entity.source;
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
-    let source_is_s3 = matches!(resolved_targets.source, Target::S3 { .. });
+    let source_is_remote = matches!(
+        resolved_targets.source,
+        Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. }
+    );
     let formatter_name = context
         .config
         .report
@@ -62,9 +65,15 @@ pub(super) fn run_entity(
     let required_cols = required_columns(&normalized_columns);
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
-    let needs_temp = source_is_s3
-        || matches!(accepted_target, Target::S3 { .. })
-        || matches!(rejected_target, Some(Target::S3 { .. }));
+    let needs_temp = source_is_remote
+        || matches!(
+            accepted_target,
+            Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. }
+        )
+        || matches!(
+            rejected_target,
+            Some(Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. })
+        );
     let temp_dir = if needs_temp {
         Some(
             tempfile::TempDir::new()
@@ -80,7 +89,7 @@ pub(super) fn run_entity(
         entity,
         input_adapter,
         &resolved_targets,
-        source_is_s3,
+        source_is_remote,
         temp_dir.as_ref(),
     )?;
 

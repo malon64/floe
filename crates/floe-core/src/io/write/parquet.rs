@@ -57,13 +57,36 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
         let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
-        if let Target::Local { base_path, .. } = target {
-            clear_local_output_dir(base_path)?;
-        } else if let Target::S3 {
-            storage, base_key, ..
-        } = target
-        {
-            clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
+        match target {
+            Target::Local { base_path, .. } => {
+                clear_local_output_dir(base_path)?;
+            }
+            Target::S3 {
+                storage, base_key, ..
+            } => {
+                clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
+            }
+            Target::Gcs {
+                storage,
+                bucket,
+                base_key,
+                ..
+            } => {
+                clear_gcs_output_prefix(
+                    cloud, resolver, entity, storage, bucket, base_key, &filename,
+                )?;
+            }
+            Target::Adls {
+                storage,
+                container,
+                account,
+                base_path,
+                ..
+            } => {
+                clear_adls_output_prefix(
+                    cloud, resolver, entity, storage, container, account, base_path, &filename,
+                )?;
+            }
         }
         let options = entity.sink.accepted.options.as_ref();
         let max_size_per_file = options
@@ -157,6 +180,77 @@ fn clear_s3_output_prefix(
         return Err(Box::new(ConfigError(format!(
             "entity.name={} sink.accepted.path must not be bucket root for s3 outputs",
             entity.name
+        ))));
+    }
+    let client = cloud.client_for(resolver, storage, entity)?;
+    let keys = client.list(prefix)?;
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
+    let keys = keys
+        .into_iter()
+        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .collect::<Vec<_>>();
+    if keys.len() == 1 && keys[0].key == sample {
+        return Ok(());
+    }
+    for object in keys {
+        client.delete(&object.uri)?;
+    }
+    Ok(())
+}
+
+fn clear_gcs_output_prefix(
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    storage: &str,
+    bucket: &str,
+    base_key: &str,
+    sample_filename: &str,
+) -> FloeResult<()> {
+    let prefix = base_key.trim_matches('/');
+    if prefix.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.path must not be bucket root for gcs outputs (bucket={})",
+            entity.name, bucket
+        ))));
+    }
+    let client = cloud.client_for(resolver, storage, entity)?;
+    let keys = client.list(prefix)?;
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
+    let keys = keys
+        .into_iter()
+        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .collect::<Vec<_>>();
+    if keys.len() == 1 && keys[0].key == sample {
+        return Ok(());
+    }
+    for object in keys {
+        client.delete(&object.uri)?;
+    }
+    Ok(())
+}
+
+fn clear_adls_output_prefix(
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    storage: &str,
+    container: &str,
+    account: &str,
+    base_path: &str,
+    sample_filename: &str,
+) -> FloeResult<()> {
+    let prefix = base_path.trim_matches('/');
+    if prefix.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.path must not be container root for adls outputs (container={}, account={})",
+            entity.name, container, account
         ))));
     }
     let client = cloud.client_for(resolver, storage, entity)?;

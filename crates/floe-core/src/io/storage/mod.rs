@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{config, ConfigError, FloeResult};
 
+pub mod adls;
 pub mod extensions;
 pub mod inputs;
 pub mod local;
@@ -61,11 +62,7 @@ impl CloudClient {
                     })?;
                     Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
                 }
-                "adls" => {
-                    return Err(Box::new(ConfigError(
-                        "storage type adls is not implemented yet (list/get/put)".to_string(),
-                    )))
-                }
+                "adls" => Box::new(adls::AdlsClient::new(&definition)?),
                 other => {
                     return Err(Box::new(ConfigError(format!(
                         "storage type {} is unsupported",

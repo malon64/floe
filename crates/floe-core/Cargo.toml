@@ -25,3 +25,8 @@ aws-config = "1"
 aws-sdk-s3 = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "fs", "io-util"] }
+azure_core = "0.20"
+azure_identity = "0.20"
+azure_storage = "0.20"
+azure_storage_blobs = "0.20"
+futures = "0.3"

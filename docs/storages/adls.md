@@ -33,7 +33,19 @@ Examples:
 - `abfs://raw@myaccount.dfs.core.windows.net/ingest/customers/customers.csv`
 - `abfs://raw@myaccount.dfs.core.windows.net/customers/customers.csv` (no prefix)
 
+## Authentication
+
+Floe relies on Azure's default credential chain. Set one of the supported env
+combinations, for example:
+
+```bash
+export AZURE_CLIENT_ID=...
+export AZURE_TENANT_ID=...
+export AZURE_CLIENT_SECRET=...
+```
+
+Managed identity, Azure CLI, and other default credential sources are also supported.
+
 ## Status
 
-The ADLS storage backend is **not implemented yet** (no list/get/put). Any config that
-references `type: adls` will fail fast with a clear error until the backend is added.
+MVP is implemented with temp download/upload (list/get/put) using Azure default credentials.

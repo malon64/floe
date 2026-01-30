@@ -14,8 +14,8 @@ fn base_entity() -> config::EntityConfig {
         },
         sink: config::SinkConfig {
             accepted: config::SinkTarget {
-                format: "csv".to_string(),
-                path: "out.csv".to_string(),
+                format: "parquet".to_string(),
+                path: "out.parquet".to_string(),
                 storage: None,
                 options: None,
             },
@@ -88,14 +88,9 @@ fn adls_referenced_errors_until_implemented() {
     };
 
     config.entities[0].source.storage = Some("adls".to_string());
-    let err = floe_core::validate_config_for_tests(&config).expect_err("expected error");
-    assert!(err
-        .to_string()
-        .contains("source.storage=adls is not implemented"));
+    floe_core::validate_config_for_tests(&config).expect("valid config");
 
-    config.entities[0].source.storage = Some("local".to_string());
+    config.entities[0].source.storage = None;
     config.entities[0].sink.accepted.storage = Some("adls".to_string());
-    let err = floe_core::validate_config_for_tests(&config).expect_err("expected error");
-    let message = err.to_string();
-    assert!(!message.is_empty());
+    floe_core::validate_config_for_tests(&config).expect("valid config");
 }

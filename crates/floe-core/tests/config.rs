@@ -4,6 +4,10 @@ mod adls_storage;
 mod adls_validation;
 #[path = "config/config_validation.rs"]
 mod config_validation;
+#[path = "config/gcs_storage.rs"]
+mod gcs_storage;
+#[path = "config/gcs_validation.rs"]
+mod gcs_validation;
 #[path = "config/parse.rs"]
 mod parse;
 #[path = "config/templating.rs"]

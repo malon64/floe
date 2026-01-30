@@ -276,10 +276,14 @@ $defs:
         type: string
       type:
         type: string
-        enum: [local, s3]
+        enum: [local, s3, adls, gcs]
       bucket:
         type: string
       region:
+        type: string
+      account:
+        type: string
+      container:
         type: string
       prefix:
         type: string

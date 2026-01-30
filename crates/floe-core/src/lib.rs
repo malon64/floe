@@ -49,3 +49,7 @@ pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> 
 pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
 }
+
+pub fn validate_config_for_tests(config: &config::RootConfig) -> FloeResult<()> {
+    config::validate_config(config)
+}

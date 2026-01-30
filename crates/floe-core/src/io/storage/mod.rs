@@ -61,6 +61,11 @@ impl CloudClient {
                     })?;
                     Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
                 }
+                "adls" => {
+                    return Err(Box::new(ConfigError(
+                        "storage type adls is not implemented yet (list/get/put)".to_string(),
+                    )))
+                }
                 other => {
                     return Err(Box::new(ConfigError(format!(
                         "storage type {} is unsupported",

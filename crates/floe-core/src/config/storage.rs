@@ -91,6 +91,8 @@ impl StorageResolver {
                 fs_type: "local".to_string(),
                 bucket: None,
                 region: None,
+                account: None,
+                container: None,
                 prefix: None,
             }
         };
@@ -106,6 +108,14 @@ impl StorageResolver {
             }
             "s3" => {
                 let uri = resolve_s3_uri(&definition, raw_path)?;
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri,
+                    local_path: None,
+                })
+            }
+            "adls" => {
+                let uri = resolve_adls_uri(&definition, raw_path)?;
                 Ok(ResolvedPath {
                     storage: name.to_string(),
                     uri,
@@ -128,6 +138,8 @@ impl StorageResolver {
                 fs_type: "local".to_string(),
                 bucket: None,
                 region: None,
+                account: None,
+                container: None,
                 prefix: None,
             })
         } else {
@@ -168,6 +180,46 @@ fn resolve_s3_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<
 
     let key = join_s3_key(definition.prefix.as_deref().unwrap_or(""), raw_path);
     Ok(format_s3_uri(bucket, &key))
+}
+
+fn resolve_adls_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
+    let account = definition.account.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "storage {} requires account for type adls",
+            definition.name
+        )))
+    })?;
+    let container = definition.container.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "storage {} requires container for type adls",
+            definition.name
+        )))
+    })?;
+    let prefix = definition.prefix.as_deref().unwrap_or("");
+    let combined = join_adls_path(prefix, raw_path);
+    Ok(format_adls_uri(container, account, &combined))
+}
+
+fn join_adls_path(prefix: &str, raw_path: &str) -> String {
+    let prefix = prefix.trim_matches('/');
+    let trimmed = raw_path.trim_start_matches('/');
+    match (prefix.is_empty(), trimmed.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => trimmed.to_string(),
+        (false, true) => prefix.to_string(),
+        (false, false) => format!("{}/{}", prefix, trimmed),
+    }
+}
+
+fn format_adls_uri(container: &str, account: &str, path: &str) -> String {
+    if path.is_empty() {
+        format!("abfs://{}@{}.dfs.core.windows.net", container, account)
+    } else {
+        format!(
+            "abfs://{}@{}.dfs.core.windows.net/{}",
+            container, account, path
+        )
+    }
 }
 
 fn parse_s3_uri(value: &str) -> Option<(String, String)> {

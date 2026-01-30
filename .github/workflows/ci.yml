@@ -51,11 +51,11 @@ jobs:
               - "crates/floe-cli/**"
             core_io:
               - "crates/floe-core/src/io/**"
-              - "crates/floe-core/tests/io/**"
+              - "crates/floe-core/tests/io_tests/**"
               - "crates/floe-core/tests/io.rs"
             core_run:
               - "crates/floe-core/src/run/**"
-              - "crates/floe-core/tests/run/**"
+              - "crates/floe-core/tests/run_tests/**"
               - "crates/floe-core/tests/run.rs"
             core_config:
               - "crates/floe-core/src/config/**"

@@ -1,6 +1,6 @@
 # Delta Sink (Accepted Output)
 
-Floe can write accepted output as a Delta Lake table on the local storage.
+Floe can write accepted output as a Delta Lake table on local or S3 storage.
 
 Example:
 ```yaml
@@ -19,4 +19,8 @@ Semantics:
 - `sink.accepted.format: delta` writes a Delta table at `sink.accepted.path`.
 - Write mode is `overwrite` via Delta transactions (a new `_delta_log` version is
   committed; history is preserved).
-- Local storage only (S3 is not supported yet for delta output).
+- Local and S3 storage are supported for delta output.
+
+S3 notes:
+- Delta writes go directly through the object_store backend (no temp download/upload).
+- Credentials come from the standard AWS environment/provider chain.

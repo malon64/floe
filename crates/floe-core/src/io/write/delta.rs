@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use deltalake::arrow::array::{
@@ -8,14 +8,13 @@ use deltalake::arrow::array::{
 };
 use deltalake::arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
-use deltalake::DeltaTable;
+use deltalake::table::builder::DeltaTableBuilder;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
-use crate::io::storage::Target;
-use crate::{config, io, ConfigError, FloeResult};
-use url::Url;
+use crate::io::storage::{object_store, Target};
+use crate::{config, io, FloeResult};
 
 struct DeltaAcceptedAdapter;
 
@@ -25,24 +24,39 @@ pub(crate) fn delta_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &DELTA_ACCEPTED_ADAPTER
 }
 
-pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<(PathBuf, i64)> {
-    let table_path = Path::new(base_path).to_path_buf();
-    std::fs::create_dir_all(&table_path)?;
-
+pub fn write_delta_table(
+    df: &mut DataFrame,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<i64> {
+    if let Target::Local { base_path, .. } = target {
+        std::fs::create_dir_all(Path::new(base_path))?;
+    }
     let batch = dataframe_to_record_batch(df)?;
-    let table_uri = Url::from_directory_path(&table_path).map_err(|_| {
-        Box::new(RunError(format!(
-            "delta table path is not a valid url: {}",
-            table_path.display()
-        )))
-    })?;
+    let store = object_store::delta_store_config(target, resolver, entity)?;
+    let table_url = store.table_url;
+    let storage_options = store.storage_options;
+    let builder = DeltaTableBuilder::from_url(table_url.clone())
+        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .with_storage_options(storage_options.clone());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
     let version = runtime
         .block_on(async move {
-            let table = DeltaTable::try_from_url(table_uri).await?;
+            let table = match builder.load().await {
+                Ok(table) => table,
+                Err(err) => match err {
+                    deltalake::DeltaTableError::NotATable(_) => {
+                        let builder = DeltaTableBuilder::from_url(table_url)?
+                            .with_storage_options(storage_options);
+                        builder.build()?
+                    }
+                    other => return Err(other),
+                },
+            };
             let table = table
                 .write(vec![batch])
                 .with_save_mode(SaveMode::Overwrite)
@@ -56,7 +70,7 @@ pub fn write_delta_table(df: &mut DataFrame, base_path: &str) -> FloeResult<(Pat
         })
         .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?;
 
-    Ok((table_path, version))
+    Ok(version)
 }
 
 impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
@@ -67,23 +81,15 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _output_stem: &str,
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,
-        _resolver: &config::StorageResolver,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        match target {
-            Target::Local { base_path, .. } => {
-                let (_path, version) = write_delta_table(df, base_path)?;
-                Ok(AcceptedWriteOutput {
-                    parts_written: 1,
-                    part_files: Vec::new(),
-                    table_version: Some(version),
-                })
-            }
-            Target::S3 { .. } => Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.format=delta is only supported on local storage",
-                entity.name
-            )))),
-        }
+        let version = write_delta_table(df, target, resolver, entity)?;
+        Ok(AcceptedWriteOutput {
+            parts_written: 1,
+            part_files: Vec::new(),
+            table_version: Some(version),
+        })
     }
 }
 
@@ -181,6 +187,7 @@ fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRe
 mod tests {
     use super::*;
     use polars::prelude::{df, ParquetReader, SerReader};
+    use url::Url;
 
     #[test]
     fn write_delta_table_overwrite() -> FloeResult<()> {
@@ -190,7 +197,55 @@ mod tests {
             "id" => &[1i64, 2, 3],
             "name" => &["a", "b", "c"]
         )?;
-        let (_path, version1) = write_delta_table(&mut df, table_path.to_str().unwrap())?;
+        let config = config::RootConfig {
+            version: "0.1".to_string(),
+            metadata: None,
+            storages: None,
+            env: None,
+            domains: Vec::new(),
+            report: None,
+            entities: Vec::new(),
+        };
+        let resolver = config::StorageResolver::new(&config, temp_dir.path())?;
+        let resolved = resolver.resolve_path(
+            "orders",
+            "sink.accepted.path",
+            None,
+            table_path.to_str().unwrap(),
+        )?;
+        let target = Target::from_resolved(&resolved)?;
+        let entity = config::EntityConfig {
+            name: "orders".to_string(),
+            metadata: None,
+            domain: None,
+            source: config::SourceConfig {
+                format: "csv".to_string(),
+                path: "in".to_string(),
+                storage: None,
+                options: None,
+                cast_mode: None,
+            },
+            sink: config::SinkConfig {
+                accepted: config::SinkTarget {
+                    format: "delta".to_string(),
+                    path: table_path.display().to_string(),
+                    storage: None,
+                    options: None,
+                },
+                rejected: None,
+                archive: None,
+            },
+            policy: config::PolicyConfig {
+                severity: "warn".to_string(),
+            },
+            schema: config::SchemaConfig {
+                normalize_columns: None,
+                mismatch: None,
+                columns: Vec::new(),
+            },
+        };
+
+        let version1 = write_delta_table(&mut df, &target, &resolver, &entity)?;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -222,7 +277,7 @@ mod tests {
             "id" => &[4i64, 5],
             "name" => &["d", "e"]
         )?;
-        let (_path, version2) = write_delta_table(&mut df_overwrite, table_path.to_str().unwrap())?;
+        let version2 = write_delta_table(&mut df_overwrite, &target, &resolver, &entity)?;
         assert!(version2 > version1);
 
         let table_url = Url::from_directory_path(&table_path)
@@ -231,6 +286,13 @@ mod tests {
             .block_on(async { deltalake::open_table(table_url).await })
             .map_err(|err| Box::new(RunError(format!("delta test open failed: {err}"))))?;
         assert!(table.version().unwrap_or(0) >= version2);
+        let mut row_count = 0usize;
+        for uri in table.get_file_uris()? {
+            let file = std::fs::File::open(&uri)?;
+            let df_read = ParquetReader::new(file).finish()?;
+            row_count += df_read.height();
+        }
+        assert_eq!(row_count, df_overwrite.height());
 
         let log_dir = table_path.join("_delta_log");
         assert!(log_dir.exists());

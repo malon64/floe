@@ -139,7 +139,7 @@ is available for templating within that entity.
 ### `sink` (required)
 
 - `accepted` (required)
-  - `format`: `parquet` or `delta` (local). `iceberg` is recognized but not
+  - `format`: `parquet` or `delta` (local or S3). `iceberg` is recognized but not
     implemented yet.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").

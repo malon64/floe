@@ -88,14 +88,7 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
         }
     }
 
-    if let Some(storage_type) = storages.definition_type(&storage_name) {
-        if storage_type == "adls" {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} source.storage=adls is not implemented yet (list/get/put)",
-                entity.name
-            ))));
-        }
-    }
+    let _ = storages.definition_type(&storage_name);
 
     Ok(())
 }
@@ -142,27 +135,13 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         }
     }
 
-    if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-        if storage_type == "adls" {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.storage=adls is not implemented yet (list/get/put)",
-                entity.name
-            ))));
-        }
-    }
+    let _ = storages.definition_type(&accepted_storage);
 
     if let Some(rejected) = &entity.sink.rejected {
         let rejected_storage =
             storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
         storages.validate_reference(entity, "sink.rejected.storage", &rejected_storage)?;
-        if let Some(storage_type) = storages.definition_type(&rejected_storage) {
-            if storage_type == "adls" {
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.rejected.storage=adls is not implemented yet (list/get/put)",
-                    entity.name
-                ))));
-            }
-        }
+        let _ = storages.definition_type(&rejected_storage);
     }
 
     Ok(())

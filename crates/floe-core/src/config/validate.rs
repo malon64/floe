@@ -124,9 +124,9 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
     storages.validate_reference(entity, "sink.accepted.storage", &accepted_storage)?;
     if entity.sink.accepted.format == "delta" {
         if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-            if storage_type != "local" {
+            if storage_type != "local" && storage_type != "s3" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format=delta is only supported on local storage (got {})",
+                    "entity.name={} sink.accepted.format=delta is only supported on local or s3 storage (got {})",
                     entity.name, storage_type
                 ))));
             }

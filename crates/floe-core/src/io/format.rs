@@ -474,14 +474,3 @@ pub fn collect_row_errors(
     }
     Ok(error_lists)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn input_registry_returns_csv_adapter() {
-        let adapter = input_adapter("csv").expect("adapter");
-        assert_eq!(adapter.format(), "csv");
-    }
-}

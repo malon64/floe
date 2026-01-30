@@ -3,7 +3,7 @@ use std::path::Path;
 pub mod checks;
 pub mod config;
 pub mod errors;
-mod io;
+pub mod io;
 pub mod report;
 pub mod run;
 pub mod warnings;

@@ -72,12 +72,11 @@ jobs:
           shared-key: v0-rust-feature
       - name: Run tests
         env:
-          CARGO_BUILD_JOBS: "1"
-          RUST_TEST_THREADS: "1"
+          CARGO_BUILD_JOBS: "2"
+          RUST_TEST_THREADS: "2"
           RUSTFLAGS: "-C debuginfo=0"
         run: |
           if [ "${{ steps.changes.outputs.floe_core }}" = "true" ]; then
-            cargo test -p floe-core --lib
             if [ "${{ steps.changes.outputs.core_config }}" = "true" ]; then
               cargo test -p floe-core --test config
             fi

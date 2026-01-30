@@ -15,6 +15,12 @@ impl LocalClient {
     }
 }
 
+impl Default for LocalClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StorageClient for LocalClient {
     fn list(&self, prefix: &str) -> FloeResult<Vec<String>> {
         let path = Path::new(prefix);

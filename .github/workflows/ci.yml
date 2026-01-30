@@ -52,11 +52,11 @@ jobs:
             core_io:
               - "crates/floe-core/src/io/**"
               - "crates/floe-core/tests/io/**"
-              - "crates/floe-core/tests/io.rs"
+              - "crates/floe-core/tests/io_*.rs"
             core_run:
               - "crates/floe-core/src/run/**"
               - "crates/floe-core/tests/run/**"
-              - "crates/floe-core/tests/run.rs"
+              - "crates/floe-core/tests/run_*.rs"
             core_config:
               - "crates/floe-core/src/config/**"
               - "crates/floe-core/tests/config/**"
@@ -72,8 +72,8 @@ jobs:
           shared-key: v0-rust-feature
       - name: Run tests
         env:
-          CARGO_BUILD_JOBS: "2"
-          RUST_TEST_THREADS: "2"
+          CARGO_BUILD_JOBS: "1"
+          RUST_TEST_THREADS: "1"
           RUSTFLAGS: "-C debuginfo=0"
         run: |
           if [ "${{ steps.changes.outputs.floe_core }}" = "true" ]; then
@@ -81,10 +81,10 @@ jobs:
               cargo test -p floe-core --test config
             fi
             if [ "${{ steps.changes.outputs.core_io }}" = "true" ]; then
-              cargo test -p floe-core --test io
+              cargo test -p floe-core --test io_format --test io_storage --test io_read --test io_write
             fi
             if [ "${{ steps.changes.outputs.core_run }}" = "true" ]; then
-              cargo test -p floe-core --test run
+              cargo test -p floe-core --test run_checks --test run_normalize --test run_report --test run_schema_mismatch --test run_check_order --test run_entity
             fi
             cargo test -p floe-core --doc
           fi

@@ -72,3 +72,9 @@ impl CloudClient {
             .as_mut())
     }
 }
+
+impl Default for CloudClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -190,6 +190,8 @@ pub struct StorageDefinition {
     pub fs_type: String,
     pub bucket: Option<String>,
     pub region: Option<String>,
+    pub account: Option<String>,
+    pub container: Option<String>,
     pub prefix: Option<String>,
 }
 

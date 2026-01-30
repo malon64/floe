@@ -379,13 +379,23 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
     validate_known_keys(
         hash,
         "storages.definitions",
-        &["name", "type", "bucket", "region", "prefix"],
+        &[
+            "name",
+            "type",
+            "bucket",
+            "region",
+            "account",
+            "container",
+            "prefix",
+        ],
     )?;
     Ok(StorageDefinition {
         name: get_string(hash, "name", "storages.definitions")?,
         fs_type: get_string(hash, "type", "storages.definitions")?,
         bucket: opt_string(hash, "bucket", "storages.definitions")?,
         region: opt_string(hash, "region", "storages.definitions")?,
+        account: opt_string(hash, "account", "storages.definitions")?,
+        container: opt_string(hash, "container", "storages.definitions")?,
         prefix: opt_string(hash, "prefix", "storages.definitions")?,
     })
 }

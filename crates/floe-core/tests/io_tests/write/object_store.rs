@@ -13,6 +13,8 @@ fn sample_config() -> config::RootConfig {
                 fs_type: "s3".to_string(),
                 bucket: Some("my-bucket".to_string()),
                 region: Some("eu-west-1".to_string()),
+                account: None,
+                container: None,
                 prefix: Some("data".to_string()),
             }],
         }),

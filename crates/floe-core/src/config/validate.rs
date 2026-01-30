@@ -10,7 +10,7 @@ const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_ca
 const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
-const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3"];
+const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls"];
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -88,6 +88,15 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
         }
     }
 
+    if let Some(storage_type) = storages.definition_type(&storage_name) {
+        if storage_type == "adls" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.storage=adls is not implemented yet (list/get/put)",
+                entity.name
+            ))));
+        }
+    }
+
     Ok(())
 }
 
@@ -133,10 +142,27 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         }
     }
 
+    if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+        if storage_type == "adls" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.storage=adls is not implemented yet (list/get/put)",
+                entity.name
+            ))));
+        }
+    }
+
     if let Some(rejected) = &entity.sink.rejected {
         let rejected_storage =
             storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
         storages.validate_reference(entity, "sink.rejected.storage", &rejected_storage)?;
+        if let Some(storage_type) = storages.definition_type(&rejected_storage) {
+            if storage_type == "adls" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.rejected.storage=adls is not implemented yet (list/get/put)",
+                    entity.name
+                ))));
+            }
+        }
     }
 
     Ok(())
@@ -275,6 +301,20 @@ impl StorageRegistry {
                 if definition.region.is_none() {
                     return Err(Box::new(ConfigError(format!(
                         "storages.definitions name={} requires region for type s3",
+                        definition.name
+                    ))));
+                }
+            }
+            if definition.fs_type == "adls" {
+                if definition.account.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "storages.definitions name={} requires account for type adls",
+                        definition.name
+                    ))));
+                }
+                if definition.container.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "storages.definitions name={} requires container for type adls",
                         definition.name
                     ))));
                 }

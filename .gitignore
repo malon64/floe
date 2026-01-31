@@ -27,3 +27,8 @@ bench/config/bench_*.yml
 !bench/config/bench.yml
 bench/scripts/__pycache__/
 bench/.venv
+
+# Cloud testing creds
+aws/
+gcp/
+adls/

@@ -159,7 +159,27 @@ impl StorageClient for S3Client {
         Ok(format_s3_uri(self.bucket(), path.trim_start_matches('/')))
     }
 
-    fn delete(&self, uri: &str) -> FloeResult<()> {
+    fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
+        let src = parse_s3_uri(src_uri)?;
+        let dst = parse_s3_uri(dst_uri)?;
+        let copy_source = format!("{}/{}", src.bucket, src.key);
+        self.runtime.block_on(async move {
+            self.client
+                .copy_object()
+                .bucket(dst.bucket)
+                .key(dst.key)
+                .copy_source(copy_source)
+                .send()
+                .await
+                .map_err(|err| {
+                    Box::new(StorageError(format!("s3 copy object failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            Ok(())
+        })
+    }
+
+    fn delete_object(&self, uri: &str) -> FloeResult<()> {
         let location = parse_s3_uri(uri)?;
         let bucket = location.bucket;
         let key = location.key;
@@ -176,6 +196,15 @@ impl StorageClient for S3Client {
                 })?;
             Ok(())
         })
+    }
+
+    fn exists(&self, uri: &str) -> FloeResult<bool> {
+        let location = parse_s3_uri(uri)?;
+        if location.key.is_empty() {
+            return Ok(false);
+        }
+        let refs = self.list(&location.key)?;
+        Ok(refs.iter().any(|object| object.key == location.key))
     }
 }
 

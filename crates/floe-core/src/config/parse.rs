@@ -408,9 +408,11 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
 
 fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
     let hash = yaml_hash(value, "sink.archive")?;
-    validate_known_keys(hash, "sink.archive", &["path"])?;
+    validate_known_keys(hash, "sink.archive", &["path", "storage"])?;
+    let path = opt_string(hash, "path", "sink.archive")?.unwrap_or_else(|| "archive".to_string());
     Ok(ArchiveTarget {
-        path: get_string(hash, "path", "sink.archive")?,
+        path,
+        storage: opt_string(hash, "storage", "sink.archive")?,
     })
 }
 

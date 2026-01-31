@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use floe_core::io::storage::paths::{
-    build_output_filename, build_part_stem, resolve_output_dir_key, resolve_output_dir_path,
-    resolve_output_key, resolve_sibling_key,
+    archive_relative_path, build_output_filename, build_part_stem, resolve_archive_key,
+    resolve_archive_path, resolve_output_dir_key, resolve_output_dir_path, resolve_output_key,
+    resolve_sibling_key,
 };
 
 #[test]
@@ -74,5 +75,30 @@ fn resolve_sibling_key_uses_parent_for_file_base() {
     assert_eq!(
         resolve_sibling_key("out", "file_reject_errors.json"),
         "out/file_reject_errors.json"
+    );
+}
+
+#[test]
+fn archive_relative_path_includes_entity_and_filename() {
+    assert_eq!(
+        archive_relative_path("orders", "input.csv"),
+        "orders/input.csv"
+    );
+    assert_eq!(
+        archive_relative_path("orders", "nested/input.csv"),
+        "orders/input.csv"
+    );
+    assert_eq!(archive_relative_path("", "input.csv"), "input.csv");
+}
+
+#[test]
+fn resolve_archive_paths_use_directory_semantics() {
+    assert_eq!(
+        resolve_archive_path("archive", "orders", "input.csv"),
+        PathBuf::from("archive/orders/input.csv")
+    );
+    assert_eq!(
+        resolve_archive_key("archive", "orders", "input.csv"),
+        "archive/orders/input.csv"
     );
 }

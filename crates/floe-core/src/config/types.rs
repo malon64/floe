@@ -205,6 +205,7 @@ pub struct ReportConfig {
 #[derive(Debug)]
 pub struct ArchiveTarget {
     pub path: String,
+    pub storage: Option<String>,
 }
 
 #[derive(Debug)]

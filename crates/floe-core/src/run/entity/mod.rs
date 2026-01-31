@@ -125,12 +125,25 @@ pub(super) fn run_entity(
         warnings_total: 0,
         errors_total: 0,
     };
-    let archive_enabled = entity.sink.archive.is_some();
-    let archive_dir = entity
+    let archive_target = entity
         .sink
         .archive
         .as_ref()
-        .map(|archive| config::resolve_local_path(&context.config_dir, &archive.path));
+        .map(|archive| {
+            let storage_name = archive
+                .storage
+                .as_deref()
+                .or(entity.source.storage.as_deref());
+            let resolved = context.storage_resolver.resolve_path(
+                &entity.name,
+                "sink.archive.storage",
+                storage_name,
+                &archive.path,
+            )?;
+            Target::from_resolved(&resolved)
+        })
+        .transpose()?;
+    let archive_enabled = archive_target.is_some();
 
     let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
@@ -237,17 +250,13 @@ pub(super) fn run_entity(
                 entity,
             )?);
 
-            let archived_path = if archive_enabled {
-                if let Some(dir) = &archive_dir {
-                    let archived_path_buf =
-                        io::write::archive_input(&input_file.source_local_path, dir)?;
-                    Some(archived_path_buf.display().to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let archived_path = archive_input_file(
+                cloud,
+                &context.storage_resolver,
+                entity,
+                archive_target.as_ref(),
+                &input_file,
+            )?;
 
             let status = if mismatch.aborted {
                 report::FileStatus::Aborted
@@ -597,11 +606,13 @@ pub(super) fn run_entity(
         }
 
         if archive_enabled {
-            if let Some(dir) = &archive_dir {
-                let archived_path_buf =
-                    io::write::archive_input(&input_file.source_local_path, dir)?;
-                archived_path = Some(archived_path_buf.display().to_string());
-            }
+            archived_path = archive_input_file(
+                cloud,
+                &context.storage_resolver,
+                entity,
+                archive_target.as_ref(),
+                &input_file,
+            )?;
         }
 
         let (status, accepted_count, rejected_count, errors, warnings) =
@@ -740,6 +751,31 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+fn archive_input_file(
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    archive_target: Option<&Target>,
+    input_file: &io::format::InputFile,
+) -> FloeResult<Option<String>> {
+    let target = match archive_target {
+        Some(target) => target,
+        None => return Ok(None),
+    };
+    let relative =
+        io::storage::paths::archive_relative_path(&entity.name, input_file.source_name.as_str());
+    let dest_uri = target.join_relative(&relative);
+    let client = cloud.client_for(resolver, target.storage(), entity)?;
+    client.copy_object(&input_file.source_uri, &dest_uri)?;
+    if let Err(err) = client.delete_object(&input_file.source_uri) {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} archive delete failed for {}: {err}",
+            entity.name, input_file.source_uri
+        ))));
+    }
+    Ok(Some(dest_uri))
 }
 
 fn append_accepted(accum: &mut Option<DataFrame>, next: DataFrame) -> FloeResult<()> {

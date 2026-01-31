@@ -57,8 +57,16 @@ impl StorageClient for MockStorageClient {
         Ok(format!("s3://bucket/{path}"))
     }
 
-    fn delete(&self, _uri: &str) -> FloeResult<()> {
+    fn copy_object(&self, _src_uri: &str, _dst_uri: &str) -> FloeResult<()> {
         Ok(())
+    }
+
+    fn delete_object(&self, _uri: &str) -> FloeResult<()> {
+        Ok(())
+    }
+
+    fn exists(&self, _uri: &str) -> FloeResult<bool> {
+        Ok(false)
     }
 }
 

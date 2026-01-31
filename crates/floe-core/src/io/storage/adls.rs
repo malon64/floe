@@ -183,7 +183,17 @@ impl StorageClient for AdlsClient {
         Ok(self.format_abfs(&self.full_path(path)))
     }
 
-    fn delete(&self, uri: &str) -> FloeResult<()> {
+    fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
+        let temp_dir = tempfile::TempDir::new().map_err(|err| {
+            Box::new(StorageError(format!("adls tempdir failed: {err}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let temp_path = self.download_to_temp(src_uri, temp_dir.path())?;
+        self.upload_from_path(&temp_path, dst_uri)?;
+        Ok(())
+    }
+
+    fn delete_object(&self, uri: &str) -> FloeResult<()> {
         let key = uri
             .split_once(".dfs.core.windows.net/")
             .map(|(_, tail)| tail)
@@ -202,6 +212,20 @@ impl StorageClient for AdlsClient {
             })?;
             Ok(())
         })
+    }
+
+    fn exists(&self, uri: &str) -> FloeResult<bool> {
+        let key = uri
+            .split_once(".dfs.core.windows.net/")
+            .map(|(_, tail)| tail)
+            .unwrap_or("")
+            .trim_start_matches('/')
+            .to_string();
+        if key.is_empty() {
+            return Ok(false);
+        }
+        let refs = self.list(&key)?;
+        Ok(refs.iter().any(|object| object.key == key))
     }
 }
 

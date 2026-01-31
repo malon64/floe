@@ -2,6 +2,16 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.1.7
+
+- Added ADLS and GCS storage definitions with URI resolution and validation.
+- Implemented ADLS and GCS storage clients (list/download/upload) for file IO.
+- Added Delta transactional writes via object_store for S3, ADLS, and GCS.
+- Parquet accepted output now supports multipart chunking via `max_size_per_file`.
+- Added config templating (`env` + `domains`) and duplicate domain validation.
+- Refactored storage interface and reorganized test binaries/modules for faster CI.
+- CI: path-based filters, shared rust-cache across branches, and controlled test threading.
+
 ## v0.1.6
 
 - Added JSON array input mode alongside NDJSON, with config validation updates.

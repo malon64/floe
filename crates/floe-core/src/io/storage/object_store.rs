@@ -53,10 +53,29 @@ pub fn delta_store_config(
                 storage_options,
             })
         }
-        Target::Adls { .. } => Err(Box::new(ConfigError(format!(
-            "entity.name={} delta tables are not supported on adls yet",
-            entity.name
-        )))),
+        Target::Adls {
+            uri,
+            account,
+            container,
+            ..
+        } => {
+            let url = Url::parse(uri).map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} delta adls path is invalid: {} ({err})",
+                    entity.name, uri
+                )))
+            })?;
+            let mut storage_options = HashMap::new();
+            storage_options.insert(
+                "azure_storage_account_name".to_string(),
+                account.to_string(),
+            );
+            storage_options.insert("azure_container_name".to_string(), container.to_string());
+            Ok(DeltaStoreConfig {
+                table_url: url,
+                storage_options,
+            })
+        }
         Target::Gcs { .. } => Err(Box::new(ConfigError(format!(
             "entity.name={} delta tables are not supported on gcs yet",
             entity.name

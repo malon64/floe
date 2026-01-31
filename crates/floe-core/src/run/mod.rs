@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::io::storage::CloudClient;
-use crate::run::reporting::project_metadata_json;
+use crate::report::build::project_metadata_json;
+use crate::report::output::write_summary_report;
 use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
@@ -9,12 +10,9 @@ pub(crate) mod entity;
 mod file;
 pub mod normalize;
 mod output;
-mod report_output;
-mod reporting;
 
 use context::RunContext;
 use entity::{run_entity, EntityRunResult};
-use report_output::write_summary_report;
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 

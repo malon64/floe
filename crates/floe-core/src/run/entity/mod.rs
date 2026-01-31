@@ -11,8 +11,8 @@ use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
-use super::reporting::summarize_validation;
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
+use crate::report::build::summarize_validation;
 
 use io::format::{self, ReadInput};
 use io::storage::Target;
@@ -723,7 +723,7 @@ pub(super) fn run_entity(
     });
 
     if let Some(report_target) = &context.report_target {
-        crate::run::report_output::write_entity_report(
+        crate::report::output::write_entity_report(
             report_target,
             &context.run_id,
             entity,

@@ -1,7 +1,7 @@
 use crate::{config, report};
 
 use super::resolve::ResolvedEntityTargets;
-use crate::run::reporting::{entity_metadata_json, source_options_json};
+use crate::report::build::{entity_metadata_json, source_options_json};
 use crate::run::RunContext;
 pub(super) struct RunReportContext<'a> {
     pub context: &'a RunContext,

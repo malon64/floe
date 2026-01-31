@@ -7,7 +7,7 @@ use crate::{check, config, report};
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
 
-pub(super) fn summarize_validation(
+pub fn summarize_validation(
     errors_per_row: &[Vec<check::RowError>],
     columns: &[config::ColumnConfig],
     severity: report::Severity,
@@ -98,7 +98,7 @@ fn rule_from_index(idx: usize) -> report::RuleName {
     }
 }
 
-pub(super) fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
+pub fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
     let mut map = Map::new();
     map.insert("project".to_string(), Value::String(meta.project.clone()));
     if let Some(description) = &meta.description {
@@ -116,7 +116,7 @@ pub(super) fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
     Value::Object(map)
 }
 
-pub(super) fn entity_metadata_json(meta: &config::EntityMetadata) -> Value {
+pub fn entity_metadata_json(meta: &config::EntityMetadata) -> Value {
     let mut map = Map::new();
     if let Some(data_product) = &meta.data_product {
         map.insert(
@@ -142,7 +142,7 @@ pub(super) fn entity_metadata_json(meta: &config::EntityMetadata) -> Value {
     Value::Object(map)
 }
 
-pub(super) fn source_options_json(options: &config::SourceOptions) -> Value {
+pub fn source_options_json(options: &config::SourceOptions) -> Value {
     let mut map = Map::new();
     if let Some(header) = options.header {
         map.insert("header".to_string(), Value::Bool(header));

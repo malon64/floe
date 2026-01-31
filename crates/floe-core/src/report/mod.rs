@@ -6,6 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+pub mod build;
+pub mod output;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RunReport {
@@ -322,6 +325,28 @@ impl From<std::io::Error> for ReportError {
 impl From<serde_json::Error> for ReportError {
     fn from(err: serde_json::Error) -> Self {
         Self::Serialize(err)
+    }
+}
+
+pub trait ReportFormatter {
+    fn format_name(&self) -> &'static str;
+    fn serialize_run(&self, report: &RunReport) -> Result<String, ReportError>;
+    fn serialize_summary(&self, report: &RunSummaryReport) -> Result<String, ReportError>;
+}
+
+pub struct JsonReportFormatter;
+
+impl ReportFormatter for JsonReportFormatter {
+    fn format_name(&self) -> &'static str {
+        "json"
+    }
+
+    fn serialize_run(&self, report: &RunReport) -> Result<String, ReportError> {
+        Ok(serde_json::to_string_pretty(report)?)
+    }
+
+    fn serialize_summary(&self, report: &RunSummaryReport) -> Result<String, ReportError> {
+        Ok(serde_json::to_string_pretty(report)?)
     }
 }
 

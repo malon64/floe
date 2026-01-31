@@ -2,6 +2,7 @@ use std::path::Path;
 
 pub mod checks;
 pub mod config;
+mod config_location;
 pub mod errors;
 pub mod io;
 pub mod report;
@@ -9,6 +10,7 @@ pub mod run;
 pub mod warnings;
 
 pub use checks as check;
+pub use config_location::{resolve_config_location, ConfigLocation};
 pub use run::{run, run_with_base, EntityOutcome, RunOutcome};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;

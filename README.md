@@ -119,26 +119,27 @@ Checks and policy details: [docs/checks.md](docs/checks.md)
 ## Supported formats
 
 Inputs:
-- CSV (local and S3)
-- Parquet (local and S3)
-- NDJSON (local and S3)
+- CSV (local + S3/ADLS/GCS via temp download)
+- JSON (array/ndjson; local + S3/ADLS/GCS via temp download)
+- Parquet (local only)
 
 Outputs:
-- Accepted: Parquet, Delta
-- Rejected: CSV
+- Accepted: Parquet (local + cloud via temp upload), Delta (local + cloud via object_store)
+- Rejected: CSV (local + cloud via temp upload)
+- Reports: JSON (local only)
 
 Sink details:
 - Options: [docs/sinks/options.md](docs/sinks/options.md)
 - Delta: [docs/sinks/delta.md](docs/sinks/delta.md)
 - Iceberg: [docs/sinks/iceberg.md](docs/sinks/iceberg.md)
+- Support matrix: [docs/support-matrix.md](docs/support-matrix.md)
 
 ## Cloud integration and storages
 
 Floe resolves all paths through a storage registry in the config. By default,
 paths use `local://`. To use cloud storage, define a storage (with credentials
-or bucket info) and reference it on `source`/`sink`. Currently only S3 is
-implemented; Google Cloud Storage, Azure Data Lake Storage, and `dbfs://`
-(Databricks) are on the roadmap.
+or bucket info) and reference it on `source`/`sink`. S3, ADLS, and GCS are
+implemented; `dbfs://` (Databricks) is on the roadmap.
 
 Example (S3 storage):
 
@@ -160,7 +161,10 @@ entities:
       path: raw/customer/
 ```
 
-Storage guide: [docs/storages/s3.md](docs/storages/s3.md)
+Storage guides:
+- [docs/storages/s3.md](docs/storages/s3.md)
+- [docs/storages/adls.md](docs/storages/adls.md)
+- [docs/storages/gcs.md](docs/storages/gcs.md)
 
 ## Roadmap (near term)
 

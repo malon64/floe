@@ -1,7 +1,7 @@
-# ADLS Storage (planned)
+# ADLS Storage (MVP)
 
-Floe supports configuring ADLS storage definitions but the backend is not implemented yet.
-This file documents the intended configuration and canonical URI format.
+ADLS (Gen2) storage is supported for list/download/upload using Azure's default
+credential chain. This MVP uses temp downloads/uploads for file IO.
 
 ## Config fields
 
@@ -46,6 +46,15 @@ export AZURE_CLIENT_SECRET=...
 
 Managed identity, Azure CLI, and other default credential sources are also supported.
 
-## Status
+## Supported behavior
 
-MVP is implemented with temp download/upload (list/get/put) using Azure default credentials.
+- Inputs: CSV and JSON (array/ndjson) via prefix listing + suffix filtering.
+- Outputs:
+  - Accepted parquet: temp local write then upload.
+  - Accepted delta: direct object_store writes (no temp upload).
+  - Rejected CSV: temp local write then upload.
+
+## Limitations
+
+- Source path is treated as a prefix (no glob patterns).
+- Parquet input is local-only.

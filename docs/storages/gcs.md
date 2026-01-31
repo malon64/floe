@@ -39,8 +39,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 ## Limitations
 
-- IO uses temp download/upload (no streaming).
-- Only file-based formats (csv/parquet/json) are supported.
-
-GCS auth will follow the standard Google ADC (Application Default Credentials) chain.
-This will be documented once list/download/upload are implemented.
+- IO uses temp download/upload (no streaming) for file formats.
+- Source path is treated as a prefix (no glob patterns).
+- Parquet input is local-only.
+- Accepted Delta uses direct object_store writes (no temp upload).

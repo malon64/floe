@@ -137,6 +137,78 @@ impl StorageResolver {
         }
     }
 
+    pub fn resolve_report_path(
+        &self,
+        storage_name: Option<&str>,
+        raw_path: &str,
+    ) -> FloeResult<ResolvedPath> {
+        let name = storage_name.unwrap_or(self.default_name.as_str());
+        if !self.has_config && name != "local" {
+            return Err(Box::new(ConfigError(format!(
+                "report.storage references unknown storage {} (no storages block)",
+                name
+            ))));
+        }
+
+        let definition = if self.has_config {
+            self.definitions.get(name).cloned().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "report.storage references unknown storage {}",
+                    name
+                )))
+            })?
+        } else {
+            StorageDefinition {
+                name: "local".to_string(),
+                fs_type: "local".to_string(),
+                bucket: None,
+                region: None,
+                account: None,
+                container: None,
+                prefix: None,
+            }
+        };
+
+        match definition.fs_type.as_str() {
+            "local" => {
+                let resolved = resolve_local_path(&self.config_dir, raw_path);
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri: local_uri(&resolved),
+                    local_path: Some(resolved),
+                })
+            }
+            "s3" => {
+                let uri = resolve_s3_uri(&definition, raw_path)?;
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri,
+                    local_path: None,
+                })
+            }
+            "adls" => {
+                let uri = resolve_adls_uri(&definition, raw_path)?;
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri,
+                    local_path: None,
+                })
+            }
+            "gcs" => {
+                let uri = resolve_gcs_uri(&definition, raw_path)?;
+                Ok(ResolvedPath {
+                    storage: name.to_string(),
+                    uri,
+                    local_path: None,
+                })
+            }
+            _ => Err(Box::new(ConfigError(format!(
+                "storage type {} is unsupported",
+                definition.fs_type
+            )))),
+        }
+    }
+
     pub fn definition(&self, name: &str) -> Option<StorageDefinition> {
         if self.has_config {
             self.definitions.get(name).cloned()
@@ -153,6 +225,10 @@ impl StorageResolver {
         } else {
             None
         }
+    }
+
+    pub fn default_storage_name(&self) -> &str {
+        self.default_name.as_str()
     }
 }
 

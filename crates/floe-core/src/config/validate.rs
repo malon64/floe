@@ -20,6 +20,9 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     }
 
     let storage_registry = StorageRegistry::new(config)?;
+    if let Some(report) = &config.report {
+        validate_report(report, &storage_registry)?;
+    }
 
     let mut names = HashSet::new();
     for entity in &config.entities {
@@ -32,6 +35,15 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_report(
+    report: &crate::config::ReportConfig,
+    storages: &StorageRegistry,
+) -> FloeResult<()> {
+    let storage_name = storages.resolve_report_name(report.storage.as_deref())?;
+    storages.validate_report_reference("report.storage", &storage_name)?;
     Ok(())
 }
 
@@ -389,5 +401,41 @@ impl StorageRegistry {
         self.definitions
             .get(name)
             .map(|definition| definition.fs_type.as_str())
+    }
+
+    fn resolve_report_name(&self, override_name: Option<&str>) -> FloeResult<String> {
+        if let Some(name) = override_name {
+            return Ok(name.to_string());
+        }
+        if self.has_config {
+            let default_name = self.default_name.clone().ok_or_else(|| {
+                Box::new(ConfigError(
+                    "report.storage requires storages.default".to_string(),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            return Ok(default_name);
+        }
+        Ok("local".to_string())
+    }
+
+    fn validate_report_reference(&self, field: &str, name: &str) -> FloeResult<()> {
+        if !self.has_config {
+            if name != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "{field} references unknown storage {} (no storages block)",
+                    name
+                ))));
+            }
+            return Ok(());
+        }
+
+        let _definition = self.definitions.get(name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "{field} references unknown storage {}",
+                name
+            )))
+        })?;
+
+        Ok(())
     }
 }

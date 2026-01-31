@@ -722,8 +722,15 @@ pub(super) fn run_entity(
         accepted_table_version,
     });
 
-    if let Some(report_dir) = &context.report_dir {
-        report::ReportWriter::write_report(report_dir, &context.run_id, &entity.name, &run_report)?;
+    if let Some(report_target) = &context.report_target {
+        crate::run::report_output::write_entity_report(
+            report_target,
+            &context.run_id,
+            entity,
+            &run_report,
+            cloud,
+            &context.storage_resolver,
+        )?;
     }
 
     Ok(EntityRunResult {

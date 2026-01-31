@@ -350,6 +350,23 @@ impl ReportWriter {
         "run.summary.json".to_string()
     }
 
+    pub fn report_relative_path(run_id: &str, entity_name: &str) -> String {
+        format!(
+            "{}/{}/{}",
+            Self::run_dir_name(run_id),
+            entity_name,
+            Self::report_file_name()
+        )
+    }
+
+    pub fn summary_relative_path(run_id: &str) -> String {
+        format!(
+            "{}/{}",
+            Self::run_dir_name(run_id),
+            Self::summary_file_name()
+        )
+    }
+
     pub fn entity_report_dir(report_dir: &Path, run_id: &str, entity_name: &str) -> PathBuf {
         report_dir
             .join(Self::run_dir_name(run_id))

@@ -78,7 +78,11 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
 
     let report = match hash_get(root, "report") {
         Some(value) => Some(parse_report_config(value)?),
-        None => None,
+        None => Some(ReportConfig {
+            path: "report".to_string(),
+            formatter: None,
+            storage: None,
+        }),
     };
     let entities_yaml = get_array(root, "entities", "root")?;
     let mut entities = Vec::with_capacity(entities_yaml.len());
@@ -343,10 +347,12 @@ fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
 
 fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     let hash = yaml_hash(value, "report")?;
-    validate_known_keys(hash, "report", &["path", "formatter"])?;
+    validate_known_keys(hash, "report", &["path", "formatter", "storage"])?;
+    let path = opt_string(hash, "path", "report")?.unwrap_or_else(|| "report".to_string());
     Ok(ReportConfig {
-        path: get_string(hash, "path", "report")?,
+        path,
         formatter: opt_string(hash, "formatter", "report")?,
+        storage: opt_string(hash, "storage", "report")?,
     })
 }
 

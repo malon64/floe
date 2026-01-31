@@ -1,5 +1,7 @@
 use crate::{config, io, ConfigError, FloeResult};
 
+use super::paths;
+
 #[derive(Debug, Clone)]
 pub enum Target {
     Local {
@@ -86,6 +88,35 @@ impl Target {
             | Target::S3 { uri, .. }
             | Target::Adls { uri, .. }
             | Target::Gcs { uri, .. } => uri.as_str(),
+        }
+    }
+
+    pub fn join_relative(&self, relative: &str) -> String {
+        match self {
+            Target::Local { base_path, .. } => paths::resolve_output_dir_path(base_path, relative)
+                .display()
+                .to_string(),
+            Target::S3 {
+                bucket, base_key, ..
+            } => {
+                let key = paths::resolve_output_dir_key(base_key, relative);
+                io::storage::s3::format_s3_uri(bucket, &key)
+            }
+            Target::Adls {
+                account,
+                container,
+                base_path,
+                ..
+            } => {
+                let key = paths::resolve_output_dir_key(base_path, relative);
+                io::storage::adls::format_abfs_uri(container, account, &key)
+            }
+            Target::Gcs {
+                bucket, base_key, ..
+            } => {
+                let key = paths::resolve_output_dir_key(base_key, relative);
+                io::storage::gcs::format_gcs_uri(bucket, &key)
+            }
         }
     }
 

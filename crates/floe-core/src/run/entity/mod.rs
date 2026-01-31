@@ -17,11 +17,11 @@ use crate::report::build::summarize_validation;
 use io::format::{self, ReadInput};
 use io::storage::Target;
 
-mod entity_report;
 mod process;
 mod resolve;
+pub(crate) use resolve::ResolvedEntityTargets;
 
-use entity_report::build_run_report;
+use crate::report::entity::{build_run_report, RunReportContext};
 use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
 
@@ -706,7 +706,7 @@ pub(super) fn run_entity(
         }
     }
 
-    let run_report = build_run_report(entity_report::RunReportContext {
+    let run_report = build_run_report(RunReportContext {
         context,
         entity,
         input,

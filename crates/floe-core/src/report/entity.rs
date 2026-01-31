@@ -1,9 +1,10 @@
 use crate::{config, report};
 
-use super::resolve::ResolvedEntityTargets;
 use crate::report::build::{entity_metadata_json, source_options_json};
+use crate::run::entity::ResolvedEntityTargets;
 use crate::run::RunContext;
-pub(super) struct RunReportContext<'a> {
+
+pub(crate) struct RunReportContext<'a> {
     pub context: &'a RunContext,
     pub entity: &'a config::EntityConfig,
     pub input: &'a config::SourceConfig,
@@ -19,7 +20,7 @@ pub(super) struct RunReportContext<'a> {
     pub accepted_table_version: Option<i64>,
 }
 
-pub(super) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
+pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
     report::RunReport {
         spec_version: ctx.context.config.version.clone(),
         entity: report::EntityEcho {

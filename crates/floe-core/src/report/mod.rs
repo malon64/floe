@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub mod build;
+pub mod entity;
 pub mod output;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -24,7 +24,7 @@ fn load_temp_config(contents: &str) -> (PathBuf, RootConfig) {
 
 fn resolver_from(yaml: &str) -> StorageResolver {
     let (path, config) = load_temp_config(yaml);
-    StorageResolver::new(&config, Path::new(&path)).expect("storage resolver")
+    StorageResolver::from_path(&config, Path::new(&path)).expect("storage resolver")
 }
 
 #[test]

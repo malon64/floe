@@ -28,7 +28,8 @@ fn sample_config() -> config::RootConfig {
 #[test]
 fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
     let config = sample_config();
-    let resolver = config::StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolver =
+        config::StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
     let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "delta/orders")?;
     let target = Target::from_resolved(&resolved)?;
     let entity = config::EntityConfig {
@@ -87,7 +88,7 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
         entities: Vec::new(),
     };
     let temp_dir = tempfile::TempDir::new()?;
-    let resolver = config::StorageResolver::new(&config, temp_dir.path())?;
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "delta/orders")?;
     let target = Target::from_resolved(&resolved)?;
     let entity = config::EntityConfig {
@@ -148,7 +149,8 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
         report: None,
         entities: Vec::new(),
     };
-    let resolver = config::StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolver =
+        config::StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
     let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "delta/orders")?;
     let target = Target::from_resolved(&resolved)?;
     let entity = config::EntityConfig {
@@ -226,7 +228,8 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
         report: None,
         entities: Vec::new(),
     };
-    let resolver = config::StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolver =
+        config::StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
     let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "delta/orders")?;
     let target = Target::from_resolved(&resolved)?;
     let entity = config::EntityConfig {

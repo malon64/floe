@@ -50,12 +50,21 @@ pub(crate) fn validate_entities(
 }
 
 pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
+    let config_base = config::ConfigBase::local_from_path(config_path);
+    run_with_base(config_path, config_base, options)
+}
+
+pub fn run_with_base(
+    config_path: &Path,
+    config_base: config::ConfigBase,
+    options: RunOptions,
+) -> FloeResult<RunOutcome> {
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
     };
-    crate::validate(config_path, validate_options)?;
+    crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
 
-    let context = RunContext::new(config_path, &options)?;
+    let context = RunContext::new(config_path, config_base, &options)?;
     if !options.entities.is_empty() {
         validate_entities(&context.config, &options.entities)?;
     }

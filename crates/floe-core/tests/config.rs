@@ -10,5 +10,7 @@ mod gcs_storage;
 mod gcs_validation;
 #[path = "config/parse.rs"]
 mod parse;
+#[path = "config/remote_base.rs"]
+mod remote_base;
 #[path = "config/templating.rs"]
 mod templating;

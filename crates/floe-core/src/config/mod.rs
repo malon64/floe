@@ -5,7 +5,7 @@ mod types;
 mod validate;
 mod yaml_decode;
 
-pub use storage::{resolve_local_path, ResolvedPath, StorageResolver};
+pub use storage::{resolve_local_path, ConfigBase, ResolvedPath, StorageResolver};
 pub use types::*;
 
 pub(crate) use parse::parse_config;

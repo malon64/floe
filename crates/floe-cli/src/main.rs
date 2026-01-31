@@ -1,6 +1,11 @@
 use clap::{Parser, Subcommand};
-use floe_core::{load_config, run, validate, FloeResult, RunOptions, ValidateOptions};
-use std::path::PathBuf;
+use floe_core::config::{ConfigBase, StorageDefinition};
+use floe_core::io::storage::{self, StorageClient};
+use floe_core::{
+    load_config, run_with_base, validate_with_base, FloeResult, RunOptions, ValidateOptions,
+};
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -74,8 +79,8 @@ struct Cli {
 enum Command {
     #[command(about = "Validate a config file", long_about = VALIDATE_LONG_ABOUT)]
     Validate {
-        #[arg(short, long, help = "Path to the Floe config file")]
-        config: PathBuf,
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
         #[arg(
             long,
             value_delimiter = ',',
@@ -85,8 +90,8 @@ enum Command {
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
-        #[arg(short, long, help = "Path to the Floe config file")]
-        config: PathBuf,
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
         #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
         #[arg(
@@ -111,11 +116,11 @@ fn main() -> FloeResult<()> {
 
     match cli.command {
         Command::Validate { config, entities } => {
-            let config_path = resolve_path(config)?;
+            let config_location = resolve_config_location(&config)?;
             let options = ValidateOptions { entities };
-            validate(&config_path, options)?;
-            let config = load_config(&config_path)?;
-            println!("Config valid: {}", config_path.display());
+            validate_with_base(&config_location.path, config_location.base.clone(), options)?;
+            let config = load_config(&config_location.path)?;
+            println!("Config valid: {}", config_location.display);
             println!("Version: {}", config.version);
             println!(
                 "Report: {}",
@@ -141,7 +146,7 @@ fn main() -> FloeResult<()> {
                 }
                 println!("  Severity: {}", entity.policy.severity);
             }
-            println!("Next: floe run -c {}", config_path.display());
+            println!("Next: floe run -c {}", config_location.display);
             Ok(())
         }
         Command::Run {
@@ -151,9 +156,10 @@ fn main() -> FloeResult<()> {
             quiet,
             verbose,
         } => {
-            let config_path = resolve_path(config)?;
+            let config_location = resolve_config_location(&config)?;
             let options = RunOptions { run_id, entities };
-            let outcome = run(&config_path, options)?;
+            let outcome =
+                run_with_base(&config_location.path, config_location.base.clone(), options)?;
             let mode = if quiet {
                 output::OutputMode::Quiet
             } else if verbose {
@@ -167,11 +173,70 @@ fn main() -> FloeResult<()> {
     }
 }
 
-fn resolve_path(path: PathBuf) -> FloeResult<PathBuf> {
-    let absolute = if path.is_absolute() {
-        path
+struct ConfigLocation {
+    path: PathBuf,
+    base: ConfigBase,
+    display: String,
+    _temp_dir: Option<TempDir>,
+}
+
+fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
+    if is_remote_uri(input) {
+        let temp_dir = TempDir::new()?;
+        let local_path = download_remote_config(input, temp_dir.path())?;
+        let base = ConfigBase::remote_from_uri(temp_dir.path().to_path_buf(), input)?;
+        Ok(ConfigLocation {
+            path: local_path,
+            base,
+            display: input.to_string(),
+            _temp_dir: Some(temp_dir),
+        })
     } else {
-        std::env::current_dir()?.join(path)
-    };
-    Ok(std::fs::canonicalize(absolute)?)
+        let path = PathBuf::from(input);
+        let absolute = if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let canonical = std::fs::canonicalize(&absolute)?;
+        let base = ConfigBase::local_from_path(&canonical);
+        Ok(ConfigLocation {
+            path: canonical.clone(),
+            base,
+            display: canonical.display().to_string(),
+            _temp_dir: None,
+        })
+    }
+}
+
+fn download_remote_config(uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
+    if uri.starts_with("s3://") {
+        let location = storage::s3::parse_s3_uri(uri)?;
+        let client = storage::s3::S3Client::new(location.bucket, None)?;
+        return client.download_to_temp(uri, temp_dir);
+    }
+    if uri.starts_with("gs://") {
+        let location = storage::gcs::parse_gcs_uri(uri)?;
+        let client = storage::gcs::GcsClient::new(location.bucket)?;
+        return client.download_to_temp(uri, temp_dir);
+    }
+    if uri.starts_with("abfs://") {
+        let location = storage::adls::parse_adls_uri(uri)?;
+        let definition = StorageDefinition {
+            name: "config".to_string(),
+            fs_type: "adls".to_string(),
+            bucket: None,
+            region: None,
+            account: Some(location.account),
+            container: Some(location.container),
+            prefix: None,
+        };
+        let client = storage::adls::AdlsClient::new(&definition)?;
+        return client.download_to_temp(uri, temp_dir);
+    }
+    Err(format!("unsupported config uri: {}", uri).into())
+}
+
+fn is_remote_uri(value: &str) -> bool {
+    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
 }

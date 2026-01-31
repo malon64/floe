@@ -10,6 +10,7 @@ version: "0.1"
 metadata: { ... }
 report:
   path: "/abs/or/relative/report/dir"
+  storage: "s3_raw"
 env:
   file: "metadata/env.dev.yml"
   vars:
@@ -61,8 +62,11 @@ entities:
 - `metadata` (optional)
   - Free-form project metadata. Keys supported in schema: `project`,
     `description`, `owner`, `tags`.
-- `report` (required)
-  - `report.path` is the base directory where run reports are written.
+- `report` (optional)
+  - `report.path` is the base directory where run reports are written. If omitted,
+    defaults to `"report"`.
+  - `report.storage` (optional) selects the storage client used for reports.
+    Defaults to `storages.default` when defined, otherwise `local`.
   - Reports are written under:
     `report.path/run_<run_id>/run.summary.json` and
     `report.path/run_<run_id>/<entity.name>/run.json`.

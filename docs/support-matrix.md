@@ -26,7 +26,7 @@ Notes:
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-00000.parquet` etc. |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Per-file rejected output |
-| Reports: JSON | ✅ | ❌ | ❌ | ❌ | `report.path` is local-only |
+| Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
 
 Notes:
 - Parquet outputs to cloud are written locally then uploaded.
@@ -69,4 +69,3 @@ Storage references:
 - `entities[].source.storage`
 - `entities[].sink.accepted.storage`
 - `entities[].sink.rejected.storage`
-

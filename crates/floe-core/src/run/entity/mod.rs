@@ -11,17 +11,17 @@ use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
-use super::reporting::summarize_validation;
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
+use crate::report::build::summarize_validation;
 
 use io::format::{self, ReadInput};
 use io::storage::Target;
 
-mod entity_report;
 mod process;
 mod resolve;
+pub(crate) use resolve::ResolvedEntityTargets;
 
-use entity_report::build_run_report;
+use crate::report::entity::{build_run_report, RunReportContext};
 use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
 
@@ -706,7 +706,7 @@ pub(super) fn run_entity(
         }
     }
 
-    let run_report = build_run_report(entity_report::RunReportContext {
+    let run_report = build_run_report(RunReportContext {
         context,
         entity,
         input,
@@ -722,8 +722,15 @@ pub(super) fn run_entity(
         accepted_table_version,
     });
 
-    if let Some(report_dir) = &context.report_dir {
-        report::ReportWriter::write_report(report_dir, &context.run_id, &entity.name, &run_report)?;
+    if let Some(report_target) = &context.report_target {
+        crate::report::output::write_entity_report(
+            report_target,
+            &context.run_id,
+            entity,
+            &run_report,
+            cloud,
+            &context.storage_resolver,
+        )?;
     }
 
     Ok(EntityRunResult {

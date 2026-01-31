@@ -5,10 +5,10 @@ use io::format::{InputAdapter, InputFile};
 use io::storage::Target;
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolvedEntityTargets {
-    pub(super) source: Target,
-    pub(super) accepted: Target,
-    pub(super) rejected: Option<Target>,
+pub(crate) struct ResolvedEntityTargets {
+    pub(crate) source: Target,
+    pub(crate) accepted: Target,
+    pub(crate) rejected: Option<Target>,
 }
 
 pub(super) fn resolve_input_files(

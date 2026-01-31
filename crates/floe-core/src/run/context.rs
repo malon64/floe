@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use crate::io::storage::Target;
 use crate::{config, report, FloeResult, RunOptions};
 
 pub struct RunContext {
@@ -8,8 +9,8 @@ pub struct RunContext {
     pub config_path: PathBuf,
     pub config_dir: PathBuf,
     pub storage_resolver: config::StorageResolver,
-    pub report_dir: Option<PathBuf>,
     pub report_base_path: Option<String>,
+    pub report_target: Option<Target>,
     pub run_id: String,
     pub started_at: String,
     pub run_timer: Instant,
@@ -23,11 +24,19 @@ impl RunContext {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let report_dir = config
-            .report
-            .as_ref()
-            .map(|report| config::resolve_local_path(&config_dir, &report.path));
-        let report_base_path = report_dir.as_ref().map(|path| path.display().to_string());
+        let (report_target, report_base_path) = match config.report.as_ref() {
+            Some(report) => {
+                let resolved = storage_resolver
+                    .resolve_report_path(report.storage.as_deref(), &report.path)?;
+                let target = Target::from_resolved(&resolved)?;
+                let base_path = match resolved.local_path.as_ref() {
+                    Some(path) => path.display().to_string(),
+                    None => resolved.uri.clone(),
+                };
+                (Some(target), Some(base_path))
+            }
+            None => (None, None),
+        };
         let started_at = report::now_rfc3339();
         let run_id = options
             .run_id
@@ -39,8 +48,8 @@ impl RunContext {
             config_path: config_path.to_path_buf(),
             config_dir,
             storage_resolver,
-            report_dir,
             report_base_path,
+            report_target,
             run_id,
             started_at,
             run_timer: Instant::now(),

@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::io::storage::CloudClient;
-use crate::run::reporting::project_metadata_json;
+use crate::report::build::project_metadata_json;
+use crate::report::output::write_summary_report;
 use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
@@ -9,9 +10,8 @@ pub(crate) mod entity;
 mod file;
 pub mod normalize;
 mod output;
-mod reporting;
 
-use context::RunContext;
+pub(crate) use context::RunContext;
 use entity::{run_entity, EntityRunResult};
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
@@ -76,8 +76,14 @@ pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     }
 
     let summary = build_run_summary(&context, &entity_outcomes);
-    if let Some(report_dir) = &context.report_dir {
-        report::ReportWriter::write_summary(report_dir, &context.run_id, &summary)?;
+    if let Some(report_target) = &context.report_target {
+        write_summary_report(
+            report_target,
+            &context.run_id,
+            &summary,
+            &mut cloud,
+            &context.storage_resolver,
+        )?;
     }
 
     Ok(RunOutcome {
@@ -124,10 +130,14 @@ fn build_run_summary(
         statuses.extend(file_statuses);
 
         let report_file = context
-            .report_dir
+            .report_target
             .as_ref()
-            .map(|dir| report::ReportWriter::report_path(dir, &context.run_id, &report.entity.name))
-            .map(|path| path.display().to_string())
+            .map(|target| {
+                target.join_relative(&report::ReportWriter::report_relative_path(
+                    &context.run_id,
+                    &report.entity.name,
+                ))
+            })
             .unwrap_or_else(|| "disabled".to_string());
         entities.push(report::EntitySummary {
             name: report.entity.name.clone(),
@@ -149,10 +159,13 @@ fn build_run_summary(
         .clone()
         .unwrap_or_else(|| "disabled".to_string());
     let report_file = context
-        .report_dir
+        .report_target
         .as_ref()
-        .map(|dir| report::ReportWriter::summary_path(dir, &context.run_id))
-        .map(|path| path.display().to_string())
+        .map(|target| {
+            target.join_relative(&report::ReportWriter::summary_relative_path(
+                &context.run_id,
+            ))
+        })
         .unwrap_or_else(|| "disabled".to_string());
 
     report::RunSummaryReport {

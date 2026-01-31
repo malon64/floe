@@ -199,6 +199,7 @@ pub struct StorageDefinition {
 pub struct ReportConfig {
     pub path: String,
     pub formatter: Option<String>,
+    pub storage: Option<String>,
 }
 
 #[derive(Debug)]

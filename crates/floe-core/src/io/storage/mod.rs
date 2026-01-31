@@ -45,41 +45,24 @@ impl CloudClient {
         storage: &str,
         entity: &config::EntityConfig,
     ) -> FloeResult<&'a mut dyn StorageClient> {
+        let context = format!("entity.name={}", entity.name);
+        self.client_for_context(resolver, storage, &context)
+    }
+
+    pub fn client_for_context<'a>(
+        &'a mut self,
+        resolver: &config::StorageResolver,
+        storage: &str,
+        context: &str,
+    ) -> FloeResult<&'a mut dyn StorageClient> {
         if !self.clients.contains_key(storage) {
             let definition = resolver.definition(storage).ok_or_else(|| {
                 Box::new(ConfigError(format!(
-                    "entity.name={} storage {} is not defined",
-                    entity.name, storage
+                    "{} storage {} is not defined",
+                    context, storage
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
-            let client: Box<dyn StorageClient> = match definition.fs_type.as_str() {
-                "local" => Box::new(local::LocalClient::new()),
-                "s3" => {
-                    let bucket = definition.bucket.clone().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "storage {} requires bucket for type s3",
-                            definition.name
-                        ))) as Box<dyn std::error::Error + Send + Sync>
-                    })?;
-                    Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
-                }
-                "adls" => Box::new(adls::AdlsClient::new(&definition)?),
-                "gcs" => {
-                    let bucket = definition.bucket.clone().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "storage {} requires bucket for type gcs",
-                            definition.name
-                        ))) as Box<dyn std::error::Error + Send + Sync>
-                    })?;
-                    Box::new(gcs::GcsClient::new(bucket)?)
-                }
-                other => {
-                    return Err(Box::new(ConfigError(format!(
-                        "storage type {} is unsupported",
-                        other
-                    ))))
-                }
-            };
+            let client = build_client(&definition)?;
             self.clients.insert(storage.to_string(), client);
         }
         Ok(self
@@ -94,4 +77,36 @@ impl Default for CloudClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn build_client(definition: &config::StorageDefinition) -> FloeResult<Box<dyn StorageClient>> {
+    let client: Box<dyn StorageClient> = match definition.fs_type.as_str() {
+        "local" => Box::new(local::LocalClient::new()),
+        "s3" => {
+            let bucket = definition.bucket.clone().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "storage {} requires bucket for type s3",
+                    definition.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
+        }
+        "adls" => Box::new(adls::AdlsClient::new(definition)?),
+        "gcs" => {
+            let bucket = definition.bucket.clone().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "storage {} requires bucket for type gcs",
+                    definition.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            Box::new(gcs::GcsClient::new(bucket)?)
+        }
+        other => {
+            return Err(Box::new(ConfigError(format!(
+                "storage type {} is unsupported",
+                other
+            ))))
+        }
+    };
+    Ok(client)
 }

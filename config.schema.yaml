@@ -242,14 +242,14 @@ $defs:
   report:
     type: object
     additionalProperties: false
-    required:
-      - path
     properties:
       path:
         type: string
       formatter:
         type: string
         enum: [json, csv, text]
+      storage:
+        type: string
 
   storages:
     type: object

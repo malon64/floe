@@ -78,7 +78,7 @@ entities:
 }
 
 #[test]
-fn missing_report_path_errors() {
+fn missing_report_path_defaults() {
     let yaml = format!(
         r#"version: "0.1"
 report: {{}}
@@ -86,7 +86,7 @@ entities:
 {}"#,
         base_entity("customer")
     );
-    assert_validation_error(&yaml, &["report.path"]);
+    assert_validation_ok(&yaml);
 }
 
 #[test]

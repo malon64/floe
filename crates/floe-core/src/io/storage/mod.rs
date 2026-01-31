@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::{config, ConfigError, FloeResult};
 
 pub mod adls;
+pub mod archive;
 pub mod extensions;
 pub mod gcs;
 pub mod inputs;
@@ -15,6 +16,7 @@ pub mod planner;
 pub mod s3;
 pub mod target;
 
+pub use archive::archive_input_file;
 pub use planner::{filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs};
 pub use target::Target;
 

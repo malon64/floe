@@ -250,7 +250,7 @@ pub(super) fn run_entity(
                 entity,
             )?);
 
-            let archived_path = archive_input_file(
+            let archived_path = io::storage::archive::archive_input_file(
                 cloud,
                 &context.storage_resolver,
                 entity,
@@ -606,7 +606,7 @@ pub(super) fn run_entity(
         }
 
         if archive_enabled {
-            archived_path = archive_input_file(
+            archived_path = io::storage::archive::archive_input_file(
                 cloud,
                 &context.storage_resolver,
                 entity,
@@ -751,31 +751,6 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
-}
-
-fn archive_input_file(
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    archive_target: Option<&Target>,
-    input_file: &io::format::InputFile,
-) -> FloeResult<Option<String>> {
-    let target = match archive_target {
-        Some(target) => target,
-        None => return Ok(None),
-    };
-    let relative =
-        io::storage::paths::archive_relative_path(&entity.name, input_file.source_name.as_str());
-    let dest_uri = target.join_relative(&relative);
-    let client = cloud.client_for(resolver, target.storage(), entity)?;
-    client.copy_object(&input_file.source_uri, &dest_uri)?;
-    if let Err(err) = client.delete_object(&input_file.source_uri) {
-        return Err(Box::new(RunError(format!(
-            "entity.name={} archive delete failed for {}: {err}",
-            entity.name, input_file.source_uri
-        ))));
-    }
-    Ok(Some(dest_uri))
 }
 
 fn append_accepted(accum: &mut Option<DataFrame>, next: DataFrame) -> FloeResult<()> {

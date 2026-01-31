@@ -203,3 +203,65 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
+    let config = config::RootConfig {
+        version: "0.1".to_string(),
+        metadata: None,
+        storages: Some(config::StoragesConfig {
+            default: Some("gcs_raw".to_string()),
+            definitions: vec![config::StorageDefinition {
+                name: "gcs_raw".to_string(),
+                fs_type: "gcs".to_string(),
+                bucket: Some("my-bucket".to_string()),
+                region: None,
+                account: None,
+                container: None,
+                prefix: Some("data".to_string()),
+            }],
+        }),
+        env: None,
+        domains: Vec::new(),
+        report: None,
+        entities: Vec::new(),
+    };
+    let resolver = config::StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "delta/orders")?;
+    let target = Target::from_resolved(&resolved)?;
+    let entity = config::EntityConfig {
+        name: "orders".to_string(),
+        metadata: None,
+        domain: None,
+        source: config::SourceConfig {
+            format: "csv".to_string(),
+            path: "in".to_string(),
+            storage: None,
+            options: None,
+            cast_mode: None,
+        },
+        sink: config::SinkConfig {
+            accepted: config::SinkTarget {
+                format: "delta".to_string(),
+                path: "delta/orders".to_string(),
+                storage: None,
+                options: None,
+            },
+            rejected: None,
+            archive: None,
+        },
+        policy: config::PolicyConfig {
+            severity: "warn".to_string(),
+        },
+        schema: config::SchemaConfig {
+            normalize_columns: None,
+            mismatch: None,
+            columns: Vec::new(),
+        },
+    };
+
+    let store = delta_store_config(&target, &resolver, &entity)?;
+    assert_eq!(store.table_url.as_str(), "gs://my-bucket/data/delta/orders");
+    assert!(store.storage_options.is_empty());
+    Ok(())
+}

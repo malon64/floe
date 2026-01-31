@@ -76,9 +76,17 @@ pub fn delta_store_config(
                 storage_options,
             })
         }
-        Target::Gcs { .. } => Err(Box::new(ConfigError(format!(
-            "entity.name={} delta tables are not supported on gcs yet",
-            entity.name
-        )))),
+        Target::Gcs { uri, .. } => {
+            let url = Url::parse(uri).map_err(|err| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} delta gcs path is invalid: {} ({err})",
+                    entity.name, uri
+                )))
+            })?;
+            Ok(DeltaStoreConfig {
+                table_url: url,
+                storage_options: HashMap::new(),
+            })
+        }
     }
 }

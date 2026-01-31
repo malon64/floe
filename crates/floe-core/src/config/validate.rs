@@ -129,6 +129,8 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         format::ensure_rejected_sink_format(&entity.name, rejected.format.as_str())?;
     }
 
+    let source_storage =
+        storages.resolve_name(entity, "source.storage", entity.source.storage.as_deref())?;
     let accepted_storage = storages.resolve_name(
         entity,
         "sink.accepted.storage",
@@ -156,6 +158,19 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
         let rejected_storage =
             storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
         storages.validate_reference(entity, "sink.rejected.storage", &rejected_storage)?;
+    }
+
+    if let Some(archive) = &entity.sink.archive {
+        let archive_storage = archive.storage.as_deref().unwrap_or(&source_storage);
+        if let Some(storage) = archive.storage.as_deref() {
+            if storage != source_storage {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.archive.storage must match source.storage ({})",
+                    entity.name, source_storage
+                ))));
+            }
+        }
+        storages.validate_reference(entity, "sink.archive.storage", archive_storage)?;
     }
 
     Ok(())

@@ -182,21 +182,22 @@ fn clear_s3_output_prefix(
             entity.name
         ))));
     }
+    let list_prefix = format!("{prefix}/");
     let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(prefix)?;
+    let keys = client.list(&list_prefix)?;
     if keys.is_empty() {
         return Ok(());
     }
     let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
     let keys = keys
         .into_iter()
-        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .filter(|obj| obj.key.starts_with(&list_prefix) && !obj.key.is_empty())
         .collect::<Vec<_>>();
     if keys.len() == 1 && keys[0].key == sample {
         return Ok(());
     }
     for object in keys {
-        client.delete(&object.uri)?;
+        client.delete_object(&object.uri)?;
     }
     Ok(())
 }
@@ -217,21 +218,22 @@ fn clear_gcs_output_prefix(
             entity.name, bucket
         ))));
     }
+    let list_prefix = format!("{prefix}/");
     let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(prefix)?;
+    let keys = client.list(&list_prefix)?;
     if keys.is_empty() {
         return Ok(());
     }
     let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
     let keys = keys
         .into_iter()
-        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .filter(|obj| obj.key.starts_with(&list_prefix) && !obj.key.is_empty())
         .collect::<Vec<_>>();
     if keys.len() == 1 && keys[0].key == sample {
         return Ok(());
     }
     for object in keys {
-        client.delete(&object.uri)?;
+        client.delete_object(&object.uri)?;
     }
     Ok(())
 }
@@ -253,21 +255,22 @@ fn clear_adls_output_prefix(
             entity.name, container, account
         ))));
     }
+    let list_prefix = format!("{prefix}/");
     let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(prefix)?;
+    let keys = client.list(&list_prefix)?;
     if keys.is_empty() {
         return Ok(());
     }
     let sample = io::storage::paths::resolve_output_dir_key(prefix, sample_filename);
     let keys = keys
         .into_iter()
-        .filter(|obj| obj.key.starts_with(prefix) && !obj.key.is_empty())
+        .filter(|obj| obj.key.starts_with(&list_prefix) && !obj.key.is_empty())
         .collect::<Vec<_>>();
     if keys.len() == 1 && keys[0].key == sample {
         return Ok(());
     }
     for object in keys {
-        client.delete(&object.uri)?;
+        client.delete_object(&object.uri)?;
     }
     Ok(())
 }

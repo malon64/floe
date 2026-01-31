@@ -79,6 +79,29 @@ pub fn resolve_sibling_key(base_key: &str, filename: &str) -> String {
     }
 }
 
+pub fn archive_relative_path(entity: &str, filename: &str) -> String {
+    let name = Path::new(filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(filename);
+    let entity = entity.trim_matches('/');
+    if entity.is_empty() {
+        name.to_string()
+    } else {
+        format!("{entity}/{name}")
+    }
+}
+
+pub fn resolve_archive_path(base_path: &str, entity: &str, filename: &str) -> PathBuf {
+    let relative = archive_relative_path(entity, filename);
+    resolve_output_dir_path(base_path, &relative)
+}
+
+pub fn resolve_archive_key(base_key: &str, entity: &str, filename: &str) -> String {
+    let relative = archive_relative_path(entity, filename);
+    resolve_output_dir_key(base_key, &relative)
+}
+
 fn normalize_key(base_key: &str) -> String {
     base_key.trim_matches('/').to_string()
 }

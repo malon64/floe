@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::{config, ConfigError, FloeResult};
 
 pub mod adls;
+pub mod archive;
 pub mod extensions;
 pub mod gcs;
 pub mod inputs;
@@ -15,6 +16,7 @@ pub mod planner;
 pub mod s3;
 pub mod target;
 
+pub use archive::archive_input_file;
 pub use planner::{filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs};
 pub use target::Target;
 
@@ -25,7 +27,9 @@ pub trait StorageClient: Send + Sync {
     fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf>;
     fn upload_from_path(&self, local_path: &Path, uri: &str) -> FloeResult<()>;
     fn resolve_uri(&self, path: &str) -> FloeResult<String>;
-    fn delete(&self, uri: &str) -> FloeResult<()>;
+    fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()>;
+    fn delete_object(&self, uri: &str) -> FloeResult<()>;
+    fn exists(&self, uri: &str) -> FloeResult<bool>;
 }
 
 pub struct CloudClient {

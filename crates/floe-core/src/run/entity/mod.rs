@@ -125,12 +125,25 @@ pub(super) fn run_entity(
         warnings_total: 0,
         errors_total: 0,
     };
-    let archive_enabled = entity.sink.archive.is_some();
-    let archive_dir = entity
+    let archive_target = entity
         .sink
         .archive
         .as_ref()
-        .map(|archive| config::resolve_local_path(&context.config_dir, &archive.path));
+        .map(|archive| {
+            let storage_name = archive
+                .storage
+                .as_deref()
+                .or(entity.source.storage.as_deref());
+            let resolved = context.storage_resolver.resolve_path(
+                &entity.name,
+                "sink.archive.storage",
+                storage_name,
+                &archive.path,
+            )?;
+            Target::from_resolved(&resolved)
+        })
+        .transpose()?;
+    let archive_enabled = archive_target.is_some();
 
     let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
@@ -237,17 +250,13 @@ pub(super) fn run_entity(
                 entity,
             )?);
 
-            let archived_path = if archive_enabled {
-                if let Some(dir) = &archive_dir {
-                    let archived_path_buf =
-                        io::write::archive_input(&input_file.source_local_path, dir)?;
-                    Some(archived_path_buf.display().to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let archived_path = io::storage::archive::archive_input_file(
+                cloud,
+                &context.storage_resolver,
+                entity,
+                archive_target.as_ref(),
+                &input_file,
+            )?;
 
             let status = if mismatch.aborted {
                 report::FileStatus::Aborted
@@ -597,11 +606,13 @@ pub(super) fn run_entity(
         }
 
         if archive_enabled {
-            if let Some(dir) = &archive_dir {
-                let archived_path_buf =
-                    io::write::archive_input(&input_file.source_local_path, dir)?;
-                archived_path = Some(archived_path_buf.display().to_string());
-            }
+            archived_path = io::storage::archive::archive_input_file(
+                cloud,
+                &context.storage_resolver,
+                entity,
+                archive_target.as_ref(),
+                &input_file,
+            )?;
         }
 
         let (status, accepted_count, rejected_count, errors, warnings) =

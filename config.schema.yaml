@@ -291,10 +291,10 @@ $defs:
   archive_target:
     type: object
     additionalProperties: false
-    required:
-      - path
     properties:
       path:
+        type: string
+      storage:
         type: string
 
   policy:

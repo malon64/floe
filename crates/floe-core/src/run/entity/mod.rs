@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
@@ -8,8 +6,9 @@ use super::file::required_columns;
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
-    append_rejection_columns, validate_rejected_target, write_accepted_output, OutputMode,
+    append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
+    AcceptedOutputContext, OutputMode,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -17,15 +16,15 @@ use crate::report::build::summarize_validation_sparse;
 use io::format::{self, ReadInput};
 use io::storage::Target;
 
-mod process;
 mod precheck;
+mod process;
 mod resolve;
 pub(crate) use resolve::ResolvedEntityTargets;
 
 use crate::report::entity::{build_run_report, RunReportContext};
+use precheck::{run_precheck, PrecheckContext, PrecheckedInput};
 use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
-use precheck::{run_precheck, PrecheckedInput};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
@@ -146,21 +145,22 @@ pub(super) fn run_entity(
     let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
     let mut sink_options_warned = false;
-    let mut prechecked_inputs = Vec::with_capacity(input_files.len());
     // Phase A: per-file precheck (schema mismatch / early rejection).
     let precheck = run_precheck(
-        context,
-        entity,
-        input_adapter,
-        &normalized_columns,
+        PrecheckContext {
+            context,
+            entity,
+            input_adapter,
+            normalized_columns: &normalized_columns,
+            resolved_targets: &resolved_targets,
+            archive_target: archive_target.as_ref(),
+            temp_dir: temp_dir.as_ref(),
+            cloud,
+            file_reports: &mut file_reports,
+            file_timings_ms: &mut file_timings_ms,
+            totals: &mut totals,
+        },
         input_files,
-        &resolved_targets,
-        archive_target.as_ref(),
-        temp_dir.as_ref(),
-        cloud,
-        &mut file_reports,
-        &mut file_timings_ms,
-        &mut totals,
     )?;
     let mut abort_run = precheck.abort_run;
     let prechecked_inputs = precheck.prechecked;
@@ -562,17 +562,17 @@ pub(super) fn run_entity(
             })?;
         }
         let output_stem = io::storage::paths::build_part_stem(0);
-        let accepted_output = write_accepted_output(
-            entity.sink.accepted.format.as_str(),
-            &accepted_target,
-            &mut accepted_df,
-            &output_stem,
-            temp_dir.as_ref().map(|dir| dir.path()),
+        let accepted_output = write_accepted_output(AcceptedOutputContext {
+            format: entity.sink.accepted.format.as_str(),
+            target: &accepted_target,
+            df: &mut accepted_df,
+            output_stem: &output_stem,
+            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
             cloud,
-            &context.storage_resolver,
+            resolver: &context.storage_resolver,
             entity,
-            OutputMode::Overwrite,
-        )?;
+            mode: OutputMode::Overwrite,
+        })?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;
         accepted_table_version = accepted_output.table_version;

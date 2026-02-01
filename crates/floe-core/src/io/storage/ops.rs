@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{config, io, report, FloeResult};
+use crate::{config, io, FloeResult};
 
 use super::{archive, inputs, CloudClient, StorageClient, Target};
 
@@ -12,7 +12,14 @@ pub fn resolve_inputs(
     temp_dir: Option<&Path>,
     storage_client: Option<&dyn StorageClient>,
 ) -> FloeResult<inputs::ResolvedInputs> {
-    inputs::resolve_inputs(config_dir, entity, adapter, target, temp_dir, storage_client)
+    inputs::resolve_inputs(
+        config_dir,
+        entity,
+        adapter,
+        target,
+        temp_dir,
+        storage_client,
+    )
 }
 
 pub fn archive_input(
@@ -23,9 +30,4 @@ pub fn archive_input(
     input_file: &io::format::InputFile,
 ) -> FloeResult<Option<String>> {
     archive::archive_input_file(cloud, resolver, entity, archive_target, input_file)
-}
-
-pub fn resolve_mode(files: &[io::format::InputFile], mode: report::ResolvedInputMode) -> (u64, Vec<String>) {
-    let resolved_files = files.iter().map(|input| input.source_uri.clone()).collect::<Vec<_>>();
-    (resolved_files.len() as u64, resolved_files)
 }

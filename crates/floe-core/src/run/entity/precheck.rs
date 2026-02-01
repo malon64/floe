@@ -1,9 +1,8 @@
 use std::time::Instant;
 
-use crate::errors::RunError;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
-use super::output::{validate_rejected_target, write_rejected_raw_output};
+use super::super::output::{validate_rejected_target, write_rejected_raw_output};
 use super::ResolvedEntityTargets;
 use crate::run::RunContext;
 use io::format::InputAdapter;
@@ -19,20 +18,37 @@ pub(super) struct PrecheckResult {
     pub(super) abort_run: bool,
 }
 
+pub(super) struct PrecheckContext<'a> {
+    pub(super) context: &'a RunContext,
+    pub(super) entity: &'a config::EntityConfig,
+    pub(super) input_adapter: &'a dyn InputAdapter,
+    pub(super) normalized_columns: &'a [config::ColumnConfig],
+    pub(super) resolved_targets: &'a ResolvedEntityTargets,
+    pub(super) archive_target: Option<&'a io::storage::Target>,
+    pub(super) temp_dir: Option<&'a tempfile::TempDir>,
+    pub(super) cloud: &'a mut io::storage::CloudClient,
+    pub(super) file_reports: &'a mut Vec<report::FileReport>,
+    pub(super) file_timings_ms: &'a mut Vec<Option<u64>>,
+    pub(super) totals: &'a mut report::ResultsTotals,
+}
+
 pub(super) fn run_precheck(
-    context: &RunContext,
-    entity: &config::EntityConfig,
-    input_adapter: &dyn InputAdapter,
-    normalized_columns: &[config::ColumnConfig],
+    context: PrecheckContext<'_>,
     input_files: Vec<io::format::InputFile>,
-    resolved_targets: &ResolvedEntityTargets,
-    archive_target: Option<&io::storage::Target>,
-    temp_dir: Option<&tempfile::TempDir>,
-    cloud: &mut io::storage::CloudClient,
-    file_reports: &mut Vec<report::FileReport>,
-    file_timings_ms: &mut Vec<Option<u64>>,
-    totals: &mut report::ResultsTotals,
 ) -> FloeResult<PrecheckResult> {
+    let PrecheckContext {
+        context,
+        entity,
+        input_adapter,
+        normalized_columns,
+        resolved_targets,
+        archive_target,
+        temp_dir,
+        cloud,
+        file_reports,
+        file_timings_ms,
+        totals,
+    } = context;
     let mut abort_run = false;
     let mut prechecked_inputs = Vec::with_capacity(input_files.len());
     for input_file in input_files {

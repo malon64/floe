@@ -14,8 +14,8 @@ pub mod normalize;
 mod output;
 
 pub(crate) use context::RunContext;
-use events::{default_observer, RunEvent};
 use entity::{run_entity, EntityRunResult};
+use events::{default_observer, RunEvent};
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 

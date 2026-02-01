@@ -67,6 +67,8 @@ entities:
     defaults to `"report"`.
   - `report.storage` (optional) selects the storage client used for reports.
     Defaults to `storages.default` when defined, otherwise `local`.
+  - When `report.storage` is cloud-based, reports are written via temp upload.
+    Relative `report.path` values resolve under the storage prefix.
   - Reports are written under:
     `report.path/run_<run_id>/run.summary.json` and
     `report.path/run_<run_id>/<entity.name>/run.json`.
@@ -102,8 +104,9 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv` and `parquet` (local). `json` supports NDJSON and JSON
-    array modes.
+  - Supported: `csv`, `parquet`, and `json`.
+  - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
+  - `json` supports NDJSON and JSON array modes.
 - `path` (required)
   - Input location. Can be a file, a directory, or a glob pattern
     (example: `/data/in/*.csv`).
@@ -143,7 +146,7 @@ is available for templating within that entity.
 ### `sink` (required)
 
 - `accepted` (required)
-  - `format`: `parquet` or `delta` (local or S3). `iceberg` is recognized but not
+  - `format`: `parquet` or `delta` (local + cloud). `iceberg` is recognized but not
     implemented yet.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").

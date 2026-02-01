@@ -46,7 +46,8 @@ This is the only entity-level check in v0.1/v0.2.
 
 Accepted rows from all input files are concatenated in file order and written
 once to the accepted sink. For parquet sinks, Floe writes a dataset directory
-containing `part-00000.parquet` (and additional parts in future chunking).
+containing `part-00000.parquet` (and additional parts when chunking is enabled
+via `sink.accepted.options.max_size_per_file`).
 
 ## Severity behavior
 

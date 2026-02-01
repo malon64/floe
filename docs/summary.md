@@ -7,6 +7,7 @@ important references so you can quickly find the right guide.
 
 - Install and run: see the repository README for a minimal example.
 - CLI usage: [docs/cli.md](cli.md)
+- Installation options (Homebrew, Cargo): [docs/installation.md](installation.md)
 
 ## Core concepts
 

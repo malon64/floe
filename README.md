@@ -91,6 +91,7 @@ If Homebrew is unavailable:
 - Cargo: `cargo install floe-cli`
 
 More CLI details: [docs/cli.md](docs/cli.md)
+Full installation guide: [docs/installation.md](docs/installation.md)
 
 ## Sample console output
 

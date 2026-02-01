@@ -1,4 +1,4 @@
-use floe_core::io::storage::{join_prefix, stable_sort_refs, ObjectRef};
+use floe_core::io::storage::{join_prefix, stable_sort_refs, temp_path_for_key, ObjectRef};
 
 #[test]
 fn join_prefix_handles_empty_edges() {
@@ -26,4 +26,12 @@ fn stable_sort_orders_by_uri() {
     let sorted = stable_sort_refs(refs);
     assert_eq!(sorted[0].uri, "s3://b/aaa");
     assert_eq!(sorted[1].uri, "s3://b/zzz");
+}
+
+#[test]
+fn temp_path_for_key_is_unique_for_same_basename() {
+    let temp_dir = tempfile::TempDir::new().expect("tempdir");
+    let a = temp_path_for_key(temp_dir.path(), "a/b/file.parquet");
+    let b = temp_path_for_key(temp_dir.path(), "a__b/file.parquet");
+    assert_ne!(a, b);
 }

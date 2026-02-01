@@ -4,7 +4,7 @@ use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::{concat_df, DataFrame};
 
-use super::file::{collect_row_errors, required_columns};
+use super::file::required_columns;
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
@@ -433,7 +433,7 @@ pub(super) fn run_entity(
         let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
 
         let mut error_lists = if entity.policy.severity == "abort" && cast_total > 0 {
-            check::cast_mismatch_errors(
+            check::cast_mismatch_errors_sparse(
                 &raw_df,
                 &df,
                 &normalized_columns,
@@ -446,38 +446,33 @@ pub(super) fn run_entity(
             let quick_total = cast_total + not_null_total;
 
             if quick_total == 0 {
-                vec![Vec::new(); row_count as usize]
+                check::SparseRowErrors::new(row_count as usize)
             } else {
-                collect_row_errors(
-                    &raw_df,
-                    &df,
-                    &required_cols,
-                    &normalized_columns,
-                    track_cast_errors && cast_total > 0,
-                    &raw_indices,
-                    &typed_indices,
-                )?
+                let mut errors =
+                    check::not_null_errors_sparse(&df, &required_cols, &typed_indices)?;
+                if track_cast_errors && cast_total > 0 {
+                    let cast_errors = check::cast_mismatch_errors_sparse(
+                        &raw_df,
+                        &df,
+                        &normalized_columns,
+                        &raw_indices,
+                        &typed_indices,
+                    )?;
+                    errors.merge(cast_errors);
+                }
+                errors
             }
         };
 
         if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
-            let unique_errors = unique_tracker.apply(&df, &normalized_columns)?;
-            for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
-                errors.extend(unique);
-            }
+            let unique_errors = unique_tracker.apply_sparse(&df, &normalized_columns)?;
+            error_lists.merge(unique_errors);
         }
 
-        let accept_rows = check::build_accept_rows(&error_lists);
-        let errors_json =
-            check::build_errors_formatted(&error_lists, &accept_rows, row_error_formatter.as_ref());
-        let row_error_count = error_lists
-            .iter()
-            .filter(|errors| !errors.is_empty())
-            .count() as u64;
-        let violation_count = error_lists
-            .iter()
-            .map(|errors| errors.len() as u64)
-            .sum::<u64>();
+        let accept_rows = error_lists.accept_rows();
+        let errors_json = error_lists.build_errors_formatted(row_error_formatter.as_ref());
+        let row_error_count = error_lists.error_row_count();
+        let violation_count = error_lists.violation_count();
 
         drop(raw_df);
         let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;

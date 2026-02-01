@@ -4,16 +4,16 @@ mod not_null;
 mod unique;
 
 use polars::prelude::{BooleanChunked, DataFrame, NamedFrom, NewChunkedArray, Series};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{ConfigError, FloeResult};
 
-pub use cast::{cast_mismatch_counts, cast_mismatch_errors};
+pub use cast::{cast_mismatch_counts, cast_mismatch_errors, cast_mismatch_errors_sparse};
 pub use mismatch::{
     apply_mismatch_plan, apply_schema_mismatch, plan_schema_mismatch, MismatchOutcome,
 };
-pub use not_null::{not_null_counts, not_null_errors};
-pub use unique::{unique_counts, unique_errors, UniqueTracker};
+pub use not_null::{not_null_counts, not_null_errors, not_null_errors_sparse};
+pub use unique::{unique_counts, unique_errors, unique_errors_sparse, UniqueTracker};
 
 pub type ColumnIndex = HashMap<String, usize>;
 
@@ -30,6 +30,73 @@ pub struct RowError {
     pub rule: String,
     pub column: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SparseRowErrors {
+    row_count: usize,
+    rows: BTreeMap<usize, Vec<RowError>>,
+}
+
+impl SparseRowErrors {
+    pub fn new(row_count: usize) -> Self {
+        Self {
+            row_count,
+            rows: BTreeMap::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    pub fn add_error(&mut self, row_idx: usize, error: RowError) {
+        self.rows.entry(row_idx).or_default().push(error);
+    }
+
+    pub fn add_errors(&mut self, row_idx: usize, errors: Vec<RowError>) {
+        if errors.is_empty() {
+            return;
+        }
+        self.rows.entry(row_idx).or_default().extend(errors);
+    }
+
+    pub fn merge(&mut self, other: SparseRowErrors) {
+        for (row_idx, errors) in other.rows {
+            self.add_errors(row_idx, errors);
+        }
+    }
+
+    pub fn accept_rows(&self) -> Vec<bool> {
+        let mut accept_rows = vec![true; self.row_count];
+        for row_idx in self.rows.keys() {
+            if let Some(slot) = accept_rows.get_mut(*row_idx) {
+                *slot = false;
+            }
+        }
+        accept_rows
+    }
+
+    pub fn build_errors_formatted(
+        &self,
+        formatter: &dyn RowErrorFormatter,
+    ) -> Vec<Option<String>> {
+        let mut errors_out = vec![None; self.row_count];
+        for (row_idx, errors) in &self.rows {
+            if let Some(slot) = errors_out.get_mut(*row_idx) {
+                *slot = Some(formatter.format(errors));
+            }
+        }
+        errors_out
+    }
+
+    pub fn error_row_count(&self) -> u64 {
+        self.rows.len() as u64
+    }
+
+    pub fn violation_count(&self) -> u64 {
+        self.rows.values().map(|errors| errors.len() as u64).sum()
+    }
 }
 
 impl RowError {

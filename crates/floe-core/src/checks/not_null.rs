@@ -1,6 +1,6 @@
 use polars::prelude::{AnyValue, DataFrame};
 
-use super::{ColumnIndex, RowError};
+use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::FloeResult;
 
@@ -41,6 +41,48 @@ pub fn not_null_errors(
     }
 
     Ok(errors_per_row)
+}
+
+pub fn not_null_errors_sparse(
+    df: &DataFrame,
+    required_cols: &[String],
+    indices: &ColumnIndex,
+) -> FloeResult<SparseRowErrors> {
+    let mut errors = SparseRowErrors::new(df.height());
+    if required_cols.is_empty() || df.height() == 0 {
+        return Ok(errors);
+    }
+
+    let mut null_masks = Vec::with_capacity(required_cols.len());
+    for name in required_cols {
+        let index = indices.get(name).ok_or_else(|| {
+            Box::new(RunError(format!(
+                "required column {name} not found in dataframe"
+            )))
+        })?;
+        let mask = df
+            .select_at_idx(*index)
+            .ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "required column {name} not found in dataframe"
+                )))
+            })?
+            .is_null();
+        null_masks.push((name, mask));
+    }
+
+    for row_idx in 0..df.height() {
+        for (col, mask) in null_masks.iter() {
+            if mask.get(row_idx).unwrap_or(false) {
+                errors.add_error(
+                    row_idx,
+                    RowError::new("not_null", col, "required value missing"),
+                );
+            }
+        }
+    }
+
+    Ok(errors)
 }
 
 pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<Vec<(String, u64)>> {

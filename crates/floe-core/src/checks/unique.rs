@@ -1,7 +1,7 @@
 use polars::prelude::{is_duplicated, is_first_distinct, AnyValue, DataFrame};
 use std::collections::{HashMap, HashSet};
 
-use super::{ColumnIndex, RowError};
+use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::{config, FloeResult};
 
@@ -59,6 +59,60 @@ pub fn unique_errors(
     }
 
     Ok(errors_per_row)
+}
+
+pub fn unique_errors_sparse(
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    indices: &ColumnIndex,
+) -> FloeResult<SparseRowErrors> {
+    let mut errors = SparseRowErrors::new(df.height());
+    if df.height() == 0 {
+        return Ok(errors);
+    }
+    let unique_columns: Vec<&config::ColumnConfig> = columns
+        .iter()
+        .filter(|col| col.unique == Some(true))
+        .collect();
+    if unique_columns.is_empty() {
+        return Ok(errors);
+    }
+
+    for column in unique_columns {
+        let index = indices.get(&column.name).ok_or_else(|| {
+            Box::new(RunError(format!(
+                "unique column {} not found in dataframe",
+                column.name
+            )))
+        })?;
+        let series = df
+            .select_at_idx(*index)
+            .ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not found in dataframe",
+                    column.name
+                )))
+            })?
+            .as_materialized_series()
+            .rechunk();
+        let mut seen = HashSet::new();
+        for (row_idx, value) in series.iter().enumerate() {
+            if matches!(value, AnyValue::Null) {
+                continue;
+            }
+            let key = value.to_string();
+            if seen.contains(&key) {
+                errors.add_error(
+                    row_idx,
+                    RowError::new("unique", &column.name, "duplicate value"),
+                );
+            } else {
+                seen.insert(key);
+            }
+        }
+    }
+
+    Ok(errors)
 }
 
 #[derive(Debug, Default)]
@@ -128,6 +182,56 @@ impl UniqueTracker {
         }
 
         Ok(errors_per_row)
+    }
+
+    pub fn apply_sparse(
+        &mut self,
+        df: &DataFrame,
+        columns: &[config::ColumnConfig],
+    ) -> FloeResult<SparseRowErrors> {
+        let mut errors = SparseRowErrors::new(df.height());
+        if df.height() == 0 {
+            return Ok(errors);
+        }
+        let unique_columns: Vec<&config::ColumnConfig> = columns
+            .iter()
+            .filter(|col| col.unique == Some(true))
+            .collect();
+        if unique_columns.is_empty() {
+            return Ok(errors);
+        }
+
+        for column in unique_columns {
+            let series = df.column(&column.name).map_err(|err| {
+                Box::new(RunError(format!(
+                    "unique column {} not found: {err}",
+                    column.name
+                )))
+            })?;
+            let series = series.as_materialized_series().rechunk();
+            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not tracked",
+                    column.name
+                )))
+            })?;
+            for (row_idx, value) in series.iter().enumerate() {
+                if matches!(value, AnyValue::Null) {
+                    continue;
+                }
+                let key = value.to_string();
+                if seen.contains(&key) {
+                    errors.add_error(
+                        row_idx,
+                        RowError::new("unique", &column.name, "duplicate value"),
+                    );
+                } else {
+                    seen.insert(key);
+                }
+            }
+        }
+
+        Ok(errors)
     }
 }
 

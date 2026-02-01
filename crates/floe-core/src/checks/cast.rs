@@ -1,6 +1,6 @@
 use polars::prelude::{BooleanChunked, DataFrame, StringChunked};
 
-use super::{ColumnIndex, RowError};
+use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::{config, FloeResult};
 
@@ -47,6 +47,58 @@ pub fn cast_mismatch_errors(
     }
 
     Ok(errors_per_row)
+}
+
+pub fn cast_mismatch_errors_sparse(
+    raw_df: &DataFrame,
+    typed_df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    raw_indices: &ColumnIndex,
+    typed_indices: &ColumnIndex,
+) -> FloeResult<SparseRowErrors> {
+    let mut errors = SparseRowErrors::new(typed_df.height());
+    if typed_df.height() == 0 {
+        return Ok(errors);
+    }
+
+    for column in columns {
+        if is_string_type(&column.column_type) {
+            continue;
+        }
+        let raw_index = raw_indices
+            .get(&column.name)
+            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?;
+        let typed_index = typed_indices
+            .get(&column.name)
+            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?;
+        let raw = raw_df
+            .select_at_idx(*raw_index)
+            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?
+            .str()
+            .map_err(|err| {
+                Box::new(RunError(format!(
+                    "raw column {} is not utf8: {err}",
+                    column.name
+                )))
+            })?;
+        let typed_nulls = typed_df
+            .select_at_idx(*typed_index)
+            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?
+            .is_null();
+
+        let raw_not_null = raw.is_not_null();
+        let invalid_mask = typed_nulls & &raw_not_null;
+        for (row_idx, invalid) in invalid_mask.into_iter().enumerate() {
+            if invalid == Some(true) {
+                errors.add_error(
+                    row_idx,
+                    RowError::new("cast_error", &column.name, "invalid value for target type"),
+                );
+            }
+        }
+    }
+
+    Ok(errors)
 }
 
 pub fn cast_mismatch_counts(

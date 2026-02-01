@@ -30,7 +30,7 @@ fn adls_uri_with_prefix_is_built() -> FloeResult<()> {
         }],
     });
 
-    let resolver = StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolver = StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
     let resolved = resolver.resolve_path("entity", "source.storage", None, "data/file.csv")?;
     assert_eq!(
         resolved.uri,
@@ -55,7 +55,7 @@ fn adls_uri_without_prefix_is_built() -> FloeResult<()> {
         }],
     });
 
-    let resolver = StorageResolver::new(&config, std::path::Path::new("."))?;
+    let resolver = StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
     let resolved = resolver.resolve_path("entity", "source.storage", None, "data/file.csv")?;
     assert_eq!(
         resolved.uri,

@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
-use floe_core::{load_config, run, validate, FloeResult, RunOptions, ValidateOptions};
-use std::path::PathBuf;
+use floe_core::{
+    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
+    RunOptions, ValidateOptions,
+};
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -74,8 +76,8 @@ struct Cli {
 enum Command {
     #[command(about = "Validate a config file", long_about = VALIDATE_LONG_ABOUT)]
     Validate {
-        #[arg(short, long, help = "Path to the Floe config file")]
-        config: PathBuf,
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
         #[arg(
             long,
             value_delimiter = ',',
@@ -85,8 +87,8 @@ enum Command {
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
-        #[arg(short, long, help = "Path to the Floe config file")]
-        config: PathBuf,
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
         #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
         #[arg(
@@ -111,11 +113,11 @@ fn main() -> FloeResult<()> {
 
     match cli.command {
         Command::Validate { config, entities } => {
-            let config_path = resolve_path(config)?;
+            let config_location = resolve_config_location(&config)?;
             let options = ValidateOptions { entities };
-            validate(&config_path, options)?;
-            let config = load_config(&config_path)?;
-            println!("Config valid: {}", config_path.display());
+            validate_with_base(&config_location.path, config_location.base.clone(), options)?;
+            let config = load_config(&config_location.path)?;
+            println!("Config valid: {}", config_location.display);
             println!("Version: {}", config.version);
             println!(
                 "Report: {}",
@@ -141,7 +143,7 @@ fn main() -> FloeResult<()> {
                 }
                 println!("  Severity: {}", entity.policy.severity);
             }
-            println!("Next: floe run -c {}", config_path.display());
+            println!("Next: floe run -c {}", config_location.display);
             Ok(())
         }
         Command::Run {
@@ -151,9 +153,10 @@ fn main() -> FloeResult<()> {
             quiet,
             verbose,
         } => {
-            let config_path = resolve_path(config)?;
+            let config_location = resolve_config_location(&config)?;
             let options = RunOptions { run_id, entities };
-            let outcome = run(&config_path, options)?;
+            let outcome =
+                run_with_base(&config_location.path, config_location.base.clone(), options)?;
             let mode = if quiet {
                 output::OutputMode::Quiet
             } else if verbose {
@@ -165,13 +168,4 @@ fn main() -> FloeResult<()> {
             Ok(())
         }
     }
-}
-
-fn resolve_path(path: PathBuf) -> FloeResult<PathBuf> {
-    let absolute = if path.is_absolute() {
-        path
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    Ok(std::fs::canonicalize(absolute)?)
 }

@@ -23,7 +23,7 @@ fn build_config(definition: StorageDefinition, report: ReportConfig) -> RootConf
 
 fn resolver_for(config: &RootConfig) -> StorageResolver {
     let config_path = PathBuf::from("/tmp/floe-config.yml");
-    StorageResolver::new(config, &config_path).expect("storage resolver")
+    StorageResolver::from_path(config, &config_path).expect("storage resolver")
 }
 
 #[test]

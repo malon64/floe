@@ -17,13 +17,14 @@ pub struct RunContext {
 }
 
 impl RunContext {
-    pub fn new(config_path: &Path, options: &RunOptions) -> FloeResult<Self> {
+    pub fn new(
+        config_path: &Path,
+        config_base: config::ConfigBase,
+        options: &RunOptions,
+    ) -> FloeResult<Self> {
         let config = config::parse_config(config_path)?;
-        let storage_resolver = config::StorageResolver::new(&config, config_path)?;
-        let config_dir = config_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf();
+        let storage_resolver = config::StorageResolver::new(&config, config_base)?;
+        let config_dir = storage_resolver.config_dir().to_path_buf();
         let (report_target, report_base_path) = match config.report.as_ref() {
             Some(report) => {
                 let resolved = storage_resolver

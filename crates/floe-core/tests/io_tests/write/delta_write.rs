@@ -21,7 +21,7 @@ fn write_delta_table_overwrite() -> FloeResult<()> {
         report: None,
         entities: Vec::new(),
     };
-    let resolver = config::StorageResolver::new(&config, temp_dir.path())?;
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let resolved = resolver.resolve_path(
         "orders",
         "sink.accepted.path",

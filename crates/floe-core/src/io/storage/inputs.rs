@@ -18,6 +18,7 @@ pub fn resolve_inputs(
     temp_dir: Option<&Path>,
     storage_client: Option<&dyn super::StorageClient>,
 ) -> FloeResult<ResolvedInputs> {
+    // Storage-specific resolution: list + download for cloud, direct paths for local.
     match target {
         Target::S3 { storage, .. } => {
             let temp_dir = temp_dir.ok_or_else(|| {

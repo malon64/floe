@@ -136,7 +136,7 @@ pub(super) fn run_precheck(
                 entity,
             )?);
 
-            let archived_path = io::storage::archive::archive_input_file(
+            let archived_path = io::storage::ops::archive_input(
                 cloud,
                 &context.storage_resolver,
                 entity,

@@ -11,6 +11,7 @@ pub mod inputs;
 pub mod local;
 pub mod object_store;
 pub mod output;
+pub mod ops;
 pub mod paths;
 pub mod planner;
 pub mod s3;

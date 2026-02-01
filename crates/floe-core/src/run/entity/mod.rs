@@ -462,7 +462,7 @@ pub(super) fn run_entity(
         }
 
         if archive_enabled {
-            archived_path = io::storage::archive::archive_input_file(
+            archived_path = io::storage::ops::archive_input(
                 cloud,
                 &context.storage_resolver,
                 entity,

@@ -1,6 +1,6 @@
 [package]
 name = "floe-cli"
-version = "0.1.7"
+version = "0.2.0"
 edition = "2021"
 description = "CLI for Floe, a YAML-driven technical ingestion tool."
 license = "MIT"

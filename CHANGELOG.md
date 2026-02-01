@@ -2,6 +2,17 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.0
+
+- Cloud storage registry with local/S3/ADLS/GCS support (canonical URIs).
+- Cloud IO for CSV/JSON/Parquet inputs via temp download + local read.
+- Accepted outputs: parquet (multipart with `max_size_per_file`) and delta (transactional object_store).
+- Reports and rejected outputs can be written to cloud via temp upload.
+- Schema mismatch policy (missing/extra columns) with file-level rejection handling.
+- Deterministic run pipeline (file precheck → row validation → entity-level unique).
+- JSON input modes: array (default) and NDJSON.
+- Config templating (`env` + `domains`) and improved validation errors.
+
 ## v0.1.7
 
 - Added ADLS and GCS storage definitions with URI resolution and validation.

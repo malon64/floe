@@ -44,62 +44,59 @@ jobs:
           filters: |
             floe_core:
               - "crates/floe-core/**"
+            core_code:
+              - "crates/floe-core/src/**"
+              - "crates/floe-core/Cargo.toml"
+            unit_tests:
+              - "crates/floe-core/tests/unit/**"
+              - "crates/floe-core/tests/unit.rs"
+            integration_tests:
+              - "crates/floe-core/tests/integration/**"
+              - "crates/floe-core/tests/integration.rs"
             floe_cli:
               - "crates/floe-cli/**"
             core_io:
               - "crates/floe-core/src/io/**"
-              - "crates/floe-core/tests/io_tests/**"
-              - "crates/floe-core/tests/io_*.rs"
+              - "crates/floe-core/tests/unit/io/**"
             core_run:
               - "crates/floe-core/src/run/**"
-              - "crates/floe-core/tests/run_tests/**"
-              - "crates/floe-core/tests/run_*.rs"
+              - "crates/floe-core/tests/unit/run/**"
             io_format:
               - "crates/floe-core/src/io/format.rs"
-              - "crates/floe-core/tests/io_tests/format.rs"
-              - "crates/floe-core/tests/io_format.rs"
+              - "crates/floe-core/tests/unit/io/format.rs"
             io_read:
               - "crates/floe-core/src/io/read/**"
-              - "crates/floe-core/tests/io_tests/read/**"
-              - "crates/floe-core/tests/io_read.rs"
+              - "crates/floe-core/tests/unit/io/read/**"
             io_storage:
               - "crates/floe-core/src/io/storage/**"
-              - "crates/floe-core/tests/io_tests/storage/**"
-              - "crates/floe-core/tests/io_storage.rs"
+              - "crates/floe-core/tests/unit/io/storage/**"
             io_write:
               - "crates/floe-core/src/io/write/**"
-              - "crates/floe-core/tests/io_tests/write/**"
-              - "crates/floe-core/tests/io_write.rs"
+              - "crates/floe-core/tests/unit/io/write/**"
             run_entity:
               - "crates/floe-core/src/run/entity/**"
-              - "crates/floe-core/tests/run_tests/entity/**"
-              - "crates/floe-core/tests/run_entity.rs"
+              - "crates/floe-core/tests/unit/run/entity/**"
             run_checks:
               - "crates/floe-core/src/checks/**"
-              - "crates/floe-core/tests/run_tests/checks.rs"
-              - "crates/floe-core/tests/run_checks.rs"
+              - "crates/floe-core/tests/unit/run/checks.rs"
             run_schema:
               - "crates/floe-core/src/checks/mismatch.rs"
               - "crates/floe-core/src/run/schema_mismatch.rs"
-              - "crates/floe-core/tests/run_tests/schema_mismatch.rs"
-              - "crates/floe-core/tests/run_schema.rs"
+              - "crates/floe-core/tests/unit/run/schema_mismatch.rs"
             run_report:
               - "crates/floe-core/src/report/**"
-              - "crates/floe-core/tests/run_tests/report.rs"
-              - "crates/floe-core/tests/run_report.rs"
+              - "crates/floe-core/tests/unit/report/**"
+              - "crates/floe-core/tests/unit/run/report.rs"
             run_check_order:
               - "crates/floe-core/src/run/entity/**"
               - "crates/floe-core/src/run/file.rs"
-              - "crates/floe-core/tests/run_tests/check_order.rs"
-              - "crates/floe-core/tests/run_check_order.rs"
+              - "crates/floe-core/tests/unit/run/check_order.rs"
             run_normalize:
               - "crates/floe-core/src/run/normalize.rs"
-              - "crates/floe-core/tests/run_tests/normalize.rs"
-              - "crates/floe-core/tests/run_normalize.rs"
+              - "crates/floe-core/tests/unit/run/normalize.rs"
             core_config:
               - "crates/floe-core/src/config/**"
-              - "crates/floe-core/tests/config/**"
-              - "crates/floe-core/tests/config.rs"
+              - "crates/floe-core/tests/unit/config/**"
             docs:
               - "docs/**"
               - "README.md"
@@ -116,51 +113,61 @@ jobs:
           RUSTFLAGS: "-C debuginfo=0"
         run: |
           if [ "${{ steps.changes.outputs.floe_core }}" = "true" ]; then
+            ran_unit=0
             if [ "${{ steps.changes.outputs.core_config }}" = "true" ]; then
-              cargo test -p floe-core --test config
+              cargo test -p floe-core --test unit config::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.io_format }}" = "true" ]; then
-              cargo test -p floe-core --test io_format
+              cargo test -p floe-core --test unit io::format::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.io_read }}" = "true" ]; then
-              cargo test -p floe-core --test io_read
+              cargo test -p floe-core --test unit io::read::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.io_storage }}" = "true" ]; then
-              cargo test -p floe-core --test io_storage
+              cargo test -p floe-core --test unit io::storage::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.io_write }}" = "true" ]; then
-              cargo test -p floe-core --test io_write
+              cargo test -p floe-core --test unit io::write::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_entity }}" = "true" ]; then
-              cargo test -p floe-core --test run_entity
+              cargo test -p floe-core --test unit run::entity::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_checks }}" = "true" ]; then
-              cargo test -p floe-core --test run_checks
+              cargo test -p floe-core --test unit run::checks::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_schema }}" = "true" ]; then
-              cargo test -p floe-core --test run_schema
+              cargo test -p floe-core --test unit run::schema_mismatch::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_report }}" = "true" ]; then
-              cargo test -p floe-core --test run_report
+              cargo test -p floe-core --test unit run::report::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_check_order }}" = "true" ]; then
-              cargo test -p floe-core --test run_check_order
+              cargo test -p floe-core --test unit run::check_order::
+              ran_unit=1
             fi
             if [ "${{ steps.changes.outputs.run_normalize }}" = "true" ]; then
-              cargo test -p floe-core --test run_normalize
+              cargo test -p floe-core --test unit run::normalize::
+              ran_unit=1
             fi
-            if [ "${{ steps.changes.outputs.core_config }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.io_format }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.io_read }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.io_storage }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.io_write }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_entity }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_checks }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_schema }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_report }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_check_order }}" != "true" ] \
-              && [ "${{ steps.changes.outputs.run_normalize }}" != "true" ]; then
-              cargo test -p floe-core
+            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
+              cargo test -p floe-core --test unit
+              ran_unit=1
+            fi
+            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.unit_tests }}" = "true" ]; then
+              cargo test -p floe-core --test unit
+            fi
+            if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
+              || [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
+              cargo test -p floe-core --test integration
             fi
             cargo test -p floe-core --doc
           fi

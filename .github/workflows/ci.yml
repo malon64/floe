@@ -44,6 +44,15 @@ jobs:
           filters: |
             floe_core:
               - "crates/floe-core/**"
+            core_code:
+              - "crates/floe-core/src/**"
+              - "crates/floe-core/Cargo.toml"
+            unit_tests:
+              - "crates/floe-core/tests/unit/**"
+              - "crates/floe-core/tests/unit.rs"
+            integration_tests:
+              - "crates/floe-core/tests/integration/**"
+              - "crates/floe-core/tests/integration.rs"
             floe_cli:
               - "crates/floe-cli/**"
             core_io:
@@ -149,10 +158,17 @@ jobs:
               cargo test -p floe-core --test unit run::normalize::
               ran_unit=1
             fi
-            if [ "$ran_unit" = "0" ]; then
+            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
+              cargo test -p floe-core --test unit
+              ran_unit=1
+            fi
+            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.unit_tests }}" = "true" ]; then
               cargo test -p floe-core --test unit
             fi
-            cargo test -p floe-core --test integration
+            if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
+              || [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
+              cargo test -p floe-core --test integration
+            fi
             cargo test -p floe-core --doc
           fi
           if [ "${{ steps.changes.outputs.floe_cli }}" = "true" ]; then

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
-use polars::prelude::{concat_df, DataFrame};
+use polars::prelude::DataFrame;
 
 use super::file::required_columns;
 use super::normalize::normalize_schema_columns;
@@ -12,7 +12,7 @@ use super::output::{
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
-use crate::report::build::summarize_validation;
+use crate::report::build::summarize_validation_sparse;
 
 use io::format::{self, ReadInput};
 use io::storage::Target;
@@ -487,7 +487,7 @@ pub(super) fn run_entity(
         let mut errors_path = None;
         let mut archived_path = None;
         let mut rules = if has_errors {
-            summarize_validation(&error_lists, &normalized_columns, severity)
+            summarize_validation_sparse(&error_lists, &normalized_columns, severity)
         } else {
             Vec::new()
         };
@@ -695,17 +695,14 @@ pub(super) fn run_entity(
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
     if !accepted_accum.is_empty() {
-        let mut accepted_df = if accepted_accum.len() == 1 {
-            accepted_accum
-                .pop()
-                .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?
-        } else {
-            let frames = accepted_accum;
-            let refs = frames.iter().collect::<Vec<_>>();
-            concat_df(&refs).map_err(|err| {
+        let mut accepted_df = accepted_accum
+            .pop()
+            .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?;
+        for frame in accepted_accum {
+            accepted_df.vstack_mut(&frame).map_err(|err| {
                 Box::new(RunError(format!("failed to concat accepted rows: {err}")))
-            })?
-        };
+            })?;
+        }
         let output_stem = io::storage::paths::build_part_stem(0);
         let accepted_output = write_accepted_output(
             entity.sink.accepted.format.as_str(),

@@ -67,6 +67,66 @@ pub fn summarize_validation(
     rules
 }
 
+pub fn summarize_validation_sparse(
+    errors: &check::SparseRowErrors,
+    columns: &[config::ColumnConfig],
+    severity: report::Severity,
+) -> Vec<report::RuleSummary> {
+    if errors.is_empty() {
+        return Vec::new();
+    }
+
+    let mut column_types = HashMap::new();
+    for column in columns {
+        column_types.insert(column.name.clone(), column.column_type.clone());
+    }
+
+    let mut accumulators = vec![RuleAccumulator::default(); RULE_COUNT];
+    for (_, row_errors) in errors.iter() {
+        for error in row_errors {
+            let idx = rule_index(&error.rule);
+            let accumulator = &mut accumulators[idx];
+            accumulator.violations += 1;
+            let target_type = if idx == CAST_ERROR_INDEX {
+                column_types.get(&error.column).cloned()
+            } else {
+                None
+            };
+            let entry = accumulator
+                .columns
+                .entry(error.column.clone())
+                .or_insert_with(|| ColumnAccumulator {
+                    violations: 0,
+                    target_type,
+                });
+            entry.violations += 1;
+        }
+    }
+
+    let mut rules = Vec::new();
+    for (idx, accumulator) in accumulators.iter().enumerate() {
+        if accumulator.violations == 0 {
+            continue;
+        }
+        let mut columns = Vec::with_capacity(accumulator.columns.len());
+        for (name, column_acc) in &accumulator.columns {
+            columns.push(report::ColumnSummary {
+                column: name.clone(),
+                violations: column_acc.violations,
+                target_type: column_acc.target_type.clone(),
+            });
+        }
+        rules.push(report::RuleSummary {
+            rule: rule_from_index(idx),
+            severity,
+            violations: accumulator.violations,
+            columns,
+        });
+    }
+
+    rules
+}
+
 #[derive(Debug, Default, Clone)]
 struct RuleAccumulator {
     violations: u64,

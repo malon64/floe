@@ -77,10 +77,7 @@ impl SparseRowErrors {
         accept_rows
     }
 
-    pub fn build_errors_formatted(
-        &self,
-        formatter: &dyn RowErrorFormatter,
-    ) -> Vec<Option<String>> {
+    pub fn build_errors_formatted(&self, formatter: &dyn RowErrorFormatter) -> Vec<Option<String>> {
         let mut errors_out = vec![None; self.row_count];
         for (row_idx, errors) in &self.rows {
             if let Some(slot) = errors_out.get_mut(*row_idx) {
@@ -88,6 +85,10 @@ impl SparseRowErrors {
             }
         }
         errors_out
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Vec<RowError>)> {
+        self.rows.iter()
     }
 
     pub fn error_row_count(&self) -> u64 {

@@ -87,7 +87,7 @@ pub fn cast_mismatch_errors_sparse(
             .is_null();
 
         let raw_not_null = raw.is_not_null();
-        let invalid_mask = typed_nulls & &raw_not_null;
+        let invalid_mask = typed_nulls & raw_not_null;
         for (row_idx, invalid) in invalid_mask.into_iter().enumerate() {
             if invalid == Some(true) {
                 errors.add_error(

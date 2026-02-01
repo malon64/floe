@@ -23,14 +23,16 @@ fn unique_key(value: AnyValue) -> Option<UniqueKey> {
         AnyValue::Int16(value) => Some(UniqueKey::I64(value as i64)),
         AnyValue::Int32(value) => Some(UniqueKey::I64(value as i64)),
         AnyValue::Int64(value) => Some(UniqueKey::I64(value)),
+        AnyValue::Int128(value) => Some(UniqueKey::Other(value.to_string())),
         AnyValue::UInt8(value) => Some(UniqueKey::U64(value as u64)),
         AnyValue::UInt16(value) => Some(UniqueKey::U64(value as u64)),
         AnyValue::UInt32(value) => Some(UniqueKey::U64(value as u64)),
         AnyValue::UInt64(value) => Some(UniqueKey::U64(value)),
+        AnyValue::UInt128(value) => Some(UniqueKey::Other(value.to_string())),
         AnyValue::Float32(value) => Some(UniqueKey::F64((value as f64).to_bits())),
         AnyValue::Float64(value) => Some(UniqueKey::F64(value.to_bits())),
-        AnyValue::Utf8(value) => Some(UniqueKey::String(value.to_string())),
-        AnyValue::StringOwned(value) => Some(UniqueKey::String(value)),
+        AnyValue::String(value) => Some(UniqueKey::String(value.to_string())),
+        AnyValue::StringOwned(value) => Some(UniqueKey::String(value.to_string())),
         other => Some(UniqueKey::Other(other.to_string())),
     }
 }

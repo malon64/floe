@@ -4,6 +4,64 @@ use crate::io::storage::{paths, CloudClient, Target};
 use crate::report::{JsonReportFormatter, ReportFormatter};
 use crate::{config, report, FloeResult};
 
+pub struct ReportOutput<'a> {
+    target: &'a Target,
+    formatter: &'a dyn ReportFormatter,
+    cloud: &'a mut CloudClient,
+    resolver: &'a config::StorageResolver,
+}
+
+impl<'a> ReportOutput<'a> {
+    pub fn new(
+        target: &'a Target,
+        formatter: &'a dyn ReportFormatter,
+        cloud: &'a mut CloudClient,
+        resolver: &'a config::StorageResolver,
+    ) -> Self {
+        Self {
+            target,
+            formatter,
+            cloud,
+            resolver,
+        }
+    }
+
+    pub fn write_entity_report(
+        &mut self,
+        run_id: &str,
+        entity: &config::EntityConfig,
+        report: &report::RunReport,
+    ) -> FloeResult<String> {
+        let relative = report::ReportWriter::report_relative_path(run_id, &entity.name);
+        write_report(
+            self.target,
+            &relative,
+            self.formatter,
+            ReportPayload::Entity(report),
+            self.cloud,
+            self.resolver,
+            &format!("entity.name={}", entity.name),
+        )
+    }
+
+    pub fn write_summary_report(
+        &mut self,
+        run_id: &str,
+        report: &report::RunSummaryReport,
+    ) -> FloeResult<String> {
+        let relative = report::ReportWriter::summary_relative_path(run_id);
+        write_report(
+            self.target,
+            &relative,
+            self.formatter,
+            ReportPayload::Summary(report),
+            self.cloud,
+            self.resolver,
+            "report",
+        )
+    }
+}
+
 pub fn write_entity_report(
     target: &Target,
     run_id: &str,
@@ -13,16 +71,8 @@ pub fn write_entity_report(
     resolver: &config::StorageResolver,
 ) -> FloeResult<String> {
     let formatter = JsonReportFormatter;
-    let relative = report::ReportWriter::report_relative_path(run_id, &entity.name);
-    write_report(
-        target,
-        &relative,
-        &formatter,
-        ReportPayload::Entity(report),
-        cloud,
-        resolver,
-        &format!("entity.name={}", entity.name),
-    )
+    let mut output = ReportOutput::new(target, &formatter, cloud, resolver);
+    output.write_entity_report(run_id, entity, report)
 }
 
 pub fn write_summary_report(
@@ -33,16 +83,8 @@ pub fn write_summary_report(
     resolver: &config::StorageResolver,
 ) -> FloeResult<String> {
     let formatter = JsonReportFormatter;
-    let relative = report::ReportWriter::summary_relative_path(run_id);
-    write_report(
-        target,
-        &relative,
-        &formatter,
-        ReportPayload::Summary(report),
-        cloud,
-        resolver,
-        "report",
-    )
+    let mut output = ReportOutput::new(target, &formatter, cloud, resolver);
+    output.write_summary_report(run_id, report)
 }
 
 enum ReportPayload<'a> {
@@ -59,6 +101,7 @@ fn write_report(
     resolver: &config::StorageResolver,
     context: &str,
 ) -> FloeResult<String> {
+    // Storage-agnostic report write: local file or temp upload for cloud.
     let content = match payload {
         ReportPayload::Entity(report) => formatter.serialize_run(report)?,
         ReportPayload::Summary(report) => formatter.serialize_summary(report)?,

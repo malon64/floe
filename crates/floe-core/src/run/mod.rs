@@ -8,12 +8,14 @@ use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions
 
 mod context;
 pub(crate) mod entity;
+mod events;
 mod file;
 pub mod normalize;
 mod output;
 
 pub(crate) use context::RunContext;
 use entity::{run_entity, EntityRunResult};
+use events::{default_observer, RunEvent};
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 
@@ -74,17 +76,30 @@ pub fn run_with_base(
     let mut entity_outcomes = Vec::new();
     let mut abort_run = false;
     let mut cloud = CloudClient::new();
+    let observer = default_observer();
+    observer.on_event(RunEvent::RunStarted {
+        run_id: context.run_id.clone(),
+    });
     for entity in &context.config.entities {
+        observer.on_event(RunEvent::EntityStarted {
+            name: entity.name.clone(),
+        });
         let EntityRunResult {
             outcome,
             abort_run: aborted,
         } = run_entity(&context, &mut cloud, entity)?;
+        observer.on_event(RunEvent::EntityFinished {
+            name: entity.name.clone(),
+        });
         entity_outcomes.push(outcome);
         abort_run = abort_run || aborted;
         if abort_run {
             break;
         }
     }
+    observer.on_event(RunEvent::RunFinished {
+        run_id: context.run_id.clone(),
+    });
 
     let summary = build_run_summary(&context, &entity_outcomes);
     if let Some(report_target) = &context.report_target {

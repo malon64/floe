@@ -7,16 +7,41 @@ use crate::{check, config, io, ConfigError, FloeResult};
 
 use io::format::{self, InputFile};
 use io::storage::Target;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Overwrite,
+    Append,
+}
+pub(super) struct AcceptedOutputContext<'a> {
+    pub(super) format: &'a str,
+    pub(super) target: &'a Target,
+    pub(super) df: &'a mut DataFrame,
+    pub(super) output_stem: &'a str,
+    pub(super) temp_dir: Option<&'a Path>,
+    pub(super) cloud: &'a mut io::storage::CloudClient,
+    pub(super) resolver: &'a config::StorageResolver,
+    pub(super) entity: &'a config::EntityConfig,
+    pub(super) mode: OutputMode,
+}
+
 pub(super) fn write_accepted_output(
-    format: &str,
-    target: &Target,
-    df: &mut DataFrame,
-    output_stem: &str,
-    temp_dir: Option<&Path>,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
+    context: AcceptedOutputContext<'_>,
 ) -> FloeResult<format::AcceptedWriteOutput> {
+    let AcceptedOutputContext {
+        format,
+        target,
+        df,
+        output_stem,
+        temp_dir,
+        cloud,
+        resolver,
+        entity,
+        mode,
+    } = context;
+    // Append is not supported yet; keep overwrite semantics for now.
+    let _ = mode;
     let adapter = format::accepted_sink_adapter(format)?;
     adapter.write_accepted(target, df, output_stem, temp_dir, cloud, resolver, entity)
 }

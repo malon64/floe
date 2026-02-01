@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
@@ -10,6 +8,7 @@ use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
+    AcceptedOutputContext, OutputMode,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -17,11 +16,13 @@ use crate::report::build::summarize_validation_sparse;
 use io::format::{self, ReadInput};
 use io::storage::Target;
 
+mod precheck;
 mod process;
 mod resolve;
 pub(crate) use resolve::ResolvedEntityTargets;
 
 use crate::report::entity::{build_run_report, RunReportContext};
+use precheck::{run_precheck, PrecheckContext, PrecheckedInput};
 use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
 
@@ -30,11 +31,7 @@ pub(super) struct EntityRunResult {
     pub abort_run: bool,
 }
 
-struct PrecheckedInput {
-    input_file: io::format::InputFile,
-    mismatch: check::MismatchOutcome,
-    file_timer: Instant,
-}
+// PrecheckedInput moved to precheck module
 
 pub(super) fn run_entity(
     context: &RunContext,
@@ -148,171 +145,30 @@ pub(super) fn run_entity(
     let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
     let mut sink_options_warned = false;
-    let mut abort_run = false;
-    let mut prechecked_inputs = Vec::with_capacity(input_files.len());
-    for input_file in input_files {
-        let file_timer = Instant::now();
-        let input_columns =
-            match input_adapter.read_input_columns(entity, &input_file, &normalized_columns) {
-                Ok(columns) => columns,
-                Err(error) => {
-                    let status = if entity.policy.severity == "abort" {
-                        report::FileStatus::Aborted
-                    } else {
-                        report::FileStatus::Rejected
-                    };
-                    let mismatch_action = if status == report::FileStatus::Aborted {
-                        report::MismatchAction::Aborted
-                    } else {
-                        report::MismatchAction::RejectedFile
-                    };
-
-                    let rejected_path = rejected_target
-                        .as_ref()
-                        .map(|target| {
-                            write_rejected_raw_output(
-                                target,
-                                &input_file,
-                                temp_dir.as_ref().map(|dir| dir.path()),
-                                cloud,
-                                &context.storage_resolver,
-                                entity,
-                            )
-                        })
-                        .transpose()?;
-
-                    let file_report = report::FileReport {
-                        input_file: input_file.source_uri.clone(),
-                        status,
-                        row_count: 0,
-                        accepted_count: 0,
-                        rejected_count: 0,
-                        mismatch: report::FileMismatch {
-                            declared_columns_count: normalized_columns.len() as u64,
-                            input_columns_count: 0,
-                            missing_columns: Vec::new(),
-                            extra_columns: Vec::new(),
-                            mismatch_action,
-                            error: Some(report::MismatchIssue {
-                                rule: error.rule,
-                                message: format!("entity.name={} {}", entity.name, error.message),
-                            }),
-                            warning: None,
-                        },
-                        output: report::FileOutput {
-                            accepted_path: None,
-                            rejected_path,
-                            errors_path: None,
-                            archived_path: None,
-                        },
-                        validation: report::FileValidation {
-                            errors: 1,
-                            warnings: 0,
-                            rules: Vec::new(),
-                        },
-                    };
-
-                    totals.errors_total += 1;
-                    file_reports.push(file_report);
-                    file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
-
-                    if status == report::FileStatus::Aborted {
-                        abort_run = true;
-                        break;
-                    }
-                    continue;
-                }
-            };
-
-        let mismatch = check::plan_schema_mismatch(entity, &normalized_columns, &input_columns)?;
-        if let Some(message) = mismatch.report.warning.as_deref() {
-            warnings::emit(message);
-        }
-
-        if mismatch.rejected || mismatch.aborted {
-            let accepted_path = None;
-            let errors_path = None;
-            let row_count = 0;
-
-            validate_rejected_target(entity, if mismatch.aborted { "abort" } else { "reject" })?;
-            let rejected_target = rejected_target.as_ref().ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "entity.name={} sink.rejected.storage is required for rejection",
-                    entity.name
-                )))
-            })?;
-            let rejected_path = Some(write_rejected_raw_output(
-                rejected_target,
-                &input_file,
-                temp_dir.as_ref().map(|dir| dir.path()),
-                cloud,
-                &context.storage_resolver,
-                entity,
-            )?);
-
-            let archived_path = io::storage::archive::archive_input_file(
-                cloud,
-                &context.storage_resolver,
-                entity,
-                archive_target.as_ref(),
-                &input_file,
-            )?;
-
-            let status = if mismatch.aborted {
-                report::FileStatus::Aborted
-            } else {
-                report::FileStatus::Rejected
-            };
-            let accepted_count = 0;
-            let rejected_count = row_count;
-            let errors = mismatch.errors;
-            let warnings = mismatch.warnings;
-
-            let file_report = report::FileReport {
-                input_file: input_file.source_uri.clone(),
-                status,
-                row_count,
-                accepted_count,
-                rejected_count,
-                mismatch: mismatch.report,
-                output: report::FileOutput {
-                    accepted_path,
-                    rejected_path,
-                    errors_path,
-                    archived_path,
-                },
-                validation: report::FileValidation {
-                    errors,
-                    warnings,
-                    rules: Vec::new(),
-                },
-            };
-
-            totals.rows_total += row_count;
-            totals.accepted_total += accepted_count;
-            totals.rejected_total += rejected_count;
-            totals.errors_total += errors;
-            totals.warnings_total += warnings;
-            file_reports.push(file_report);
-            file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
-
-            if mismatch.aborted {
-                abort_run = true;
-                break;
-            }
-            continue;
-        }
-
-        prechecked_inputs.push(PrecheckedInput {
-            input_file,
-            mismatch,
-            file_timer,
-        });
-    }
+    // Phase A: per-file precheck (schema mismatch / early rejection).
+    let precheck = run_precheck(
+        PrecheckContext {
+            context,
+            entity,
+            input_adapter,
+            normalized_columns: &normalized_columns,
+            resolved_targets: &resolved_targets,
+            archive_target: archive_target.as_ref(),
+            temp_dir: temp_dir.as_ref(),
+            cloud,
+            file_reports: &mut file_reports,
+            file_timings_ms: &mut file_timings_ms,
+            totals: &mut totals,
+        },
+        input_files,
+    )?;
+    let mut abort_run = precheck.abort_run;
+    let prechecked_inputs = precheck.prechecked;
 
     let mut accepted_accum: Vec<DataFrame> = Vec::new();
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
 
+    // Phase B: row-level validation + entity-level accumulation.
     for prechecked in prechecked_inputs {
         let PrecheckedInput {
             input_file,
@@ -473,6 +329,7 @@ pub(super) fn run_entity(
             error_lists.merge(unique_errors);
         }
 
+        // Sparse errors -> accept mask and formatted errors only for rejected rows.
         let accept_rows = error_lists.accept_rows();
         let errors_json = error_lists.build_errors_formatted(row_error_formatter.as_ref());
         let row_error_count = error_lists.error_row_count();
@@ -605,7 +462,7 @@ pub(super) fn run_entity(
         }
 
         if archive_enabled {
-            archived_path = io::storage::archive::archive_input_file(
+            archived_path = io::storage::ops::archive_input(
                 cloud,
                 &context.storage_resolver,
                 entity,
@@ -694,6 +551,7 @@ pub(super) fn run_entity(
     let mut accepted_parts_written = 0;
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
+    // Phase C: write accepted output once per entity.
     if !accepted_accum.is_empty() {
         let mut accepted_df = accepted_accum
             .pop()
@@ -704,16 +562,17 @@ pub(super) fn run_entity(
             })?;
         }
         let output_stem = io::storage::paths::build_part_stem(0);
-        let accepted_output = write_accepted_output(
-            entity.sink.accepted.format.as_str(),
-            &accepted_target,
-            &mut accepted_df,
-            &output_stem,
-            temp_dir.as_ref().map(|dir| dir.path()),
+        let accepted_output = write_accepted_output(AcceptedOutputContext {
+            format: entity.sink.accepted.format.as_str(),
+            target: &accepted_target,
+            df: &mut accepted_df,
+            output_stem: &output_stem,
+            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
             cloud,
-            &context.storage_resolver,
+            resolver: &context.storage_resolver,
             entity,
-        )?;
+            mode: OutputMode::Overwrite,
+        })?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;
         accepted_table_version = accepted_output.table_version;

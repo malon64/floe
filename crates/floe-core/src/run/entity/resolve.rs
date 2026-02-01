@@ -26,7 +26,7 @@ pub(super) fn resolve_input_files(
         entity,
     )? as &dyn io::storage::StorageClient);
     let temp_dir = temp_dir.map(|dir| dir.path());
-    let resolved = io::storage::inputs::resolve_inputs(
+    let resolved = io::storage::ops::resolve_inputs(
         &context.config_dir,
         entity,
         input_adapter,

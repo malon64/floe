@@ -10,6 +10,7 @@ pub mod gcs;
 pub mod inputs;
 pub mod local;
 pub mod object_store;
+pub mod ops;
 pub mod output;
 pub mod paths;
 pub mod planner;

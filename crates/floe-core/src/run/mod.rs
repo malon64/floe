@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Once;
 
 use crate::io::storage::CloudClient;
 use crate::report::build::project_metadata_json;
@@ -59,6 +60,7 @@ pub fn run_with_base(
     config_base: config::ConfigBase,
     options: RunOptions,
 ) -> FloeResult<RunOutcome> {
+    init_thread_pool();
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
     };
@@ -101,6 +103,26 @@ pub fn run_with_base(
         entity_outcomes,
         summary,
     })
+}
+
+fn init_thread_pool() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        if std::env::var("RAYON_NUM_THREADS").is_ok() {
+            return;
+        }
+        let cap = std::env::var("FLOE_MAX_THREADS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(4);
+        let available = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1);
+        let threads = available.min(cap).max(1);
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global();
+    });
 }
 
 fn build_run_summary(

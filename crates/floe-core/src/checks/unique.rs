@@ -5,6 +5,36 @@ use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::{config, FloeResult};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum UniqueKey {
+    Bool(bool),
+    I64(i64),
+    U64(u64),
+    F64(u64),
+    String(String),
+    Other(String),
+}
+
+fn unique_key(value: AnyValue) -> Option<UniqueKey> {
+    match value {
+        AnyValue::Null => None,
+        AnyValue::Boolean(value) => Some(UniqueKey::Bool(value)),
+        AnyValue::Int8(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int16(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int32(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int64(value) => Some(UniqueKey::I64(value)),
+        AnyValue::UInt8(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt16(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt32(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt64(value) => Some(UniqueKey::U64(value)),
+        AnyValue::Float32(value) => Some(UniqueKey::F64((value as f64).to_bits())),
+        AnyValue::Float64(value) => Some(UniqueKey::F64(value.to_bits())),
+        AnyValue::Utf8(value) => Some(UniqueKey::String(value.to_string())),
+        AnyValue::StringOwned(value) => Some(UniqueKey::String(value)),
+        other => Some(UniqueKey::Other(other.to_string())),
+    }
+}
+
 pub fn unique_errors(
     df: &DataFrame,
     columns: &[config::ColumnConfig],
@@ -95,12 +125,12 @@ pub fn unique_errors_sparse(
             })?
             .as_materialized_series()
             .rechunk();
-        let mut seen = HashSet::new();
+        let mut seen: HashSet<UniqueKey> = HashSet::new();
         for (row_idx, value) in series.iter().enumerate() {
-            if matches!(value, AnyValue::Null) {
-                continue;
-            }
-            let key = value.to_string();
+            let key = match unique_key(value) {
+                Some(key) => key,
+                None => continue,
+            };
             if seen.contains(&key) {
                 errors.add_error(
                     row_idx,
@@ -117,7 +147,7 @@ pub fn unique_errors_sparse(
 
 #[derive(Debug, Default)]
 pub struct UniqueTracker {
-    seen: HashMap<String, HashSet<String>>,
+    seen: HashMap<String, HashSet<UniqueKey>>,
 }
 
 impl UniqueTracker {
@@ -165,10 +195,10 @@ impl UniqueTracker {
                 )))
             })?;
             for (row_idx, value) in series.iter().enumerate() {
-                if matches!(value, AnyValue::Null) {
-                    continue;
-                }
-                let key = value.to_string();
+                let key = match unique_key(value) {
+                    Some(key) => key,
+                    None => continue,
+                };
                 if seen.contains(&key) {
                     errors_per_row[row_idx].push(RowError::new(
                         "unique",
@@ -216,10 +246,10 @@ impl UniqueTracker {
                 )))
             })?;
             for (row_idx, value) in series.iter().enumerate() {
-                if matches!(value, AnyValue::Null) {
-                    continue;
-                }
-                let key = value.to_string();
+                let key = match unique_key(value) {
+                    Some(key) => key,
+                    None => continue,
+                };
                 if seen.contains(&key) {
                     errors.add_error(
                         row_idx,

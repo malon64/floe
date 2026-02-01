@@ -364,6 +364,7 @@ pub(super) fn run_entity(
                     })
                     .transpose()?;
 
+                let mismatch_report = mismatch.report;
                 let file_report = report::FileReport {
                     input_file: input_file.source_uri.clone(),
                     status,
@@ -372,15 +373,15 @@ pub(super) fn run_entity(
                     rejected_count: 0,
                     mismatch: report::FileMismatch {
                         declared_columns_count: normalized_columns.len() as u64,
-                        input_columns_count: mismatch.report.input_columns_count,
-                        missing_columns: mismatch.report.missing_columns.clone(),
-                        extra_columns: mismatch.report.extra_columns.clone(),
+                        input_columns_count: mismatch_report.input_columns_count,
+                        missing_columns: mismatch_report.missing_columns,
+                        extra_columns: mismatch_report.extra_columns,
                         mismatch_action,
                         error: Some(report::MismatchIssue {
                             rule: error.rule,
                             message: format!("entity.name={} {}", entity.name, error.message),
                         }),
-                        warning: mismatch.report.warning.clone(),
+                        warning: mismatch_report.warning,
                     },
                     output: report::FileOutput {
                         accepted_path: None,
@@ -409,6 +410,9 @@ pub(super) fn run_entity(
         };
 
         check::apply_mismatch_plan(&mismatch, &normalized_columns, raw_df.as_mut(), &mut df)?;
+        let mismatch_report = mismatch.report;
+        let mismatch_errors = mismatch.errors;
+        let mismatch_warnings = mismatch.warnings;
 
         let row_count = raw_df
             .as_ref()
@@ -647,8 +651,8 @@ pub(super) fn run_entity(
                 }
                 _ => unreachable!("severity validated earlier"),
             };
-        let errors = errors + mismatch.errors;
-        let warnings = warnings + mismatch.warnings + sink_options_warnings;
+        let errors = errors + mismatch_errors;
+        let warnings = warnings + mismatch_warnings + sink_options_warnings;
 
         let file_report = report::FileReport {
             input_file: input_file.source_uri.clone(),
@@ -656,7 +660,7 @@ pub(super) fn run_entity(
             row_count,
             accepted_count,
             rejected_count,
-            mismatch: mismatch.report,
+            mismatch: mismatch_report,
             output: report::FileOutput {
                 accepted_path: None,
                 rejected_path,

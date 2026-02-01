@@ -19,14 +19,11 @@ fn unique_prefix() -> String {
     format!("lakehouse/it/aws-{nanos}")
 }
 
-fn write_config(
-    path: &PathBuf,
-    bucket: &str,
-    region: &str,
-    prefix: &str,
-) -> FloeResult<()> {
+fn write_config(path: &PathBuf, bucket: &str, region: &str, prefix: &str) -> FloeResult<()> {
     let config = format!(
         r#"
+version: "0.1"
+
 storages:
   default: "s3_it"
   definitions:
@@ -114,7 +111,8 @@ fn it_s3_parquet_cloud_end_to_end() -> FloeResult<()> {
     };
 
     let client = S3Client::new(bucket.to_string(), Some(region))?;
-    let local_parquet = PathBuf::from("example/out/accepted/orders/part-00000.parquet");
+    let local_parquet = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../example/out/accepted/orders/part-00000.parquet");
     let input_uri = format!("s3://{bucket}/{prefix}/in/orders/orders.parquet");
     client.upload_from_path(&local_parquet, &input_uri)?;
 

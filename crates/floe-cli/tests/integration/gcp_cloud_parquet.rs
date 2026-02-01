@@ -22,6 +22,8 @@ fn unique_prefix() -> String {
 fn write_config(path: &PathBuf, bucket: &str, prefix: &str) -> FloeResult<()> {
     let config = format!(
         r#"
+version: "0.1"
+
 storages:
   default: "gcs_it"
   definitions:
@@ -109,7 +111,8 @@ fn it_gcs_parquet_cloud_end_to_end() -> FloeResult<()> {
     };
 
     let client = GcsClient::new(bucket.to_string())?;
-    let local_parquet = PathBuf::from("example/out/accepted/orders/part-00000.parquet");
+    let local_parquet = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../example/out/accepted/orders/part-00000.parquet");
     let input_uri = format!("gs://{bucket}/{prefix}/in/orders/orders.parquet");
     client.upload_from_path(&local_parquet, &input_uri)?;
 

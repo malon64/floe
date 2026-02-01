@@ -11,7 +11,7 @@ object_store transactions.
 | CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.csv` |
 | JSON (array) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=array` (default) |
 | JSON (ndjson) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=ndjson` |
-| Parquet | ✅ | ❌ | ❌ | ❌ | Input parquet is local-only |
+| Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
 
 Notes:
 - Cloud inputs are resolved by **prefix listing** + suffix filtering, then downloaded to temp files.

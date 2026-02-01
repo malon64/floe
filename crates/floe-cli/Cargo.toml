@@ -17,4 +17,4 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-floe-core = { path = "../floe-core", version = "0.1.7" }
+floe-core = { path = "../floe-core", version = "0.2.0" }

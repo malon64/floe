@@ -8,6 +8,7 @@
 - `floe run -c <config> [--run-id <id>] [--entities <name[,name...]>]`
   - Execute ingestion using the config.
   - Run reports are written under `<report.path>/run_<run_id>/...` as defined in the config.
+  - `-c` accepts local paths or cloud URIs (`s3://`, `gs://`, `abfs://`).
 
 ## Examples
 

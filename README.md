@@ -4,7 +4,11 @@
 
 Technical ingestion on a single node, driven by YAML contracts.
 
-Floe is a Rust + Polars tool for technical ingestion on a single node. It ingests raw files into typed datasets using YAML contracts, applying schema enforcement and simple data quality rules with clear, auditable outputs.
+Floe is a Rust + Polars tool for technical ingestion on a single node. It
+ingests raw files into typed datasets using YAML contracts, applies schema
+enforcement and data quality rules, and produces clear, auditable outputs.
+
+Start here: [docs/summary.md](docs/summary.md)
 
 ## What Floe solves
 
@@ -20,6 +24,7 @@ Floe is a Rust + Polars tool for technical ingestion on a single node. It ingest
 - Polars provides fast, columnar execution on a single node without JVM overhead.
 - Rust gives predictable performance and low-level control while keeping memory usage tight.
 - The combo fits contract-driven ingestion: schema checks, deterministic outputs, and stable reports.
+
 ## Minimal config example
 
 ```yaml
@@ -54,6 +59,7 @@ entities:
 Full example: [example/config.yml](example/config.yml)
 
 Config reference: [docs/config.md](docs/config.md)
+Support matrix: [docs/support-matrix.md](docs/support-matrix.md)
 
 ## Quickstart (Homebrew)
 
@@ -85,6 +91,7 @@ If Homebrew is unavailable:
 - Cargo: `cargo install floe-cli`
 
 More CLI details: [docs/cli.md](docs/cli.md)
+Full installation guide: [docs/installation.md](docs/installation.md)
 
 ## Sample console output
 
@@ -121,12 +128,12 @@ Checks and policy details: [docs/checks.md](docs/checks.md)
 Inputs:
 - CSV (local + S3/ADLS/GCS via temp download)
 - JSON (array/ndjson; local + S3/ADLS/GCS via temp download)
-- Parquet (local only)
+- Parquet (local + S3/ADLS/GCS via temp download)
 
 Outputs:
 - Accepted: Parquet (local + cloud via temp upload), Delta (local + cloud via object_store)
 - Rejected: CSV (local + cloud via temp upload)
-- Reports: JSON (local only)
+- Reports: JSON (local + cloud via temp upload)
 
 Sink details:
 - Options: [docs/sinks/options.md](docs/sinks/options.md)
@@ -166,15 +173,11 @@ Storage guides:
 - [docs/storages/adls.md](docs/storages/adls.md)
 - [docs/storages/gcs.md](docs/storages/gcs.md)
 
-## Roadmap (near term)
+## More docs
 
-- Cloud integration for storage and compute
-- Python library release
-- Orchestrator integrations (Airflow, Dagster)
-- More input/output formats, including database sources and sinks
-- Data platform integrations (Databricks, Microsoft Fabric, Snowflake)
-
-Feature tracking: [docs/features.md](docs/features.md)
+- How it works: [docs/how-it-works.md](docs/how-it-works.md)
+- Checks: [docs/checks.md](docs/checks.md)
+- Reports: [docs/report.md](docs/report.md)
 
 ## License
 

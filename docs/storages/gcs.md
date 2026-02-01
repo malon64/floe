@@ -37,9 +37,18 @@ The client uses Application Default Credentials. For local development, set
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ```
 
+## Supported behavior
+
+- Inputs: CSV, JSON (array/ndjson), and Parquet via prefix listing + suffix filtering.
+- Outputs:
+  - Accepted parquet: temp local write then upload.
+  - Accepted delta: direct object_store writes (no temp upload).
+  - Rejected CSV: temp local write then upload.
+  - Reports: JSON written via temp upload.
+
 ## Limitations
 
 - IO uses temp download/upload (no streaming) for file formats.
 - Source path is treated as a prefix (no glob patterns).
-- Parquet input is local-only.
+- Parquet input uses temp download + local read.
 - Accepted Delta uses direct object_store writes (no temp upload).

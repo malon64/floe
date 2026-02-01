@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
-use polars::prelude::DataFrame;
+use polars::prelude::{concat_df, DataFrame};
 
 use super::file::{collect_row_errors, required_columns};
 use super::normalize::normalize_schema_columns;
@@ -310,7 +310,7 @@ pub(super) fn run_entity(
         });
     }
 
-    let mut accepted_accum: Option<DataFrame> = None;
+    let mut accepted_accum: Vec<DataFrame> = Vec::new();
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
 
     for prechecked in prechecked_inputs {
@@ -602,7 +602,7 @@ pub(super) fn run_entity(
         }
 
         if let Some(accepted_df) = accepted_df_opt {
-            append_accepted(&mut accepted_accum, accepted_df)?;
+            accepted_accum.push(accepted_df);
         }
 
         if archive_enabled {
@@ -695,7 +695,18 @@ pub(super) fn run_entity(
     let mut accepted_parts_written = 0;
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
-    if let Some(mut accepted_df) = accepted_accum {
+    if !accepted_accum.is_empty() {
+        let mut accepted_df = if accepted_accum.len() == 1 {
+            accepted_accum
+                .pop()
+                .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?
+        } else {
+            let frames = accepted_accum;
+            let refs = frames.iter().collect::<Vec<_>>();
+            concat_df(&refs).map_err(|err| {
+                Box::new(RunError(format!("failed to concat accepted rows: {err}")))
+            })?
+        };
         let output_stem = io::storage::paths::build_part_stem(0);
         let accepted_output = write_accepted_output(
             entity.sink.accepted.format.as_str(),
@@ -753,13 +764,4 @@ pub(super) fn run_entity(
     })
 }
 
-fn append_accepted(accum: &mut Option<DataFrame>, next: DataFrame) -> FloeResult<()> {
-    if let Some(current) = accum.as_mut() {
-        current
-            .vstack_mut(&next)
-            .map_err(|err| Box::new(RunError(format!("failed to append accepted rows: {err}"))))?;
-    } else {
-        *accum = Some(next);
-    }
-    Ok(())
-}
+// accepted dataframe concatenation handled after file loop

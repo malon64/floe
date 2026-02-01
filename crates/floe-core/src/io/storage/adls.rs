@@ -118,12 +118,7 @@ impl StorageClient for AdlsClient {
         } else {
             key
         };
-        let dest = temp_dir.join(
-            Path::new(&key)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("object"),
-        );
+        let dest = planner::temp_path_for_key(temp_dir, &key);
         let dest_clone = dest.clone();
         let client = self.container_client.clone();
         let key_clone = key.clone();

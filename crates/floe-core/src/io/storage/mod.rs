@@ -17,7 +17,9 @@ pub mod s3;
 pub mod target;
 
 pub use archive::archive_input_file;
-pub use planner::{filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs};
+pub use planner::{
+    filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs, temp_path_for_key,
+};
 pub use target::Target;
 
 pub use planner::ObjectRef;

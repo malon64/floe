@@ -4,7 +4,7 @@ use crate::errors::{IoError, RunError};
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
 
-use super::file::{collect_row_errors, required_columns};
+use super::file::required_columns;
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
@@ -12,7 +12,7 @@ use super::output::{
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
-use crate::report::build::summarize_validation;
+use crate::report::build::summarize_validation_sparse;
 
 use io::format::{self, ReadInput};
 use io::storage::Target;
@@ -310,7 +310,7 @@ pub(super) fn run_entity(
         });
     }
 
-    let mut accepted_accum: Option<DataFrame> = None;
+    let mut accepted_accum: Vec<DataFrame> = Vec::new();
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
 
     for prechecked in prechecked_inputs {
@@ -364,6 +364,7 @@ pub(super) fn run_entity(
                     })
                     .transpose()?;
 
+                let mismatch_report = mismatch.report;
                 let file_report = report::FileReport {
                     input_file: input_file.source_uri.clone(),
                     status,
@@ -372,15 +373,15 @@ pub(super) fn run_entity(
                     rejected_count: 0,
                     mismatch: report::FileMismatch {
                         declared_columns_count: normalized_columns.len() as u64,
-                        input_columns_count: mismatch.report.input_columns_count,
-                        missing_columns: mismatch.report.missing_columns.clone(),
-                        extra_columns: mismatch.report.extra_columns.clone(),
+                        input_columns_count: mismatch_report.input_columns_count,
+                        missing_columns: mismatch_report.missing_columns,
+                        extra_columns: mismatch_report.extra_columns,
                         mismatch_action,
                         error: Some(report::MismatchIssue {
                             rule: error.rule,
                             message: format!("entity.name={} {}", entity.name, error.message),
                         }),
-                        warning: mismatch.report.warning.clone(),
+                        warning: mismatch_report.warning,
                     },
                     output: report::FileOutput {
                         accepted_path: None,
@@ -409,6 +410,9 @@ pub(super) fn run_entity(
         };
 
         check::apply_mismatch_plan(&mismatch, &normalized_columns, raw_df.as_mut(), &mut df)?;
+        let mismatch_report = mismatch.report;
+        let mismatch_errors = mismatch.errors;
+        let mismatch_warnings = mismatch.warnings;
 
         let row_count = raw_df
             .as_ref()
@@ -433,7 +437,7 @@ pub(super) fn run_entity(
         let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
 
         let mut error_lists = if entity.policy.severity == "abort" && cast_total > 0 {
-            check::cast_mismatch_errors(
+            check::cast_mismatch_errors_sparse(
                 &raw_df,
                 &df,
                 &normalized_columns,
@@ -446,38 +450,33 @@ pub(super) fn run_entity(
             let quick_total = cast_total + not_null_total;
 
             if quick_total == 0 {
-                vec![Vec::new(); row_count as usize]
+                check::SparseRowErrors::new(row_count as usize)
             } else {
-                collect_row_errors(
-                    &raw_df,
-                    &df,
-                    &required_cols,
-                    &normalized_columns,
-                    track_cast_errors && cast_total > 0,
-                    &raw_indices,
-                    &typed_indices,
-                )?
+                let mut errors =
+                    check::not_null_errors_sparse(&df, &required_cols, &typed_indices)?;
+                if track_cast_errors && cast_total > 0 {
+                    let cast_errors = check::cast_mismatch_errors_sparse(
+                        &raw_df,
+                        &df,
+                        &normalized_columns,
+                        &raw_indices,
+                        &typed_indices,
+                    )?;
+                    errors.merge(cast_errors);
+                }
+                errors
             }
         };
 
         if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
-            let unique_errors = unique_tracker.apply(&df, &normalized_columns)?;
-            for (errors, unique) in error_lists.iter_mut().zip(unique_errors) {
-                errors.extend(unique);
-            }
+            let unique_errors = unique_tracker.apply_sparse(&df, &normalized_columns)?;
+            error_lists.merge(unique_errors);
         }
 
-        let accept_rows = check::build_accept_rows(&error_lists);
-        let errors_json =
-            check::build_errors_formatted(&error_lists, &accept_rows, row_error_formatter.as_ref());
-        let row_error_count = error_lists
-            .iter()
-            .filter(|errors| !errors.is_empty())
-            .count() as u64;
-        let violation_count = error_lists
-            .iter()
-            .map(|errors| errors.len() as u64)
-            .sum::<u64>();
+        let accept_rows = error_lists.accept_rows();
+        let errors_json = error_lists.build_errors_formatted(row_error_formatter.as_ref());
+        let row_error_count = error_lists.error_row_count();
+        let violation_count = error_lists.violation_count();
 
         drop(raw_df);
         let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
@@ -488,7 +487,7 @@ pub(super) fn run_entity(
         let mut errors_path = None;
         let mut archived_path = None;
         let mut rules = if has_errors {
-            summarize_validation(&error_lists, &normalized_columns, severity)
+            summarize_validation_sparse(&error_lists, &normalized_columns, severity)
         } else {
             Vec::new()
         };
@@ -602,7 +601,7 @@ pub(super) fn run_entity(
         }
 
         if let Some(accepted_df) = accepted_df_opt {
-            append_accepted(&mut accepted_accum, accepted_df)?;
+            accepted_accum.push(accepted_df);
         }
 
         if archive_enabled {
@@ -652,8 +651,8 @@ pub(super) fn run_entity(
                 }
                 _ => unreachable!("severity validated earlier"),
             };
-        let errors = errors + mismatch.errors;
-        let warnings = warnings + mismatch.warnings + sink_options_warnings;
+        let errors = errors + mismatch_errors;
+        let warnings = warnings + mismatch_warnings + sink_options_warnings;
 
         let file_report = report::FileReport {
             input_file: input_file.source_uri.clone(),
@@ -661,7 +660,7 @@ pub(super) fn run_entity(
             row_count,
             accepted_count,
             rejected_count,
-            mismatch: mismatch.report,
+            mismatch: mismatch_report,
             output: report::FileOutput {
                 accepted_path: None,
                 rejected_path,
@@ -695,7 +694,15 @@ pub(super) fn run_entity(
     let mut accepted_parts_written = 0;
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
-    if let Some(mut accepted_df) = accepted_accum {
+    if !accepted_accum.is_empty() {
+        let mut accepted_df = accepted_accum
+            .pop()
+            .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?;
+        for frame in accepted_accum {
+            accepted_df.vstack_mut(&frame).map_err(|err| {
+                Box::new(RunError(format!("failed to concat accepted rows: {err}")))
+            })?;
+        }
         let output_stem = io::storage::paths::build_part_stem(0);
         let accepted_output = write_accepted_output(
             entity.sink.accepted.format.as_str(),
@@ -753,13 +760,4 @@ pub(super) fn run_entity(
     })
 }
 
-fn append_accepted(accum: &mut Option<DataFrame>, next: DataFrame) -> FloeResult<()> {
-    if let Some(current) = accum.as_mut() {
-        current
-            .vstack_mut(&next)
-            .map_err(|err| Box::new(RunError(format!("failed to append accepted rows: {err}"))))?;
-    } else {
-        *accum = Some(next);
-    }
-    Ok(())
-}
+// accepted dataframe concatenation handled after file loop

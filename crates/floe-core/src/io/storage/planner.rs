@@ -1,4 +1,7 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::FloeResult;
 
@@ -49,4 +52,28 @@ pub fn ensure_parent_dir(path: &Path) -> FloeResult<()> {
         std::fs::create_dir_all(parent)?;
     }
     Ok(())
+}
+
+pub fn temp_path_for_key(temp_dir: &Path, key: &str) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let name = Path::new(key)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("object");
+    let sanitized = sanitize_filename(name);
+    temp_dir.join(format!("{hash:016x}_{sanitized}"))
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

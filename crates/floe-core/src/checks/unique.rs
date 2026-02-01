@@ -1,9 +1,41 @@
 use polars::prelude::{is_duplicated, is_first_distinct, AnyValue, DataFrame};
 use std::collections::{HashMap, HashSet};
 
-use super::{ColumnIndex, RowError};
+use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::{config, FloeResult};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum UniqueKey {
+    Bool(bool),
+    I64(i64),
+    U64(u64),
+    F64(u64),
+    String(String),
+    Other(String),
+}
+
+fn unique_key(value: AnyValue) -> Option<UniqueKey> {
+    match value {
+        AnyValue::Null => None,
+        AnyValue::Boolean(value) => Some(UniqueKey::Bool(value)),
+        AnyValue::Int8(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int16(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int32(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int64(value) => Some(UniqueKey::I64(value)),
+        AnyValue::Int128(value) => Some(UniqueKey::Other(value.to_string())),
+        AnyValue::UInt8(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt16(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt32(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt64(value) => Some(UniqueKey::U64(value)),
+        AnyValue::UInt128(value) => Some(UniqueKey::Other(value.to_string())),
+        AnyValue::Float32(value) => Some(UniqueKey::F64((value as f64).to_bits())),
+        AnyValue::Float64(value) => Some(UniqueKey::F64(value.to_bits())),
+        AnyValue::String(value) => Some(UniqueKey::String(value.to_string())),
+        AnyValue::StringOwned(value) => Some(UniqueKey::String(value.to_string())),
+        other => Some(UniqueKey::Other(other.to_string())),
+    }
+}
 
 pub fn unique_errors(
     df: &DataFrame,
@@ -61,9 +93,63 @@ pub fn unique_errors(
     Ok(errors_per_row)
 }
 
+pub fn unique_errors_sparse(
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    indices: &ColumnIndex,
+) -> FloeResult<SparseRowErrors> {
+    let mut errors = SparseRowErrors::new(df.height());
+    if df.height() == 0 {
+        return Ok(errors);
+    }
+    let unique_columns: Vec<&config::ColumnConfig> = columns
+        .iter()
+        .filter(|col| col.unique == Some(true))
+        .collect();
+    if unique_columns.is_empty() {
+        return Ok(errors);
+    }
+
+    for column in unique_columns {
+        let index = indices.get(&column.name).ok_or_else(|| {
+            Box::new(RunError(format!(
+                "unique column {} not found in dataframe",
+                column.name
+            )))
+        })?;
+        let series = df
+            .select_at_idx(*index)
+            .ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not found in dataframe",
+                    column.name
+                )))
+            })?
+            .as_materialized_series()
+            .rechunk();
+        let mut seen: HashSet<UniqueKey> = HashSet::new();
+        for (row_idx, value) in series.iter().enumerate() {
+            let key = match unique_key(value) {
+                Some(key) => key,
+                None => continue,
+            };
+            if seen.contains(&key) {
+                errors.add_error(
+                    row_idx,
+                    RowError::new("unique", &column.name, "duplicate value"),
+                );
+            } else {
+                seen.insert(key);
+            }
+        }
+    }
+
+    Ok(errors)
+}
+
 #[derive(Debug, Default)]
 pub struct UniqueTracker {
-    seen: HashMap<String, HashSet<String>>,
+    seen: HashMap<String, HashSet<UniqueKey>>,
 }
 
 impl UniqueTracker {
@@ -111,10 +197,10 @@ impl UniqueTracker {
                 )))
             })?;
             for (row_idx, value) in series.iter().enumerate() {
-                if matches!(value, AnyValue::Null) {
-                    continue;
-                }
-                let key = value.to_string();
+                let key = match unique_key(value) {
+                    Some(key) => key,
+                    None => continue,
+                };
                 if seen.contains(&key) {
                     errors_per_row[row_idx].push(RowError::new(
                         "unique",
@@ -128,6 +214,56 @@ impl UniqueTracker {
         }
 
         Ok(errors_per_row)
+    }
+
+    pub fn apply_sparse(
+        &mut self,
+        df: &DataFrame,
+        columns: &[config::ColumnConfig],
+    ) -> FloeResult<SparseRowErrors> {
+        let mut errors = SparseRowErrors::new(df.height());
+        if df.height() == 0 {
+            return Ok(errors);
+        }
+        let unique_columns: Vec<&config::ColumnConfig> = columns
+            .iter()
+            .filter(|col| col.unique == Some(true))
+            .collect();
+        if unique_columns.is_empty() {
+            return Ok(errors);
+        }
+
+        for column in unique_columns {
+            let series = df.column(&column.name).map_err(|err| {
+                Box::new(RunError(format!(
+                    "unique column {} not found: {err}",
+                    column.name
+                )))
+            })?;
+            let series = series.as_materialized_series().rechunk();
+            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not tracked",
+                    column.name
+                )))
+            })?;
+            for (row_idx, value) in series.iter().enumerate() {
+                let key = match unique_key(value) {
+                    Some(key) => key,
+                    None => continue,
+                };
+                if seen.contains(&key) {
+                    errors.add_error(
+                        row_idx,
+                        RowError::new("unique", &column.name, "duplicate value"),
+                    );
+                } else {
+                    seen.insert(key);
+                }
+            }
+        }
+
+        Ok(errors)
     }
 }
 

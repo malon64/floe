@@ -88,17 +88,6 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
         }
     }
 
-    if entity.source.format == "parquet" {
-        if let Some(storage_type) = storages.definition_type(&storage_name) {
-            if storage_type != "local" {
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} source.format=parquet is only supported on local storage (got {})",
-                    entity.name, storage_type
-                ))));
-            }
-        }
-    }
-
     let _ = storages.definition_type(&storage_name);
 
     Ok(())

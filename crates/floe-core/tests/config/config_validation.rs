@@ -752,7 +752,7 @@ fn s3_storage_reference_ok() {
 }
 
 #[test]
-fn parquet_source_rejects_s3_storage() {
+fn parquet_source_allows_s3_storage() {
     let storages = r#"  default: "local"
   definitions:
     - name: "local"
@@ -779,12 +779,5 @@ fn parquet_source_rejects_s3_storage() {
           type: "string"
 "#;
     let yaml = config_with_storages(storages, entity);
-    assert_validation_error(
-        &yaml,
-        &[
-            "entity.name=customer",
-            "source.format=parquet",
-            "local storage",
-        ],
-    );
+    assert_validation_ok(&yaml);
 }

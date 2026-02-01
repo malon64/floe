@@ -102,6 +102,38 @@ impl io::format::InputAdapter for MockAdapter {
     }
 }
 
+struct MockParquetAdapter;
+
+impl io::format::InputAdapter for MockParquetAdapter {
+    fn format(&self) -> &'static str {
+        "parquet"
+    }
+
+    fn suffixes(&self) -> FloeResult<Vec<String>> {
+        Ok(vec![".parquet".to_string()])
+    }
+
+    fn read_input_columns(
+        &self,
+        _entity: &config::EntityConfig,
+        _input_file: &io::format::InputFile,
+        _columns: &[config::ColumnConfig],
+    ) -> Result<Vec<String>, io::format::FileReadError> {
+        Ok(vec!["id".to_string()])
+    }
+
+    fn read_inputs(
+        &self,
+        _entity: &config::EntityConfig,
+        _files: &[io::format::InputFile],
+        _columns: &[config::ColumnConfig],
+        _normalize_strategy: Option<&str>,
+        _collect_raw: bool,
+    ) -> FloeResult<Vec<io::format::ReadInput>> {
+        Ok(Vec::new())
+    }
+}
+
 fn mock_entity(name: &str) -> config::EntityConfig {
     config::EntityConfig {
         name: name.to_string(),
@@ -169,5 +201,39 @@ fn resolve_inputs_s3_filters_and_downloads() -> FloeResult<()> {
     for input in resolved.files {
         assert!(input.source_local_path.exists());
     }
+    Ok(())
+}
+
+#[test]
+fn resolve_inputs_s3_filters_parquet_objects() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let keys = vec![
+        "data/b.parquet".to_string(),
+        "data/a.parquet".to_string(),
+        "data/ignore.csv".to_string(),
+    ];
+    let client = MockStorageClient::new(keys);
+    let adapter = MockParquetAdapter;
+    let entity = mock_entity("orders");
+    let target = Target::S3 {
+        storage: "s3_raw".to_string(),
+        uri: "s3://bucket/data".to_string(),
+        bucket: "bucket".to_string(),
+        base_key: "data".to_string(),
+    };
+
+    let resolved = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        Some(temp_dir.path()),
+        Some(&client),
+    )?;
+
+    assert_eq!(resolved.mode, report::ResolvedInputMode::Directory);
+    assert_eq!(resolved.files.len(), 2);
+    assert!(resolved.files[0].source_uri.ends_with("data/a.parquet"));
+    assert!(resolved.files[1].source_uri.ends_with("data/b.parquet"));
     Ok(())
 }

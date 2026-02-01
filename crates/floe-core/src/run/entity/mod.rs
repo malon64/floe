@@ -8,7 +8,7 @@ use super::file::required_columns;
 use super::normalize::normalize_schema_columns;
 use super::normalize::resolve_normalize_strategy;
 use super::output::{
-    append_rejection_columns, validate_rejected_target, write_accepted_output,
+    append_rejection_columns, validate_rejected_target, write_accepted_output, OutputMode,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
@@ -571,6 +571,7 @@ pub(super) fn run_entity(
             cloud,
             &context.storage_resolver,
             entity,
+            OutputMode::Overwrite,
         )?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;

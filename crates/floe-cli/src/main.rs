@@ -152,9 +152,9 @@ fn format_event_text(event: &RunEvent) -> String {
             config,
             report_base.as_deref().unwrap_or("disabled")
         ),
-        RunEvent::EntityStarted { name, .. } => format!("entity_start name={name}"),
+        RunEvent::EntityStarted { name, .. } => format!("\nentity_start name={name}"),
         RunEvent::FileStarted { entity, input, .. } => {
-            format!("file_start entity={entity} input={input}")
+            format!("  file_start entity={entity} input={input}")
         }
         RunEvent::FileFinished {
             entity,
@@ -166,7 +166,7 @@ fn format_event_text(event: &RunEvent) -> String {
             elapsed_ms,
             ..
         } => format!(
-            "file_end entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
+            "  file_end entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
             entity, input, status, rows, accepted, rejected, elapsed_ms
         ),
         RunEvent::EntityFinished {
@@ -189,7 +189,7 @@ fn format_event_text(event: &RunEvent) -> String {
             summary_uri,
             ..
         } => format!(
-            "run_end status={} exit_code={} summary={}",
+            "\nrun_end status={} exit_code={} summary={}",
             status,
             exit_code,
             summary_uri.as_deref().unwrap_or("disabled")

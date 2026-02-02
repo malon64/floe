@@ -22,6 +22,7 @@ mod resolve;
 pub(crate) use resolve::ResolvedEntityTargets;
 
 use crate::report::entity::{build_run_report, RunReportContext};
+use crate::run::events::{event_time_ms, RunObserver};
 use precheck::{run_precheck, PrecheckContext, PrecheckedInput};
 use process::{append_sink_options_warning, sink_options_warning};
 use resolve::{resolve_entity_targets, resolve_input_files};
@@ -36,6 +37,7 @@ pub(super) struct EntityRunResult {
 pub(super) fn run_entity(
     context: &RunContext,
     cloud: &mut io::storage::CloudClient,
+    observer: &dyn RunObserver,
     entity: &config::EntityConfig,
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
@@ -156,6 +158,7 @@ pub(super) fn run_entity(
             archive_target: archive_target.as_ref(),
             temp_dir: temp_dir.as_ref(),
             cloud,
+            observer,
             file_reports: &mut file_reports,
             file_timings_ms: &mut file_timings_ms,
             totals: &mut totals,
@@ -538,6 +541,17 @@ pub(super) fn run_entity(
         totals.warnings_total += warnings;
         file_reports.push(file_report);
         file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+        observer.on_event(crate::run::events::RunEvent::FileFinished {
+            run_id: context.run_id.clone(),
+            entity: entity.name.clone(),
+            input: input_file.source_uri.clone(),
+            status: file_status_str(status).to_string(),
+            rows: row_count,
+            accepted: accepted_count,
+            rejected: rejected_count,
+            elapsed_ms: file_timer.elapsed().as_millis() as u64,
+            ts_ms: event_time_ms(),
+        });
 
         if status == report::FileStatus::Aborted {
             abort_run = true;
@@ -620,3 +634,12 @@ pub(super) fn run_entity(
 }
 
 // accepted dataframe concatenation handled after file loop
+
+fn file_status_str(status: report::FileStatus) -> &'static str {
+    match status {
+        report::FileStatus::Success => "success",
+        report::FileStatus::Rejected => "rejected",
+        report::FileStatus::Aborted => "aborted",
+        report::FileStatus::Failed => "failed",
+    }
+}

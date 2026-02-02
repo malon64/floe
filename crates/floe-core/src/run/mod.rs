@@ -8,14 +8,14 @@ use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions
 
 mod context;
 pub(crate) mod entity;
-mod events;
+pub mod events;
 mod file;
 pub mod normalize;
 mod output;
 
 pub(crate) use context::RunContext;
 use entity::{run_entity, EntityRunResult};
-use events::{default_observer, RunEvent};
+use events::{default_observer, event_time_ms, RunEvent};
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 
@@ -79,17 +79,42 @@ pub fn run_with_base(
     let observer = default_observer();
     observer.on_event(RunEvent::RunStarted {
         run_id: context.run_id.clone(),
+        config: context.config_path.display().to_string(),
+        report_base: context.report_base_path.clone(),
+        ts_ms: event_time_ms(),
     });
     for entity in &context.config.entities {
         observer.on_event(RunEvent::EntityStarted {
+            run_id: context.run_id.clone(),
             name: entity.name.clone(),
+            ts_ms: event_time_ms(),
         });
         let EntityRunResult {
             outcome,
             abort_run: aborted,
-        } = run_entity(&context, &mut cloud, entity)?;
+        } = run_entity(&context, &mut cloud, observer, entity)?;
+        let report = &outcome.report;
+        let (mut status, _) = report::compute_run_outcome(
+            &report
+                .files
+                .iter()
+                .map(|file| file.status)
+                .collect::<Vec<_>>(),
+        );
+        if status == report::RunStatus::Success && report.results.warnings_total > 0 {
+            status = report::RunStatus::SuccessWithWarnings;
+        }
         observer.on_event(RunEvent::EntityFinished {
+            run_id: context.run_id.clone(),
             name: entity.name.clone(),
+            status: run_status_str(status).to_string(),
+            files: report.results.files_total,
+            rows: report.results.rows_total,
+            accepted: report.results.accepted_total,
+            rejected: report.results.rejected_total,
+            warnings: report.results.warnings_total,
+            errors: report.results.errors_total,
+            ts_ms: event_time_ms(),
         });
         entity_outcomes.push(outcome);
         abort_run = abort_run || aborted;
@@ -97,10 +122,6 @@ pub fn run_with_base(
             break;
         }
     }
-    observer.on_event(RunEvent::RunFinished {
-        run_id: context.run_id.clone(),
-    });
-
     let summary = build_run_summary(&context, &entity_outcomes);
     if let Some(report_target) = &context.report_target {
         write_summary_report(
@@ -111,6 +132,23 @@ pub fn run_with_base(
             &context.storage_resolver,
         )?;
     }
+    observer.on_event(RunEvent::RunFinished {
+        run_id: context.run_id.clone(),
+        status: run_status_str(summary.run.status).to_string(),
+        exit_code: summary.run.exit_code,
+        files: summary.results.files_total,
+        rows: summary.results.rows_total,
+        accepted: summary.results.accepted_total,
+        rejected: summary.results.rejected_total,
+        warnings: summary.results.warnings_total,
+        errors: summary.results.errors_total,
+        summary_uri: context.report_target.as_ref().map(|target| {
+            target.join_relative(&report::ReportWriter::summary_relative_path(
+                &context.run_id,
+            ))
+        }),
+        ts_ms: event_time_ms(),
+    });
 
     Ok(RunOutcome {
         run_id: context.run_id.clone(),
@@ -240,5 +278,15 @@ fn build_run_summary(
         },
         results: totals,
         entities,
+    }
+}
+
+fn run_status_str(status: report::RunStatus) -> &'static str {
+    match status {
+        report::RunStatus::Success => "success",
+        report::RunStatus::SuccessWithWarnings => "success_with_warnings",
+        report::RunStatus::Rejected => "rejected",
+        report::RunStatus::Aborted => "aborted",
+        report::RunStatus::Failed => "failed",
     }
 }

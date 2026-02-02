@@ -153,8 +153,10 @@ fn format_run_output_default_mode() {
     let expected = [
         "run id: run-123",
         "report base: /tmp/reports",
+        "",
         "==> entity customer (severity=reject, format=csv)",
         "  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=accepted rejected_out=customers.rejected.csv",
+        "",
         "Totals: files=1 rows=10 accepted=8 rejected=2",
         "Overall: rejected (exit_code=0)",
         "Run summary: /tmp/reports/run_run-123/run.summary.json",

@@ -135,7 +135,7 @@ impl RunObserver for CliObserver {
                     println!("{line}");
                 }
             }
-            LogFormat::Text => eprintln!("{}", format_event_text(&event)),
+            LogFormat::Text => println!("{}", format_event_text(&event)),
             LogFormat::Off => {}
         }
     }
@@ -252,12 +252,12 @@ fn main() -> FloeResult<()> {
                     format: log_format.clone(),
                 }));
             }
-            if !matches!(log_format, LogFormat::Json) {
+            if matches!(log_format, LogFormat::Off) {
                 print_plan(&config_location.path, &config_location.display, &options)?;
             }
             let outcome =
                 run_with_base(&config_location.path, config_location.base.clone(), options)?;
-            if !matches!(log_format, LogFormat::Json) {
+            if matches!(log_format, LogFormat::Off) {
                 let mode = if quiet {
                     output::OutputMode::Quiet
                 } else if verbose {

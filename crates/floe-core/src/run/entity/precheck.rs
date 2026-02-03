@@ -27,6 +27,7 @@ pub(super) struct PrecheckContext<'a> {
     pub(super) archive_target: Option<&'a io::storage::Target>,
     pub(super) temp_dir: Option<&'a tempfile::TempDir>,
     pub(super) cloud: &'a mut io::storage::CloudClient,
+    pub(super) observer: &'a dyn crate::run::events::RunObserver,
     pub(super) file_reports: &'a mut Vec<report::FileReport>,
     pub(super) file_timings_ms: &'a mut Vec<Option<u64>>,
     pub(super) totals: &'a mut report::ResultsTotals,
@@ -45,6 +46,7 @@ pub(super) fn run_precheck(
         archive_target,
         temp_dir,
         cloud,
+        observer,
         file_reports,
         file_timings_ms,
         totals,
@@ -53,6 +55,12 @@ pub(super) fn run_precheck(
     let mut prechecked_inputs = Vec::with_capacity(input_files.len());
     for input_file in input_files {
         let file_timer = Instant::now();
+        observer.on_event(crate::run::events::RunEvent::FileStarted {
+            run_id: context.run_id.clone(),
+            entity: entity.name.clone(),
+            input: input_file.source_uri.clone(),
+            ts_ms: crate::run::events::event_time_ms(),
+        });
         let input_columns =
             match input_adapter.read_input_columns(entity, &input_file, normalized_columns) {
                 Ok(columns) => columns,
@@ -117,6 +125,22 @@ pub(super) fn run_precheck(
                     totals.errors_total += 1;
                     file_reports.push(file_report);
                     file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+                    observer.on_event(crate::run::events::RunEvent::FileFinished {
+                        run_id: context.run_id.clone(),
+                        entity: entity.name.clone(),
+                        input: input_file.source_uri.clone(),
+                        status: if status == report::FileStatus::Aborted {
+                            "aborted"
+                        } else {
+                            "rejected"
+                        }
+                        .to_string(),
+                        rows: 0,
+                        accepted: 0,
+                        rejected: 0,
+                        elapsed_ms: file_timer.elapsed().as_millis() as u64,
+                        ts_ms: crate::run::events::event_time_ms(),
+                    });
 
                     if status == report::FileStatus::Aborted {
                         abort_run = true;
@@ -198,6 +222,22 @@ pub(super) fn run_precheck(
             totals.warnings_total += warnings;
             file_reports.push(file_report);
             file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+            observer.on_event(crate::run::events::RunEvent::FileFinished {
+                run_id: context.run_id.clone(),
+                entity: entity.name.clone(),
+                input: input_file.source_uri.clone(),
+                status: if status == report::FileStatus::Aborted {
+                    "aborted"
+                } else {
+                    "rejected"
+                }
+                .to_string(),
+                rows: row_count,
+                accepted: accepted_count,
+                rejected: rejected_count,
+                elapsed_ms: file_timer.elapsed().as_millis() as u64,
+                ts_ms: crate::run::events::event_time_ms(),
+            });
 
             if mismatch.aborted {
                 abort_run = true;

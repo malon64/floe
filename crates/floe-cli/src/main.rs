@@ -1,8 +1,9 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
-    RunOptions, ValidateOptions,
+    load_config, resolve_config_location, run_with_base, set_observer, validate_with_base,
+    FloeResult, RunEvent, RunObserver, RunOptions, ValidateOptions,
 };
+use std::sync::Arc;
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -105,7 +106,97 @@ enum Command {
         quiet: bool,
         #[arg(long, conflicts_with = "quiet", help = "Enable verbose output")]
         verbose: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = LogFormat::Off,
+            help = "Log format for run events (off|text|json)"
+        )]
+        log_format: LogFormat,
     },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum LogFormat {
+    Off,
+    Text,
+    Json,
+}
+
+struct CliObserver {
+    format: LogFormat,
+}
+
+impl RunObserver for CliObserver {
+    fn on_event(&self, event: RunEvent) {
+        match self.format {
+            LogFormat::Json => {
+                if let Ok(line) = serde_json::to_string(&event) {
+                    println!("{line}");
+                }
+            }
+            LogFormat::Text => println!("{}", format_event_text(&event)),
+            LogFormat::Off => {}
+        }
+    }
+}
+
+fn format_event_text(event: &RunEvent) -> String {
+    match event {
+        RunEvent::RunStarted {
+            run_id,
+            config,
+            report_base,
+            ..
+        } => format!(
+            "run_start run_id={} config={} report_base={}",
+            run_id,
+            config,
+            report_base.as_deref().unwrap_or("disabled")
+        ),
+        RunEvent::EntityStarted { name, .. } => format!("\nentity_start name={name}"),
+        RunEvent::FileStarted { entity, input, .. } => {
+            format!("  file_start entity={entity} input={input}")
+        }
+        RunEvent::FileFinished {
+            entity,
+            input,
+            status,
+            rows,
+            accepted,
+            rejected,
+            elapsed_ms,
+            ..
+        } => format!(
+            "  file_end entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
+            entity, input, status, rows, accepted, rejected, elapsed_ms
+        ),
+        RunEvent::EntityFinished {
+            name,
+            status,
+            files,
+            rows,
+            accepted,
+            rejected,
+            warnings,
+            errors,
+            ..
+        } => format!(
+            "entity_end name={} status={} files={} rows={} accepted={} rejected={} warnings={} errors={}",
+            name, status, files, rows, accepted, rejected, warnings, errors
+        ),
+        RunEvent::RunFinished {
+            status,
+            exit_code,
+            summary_uri,
+            ..
+        } => format!(
+            "\nrun_end status={} exit_code={} summary={}",
+            status,
+            exit_code,
+            summary_uri.as_deref().unwrap_or("disabled")
+        ),
+    }
 }
 
 fn main() -> FloeResult<()> {
@@ -152,9 +243,15 @@ fn main() -> FloeResult<()> {
             entities,
             quiet,
             verbose,
+            log_format,
         } => {
             let config_location = resolve_config_location(&config)?;
             let options = RunOptions { run_id, entities };
+            if !matches!(log_format, LogFormat::Off) {
+                let _ = set_observer(Arc::new(CliObserver {
+                    format: log_format.clone(),
+                }));
+            }
             let outcome =
                 run_with_base(&config_location.path, config_location.base.clone(), options)?;
             let mode = if quiet {

@@ -18,12 +18,17 @@ pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
             "report base: {}",
             outcome.report_base_path.as_deref().unwrap_or("(disabled)")
         ));
+        lines.push(String::new());
     }
 
     if mode != OutputMode::Quiet {
-        for entity in &outcome.entity_outcomes {
+        for (idx, entity) in outcome.entity_outcomes.iter().enumerate() {
+            if idx > 0 {
+                lines.push(String::new());
+            }
             lines.extend(format_entity_output(entity, mode));
         }
+        lines.push(String::new());
     }
 
     lines.extend(format_run_summary(outcome, mode == OutputMode::Quiet));

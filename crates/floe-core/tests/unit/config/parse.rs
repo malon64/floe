@@ -45,6 +45,7 @@ entities:
     assert_eq!(config.report.as_ref().unwrap().path, "/tmp/reports");
     assert_eq!(config.entities.len(), 1);
     let entity = &config.entities[0];
+    assert_eq!(entity.source.cast_mode.as_deref(), Some("strict"));
     let options = entity.source.options.as_ref().expect("options");
     assert_eq!(options.header, Some(true));
     assert_eq!(options.separator.as_deref(), Some(";"));

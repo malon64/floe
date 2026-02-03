@@ -1,0 +1,4 @@
+order_id,customer_id,amount
+ord_001,c_001,42.5
+,missing_id,13.25
+ord_003,c_999,notanumber

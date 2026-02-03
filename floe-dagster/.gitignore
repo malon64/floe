@@ -201,3 +201,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# Run related content
+example/report/
+example/out

@@ -1,0 +1,4 @@
+invoice_id,order_id,total
+inv_001,ord_001,42.5
+,ord_002,13.25
+inv_003,ord_003,notanumber

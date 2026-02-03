@@ -1,9 +1,12 @@
 /target
+Cargo.lock
 **/*.rs.bk
 
 # OS
 .DS_Store
 Thumbs.db
+.cargo/
+.venv/
 
 # Editors
 .idea/
@@ -31,3 +34,8 @@ bench/.venv
 aws/
 gcp/
 adls/
+
+# Dagster
+floe-dagster/.tmp_*/
+floe-dagster/.dg
+floe-dagster/.venv/

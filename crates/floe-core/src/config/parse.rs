@@ -250,7 +250,7 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
         path: get_string(hash, "path", "source")?,
         storage: storage.or(filesystem),
         options,
-        cast_mode: opt_string(hash, "cast_mode", "source")?,
+        cast_mode: opt_string(hash, "cast_mode", "source")?.or(Some("strict".to_string())),
     })
 }
 

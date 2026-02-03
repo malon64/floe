@@ -86,7 +86,8 @@ impl Default for SourceOptions {
             header: Some(true),
             separator: Some(";".to_string()),
             encoding: Some("UTF8".to_string()),
-            null_values: Some(Vec::new()),
+            // Treat empty CSV fields as nulls by default. Users can override with `null_values: []`.
+            null_values: Some(vec!["".to_string()]),
             recursive: Some(false),
             glob: None,
             json_mode: None,

@@ -252,146 +252,17 @@ fn main() -> FloeResult<()> {
                     format: log_format.clone(),
                 }));
             }
-            if matches!(log_format, LogFormat::Off) {
-                print_plan(&config_location.path, &config_location.display, &options)?;
-            }
             let outcome =
                 run_with_base(&config_location.path, config_location.base.clone(), options)?;
-            if matches!(log_format, LogFormat::Off) {
-                let mode = if quiet {
-                    output::OutputMode::Quiet
-                } else if verbose {
-                    output::OutputMode::Verbose
-                } else {
-                    output::OutputMode::Default
-                };
-                println!("{}", output::format_run_output(&outcome, mode));
-            }
+            let mode = if quiet {
+                output::OutputMode::Quiet
+            } else if verbose {
+                output::OutputMode::Verbose
+            } else {
+                output::OutputMode::Default
+            };
+            println!("{}", output::format_run_output(&outcome, mode));
             Ok(())
         }
     }
-}
-
-fn print_plan(
-    config_path: &std::path::Path,
-    display_path: &str,
-    options: &RunOptions,
-) -> FloeResult<()> {
-    let config = load_config(config_path)?;
-    let resolver = floe_core::config::StorageResolver::from_path(&config, config_path)?;
-    let report_base = config
-        .report
-        .as_ref()
-        .map(|report| report.path.as_str())
-        .unwrap_or("(disabled)");
-
-    println!("Config: {display_path}");
-    println!("Report: {report_base}");
-    println!("Entities: {}", config.entities.len());
-
-    let selected = if options.entities.is_empty() {
-        config.entities.iter().collect::<Vec<_>>()
-    } else {
-        config
-            .entities
-            .iter()
-            .filter(|entity| options.entities.contains(&entity.name))
-            .collect::<Vec<_>>()
-    };
-
-    let mut cloud = floe_core::io::storage::CloudClient::new();
-    let temp_dir = tempfile::TempDir::new().ok();
-
-    for entity in selected {
-        let adapter = floe_core::io::format::input_adapter(entity.source.format.as_str())?;
-        let resolved = resolver.resolve_path(
-            &entity.name,
-            "source.storage",
-            entity.source.storage.as_deref(),
-            &entity.source.path,
-        )?;
-        let target = floe_core::io::storage::Target::from_resolved(&resolved)?;
-        let files = list_inputs(
-            &resolver,
-            &mut cloud,
-            adapter,
-            &target,
-            entity,
-            temp_dir.as_ref().map(|dir| dir.path()),
-        )?;
-
-        println!("  - {}", entity.name);
-        println!(
-            "    source: format={} storage={} path={}",
-            entity.source.format, resolved.storage, resolved.uri
-        );
-        println!("    inputs: {}", files.len());
-        let max_list = 10;
-        for file in files.iter().take(max_list) {
-            println!("      - {file}");
-        }
-        if files.len() > max_list {
-            println!("      ... +{}", files.len() - max_list);
-        }
-    }
-    println!();
-    Ok(())
-}
-
-fn list_inputs(
-    resolver: &floe_core::config::StorageResolver,
-    cloud: &mut floe_core::io::storage::CloudClient,
-    adapter: &dyn floe_core::io::format::InputAdapter,
-    target: &floe_core::io::storage::Target,
-    entity: &floe_core::config::EntityConfig,
-    _temp_dir: Option<&std::path::Path>,
-) -> FloeResult<Vec<String>> {
-    match target {
-        floe_core::io::storage::Target::Local { storage, .. } => {
-            let resolved = adapter.resolve_local_inputs(
-                resolver.config_dir(),
-                &entity.name,
-                &entity.source,
-                storage,
-            )?;
-            Ok(resolved
-                .files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect())
-        }
-        floe_core::io::storage::Target::S3 { storage, .. } => {
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let (_, key) = target
-                .s3_parts()
-                .ok_or_else(|| Box::new(std::io::Error::other("s3 target missing bucket")))?;
-            list_remote_inputs(client, adapter, key)
-        }
-        floe_core::io::storage::Target::Gcs { storage, .. } => {
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let (_, key) = target
-                .gcs_parts()
-                .ok_or_else(|| Box::new(std::io::Error::other("gcs target missing bucket")))?;
-            list_remote_inputs(client, adapter, key)
-        }
-        floe_core::io::storage::Target::Adls { storage, .. } => {
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let (_, _, key) = target
-                .adls_parts()
-                .ok_or_else(|| Box::new(std::io::Error::other("adls target missing container")))?;
-            list_remote_inputs(client, adapter, key)
-        }
-    }
-}
-
-fn list_remote_inputs(
-    client: &dyn floe_core::io::storage::StorageClient,
-    adapter: &dyn floe_core::io::format::InputAdapter,
-    prefix: &str,
-) -> FloeResult<Vec<String>> {
-    let suffixes = adapter.suffixes()?;
-    let refs = client.list(prefix)?;
-    let refs = floe_core::io::storage::filter_by_suffixes(refs, &suffixes);
-    let refs = floe_core::io::storage::stable_sort_refs(refs);
-    Ok(refs.into_iter().map(|obj| obj.uri).collect())
 }

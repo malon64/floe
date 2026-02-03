@@ -112,7 +112,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
 fn parse_project_metadata(value: &Yaml) -> FloeResult<ProjectMetadata> {
     let hash = yaml_hash(value, "metadata")?;
     Ok(ProjectMetadata {
-        project: get_string(hash, "project", "metadata")?,
+        project: opt_string(hash, "project", "metadata")?,
         description: opt_string(hash, "description", "metadata")?,
         owner: opt_string(hash, "owner", "metadata")?,
         tags: opt_vec_string(hash, "tags", "metadata")?,

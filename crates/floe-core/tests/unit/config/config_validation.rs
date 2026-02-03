@@ -616,6 +616,32 @@ entities:
 }
 
 #[test]
+fn metadata_project_is_optional() {
+    let yaml = r#"version: "0.1"
+metadata:
+  owner: "data"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_ok(yaml);
+}
+
+#[test]
 fn storages_optional_defaults_to_local() {
     let yaml = base_config(&base_entity("customer"));
     assert_validation_ok(&yaml);

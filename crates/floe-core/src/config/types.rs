@@ -21,7 +21,7 @@ pub struct RootConfig {
 
 #[derive(Debug)]
 pub struct ProjectMetadata {
-    pub project: String,
+    pub project: Option<String>,
     pub description: Option<String>,
     pub owner: Option<String>,
     pub tags: Option<Vec<String>>,

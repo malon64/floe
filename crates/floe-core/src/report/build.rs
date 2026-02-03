@@ -160,7 +160,9 @@ fn rule_from_index(idx: usize) -> report::RuleName {
 
 pub fn project_metadata_json(meta: &config::ProjectMetadata) -> Value {
     let mut map = Map::new();
-    map.insert("project".to_string(), Value::String(meta.project.clone()));
+    if let Some(project) = &meta.project {
+        map.insert("project".to_string(), Value::String(project.clone()));
+    }
     if let Some(description) = &meta.description {
         map.insert(
             "description".to_string(),

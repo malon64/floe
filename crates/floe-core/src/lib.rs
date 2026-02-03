@@ -35,6 +35,7 @@ pub struct ValidateOptions {
 pub struct RunOptions {
     pub run_id: Option<String>,
     pub entities: Vec<String>,
+    pub dry_run: bool,
 }
 
 pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> {

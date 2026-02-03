@@ -113,6 +113,8 @@ enum Command {
             help = "Log format for run events (off|text|json)"
         )]
         log_format: LogFormat,
+        #[arg(long, help = "Resolve and print inputs/outputs without executing")]
+        dry_run: bool,
     },
 }
 
@@ -244,9 +246,14 @@ fn main() -> FloeResult<()> {
             quiet,
             verbose,
             log_format,
+            dry_run,
         } => {
             let config_location = resolve_config_location(&config)?;
-            let options = RunOptions { run_id, entities };
+            let options = RunOptions {
+                run_id,
+                entities,
+                dry_run,
+            };
             if !matches!(log_format, LogFormat::Off) {
                 let _ = set_observer(Arc::new(CliObserver {
                     format: log_format.clone(),

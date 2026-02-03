@@ -103,7 +103,6 @@ pub(super) fn run_entity(
         }
     };
     let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
-    let collect_raw = true;
 
     let resolved_files = input_files
         .iter()
@@ -172,6 +171,7 @@ pub(super) fn run_entity(
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
 
     // Phase B: row-level validation + entity-level accumulation.
+    let collect_raw = true;
     for prechecked in prechecked_inputs {
         let PrecheckedInput {
             input_file,

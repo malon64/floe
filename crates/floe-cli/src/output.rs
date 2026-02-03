@@ -11,7 +11,7 @@ pub enum OutputMode {
 
 pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
     let mut lines = Vec::new();
-
+    // TODO could both ifs be combined?
     if mode != OutputMode::Quiet {
         lines.push(format!("run id: {}", &outcome.run_id));
         lines.push(format!(

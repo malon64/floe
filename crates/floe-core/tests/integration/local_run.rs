@@ -64,6 +64,7 @@ entities:
         RunOptions {
             run_id: Some("it-run".to_string()),
             entities: Vec::new(),
+            dry_run: false,
         },
     )
     .expect("run config");

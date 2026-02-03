@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 
 use crate::io::storage::CloudClient;
@@ -71,6 +71,10 @@ pub fn run_with_base(
     let context = RunContext::new(config_path, config_base, &options)?;
     if !options.entities.is_empty() {
         validate_entities(&context.config, &options.entities)?;
+    }
+    if options.dry_run {
+        print_dry_run_summary(&context)?;
+        return Ok(create_dry_run_outcome(&context));
     }
 
     let mut entity_outcomes = Vec::new();
@@ -278,6 +282,143 @@ fn build_run_summary(
         },
         results: totals,
         entities,
+    }
+}
+
+fn print_dry_run_summary(context: &RunContext) -> FloeResult<()> {
+    println!("DRY RUN MODE - No data will be processed\n");
+    println!("Run ID: {}", context.run_id);
+    println!("Config: {}", context.config_path.display());
+    println!("Config Dir: {}", context.config_dir.display());
+    println!("Entities: {}", context.config.entities.len());
+
+    for entity in &context.config.entities {
+        println!("\nEntity: {}", entity.name);
+        // Input
+        println!("  Input: {} ({})", entity.source.path, entity.source.format);
+        println!(
+            "  Output: {} ({})",
+            entity.sink.accepted.path, entity.sink.accepted.format
+        );
+        // Accepted Output
+        println!(
+            "  Accepted Output: {} ({})",
+            entity.sink.accepted.path, entity.sink.accepted.format
+        );
+        // Rejected Output
+        if let Some(rejected) = &entity.sink.rejected {
+            println!("  Rejected Output: {} ({})", rejected.path, rejected.format);
+        } else {
+            println!("  Rejected Output: None");
+        }
+        // Archive Path (if configured)
+        if let Some(archive) = &entity.sink.archive {
+            println!(
+                "  Archive Path: {} ({})",
+                archive.path,
+                archive.storage.as_deref().unwrap_or("default")
+            );
+        }
+        // Report path
+        if let Some(report_target) = &context.report_target {
+            let report_path = report_target.join_relative(
+                &report::ReportWriter::report_relative_path(&context.run_id, &entity.name),
+            );
+            println!("  Report: {}", report_path);
+        }
+        // Scanned files
+        println!("  Scanned Files:");
+        match scan_input_files(&entity.source) {
+            Ok(files) => {
+                for file in files {
+                    println!("   - {}", file.display());
+                }
+            }
+            Err(e) => {
+                println!("   (error scanning: {})", e);
+            }
+        }
+        println!();
+    }
+    // Report base path
+    if let Some(report_base) = &context.report_base_path {
+        println!("Report Path: {}\n", report_base);
+    }
+    // Summary
+    println!("Overall: success (exit_code=0)");
+    if let Some(report_base) = &context.report_base_path {
+        println!(
+            "Run summary: {}/run.summary.json",
+            report_base.trim_end_matches('/')
+        );
+    }
+    Ok(())
+}
+
+fn scan_input_files(source: &config::SourceConfig) -> FloeResult<Vec<PathBuf>> {
+    use std::fs;
+
+    let path = Path::new(&source.path);
+    if path.is_file() {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    if path.is_dir() {
+        let mut files = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                files.push(path);
+            }
+        }
+        files.sort();
+        return Ok(files);
+    }
+    Ok(Vec::new())
+}
+
+fn create_dry_run_outcome(context: &RunContext) -> RunOutcome {
+    RunOutcome {
+        run_id: context.run_id.clone(),
+        report_base_path: context.report_base_path.clone(),
+        entity_outcomes: Vec::new(),
+        summary: report::RunSummaryReport {
+            spec_version: context.config.version.clone(),
+            tool: report::ToolInfo {
+                name: "floe".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                git: None,
+            },
+            run: report::RunInfo {
+                run_id: context.run_id.clone(),
+                started_at: context.started_at.clone(),
+                finished_at: report::now_rfc3339(),
+                duration_ms: 0,
+                status: report::RunStatus::Success,
+                exit_code: 0,
+            },
+            config: report::ConfigEcho {
+                path: context.config_path.display().to_string(),
+                version: context.config.version.clone(),
+                metadata: context.config.metadata.as_ref().map(project_metadata_json),
+            },
+            report: report::ReportEcho {
+                path: context
+                    .report_base_path
+                    .clone()
+                    .unwrap_or_else(|| "disabled".to_string()),
+                report_file: "disabled (dry-run)".to_string(),
+            },
+            results: report::ResultsTotals {
+                files_total: 0,
+                rows_total: 0,
+                accepted_total: 0,
+                rejected_total: 0,
+                warnings_total: 0,
+                errors_total: 0,
+            },
+            entities: Vec::new(),
+        },
     }
 }
 

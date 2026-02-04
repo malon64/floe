@@ -108,8 +108,7 @@ fn default_mode_prints_human_summary() {
     let config_path = write_fixture(&temp_dir);
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
-    cmd
-        .current_dir(temp_dir.path())
+    cmd.current_dir(temp_dir.path())
         .args(["run", "-c"])
         .arg(&config_path)
         .assert()

@@ -19,7 +19,7 @@ impl Level {
 
 fn level_for_event(event: &RunEvent) -> Level {
     match event {
-        RunEvent::Log { level, .. } => match level.as_str() {
+        RunEvent::Log { log_level, .. } => match log_level.as_str() {
             "warn" => Level::Warn,
             "error" => Level::Error,
             _ => Level::Info,
@@ -67,14 +67,14 @@ pub fn format_event_json(event: &RunEvent) -> Option<String> {
 pub fn format_event_text(event: &RunEvent) -> String {
     match event {
         RunEvent::Log {
-            level,
+            log_level,
             code,
             message,
             entity,
             input,
             ..
         } => {
-            let mut out = format!("log level={level}");
+            let mut out = format!("log level={log_level}");
             if let Some(code) = code.as_deref() {
                 out.push_str(&format!(" code={code}"));
             }

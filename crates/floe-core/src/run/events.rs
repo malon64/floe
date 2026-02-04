@@ -8,7 +8,7 @@ use serde::Serialize;
 pub enum RunEvent {
     Log {
         run_id: String,
-        level: String,
+        log_level: String,
         code: Option<String>,
         message: String,
         entity: Option<String>,

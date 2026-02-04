@@ -15,7 +15,7 @@ pub fn emit(
         let observer = crate::run::events::default_observer();
         observer.on_event(RunEvent::Log {
             run_id: run_id.to_string(),
-            level: "warn".to_string(),
+            log_level: "warn".to_string(),
             code: code.map(ToString::to_string),
             message: message.to_string(),
             entity: entity.map(ToString::to_string),

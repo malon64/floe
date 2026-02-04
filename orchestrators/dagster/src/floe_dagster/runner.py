@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -100,27 +101,62 @@ class DockerRunner(Runner):
         for key, value in self._env.items():
             docker_cmd.extend(["-e", f"{key}={value}"])
 
-        container_workdir = None
         if self._workdir:
             host_dir = Path(self._workdir).resolve()
             docker_cmd.extend(["-v", f"{host_dir}:/work", "-w", "/work"])
-            container_workdir = "/work"
         else:
             maybe_path = Path(config_uri)
             if not config_uri.startswith(("s3://", "gs://", "abfs://")) and maybe_path.exists():
-                host_dir = maybe_path.resolve().parent
-                docker_cmd.extend(["-v", f"{host_dir}:/work", "-w", "/work"])
-                container_workdir = "/work"
+                config_path = maybe_path.resolve()
+                mount_root = _infer_mount_root_for_config(config_path)
+                docker_cmd.extend(["-v", f"{mount_root}:/work"])
 
                 floe_args = floe_args.copy()
                 if "-c" in floe_args:
                     idx = floe_args.index("-c")
-                    floe_args[idx + 1] = f"/work/{Path(floe_args[idx + 1]).name}"
+                    container_config_path = Path("/work").joinpath(
+                        config_path.relative_to(mount_root)
+                    )
+                    floe_args[idx + 1] = str(container_config_path)
+
+                    container_config_dir = container_config_path.parent
+                    docker_cmd.extend(["-w", str(container_config_dir)])
 
         docker_cmd.append(self._image)
         docker_cmd.extend(floe_args)
 
-        return _run(docker_cmd, cwd=container_workdir)
+        return _run(docker_cmd)
+
+
+def _infer_mount_root_for_config(config_path: Path) -> Path:
+    """
+    Determine a mount root for DockerRunner when config paths may use '../'.
+
+    Floe resolves relative paths against the *config directory*; if a config references
+    paths like '../data', mounting only the config dir hides those referenced paths.
+
+    Heuristic:
+    - Scan the config file text for sequences like '../' or '../../'
+    - Mount the config dir ancestor that makes those paths visible inside the container.
+    """
+    config_dir = config_path.parent
+    max_ups = 0
+    try:
+        text = config_path.read_text(encoding="utf-8", errors="ignore")
+        for match in re.finditer(r"(?:(?:\\.\\./)+)", text):
+            ups = match.group(0).count("../")
+            if ups > max_ups:
+                max_ups = ups
+    except OSError:
+        max_ups = 0
+
+    mount_root = config_dir
+    for _ in range(max_ups):
+        parent = mount_root.parent
+        if parent == mount_root:
+            break
+        mount_root = parent
+    return mount_root
 
 
 def _run(args: list[str], cwd: str | None = None) -> RunResult:

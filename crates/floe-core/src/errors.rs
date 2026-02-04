@@ -3,6 +3,17 @@ use std::fmt;
 use crate::run::events::{event_time_ms, is_observer_set, RunEvent};
 
 #[derive(Debug)]
+pub struct ConfigError(pub String);
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+#[derive(Debug)]
 pub struct RunError(pub String);
 
 impl fmt::Display for RunError {

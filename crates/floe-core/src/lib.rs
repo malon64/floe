@@ -10,21 +10,11 @@ pub mod warnings;
 
 pub use checks as check;
 pub use config::{resolve_config_location, ConfigLocation};
+pub use errors::ConfigError;
 pub use run::events::{set_observer, RunEvent, RunObserver};
 pub use run::{run, run_with_base, EntityOutcome, RunOutcome};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-#[derive(Debug)]
-pub(crate) struct ConfigError(pub(crate) String);
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for ConfigError {}
 
 #[derive(Debug, Default)]
 pub struct ValidateOptions {

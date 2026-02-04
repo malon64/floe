@@ -159,6 +159,56 @@ impl RunObserver for CliObserver {
     }
 }
 
+fn error_code_for(err: &(dyn std::error::Error + 'static)) -> &'static str {
+    if err.is::<floe_core::ConfigError>() {
+        return "config_error";
+    }
+    if err.is::<floe_core::errors::RunError>() {
+        return "run_error";
+    }
+    if err.is::<floe_core::errors::StorageError>() {
+        return "storage_error";
+    }
+    if err.is::<floe_core::errors::IoError>() {
+        return "io_error";
+    }
+    "error"
+}
+
+fn emit_failed_run_events(
+    run_id: &str,
+    err: &(dyn std::error::Error + 'static),
+    log_format: &LogFormat,
+) {
+    if matches!(log_format, LogFormat::Off) {
+        return;
+    }
+
+    let observer = floe_core::run::events::default_observer();
+    observer.on_event(RunEvent::Log {
+        run_id: run_id.to_string(),
+        log_level: "error".to_string(),
+        code: Some(error_code_for(err).to_string()),
+        message: err.to_string(),
+        entity: None,
+        input: None,
+        ts_ms: now_ms(),
+    });
+    observer.on_event(RunEvent::RunFinished {
+        run_id: run_id.to_string(),
+        status: "failed".to_string(),
+        exit_code: 1,
+        files: 0,
+        rows: 0,
+        accepted: 0,
+        rejected: 0,
+        warnings: 0,
+        errors: 1,
+        summary_uri: None,
+        ts_ms: now_ms(),
+    });
+}
+
 fn main() -> FloeResult<()> {
     let cli = Cli::parse();
 
@@ -223,40 +273,11 @@ fn main() -> FloeResult<()> {
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
                 Err(err) => {
-                    if matches!(log_format, LogFormat::Json) {
-                        let event = RunEvent::RunFinished {
-                            run_id: computed_run_id,
-                            status: "failed".to_string(),
-                            exit_code: 1,
-                            files: 0,
-                            rows: 0,
-                            accepted: 0,
-                            rejected: 0,
-                            warnings: 0,
-                            errors: 1,
-                            summary_uri: None,
-                            ts_ms: now_ms(),
-                        };
-                        if let Some(line) = format_event_json(&event) {
-                            println!("{line}");
-                        }
-                    } else if matches!(log_format, LogFormat::Text) {
-                        let event = RunEvent::RunFinished {
-                            run_id: computed_run_id,
-                            status: "failed".to_string(),
-                            exit_code: 1,
-                            files: 0,
-                            rows: 0,
-                            accepted: 0,
-                            rejected: 0,
-                            warnings: 0,
-                            errors: 1,
-                            summary_uri: None,
-                            ts_ms: now_ms(),
-                        };
-                        println!("{}", format_event_text(&event));
-                    }
-                    return Err(err);
+                    emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
                 }
             };
 
@@ -264,39 +285,7 @@ fn main() -> FloeResult<()> {
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
-                        if matches!(log_format, LogFormat::Json) {
-                            let event = RunEvent::RunFinished {
-                                run_id: computed_run_id,
-                                status: "failed".to_string(),
-                                exit_code: 1,
-                                files: 0,
-                                rows: 0,
-                                accepted: 0,
-                                rejected: 0,
-                                warnings: 0,
-                                errors: 1,
-                                summary_uri: None,
-                                ts_ms: now_ms(),
-                            };
-                            if let Some(line) = format_event_json(&event) {
-                                println!("{line}");
-                            }
-                        } else if matches!(log_format, LogFormat::Text) {
-                            let event = RunEvent::RunFinished {
-                                run_id: computed_run_id,
-                                status: "failed".to_string(),
-                                exit_code: 1,
-                                files: 0,
-                                rows: 0,
-                                accepted: 0,
-                                rejected: 0,
-                                warnings: 0,
-                                errors: 1,
-                                summary_uri: None,
-                                ts_ms: now_ms(),
-                            };
-                            println!("{}", format_event_text(&event));
-                        }
+                        emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();

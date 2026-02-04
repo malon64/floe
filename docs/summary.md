@@ -14,6 +14,7 @@ important references so you can quickly find the right guide.
 - How a run works (file → row → entity checks): [docs/how-it-works.md](how-it-works.md)
 - Checks and policy behavior: [docs/checks.md](checks.md)
 - Run reports and JSON schema: [docs/report.md](report.md)
+- Logging for orchestrators (`--log-format`): [docs/logging.md](logging.md)
 
 ## Configuration
 

@@ -198,6 +198,13 @@ pub(super) fn run_entity(
                 typed_df,
             } => (input_file, raw_df, typed_df),
             ReadInput::FileError { input_file, error } => {
+                crate::errors::emit(
+                    &context.run_id,
+                    Some(&entity.name),
+                    Some(&input_file.source_uri),
+                    Some(&error.rule),
+                    &format!("entity.name={} {}", entity.name, error.message),
+                );
                 let status = if entity.policy.severity == "abort" {
                     report::FileStatus::Aborted
                 } else {
@@ -354,7 +361,14 @@ pub(super) fn run_entity(
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;
-            warnings::emit_once(&mut sink_options_warned, message);
+            warnings::emit_once(
+                &mut sink_options_warned,
+                &context.run_id,
+                Some(&entity.name),
+                None,
+                Some("sink_options_ignored"),
+                message,
+            );
             append_sink_options_warning(&mut rules, message);
         }
 
@@ -374,10 +388,17 @@ pub(super) fn run_entity(
                         )?;
                         errors_path = Some(errors_path_value);
                     } else {
-                        warnings::emit(&format!(
+                        let message = format!(
                             "entity.name={} sink.rejected missing; error report not written",
                             entity.name
-                        ));
+                        );
+                        warnings::emit(
+                            &context.run_id,
+                            Some(&entity.name),
+                            None,
+                            Some("sink_rejected_missing"),
+                            &message,
+                        );
                     }
                 }
             }

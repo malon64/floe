@@ -1,9 +1,11 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use floe_core::{
-    load_config, resolve_config_location, run_with_base, set_observer, validate_with_base,
-    FloeResult, RunEvent, RunObserver, RunOptions, ValidateOptions,
+    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
+    RunOptions, ValidateOptions,
 };
-use std::sync::Arc;
+use std::io::Write;
+
+use crate::logging::LogFormat;
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -59,6 +61,7 @@ const VALIDATE_LONG_ABOUT: &str = concat!(
     "  floe validate -c example/config.yml\n",
 );
 
+mod logging;
 mod output;
 
 #[derive(Parser, Debug)]
@@ -116,89 +119,6 @@ enum Command {
     },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum LogFormat {
-    Off,
-    Text,
-    Json,
-}
-
-struct CliObserver {
-    format: LogFormat,
-}
-
-impl RunObserver for CliObserver {
-    fn on_event(&self, event: RunEvent) {
-        match self.format {
-            LogFormat::Json => {
-                if let Ok(line) = serde_json::to_string(&event) {
-                    println!("{line}");
-                }
-            }
-            LogFormat::Text => println!("{}", format_event_text(&event)),
-            LogFormat::Off => {}
-        }
-    }
-}
-
-fn format_event_text(event: &RunEvent) -> String {
-    match event {
-        RunEvent::RunStarted {
-            run_id,
-            config,
-            report_base,
-            ..
-        } => format!(
-            "run_start run_id={} config={} report_base={}",
-            run_id,
-            config,
-            report_base.as_deref().unwrap_or("disabled")
-        ),
-        RunEvent::EntityStarted { name, .. } => format!("\nentity_start name={name}"),
-        RunEvent::FileStarted { entity, input, .. } => {
-            format!("  file_start entity={entity} input={input}")
-        }
-        RunEvent::FileFinished {
-            entity,
-            input,
-            status,
-            rows,
-            accepted,
-            rejected,
-            elapsed_ms,
-            ..
-        } => format!(
-            "  file_end entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
-            entity, input, status, rows, accepted, rejected, elapsed_ms
-        ),
-        RunEvent::EntityFinished {
-            name,
-            status,
-            files,
-            rows,
-            accepted,
-            rejected,
-            warnings,
-            errors,
-            ..
-        } => format!(
-            "entity_end name={} status={} files={} rows={} accepted={} rejected={} warnings={} errors={}",
-            name, status, files, rows, accepted, rejected, warnings, errors
-        ),
-        RunEvent::RunFinished {
-            status,
-            exit_code,
-            summary_uri,
-            ..
-        } => format!(
-            "\nrun_end status={} exit_code={} summary={}",
-            status,
-            exit_code,
-            summary_uri.as_deref().unwrap_or("disabled")
-        ),
-    }
-}
-
 fn main() -> FloeResult<()> {
     let cli = Cli::parse();
 
@@ -245,15 +165,42 @@ fn main() -> FloeResult<()> {
             verbose,
             log_format,
         } => {
-            let config_location = resolve_config_location(&config)?;
-            let options = RunOptions { run_id, entities };
-            if !matches!(log_format, LogFormat::Off) {
-                let _ = set_observer(Arc::new(CliObserver {
-                    format: log_format.clone(),
-                }));
-            }
+            let started_at = floe_core::report::now_rfc3339();
+            let computed_run_id =
+                run_id.unwrap_or_else(|| floe_core::report::run_id_from_timestamp(&started_at));
+
+            let options = RunOptions {
+                run_id: Some(computed_run_id.clone()),
+                entities,
+            };
+            logging::install_observer(log_format.clone());
+
+            let config_location = match resolve_config_location(&config) {
+                Ok(location) => location,
+                Err(err) => {
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+            };
+
             let outcome =
-                run_with_base(&config_location.path, config_location.base.clone(), options)?;
+                match run_with_base(&config_location.path, config_location.base.clone(), options) {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        logging::emit_failed_run_events(
+                            &computed_run_id,
+                            err.as_ref(),
+                            &log_format,
+                        );
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
             let mode = if quiet {
                 output::OutputMode::Quiet
             } else if verbose {
@@ -261,8 +208,22 @@ fn main() -> FloeResult<()> {
             } else {
                 output::OutputMode::Default
             };
-            println!("{}", output::format_run_output(&outcome, mode));
-            Ok(())
+            let summary = output::format_run_output(&outcome, mode);
+
+            match log_format {
+                LogFormat::Json => {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "{summary}");
+                    let _ = err.flush();
+                }
+                LogFormat::Text | LogFormat::Off => {
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "{summary}");
+                    let _ = out.flush();
+                }
+            }
+
+            std::process::exit(outcome.summary.run.exit_code);
         }
     }
 }

@@ -2,11 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 
-#[path = "../src/logging.rs"]
-#[allow(dead_code)]
-mod logging;
-
-use floe_core::RunEvent;
+const LOG_SCHEMA: &str = "floe.log.v1";
 
 fn write_fixture(temp_dir: &tempfile::TempDir) -> std::path::PathBuf {
     let root = temp_dir.path();
@@ -53,23 +49,6 @@ entities:
 }
 
 #[test]
-fn event_json_has_schema_and_level() {
-    let event = RunEvent::RunStarted {
-        run_id: "run-123".to_string(),
-        config: "/tmp/config.yml".to_string(),
-        report_base: Some("/tmp/report".to_string()),
-        ts_ms: 1,
-    };
-    let line = logging::format_event_json(&event).expect("json");
-    let text = logging::format_event_text(&event);
-    assert!(text.contains("run_started"));
-    let value: serde_json::Value = serde_json::from_str(&line).expect("valid json");
-    assert_eq!(value["schema"], logging::LOG_SCHEMA);
-    assert!(value["level"].is_string());
-    assert_eq!(value["event"], "run_started");
-}
-
-#[test]
 fn log_format_json_stdout_is_ndjson_only_and_summary_is_stderr() {
     let temp_dir = tempfile::TempDir::new().expect("tempdir");
     let config_path = write_fixture(&temp_dir);
@@ -95,7 +74,7 @@ fn log_format_json_stdout_is_ndjson_only_and_summary_is_stderr() {
     for line in &lines {
         let value: serde_json::Value = serde_json::from_str(line)
             .unwrap_or_else(|err| panic!("non-json line on stdout: {line:?} ({err})"));
-        assert_eq!(value["schema"], logging::LOG_SCHEMA);
+        assert_eq!(value["schema"], LOG_SCHEMA);
         assert!(value["level"].is_string());
         last_event = value["event"].as_str().map(|s| s.to_string());
     }

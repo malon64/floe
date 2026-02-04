@@ -35,6 +35,6 @@ gcp/
 adls/
 
 # Dagster
-floe-dagster/.tmp_*/
-floe-dagster/.dg
-floe-dagster/.venv/
+orchestrators/floe-dagster/.tmp_*/
+orchestrators/floe-dagster/.dg
+orchestrators/floe-dagster/.venv/

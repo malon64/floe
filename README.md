@@ -77,6 +77,12 @@ floe --version
 floe validate -c example/config.yml
 ```
 
+Automation / orchestrators (single JSON object on stdout):
+
+```bash
+floe validate -c example/config.yml --output json
+```
+
 ### Run
 
 ```bash

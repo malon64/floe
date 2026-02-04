@@ -31,6 +31,26 @@ cargo build --release
 ./target/release/floe --version
 ```
 
+## Docker (GHCR)
+
+Floe is published as a Docker image to GitHub Container Registry (GHCR).
+
+Pull:
+
+```bash
+docker pull ghcr.io/malon64/floe:latest
+```
+
+Run (mount the current directory to `/work`):
+
+```bash
+docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe:latest run -c /work/example/config.yml
+```
+
+Notes:
+- All CLI arguments are identical to local usage.
+- Cloud credentials should be provided via environment variables or runtime identity.
+
 ## Troubleshooting
 
 - If `brew` is unavailable, use the Cargo path above.

@@ -1,0 +1,13 @@
+target
+.git
+.github
+aws
+gcp
+bench
+dagster
+floe-dagster
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+

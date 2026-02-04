@@ -6,6 +6,15 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum RunEvent {
+    Log {
+        run_id: String,
+        level: String,
+        code: Option<String>,
+        message: String,
+        entity: Option<String>,
+        input: Option<String>,
+        ts_ms: u128,
+    },
     RunStarted {
         run_id: String,
         config: String,
@@ -77,6 +86,10 @@ static OBSERVER: OnceLock<Arc<dyn RunObserver>> = OnceLock::new();
 
 pub fn set_observer(observer: Arc<dyn RunObserver>) -> bool {
     OBSERVER.set(observer).is_ok()
+}
+
+pub fn is_observer_set() -> bool {
+    OBSERVER.get().is_some()
 }
 
 pub fn default_observer() -> &'static dyn RunObserver {

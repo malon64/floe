@@ -19,6 +19,11 @@ impl Level {
 
 fn level_for_event(event: &RunEvent) -> Level {
     match event {
+        RunEvent::Log { level, .. } => match level.as_str() {
+            "warn" => Level::Warn,
+            "error" => Level::Error,
+            _ => Level::Info,
+        },
         RunEvent::RunStarted { .. }
         | RunEvent::EntityStarted { .. }
         | RunEvent::FileStarted { .. } => Level::Info,
@@ -61,6 +66,28 @@ pub fn format_event_json(event: &RunEvent) -> Option<String> {
 
 pub fn format_event_text(event: &RunEvent) -> String {
     match event {
+        RunEvent::Log {
+            level,
+            code,
+            message,
+            entity,
+            input,
+            ..
+        } => {
+            let mut out = format!("log level={level}");
+            if let Some(code) = code.as_deref() {
+                out.push_str(&format!(" code={code}"));
+            }
+            if let Some(entity) = entity.as_deref() {
+                out.push_str(&format!(" entity={entity}"));
+            }
+            if let Some(input) = input.as_deref() {
+                out.push_str(&format!(" input={input}"));
+            }
+            out.push(' ');
+            out.push_str(message);
+            out
+        }
         RunEvent::RunStarted {
             run_id,
             config,

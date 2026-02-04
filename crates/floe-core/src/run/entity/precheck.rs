@@ -152,7 +152,7 @@ pub(super) fn run_precheck(
 
         let mismatch = check::plan_schema_mismatch(entity, normalized_columns, &input_columns)?;
         if let Some(message) = mismatch.report.warning.as_deref() {
-            warnings::emit_with_context(
+            warnings::emit(
                 &context.run_id,
                 Some(&entity.name),
                 Some(&input_file.source_uri),

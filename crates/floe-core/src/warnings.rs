@@ -4,18 +4,7 @@ fn emit_stderr(message: &str) {
     eprintln!("warn: {message}");
 }
 
-pub fn emit(message: &str) {
-    emit_stderr(message);
-}
-
-pub fn emit_once(flag: &mut bool, message: &str) {
-    if !*flag {
-        emit(message);
-        *flag = true;
-    }
-}
-
-pub fn emit_with_context(
+pub fn emit(
     run_id: &str,
     entity: Option<&str>,
     input: Option<&str>,
@@ -39,7 +28,7 @@ pub fn emit_with_context(
     emit_stderr(message);
 }
 
-pub fn emit_once_with_context(
+pub fn emit_once(
     flag: &mut bool,
     run_id: &str,
     entity: Option<&str>,
@@ -48,7 +37,7 @@ pub fn emit_once_with_context(
     message: &str,
 ) {
     if !*flag {
-        emit_with_context(run_id, entity, input, code, message);
+        emit(run_id, entity, input, code, message);
         *flag = true;
     }
 }

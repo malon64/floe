@@ -354,7 +354,7 @@ pub(super) fn run_entity(
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;
-            warnings::emit_once_with_context(
+            warnings::emit_once(
                 &mut sink_options_warned,
                 &context.run_id,
                 Some(&entity.name),
@@ -385,7 +385,7 @@ pub(super) fn run_entity(
                             "entity.name={} sink.rejected missing; error report not written",
                             entity.name
                         );
-                        warnings::emit_with_context(
+                        warnings::emit(
                             &context.run_id,
                             Some(&entity.name),
                             None,

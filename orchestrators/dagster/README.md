@@ -31,3 +31,4 @@ The example workspace loads `floe_dagster.definitions` which generates assets fr
 - This connector does **not** parse YAML directly; it uses `floe validate --output json` as the source of truth.
 - For local development without an installed `floe` binary, you can point `LocalRunner` to a custom command, e.g.:
   - `LocalRunner(\"cargo run -p floe-cli --\")`
+- Design notes and future work: `orchestrators/dagster/INTEGRATION_SPEC.md`

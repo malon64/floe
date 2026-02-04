@@ -6,6 +6,9 @@
 Thumbs.db
 .cargo/
 .venv/
+__pycache__/
+.pytest_cache/
+*.pyc
 
 # Editors
 .idea/
@@ -38,3 +41,6 @@ adls/
 orchestrators/floe-dagster/.tmp_*/
 orchestrators/floe-dagster/.dg
 orchestrators/floe-dagster/.venv/
+
+orchestrators/dagster/.dg/
+orchestrators/dagster/.venv/

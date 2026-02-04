@@ -1,11 +1,11 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use floe_core::{
-    load_config, resolve_config_location, run_with_base, set_observer, validate_with_base,
-    FloeResult, RunEvent, RunObserver, RunOptions, ValidateOptions,
+    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
+    RunOptions, ValidateOptions,
 };
-use logging::{format_event_json, format_event_text};
 use std::io::Write;
-use std::sync::Arc;
+
+use crate::logging::LogFormat;
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -119,96 +119,6 @@ enum Command {
     },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum LogFormat {
-    Off,
-    Text,
-    Json,
-}
-
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
-}
-
-struct CliObserver {
-    format: LogFormat,
-    lock: std::sync::Mutex<()>,
-}
-
-impl RunObserver for CliObserver {
-    fn on_event(&self, event: RunEvent) {
-        let _guard = self.lock.lock();
-        match self.format {
-            LogFormat::Json => {
-                if let Some(line) = format_event_json(&event) {
-                    let mut out = std::io::stdout().lock();
-                    let _ = writeln!(out, "{line}");
-                    let _ = out.flush();
-                }
-            }
-            LogFormat::Text => {
-                let mut out = std::io::stdout().lock();
-                let _ = writeln!(out, "{}", format_event_text(&event));
-                let _ = out.flush();
-            }
-            LogFormat::Off => {}
-        }
-    }
-}
-
-fn error_code_for(err: &(dyn std::error::Error + 'static)) -> &'static str {
-    if err.is::<floe_core::ConfigError>() {
-        return "config_error";
-    }
-    if err.is::<floe_core::errors::RunError>() {
-        return "run_error";
-    }
-    if err.is::<floe_core::errors::StorageError>() {
-        return "storage_error";
-    }
-    if err.is::<floe_core::errors::IoError>() {
-        return "io_error";
-    }
-    "error"
-}
-
-fn emit_failed_run_events(
-    run_id: &str,
-    err: &(dyn std::error::Error + 'static),
-    log_format: &LogFormat,
-) {
-    if matches!(log_format, LogFormat::Off) {
-        return;
-    }
-
-    let observer = floe_core::run::events::default_observer();
-    observer.on_event(RunEvent::Log {
-        run_id: run_id.to_string(),
-        log_level: "error".to_string(),
-        code: Some(error_code_for(err).to_string()),
-        message: err.to_string(),
-        entity: None,
-        input: None,
-        ts_ms: now_ms(),
-    });
-    observer.on_event(RunEvent::RunFinished {
-        run_id: run_id.to_string(),
-        status: "failed".to_string(),
-        exit_code: 1,
-        files: 0,
-        rows: 0,
-        accepted: 0,
-        rejected: 0,
-        warnings: 0,
-        errors: 1,
-        summary_uri: None,
-        ts_ms: now_ms(),
-    });
-}
-
 fn main() -> FloeResult<()> {
     let cli = Cli::parse();
 
@@ -263,17 +173,12 @@ fn main() -> FloeResult<()> {
                 run_id: Some(computed_run_id.clone()),
                 entities,
             };
-            if !matches!(log_format, LogFormat::Off) {
-                let _ = set_observer(Arc::new(CliObserver {
-                    format: log_format.clone(),
-                    lock: std::sync::Mutex::new(()),
-                }));
-            }
+            logging::install_observer(log_format.clone());
 
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
                 Err(err) => {
-                    emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();
@@ -285,7 +190,11 @@ fn main() -> FloeResult<()> {
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
-                        emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                        logging::emit_failed_run_events(
+                            &computed_run_id,
+                            err.as_ref(),
+                            &log_format,
+                        );
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();

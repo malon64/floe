@@ -1,4 +1,107 @@
-use floe_core::RunEvent;
+use clap::ValueEnum;
+use floe_core::{set_observer, RunEvent, RunObserver};
+use std::io::Write;
+use std::sync::Arc;
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum LogFormat {
+    Off,
+    Text,
+    Json,
+}
+
+pub fn install_observer(format: LogFormat) {
+    if matches!(format, LogFormat::Off) {
+        return;
+    }
+    let _ = set_observer(Arc::new(CliObserver {
+        format,
+        lock: std::sync::Mutex::new(()),
+    }));
+}
+
+struct CliObserver {
+    format: LogFormat,
+    lock: std::sync::Mutex<()>,
+}
+
+impl RunObserver for CliObserver {
+    fn on_event(&self, event: RunEvent) {
+        let _guard = self.lock.lock();
+        match self.format {
+            LogFormat::Json => {
+                if let Some(line) = format_event_json(&event) {
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "{line}");
+                    let _ = out.flush();
+                }
+            }
+            LogFormat::Text => {
+                let mut out = std::io::stdout().lock();
+                let _ = writeln!(out, "{}", format_event_text(&event));
+                let _ = out.flush();
+            }
+            LogFormat::Off => {}
+        }
+    }
+}
+
+fn error_code_for(err: &(dyn std::error::Error + 'static)) -> &'static str {
+    if err.is::<floe_core::ConfigError>() {
+        return "config_error";
+    }
+    if err.is::<floe_core::errors::RunError>() {
+        return "run_error";
+    }
+    if err.is::<floe_core::errors::StorageError>() {
+        return "storage_error";
+    }
+    if err.is::<floe_core::errors::IoError>() {
+        return "io_error";
+    }
+    "error"
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+pub fn emit_failed_run_events(
+    run_id: &str,
+    err: &(dyn std::error::Error + 'static),
+    log_format: &LogFormat,
+) {
+    if matches!(log_format, LogFormat::Off) {
+        return;
+    }
+
+    let observer = floe_core::run::events::default_observer();
+    observer.on_event(RunEvent::Log {
+        run_id: run_id.to_string(),
+        log_level: "error".to_string(),
+        code: Some(error_code_for(err).to_string()),
+        message: err.to_string(),
+        entity: None,
+        input: None,
+        ts_ms: now_ms(),
+    });
+    observer.on_event(RunEvent::RunFinished {
+        run_id: run_id.to_string(),
+        status: "failed".to_string(),
+        exit_code: 1,
+        files: 0,
+        rows: 0,
+        accepted: 0,
+        rejected: 0,
+        warnings: 0,
+        errors: 1,
+        summary_uri: None,
+        ts_ms: now_ms(),
+    });
+}
 
 #[derive(Clone, Copy, Debug)]
 enum Level {

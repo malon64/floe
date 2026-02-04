@@ -3,6 +3,7 @@ use predicates::prelude::*;
 use std::fs;
 
 #[path = "../src/logging.rs"]
+#[allow(dead_code)]
 mod logging;
 
 use floe_core::RunEvent;

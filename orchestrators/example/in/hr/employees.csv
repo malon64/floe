@@ -1,4 +1,0 @@
-employee_id,email,is_active
-c_001,alice@example.com,true
-,missing_id@example.com,true
-c_003,,notabool

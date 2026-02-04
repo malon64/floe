@@ -133,6 +133,8 @@ entities:
         .and_then(|v| v.as_array())
         .expect("entities array in summary");
     assert_eq!(entities.len(), 1);
-    assert_eq!(entities[0].get("name").and_then(|v| v.as_str()), Some("employees"));
+    assert_eq!(
+        entities[0].get("name").and_then(|v| v.as_str()),
+        Some("employees")
+    );
 }
-

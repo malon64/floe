@@ -2981,7 +2981,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "floe-core",
@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",

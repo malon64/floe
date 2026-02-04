@@ -2,6 +2,13 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.1
+
+- Added official Docker image packaging and GHCR publishing on version tags.
+- Documentation: Docker usage added to installation guide and summary.
+- Added machine-readable run event logs (json/text) behind `--log-format`.
+- Fixes: `metadata.project` optional, CSV empty fields treated as null by default, default `cast_mode=strict`.
+
 ## v0.2.0
 
 - Cloud storage registry with local/S3/ADLS/GCS support (canonical URIs).

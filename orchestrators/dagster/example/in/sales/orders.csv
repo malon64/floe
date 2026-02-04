@@ -1,0 +1,6 @@
+order_id,created_at,amount
+o001,2026-01-01T00:00:00Z,10.5
+o002,2026-01-02T00:00:00Z,20
+o003,invalid-ts,30
+o004,2026-01-04T00:00:00Z,not-a-number
+

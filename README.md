@@ -93,6 +93,26 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Run with Docker
+
+### Pull
+
+```bash
+docker pull ghcr.io/malon64/floe:latest
+```
+
+### Run (mount local folder)
+
+Run Floe against the repo example config by mounting the current directory to `/work`:
+
+```bash
+docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe:latest run -c /work/example/config.yml
+```
+
+Notes:
+- All CLI arguments are identical to local usage.
+- Cloud credentials are passed via environment variables (or runtime identity), not baked into the image.
+
 ## Sample console output
 
 ```text

@@ -297,7 +297,9 @@ fn main() -> FloeResult<()> {
                             };
                             println!("{}", format_event_text(&event));
                         }
-                        eprintln!("Error: {err}");
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
                         std::process::exit(1);
                     }
                 };
@@ -312,10 +314,14 @@ fn main() -> FloeResult<()> {
 
             match log_format {
                 LogFormat::Json => {
-                    eprintln!("{summary}");
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "{summary}");
+                    let _ = err.flush();
                 }
                 LogFormat::Text | LogFormat::Off => {
-                    println!("{summary}");
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "{summary}");
+                    let _ = out.flush();
                 }
             }
 

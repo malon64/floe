@@ -2,6 +2,19 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.2
+
+- Added Dagster orchestrator connector (`orchestrators/dagster-floe`) with:
+  - validate plan ingestion
+  - NDJSON run event parsing
+  - local and Docker runner integration examples/tests.
+- Introduced accepted write-mode scaffolding and design groundwork:
+  - `WriteMode` in config model (default overwrite behavior retained)
+  - accepted writer abstraction/module split for future append support
+  - design note: `docs/design/write_modes.md`.
+- Release workflow hardening:
+  - build Linux AMD64 artifacts with `cross` to improve glibc compatibility.
+
 ## v0.2.1
 
 - Added official Docker image packaging and GHCR publishing on version tags.

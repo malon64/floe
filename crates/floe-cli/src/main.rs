@@ -256,7 +256,7 @@ fn main() -> FloeResult<()> {
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
-                dry_run,              
+                dry_run,
             };
             logging::install_observer(log_format.clone());
 
@@ -293,7 +293,7 @@ fn main() -> FloeResult<()> {
             } else {
                 output::OutputMode::Default
             };
-            let summary = output::format_run_output(&outcome, mode);
+            let summary = output::format_run_output(&outcome, mode, dry_run);
 
             match log_format {
                 LogFormat::Json => {

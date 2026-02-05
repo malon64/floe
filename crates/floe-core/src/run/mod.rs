@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -75,7 +74,6 @@ pub fn run_with_base(
         validate_entities(&context.config, &options.entities)?;
     }
     if options.dry_run {
-        print_dry_run_summary(&context)?;
         return Ok(create_dry_run_outcome(&context));
     }
 
@@ -300,6 +298,8 @@ fn build_run_summary(
     }
 }
 
+// TODO keep for output reference, will be removed
+#[allow(dead_code)]
 fn print_dry_run_summary(context: &RunContext) -> FloeResult<()> {
     println!("DRY RUN MODE - No data will be processed\n");
     println!("Run ID: {}", context.run_id);
@@ -370,6 +370,8 @@ fn print_dry_run_summary(context: &RunContext) -> FloeResult<()> {
     Ok(())
 }
 
+// TODO keep for output reference, will be removed
+#[allow(dead_code)]
 fn scan_input_files(source: &config::SourceConfig) -> FloeResult<Vec<PathBuf>> {
     use std::fs;
 

@@ -9,8 +9,11 @@ pub enum OutputMode {
     Verbose,
 }
 
-pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
+pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode, dry_run: bool) -> String {
     let mut lines = Vec::new();
+    if dry_run {
+        lines.push("DRY RUN MODE - No actual execution performed".to_string());
+    }
     // TODO could both ifs be combined?
     if mode != OutputMode::Quiet {
         lines.push(format!("run id: {}", &outcome.run_id));

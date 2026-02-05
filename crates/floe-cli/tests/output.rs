@@ -149,7 +149,7 @@ fn sample_outcome() -> RunOutcome {
 #[test]
 fn format_run_output_default_mode() {
     let outcome = sample_outcome();
-    let output = output::format_run_output(&outcome, output::OutputMode::Default);
+    let output = output::format_run_output(&outcome, output::OutputMode::Default, false);
     let expected = [
         "run id: run-123",
         "report base: /tmp/reports",

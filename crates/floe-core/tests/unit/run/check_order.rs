@@ -111,10 +111,15 @@ entities:
         .expect("read accepted parquet");
     assert_eq!(df.height(), 3);
 
-    let rejected_path = rejected_dir.join("b_rejected.csv");
+    let rejected_path = rejected_dir.join("part-00000.csv");
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
     assert!(rejected_contents.contains("__floe_errors"));
     assert!(rejected_contents.contains("unique"));
+    let rejected_path_str = rejected_path.display().to_string();
+    assert_eq!(
+        file_b.output.rejected_path.as_deref(),
+        Some(rejected_path_str.as_str())
+    );
 }
 
 #[test]

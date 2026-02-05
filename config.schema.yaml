@@ -208,9 +208,6 @@ $defs:
         type: string
       storage:
         type: string
-      write_mode:
-        type: string
-        enum: [overwrite, append]
       options:
         type: object
         additionalProperties: false
@@ -239,9 +236,6 @@ $defs:
         type: string
       storage:
         type: string
-      write_mode:
-        type: string
-        enum: [overwrite, append]
 
   report:
     type: object

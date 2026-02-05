@@ -51,10 +51,16 @@ pub(super) fn write_accepted_output(
 }
 pub(super) fn write_rejected_output(
     format: &str,
-    request: format::RejectedWriteRequest<'_>,
+    target: &Target,
+    df: &mut DataFrame,
+    source_stem: &str,
+    temp_dir: Option<&Path>,
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
 ) -> FloeResult<String> {
     let adapter = format::rejected_sink_adapter(format)?;
-    adapter.write_rejected(request)
+    adapter.write_rejected(target, df, source_stem, temp_dir, cloud, resolver, entity)
 }
 
 pub(super) fn write_rejected_raw_output(

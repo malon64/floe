@@ -53,33 +53,3 @@ entities:
     assert_eq!(options.encoding.as_deref(), Some("UTF8"));
     assert_eq!(entity.sink.accepted.write_mode, WriteMode::Overwrite);
 }
-
-#[test]
-fn parse_config_rejected_write_mode_defaults_to_append() {
-    let yaml = r#"
-version: "0.1"
-entities:
-  - name: "customer"
-    source:
-      format: "csv"
-      path: "/tmp/input"
-    sink:
-      accepted:
-        format: "parquet"
-        path: "/tmp/out"
-      rejected:
-        format: "csv"
-        path: "/tmp/rejected"
-    policy:
-      severity: "reject"
-    schema:
-      columns:
-        - name: "customer_id"
-          type: "string"
-"#;
-    let path = write_temp_config(yaml);
-    let config = load_config(&path).expect("parse config");
-    let entity = &config.entities[0];
-    let rejected = entity.sink.rejected.as_ref().expect("rejected sink");
-    assert_eq!(rejected.write_mode, WriteMode::Append);
-}

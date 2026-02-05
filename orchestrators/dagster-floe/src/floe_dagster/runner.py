@@ -112,7 +112,10 @@ class DockerRunner(Runner):
                 docker_cmd.extend(["-v", f"{mount_root}:/work"])
                 # When mounting local files, run the container as the current user so Floe
                 # can write reports/outputs back into the mounted directory.
-                docker_cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+                uid = getattr(os, "getuid", None)
+                gid = getattr(os, "getgid", None)
+                if uid is not None and gid is not None:
+                    docker_cmd.extend(["--user", f"{uid()}:{gid()}"])
 
                 floe_args = floe_args.copy()
                 if "-c" in floe_args:

@@ -8,12 +8,6 @@ use crate::{check, config, io, ConfigError, FloeResult};
 use io::format::{self, InputFile};
 use io::storage::Target;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputMode {
-    Overwrite,
-    Append,
-}
 pub(super) struct AcceptedOutputContext<'a> {
     pub(super) format: &'a str,
     pub(super) target: &'a Target,
@@ -23,7 +17,7 @@ pub(super) struct AcceptedOutputContext<'a> {
     pub(super) cloud: &'a mut io::storage::CloudClient,
     pub(super) resolver: &'a config::StorageResolver,
     pub(super) entity: &'a config::EntityConfig,
-    pub(super) mode: OutputMode,
+    pub(super) mode: config::WriteMode,
 }
 
 pub(super) fn write_accepted_output(
@@ -40,10 +34,20 @@ pub(super) fn write_accepted_output(
         entity,
         mode,
     } = context;
-    // Append is not supported yet; keep overwrite semantics for now.
-    let _ = mode;
     let adapter = format::accepted_sink_adapter(format)?;
-    adapter.write_accepted(target, df, output_stem, temp_dir, cloud, resolver, entity)
+    io::write::accepted::write_with_adapter(
+        adapter,
+        io::write::accepted::AcceptedWriteRequest {
+            target,
+            df,
+            output_stem,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            mode,
+        },
+    )
 }
 pub(super) fn write_rejected_output(
     format: &str,

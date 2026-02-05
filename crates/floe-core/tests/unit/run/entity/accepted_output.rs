@@ -203,6 +203,7 @@ entities:
       format: "csv"
       path: "{input_dir}"
     sink:
+      write_mode: "overwrite"
       accepted:
         format: "parquet"
         path: "{accepted_dir}"
@@ -262,4 +263,105 @@ entities:
         .finish()
         .expect("read accepted parquet");
     assert_eq!(df.height(), 1);
+}
+
+#[test]
+fn accepted_output_append_adds_new_parts_across_runs() {
+    let root = temp_dir("floe-entity-accepted-append");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id;name\n1;alice\n2;bob\n3;carol\n");
+    write_csv(&input_dir, "b.csv", "id;name\n4;dave\n5;erin\n6;frank\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+        options:
+          max_size_per_file: 1
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let first = run_config(&config_path);
+    assert_eq!(first.entity_outcomes[0].report.results.accepted_total, 6);
+    assert_eq!(
+        first.entity_outcomes[0]
+            .report
+            .accepted_output
+            .parts_written,
+        6
+    );
+
+    write_csv(&input_dir, "a.csv", "id;name\n7;zoe\n");
+    fs::remove_file(input_dir.join("b.csv")).expect("remove second input");
+
+    let second = run_config(&config_path);
+    assert_eq!(second.entity_outcomes[0].report.results.accepted_total, 1);
+    assert_eq!(
+        second.entity_outcomes[0]
+            .report
+            .accepted_output
+            .parts_written,
+        1
+    );
+    assert_eq!(
+        second.entity_outcomes[0].report.accepted_output.part_files,
+        vec!["part-00006.parquet".to_string()]
+    );
+
+    let mut part_files = Vec::new();
+    for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
+        let entry = entry.expect("read accepted entry");
+        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("parquet") {
+            part_files.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    part_files.sort();
+    assert_eq!(
+        part_files,
+        vec![
+            "part-00000.parquet".to_string(),
+            "part-00001.parquet".to_string(),
+            "part-00002.parquet".to_string(),
+            "part-00003.parquet".to_string(),
+            "part-00004.parquet".to_string(),
+            "part-00005.parquet".to_string(),
+            "part-00006.parquet".to_string(),
+        ]
+    );
+
+    let mut total_rows = 0usize;
+    for file_name in part_files {
+        let output_path = accepted_dir.join(&file_name);
+        let file = std::fs::File::open(&output_path).expect("open accepted parquet");
+        let df = ParquetReader::new(file)
+            .finish()
+            .expect("read accepted parquet");
+        total_rows += df.height();
+    }
+    assert_eq!(total_rows, 7);
 }

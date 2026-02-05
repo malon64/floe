@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .dg/
 .tmp_*/
+floe_dagster.egg-info
 
 # example outputs
 example/out/

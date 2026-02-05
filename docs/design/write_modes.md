@@ -9,6 +9,22 @@ This document covers:
 
 This phase does **not** implement append writes.
 
+## Target Spec Decisions (v0.3 Direction)
+
+These decisions supersede earlier "accepted-only mode" assumptions:
+
+- A single `write_mode` drives **both accepted and rejected** outputs.
+- Default remains `overwrite` for backward compatibility.
+- `accepted` and `rejected` modes are intentionally coupled (no per-sink override for now).
+- File-oriented sinks must use **file-level** mode semantics:
+  - `append`: add new part file(s), never rewrite existing files.
+  - `overwrite`: remove existing part files in target dataset, then write new part file(s).
+- Rejected output should move from per-source filenames to entity-level dataset layout:
+  - from `{source_stem}_rejected.csv`
+  - to `{rejected_entity_dir}/part-xxxxx.csv`
+- Rejected writes should follow the same dataset-style model as accepted parquet parts.
+- Delta accepted writes must remain transactional through Delta logs (no blind directory replacement).
+
 ## Current Assessment
 
 ### Write Entry Points
@@ -98,10 +114,11 @@ Introduce:
 - `WriteMode` enum: `Overwrite | Append`
 - Default: `Overwrite`
 
-Add mode to accepted sink config:
-- `SinkTarget.write_mode: WriteMode`
+Expose mode as pipeline-level write behavior (accepted + rejected together):
+- Short term internal model can keep `SinkTarget.write_mode` fields for compatibility.
+- Target config contract should provide a single source of truth for both sinks.
 - In this phase, parser keeps current YAML surface; mode defaults internally to overwrite.
-- Future phase can expose `sink.accepted.write_mode` safely.
+- Follow-up can expose one explicit YAML field for the coupled behavior.
 
 Backward compatibility:
 - Existing configs keep current behavior with no YAML changes required.
@@ -152,11 +169,35 @@ Where append differs from overwrite:
 - Unique enforcement must gain a hook to compare incoming rows against existing accepted target.
 - Delta should switch to append transaction mode with optional merge/dedup strategy hook.
 - Reporting should include mode in accepted output summary/metadata.
+- Rejected CSV should append by creating new `part-xxxxx.csv` files, not by appending rows into an existing file handle.
+- Rejected overwrite should clear existing rejected parts for the entity before writing new part files.
+
+## Rejected Refactor Requirements
+
+Current rejected behavior is not yet dataset-oriented:
+- Per-source filenames (`{source_stem}_rejected.csv`) imply overwrite risk across runs.
+- Local file creation currently truncates/replaces existing path.
+
+Refactor target:
+- Treat rejected output as a logical dataset/table per entity.
+- Use part files with stable directory semantics (`part-xxxxx.csv`).
+- Route overwrite/append via the same mode policy layer used by accepted sinks.
+- Keep outputs human-readable and system-ingestible without run-id partitioning.
+
+## Open Questions To Resolve Before Implementation
+
+- Part naming strategy for append on file-oriented sinks:
+  - scan existing max part index and continue, or
+  - use timestamp/uuid naming to avoid list-before-write dependency.
+- Whether rejected error side artifacts (`*_reject_errors.json`) should also adopt dataset-style part naming.
+- Whether rejected raw copies should stay source-named or move to dataset-style outputs.
+- How append dedup against existing accepted target is configured (initial minimal behavior vs strict uniqueness gate).
+- Observability contract: where to expose per-run written parts and write mode in reports.
 
 ## Migration Map (Incremental)
 
 1. Introduce `WriteMode` type and default in config model.
-2. Pass `entity.sink.accepted.write_mode` through runtime accepted write context.
+2. Pass the resolved pipeline write mode through both accepted and rejected write contexts.
 3. Create writer scaffolding modules:
    - `io/write/modes.rs`
    - `io/write/accepted.rs`

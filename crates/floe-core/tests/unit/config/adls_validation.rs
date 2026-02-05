@@ -13,6 +13,7 @@ fn base_entity() -> config::EntityConfig {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "parquet".to_string(),
                 path: "out.parquet".to_string(),

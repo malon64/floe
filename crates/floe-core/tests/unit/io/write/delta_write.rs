@@ -41,6 +41,7 @@ fn write_delta_table_overwrite() -> FloeResult<()> {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "delta".to_string(),
                 path: table_path.display().to_string(),

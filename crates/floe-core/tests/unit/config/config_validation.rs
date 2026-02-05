@@ -807,3 +807,52 @@ fn parquet_source_allows_s3_storage() {
     let yaml = config_with_storages(storages, entity);
     assert_validation_ok(&yaml);
 }
+
+#[test]
+fn sink_level_append_write_mode_is_valid() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_ok(yaml);
+}
+
+#[test]
+fn sink_level_write_mode_rejects_unknown_value() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge"
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(yaml, &["sink.write_mode", "merge", "overwrite", "append"]);
+}

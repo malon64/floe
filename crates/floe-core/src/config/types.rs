@@ -159,9 +159,16 @@ fn build_null_values(values: Option<&Vec<String>>) -> Option<NullValues> {
 
 #[derive(Debug)]
 pub struct SinkConfig {
+    pub write_mode: WriteMode,
     pub accepted: SinkTarget,
     pub rejected: Option<SinkTarget>,
     pub archive: Option<ArchiveTarget>,
+}
+
+impl SinkConfig {
+    pub fn resolved_write_mode(&self) -> WriteMode {
+        self.write_mode
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

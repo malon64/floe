@@ -3,9 +3,8 @@ use std::path::{Path, PathBuf};
 use polars::prelude::{CsvWriter, DataFrame, SerWriter};
 
 use crate::errors::IoError;
-use crate::io::format::RejectedSinkAdapter;
-use crate::io::storage::Target;
-use crate::{config, io, FloeResult};
+use crate::io::format::{RejectedSinkAdapter, RejectedWriteRequest};
+use crate::{io, FloeResult};
 
 struct CsvRejectedAdapter;
 
@@ -27,16 +26,17 @@ pub fn write_rejected_csv(df: &mut DataFrame, output_path: &Path) -> FloeResult<
 }
 
 impl RejectedSinkAdapter for CsvRejectedAdapter {
-    fn write_rejected(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        source_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<String> {
+    fn write_rejected(&self, request: RejectedWriteRequest<'_>) -> FloeResult<String> {
+        let RejectedWriteRequest {
+            target,
+            df,
+            source_stem,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            mode: _,
+        } = request;
         let filename = io::storage::paths::build_output_filename(source_stem, "_rejected", "csv");
         io::storage::output::write_output(
             target,

@@ -54,19 +54,17 @@ entities:
     assert_eq!(options.header, Some(true));
     assert_eq!(options.separator.as_deref(), Some(";"));
     assert_eq!(options.encoding.as_deref(), Some("UTF8"));
+    assert_eq!(entity.sink.write_mode, WriteMode::Overwrite);
     assert_eq!(entity.sink.accepted.write_mode, WriteMode::Overwrite);
     assert_eq!(
         entity.sink.rejected.as_ref().unwrap().write_mode,
         WriteMode::Overwrite
     );
-    assert_eq!(
-        entity.sink.resolved_write_mode(&entity.name).unwrap(),
-        WriteMode::Overwrite
-    );
+    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Overwrite);
 }
 
 #[test]
-fn resolved_write_mode_errors_when_accepted_and_rejected_modes_differ() {
+fn parse_config_supports_sink_level_append_write_mode() {
     let yaml = r#"
 version: "0.1"
 entities:
@@ -75,6 +73,7 @@ entities:
       format: "csv"
       path: "/tmp/input"
     sink:
+      write_mode: "append"
       accepted:
         format: "parquet"
         path: "/tmp/out"
@@ -89,16 +88,13 @@ entities:
           type: "string"
 "#;
     let path = write_temp_config(yaml);
-    let mut config = load_config(&path).expect("parse config");
-    let entity = config.entities.first_mut().expect("entity");
-    entity.sink.accepted.write_mode = WriteMode::Append;
-
-    let err = entity
-        .sink
-        .resolved_write_mode(&entity.name)
-        .expect_err("expected mismatch error");
-    let message = err.to_string();
-    assert!(message.contains("entity.name=customer"));
-    assert!(message.contains("sink.accepted.write_mode=append"));
-    assert!(message.contains("sink.rejected.write_mode=overwrite"));
+    let config = load_config(&path).expect("parse config");
+    let entity = config.entities.first().expect("entity");
+    assert_eq!(entity.sink.write_mode, WriteMode::Append);
+    assert_eq!(entity.sink.accepted.write_mode, WriteMode::Append);
+    assert_eq!(
+        entity.sink.rejected.as_ref().unwrap().write_mode,
+        WriteMode::Append
+    );
+    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Append);
 }

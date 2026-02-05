@@ -41,7 +41,7 @@ pub(super) fn run_entity(
     entity: &config::EntityConfig,
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
-    let write_mode = entity.sink.resolved_write_mode(&entity.name)?;
+    let write_mode = entity.sink.resolved_write_mode();
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_remote = matches!(

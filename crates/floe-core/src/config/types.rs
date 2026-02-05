@@ -159,25 +159,15 @@ fn build_null_values(values: Option<&Vec<String>>) -> Option<NullValues> {
 
 #[derive(Debug)]
 pub struct SinkConfig {
+    pub write_mode: WriteMode,
     pub accepted: SinkTarget,
     pub rejected: Option<SinkTarget>,
     pub archive: Option<ArchiveTarget>,
 }
 
 impl SinkConfig {
-    pub fn resolved_write_mode(&self, entity_name: &str) -> FloeResult<WriteMode> {
-        let accepted = self.accepted.write_mode;
-        if let Some(rejected) = &self.rejected {
-            if rejected.write_mode != accepted {
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.write_mode={} and sink.rejected.write_mode={} must match",
-                    entity_name,
-                    accepted.as_str(),
-                    rejected.write_mode.as_str()
-                ))));
-            }
-        }
-        Ok(accepted)
+    pub fn resolved_write_mode(&self) -> WriteMode {
+        self.write_mode
     }
 }
 

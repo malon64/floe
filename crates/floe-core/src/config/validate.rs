@@ -95,7 +95,6 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
 
 fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
     format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
-    entity.sink.resolved_write_mode(&entity.name)?;
     if entity.sink.accepted.format == "iceberg" {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",

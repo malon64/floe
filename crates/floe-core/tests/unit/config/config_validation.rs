@@ -2,8 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use floe_core::config::WriteMode;
-use floe_core::{load_config, validate, validate_config_for_tests, ValidateOptions};
+use floe_core::{validate, ValidateOptions};
 
 fn write_temp_config(contents: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -810,7 +809,7 @@ fn parquet_source_allows_s3_storage() {
 }
 
 #[test]
-fn validation_errors_when_accepted_and_rejected_write_modes_differ() {
+fn sink_level_append_write_mode_is_valid() {
     let yaml = r#"version: "0.1"
 entities:
   - name: "customer"
@@ -818,6 +817,7 @@ entities:
       format: "csv"
       path: "/tmp/input"
     sink:
+      write_mode: "append"
       accepted:
         format: "parquet"
         path: "/tmp/out"
@@ -831,13 +831,28 @@ entities:
         - name: "customer_id"
           type: "string"
 "#;
-    let path = write_temp_config(yaml);
-    let mut config = load_config(&path).expect("parse config");
-    config.entities[0].sink.accepted.write_mode = WriteMode::Append;
+    assert_validation_ok(yaml);
+}
 
-    let err = validate_config_for_tests(&config).expect_err("expected mismatch error");
-    let message = err.to_string();
-    assert!(message.contains("entity.name=customer"));
-    assert!(message.contains("sink.accepted.write_mode=append"));
-    assert!(message.contains("sink.rejected.write_mode=overwrite"));
+#[test]
+fn sink_level_write_mode_rejects_unknown_value() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge"
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(yaml, &["sink.write_mode", "merge", "overwrite", "append"]);
 }

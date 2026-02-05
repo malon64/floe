@@ -1,6 +1,6 @@
 # Floe × Dagster integration (spec, MVP → future)
 
-This document describes how the `orchestrators/dagster` connector is intended to integrate Floe into Dagster.
+This document describes how the `orchestrators/dagster-floe` connector is intended to integrate Floe into Dagster.
 
 ## Goals
 
@@ -59,4 +59,3 @@ The connector supports two runners:
 - **Dagster checks**: map Floe check results (cast/not_null/unique/mismatch) into Dagster `AssetCheckResult`.
 - **Cloud summary loading**: support reading `summary_uri` from `s3://` / `gs://` / `abfs://` using cloud SDKs or Floe helpers.
 - **Config-as-asset**: represent the config itself as a Dagster asset and generate downstream entity assets from it.
-

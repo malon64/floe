@@ -30,10 +30,14 @@ fn write_config(dir: &Path, contents: &str) -> PathBuf {
 }
 
 fn run_config(path: &Path) -> floe_core::RunOutcome {
+    run_config_with_id(path, "test-run")
+}
+
+fn run_config_with_id(path: &Path, run_id: &str) -> floe_core::RunOutcome {
     run(
         path,
         RunOptions {
-            run_id: Some("test-run".to_string()),
+            run_id: Some(run_id.to_string()),
             entities: Vec::new(),
         },
     )
@@ -111,7 +115,7 @@ entities:
         .expect("read accepted parquet");
     assert_eq!(df.height(), 3);
 
-    let rejected_path = rejected_dir.join("b_rejected.csv");
+    let rejected_path = rejected_dir.join("test-run").join("b_rejected.csv");
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
     assert!(rejected_contents.contains("__floe_errors"));
     assert!(rejected_contents.contains("unique"));
@@ -166,7 +170,7 @@ entities:
     assert_eq!(file.status, FileStatus::Rejected);
     assert_eq!(file.mismatch.mismatch_action, MismatchAction::RejectedFile);
 
-    let rejected_path = rejected_dir.join("input.csv");
+    let rejected_path = rejected_dir.join("test-run").join("input.csv");
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
     assert!(!rejected_contents.contains("__floe_errors"));
 }
@@ -214,15 +218,21 @@ entities:
     );
     let config_path = write_config(&root, &yaml);
 
-    run_config(&config_path);
+    run_config_with_id(&config_path, "run-1");
     write_csv(&input_dir, "input.csv", "id;name\n2;\n");
-    run_config(&config_path);
+    run_config_with_id(&config_path, "run-2");
 
-    let rejected_path = rejected_dir.join("input_rejected.csv");
-    let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
-    assert!(rejected_contents.contains("\n1,"));
-    assert!(rejected_contents.contains("\n2,"));
-    assert_eq!(rejected_contents.lines().count(), 3);
+    let run1_path = rejected_dir.join("run-1").join("input_rejected.csv");
+    let run1_contents = fs::read_to_string(&run1_path).expect("read run-1 rejected csv");
+    assert!(run1_contents.contains("\n1,"));
+    assert!(!run1_contents.contains("\n2,"));
+    assert_eq!(run1_contents.lines().count(), 2);
+
+    let run2_path = rejected_dir.join("run-2").join("input_rejected.csv");
+    let run2_contents = fs::read_to_string(&run2_path).expect("read run-2 rejected csv");
+    assert!(run2_contents.contains("\n2,"));
+    assert!(!run2_contents.contains("\n1,"));
+    assert_eq!(run2_contents.lines().count(), 2);
 }
 
 #[test]
@@ -269,9 +279,9 @@ entities:
     );
     let config_path = write_config(&root, &yaml);
 
-    run_config(&config_path);
+    run_config_with_id(&config_path, "run-1");
     write_csv(&input_dir, "input.csv", "id;name\n2;\n");
-    run_config(&config_path);
+    run_config_with_id(&config_path, "run-2");
 
     let rejected_path = rejected_dir.join("input_rejected.csv");
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");

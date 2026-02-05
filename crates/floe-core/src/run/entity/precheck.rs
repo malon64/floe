@@ -80,9 +80,17 @@ pub(super) fn run_precheck(
                         .rejected
                         .as_ref()
                         .map(|target| {
+                            let mode = entity
+                                .sink
+                                .rejected
+                                .as_ref()
+                                .map(|sink| sink.write_mode)
+                                .unwrap_or(config::WriteMode::Overwrite);
                             write_rejected_raw_output(
                                 target,
                                 &input_file,
+                                mode,
+                                &context.run_id,
                                 temp_dir.as_ref().map(|dir| dir.path()),
                                 cloud,
                                 &context.storage_resolver,
@@ -176,6 +184,13 @@ pub(super) fn run_precheck(
             let rejected_path = Some(write_rejected_raw_output(
                 rejected_target,
                 &input_file,
+                entity
+                    .sink
+                    .rejected
+                    .as_ref()
+                    .map(|sink| sink.write_mode)
+                    .unwrap_or(config::WriteMode::Overwrite),
+                &context.run_id,
                 temp_dir.as_ref().map(|dir| dir.path()),
                 cloud,
                 &context.storage_resolver,

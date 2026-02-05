@@ -167,8 +167,8 @@ is available for templating within that entity.
 - `path`: output directory for rejected rows.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `write_mode` (optional)
-    - `append` (default): append new rejected rows to existing rejected CSV file.
-    - `overwrite`: replace existing rejected CSV file.
+    - `append` (default): write new rejected artifacts under a run partition (`<sink.rejected.path>/<run_id>/...`) so previous runs are immutable.
+    - `overwrite`: write to stable paths and replace existing rejected files.
 - `archive` (optional)
 - `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.

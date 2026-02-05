@@ -45,6 +45,7 @@ pub struct RejectedWriteRequest<'a> {
     pub df: &'a mut DataFrame,
     pub source_stem: &'a str,
     pub mode: config::WriteMode,
+    pub run_id: &'a str,
     pub temp_dir: Option<&'a Path>,
     pub cloud: &'a mut io::storage::CloudClient,
     pub resolver: &'a config::StorageResolver,

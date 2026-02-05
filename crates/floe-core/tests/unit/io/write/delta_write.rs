@@ -46,6 +46,7 @@ fn write_delta_table_overwrite() -> FloeResult<()> {
                 path: table_path.display().to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,

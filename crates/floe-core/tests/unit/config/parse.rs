@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use floe_core::config::WriteMode;
 use floe_core::load_config;
 
 fn write_temp_config(contents: &str) -> PathBuf {
@@ -50,4 +51,5 @@ entities:
     assert_eq!(options.header, Some(true));
     assert_eq!(options.separator.as_deref(), Some(";"));
     assert_eq!(options.encoding.as_deref(), Some("UTF8"));
+    assert_eq!(entity.sink.accepted.write_mode, WriteMode::Overwrite);
 }

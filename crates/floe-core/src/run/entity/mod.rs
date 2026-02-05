@@ -8,7 +8,7 @@ use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
-    AcceptedOutputContext, OutputMode,
+    AcceptedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -606,7 +606,7 @@ pub(super) fn run_entity(
             cloud,
             resolver: &context.storage_resolver,
             entity,
-            mode: OutputMode::Overwrite,
+            mode: entity.sink.accepted.write_mode,
         })?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;

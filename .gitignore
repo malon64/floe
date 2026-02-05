@@ -4,6 +4,11 @@
 # OS
 .DS_Store
 Thumbs.db
+.cargo/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
 
 # Editors
 .idea/
@@ -31,3 +36,8 @@ bench/.venv
 aws/
 gcp/
 adls/
+
+# Dagster
+orchestrators/dagster-floe/.tmp_*/
+orchestrators/dagster-floe/.dg/
+orchestrators/dagster-floe/.venv/

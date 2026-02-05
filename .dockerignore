@@ -4,8 +4,7 @@ target
 aws
 gcp
 bench
-dagster
-floe-dagster
+orchestrators
 **/.venv
 **/__pycache__
 **/*.pyc

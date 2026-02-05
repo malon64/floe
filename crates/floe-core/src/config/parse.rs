@@ -12,7 +12,7 @@ use crate::config::{
     ArchiveTarget, ColumnConfig, DomainConfig, EntityConfig, EntityMetadata, EnvConfig,
     NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
     SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
-    StorageDefinition, StoragesConfig,
+    StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -328,6 +328,7 @@ fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult
         path: get_string(hash, "path", ctx)?,
         storage: storage.or(filesystem),
         options,
+        write_mode: WriteMode::default(),
     })
 }
 

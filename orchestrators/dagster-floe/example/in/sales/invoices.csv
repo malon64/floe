@@ -1,0 +1,6 @@
+invoice_id,order_id,paid
+i001,o001,true
+i002,o002,false
+i003,o003,maybe
+i004,,true
+

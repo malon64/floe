@@ -1,0 +1,5 @@
+load_from:
+  - python_module:
+      module_name: floe_dagster.definitions
+      working_directory: .
+

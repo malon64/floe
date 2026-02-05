@@ -60,18 +60,15 @@ pub(super) fn write_rejected_output(
 pub(super) fn write_rejected_raw_output(
     target: &Target,
     input_file: &InputFile,
-    mode: config::WriteMode,
-    run_id: &str,
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<String> {
-    let (placement, filename) = rejected_output_location(mode, run_id, &input_file.source_name);
     io::storage::output::write_output(
         target,
-        placement,
-        &filename,
+        io::storage::output::OutputPlacement::Output,
+        &input_file.source_name,
         temp_dir,
         cloud,
         resolver,
@@ -84,25 +81,18 @@ pub(super) fn write_rejected_raw_output(
 }
 
 pub(super) fn write_error_report_output(
-    context: ErrorReportOutputContext<'_>,
+    target: &Target,
+    source_stem: &str,
+    errors_json: &[Option<String>],
+    temp_dir: Option<&Path>,
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
 ) -> FloeResult<String> {
-    let ErrorReportOutputContext {
-        target,
-        source_stem,
-        errors_json,
-        mode,
-        run_id,
-        temp_dir,
-        cloud,
-        resolver,
-        entity,
-    } = context;
-    let base_filename =
-        io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
-    let (placement, filename) = rejected_output_location(mode, run_id, &base_filename);
+    let filename = io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
     io::storage::output::write_output(
         target,
-        placement,
+        io::storage::output::OutputPlacement::Sibling,
         &filename,
         temp_dir,
         cloud,
@@ -113,35 +103,6 @@ pub(super) fn write_error_report_output(
             Ok(())
         },
     )
-}
-
-pub(super) struct ErrorReportOutputContext<'a> {
-    pub(super) target: &'a Target,
-    pub(super) source_stem: &'a str,
-    pub(super) errors_json: &'a [Option<String>],
-    pub(super) mode: config::WriteMode,
-    pub(super) run_id: &'a str,
-    pub(super) temp_dir: Option<&'a Path>,
-    pub(super) cloud: &'a mut io::storage::CloudClient,
-    pub(super) resolver: &'a config::StorageResolver,
-    pub(super) entity: &'a config::EntityConfig,
-}
-
-fn rejected_output_location(
-    mode: config::WriteMode,
-    run_id: &str,
-    filename: &str,
-) -> (io::storage::output::OutputPlacement, String) {
-    match mode {
-        config::WriteMode::Overwrite => (
-            io::storage::output::OutputPlacement::Output,
-            filename.to_string(),
-        ),
-        config::WriteMode::Append => (
-            io::storage::output::OutputPlacement::Directory,
-            io::storage::paths::run_partition_relative(run_id, filename),
-        ),
-    }
 }
 
 pub(super) fn validate_rejected_target<'a>(

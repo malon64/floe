@@ -92,34 +92,6 @@ pub fn archive_relative_path(entity: &str, filename: &str) -> String {
     }
 }
 
-pub fn sanitize_path_component(value: &str) -> String {
-    let sanitized = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "_".to_string()
-    } else {
-        sanitized
-    }
-}
-
-pub fn run_partition_relative(run_id: &str, filename: &str) -> String {
-    let partition = sanitize_path_component(run_id);
-    let file = filename.trim_matches('/');
-    if file.is_empty() {
-        partition
-    } else {
-        format!("{partition}/{file}")
-    }
-}
-
 pub fn resolve_archive_path(base_path: &str, entity: &str, filename: &str) -> PathBuf {
     let relative = archive_relative_path(entity, filename);
     resolve_output_dir_path(base_path, &relative)

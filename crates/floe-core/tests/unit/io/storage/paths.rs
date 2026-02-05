@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use floe_core::io::storage::paths::{
     archive_relative_path, build_output_filename, build_part_stem, resolve_archive_key,
     resolve_archive_path, resolve_output_dir_key, resolve_output_dir_path, resolve_output_key,
-    resolve_sibling_key, run_partition_relative, sanitize_path_component,
+    resolve_sibling_key,
 };
 
 #[test]
@@ -75,22 +75,6 @@ fn resolve_sibling_key_uses_parent_for_file_base() {
     assert_eq!(
         resolve_sibling_key("out", "file_reject_errors.json"),
         "out/file_reject_errors.json"
-    );
-}
-
-#[test]
-fn sanitize_path_component_replaces_unsafe_chars() {
-    assert_eq!(
-        sanitize_path_component("run/2026-01-28T15:27:38Z"),
-        "run_2026-01-28T15_27_38Z"
-    );
-}
-
-#[test]
-fn run_partition_relative_prefixes_filename_with_run_id() {
-    assert_eq!(
-        run_partition_relative("run-1", "input_rejected.csv"),
-        "run-1/input_rejected.csv"
     );
 }
 

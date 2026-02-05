@@ -8,7 +8,7 @@ use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
-    AcceptedOutputContext, ErrorReportOutputContext,
+    AcceptedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -219,17 +219,9 @@ pub(super) fn run_entity(
                 let rejected_path = rejected_target
                     .as_ref()
                     .map(|target| {
-                        let mode = entity
-                            .sink
-                            .rejected
-                            .as_ref()
-                            .map(|sink| sink.write_mode)
-                            .unwrap_or(config::WriteMode::Overwrite);
                         write_rejected_raw_output(
                             target,
                             &input_file,
-                            mode,
-                            &context.run_id,
                             temp_dir.as_ref().map(|dir| dir.path()),
                             cloud,
                             &context.storage_resolver,
@@ -385,23 +377,15 @@ pub(super) fn run_entity(
                 accepted_df_opt = Some(df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target.as_ref() {
-                        let errors_path_value =
-                            write_error_report_output(ErrorReportOutputContext {
-                                target: rejected_target,
-                                source_stem,
-                                errors_json: &errors_json,
-                                mode: entity
-                                    .sink
-                                    .rejected
-                                    .as_ref()
-                                    .map(|sink| sink.write_mode)
-                                    .unwrap_or(config::WriteMode::Overwrite),
-                                run_id: &context.run_id,
-                                temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-                                cloud,
-                                resolver: &context.storage_resolver,
-                                entity,
-                            })?;
+                        let errors_path_value = write_error_report_output(
+                            rejected_target,
+                            source_stem,
+                            &errors_json,
+                            temp_dir.as_ref().map(|dir| dir.path()),
+                            cloud,
+                            &context.storage_resolver,
+                            entity,
+                        )?;
                         errors_path = Some(errors_path_value);
                     } else {
                         let message = format!(
@@ -450,7 +434,6 @@ pub(super) fn run_entity(
                             df: &mut rejected_df,
                             source_stem,
                             mode: rejected_config.write_mode,
-                            run_id: &context.run_id,
                             temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
                             cloud,
                             resolver: &context.storage_resolver,
@@ -474,34 +457,20 @@ pub(super) fn run_entity(
                     let rejected_path_value = write_rejected_raw_output(
                         rejected_target,
                         &input_file,
-                        entity
-                            .sink
-                            .rejected
-                            .as_ref()
-                            .map(|sink| sink.write_mode)
-                            .unwrap_or(config::WriteMode::Overwrite),
-                        &context.run_id,
                         temp_dir.as_ref().map(|dir| dir.path()),
                         cloud,
                         &context.storage_resolver,
                         entity,
                     )?;
-                    let errors_path_value = write_error_report_output(ErrorReportOutputContext {
-                        target: rejected_target,
+                    let errors_path_value = write_error_report_output(
+                        rejected_target,
                         source_stem,
-                        errors_json: &errors_json,
-                        mode: entity
-                            .sink
-                            .rejected
-                            .as_ref()
-                            .map(|sink| sink.write_mode)
-                            .unwrap_or(config::WriteMode::Overwrite),
-                        run_id: &context.run_id,
-                        temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
+                        &errors_json,
+                        temp_dir.as_ref().map(|dir| dir.path()),
                         cloud,
-                        resolver: &context.storage_resolver,
+                        &context.storage_resolver,
                         entity,
-                    })?;
+                    )?;
                     rejected_path = Some(rejected_path_value);
                     errors_path = Some(errors_path_value);
                 } else {

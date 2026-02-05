@@ -20,6 +20,18 @@ pub(super) struct AcceptedOutputContext<'a> {
     pub(super) mode: config::WriteMode,
 }
 
+pub(super) struct RejectedOutputContext<'a> {
+    pub(super) format: &'a str,
+    pub(super) target: &'a Target,
+    pub(super) df: &'a mut DataFrame,
+    pub(super) source_stem: &'a str,
+    pub(super) temp_dir: Option<&'a Path>,
+    pub(super) cloud: &'a mut io::storage::CloudClient,
+    pub(super) resolver: &'a config::StorageResolver,
+    pub(super) entity: &'a config::EntityConfig,
+    pub(super) mode: config::WriteMode,
+}
+
 pub(super) fn write_accepted_output(
     context: AcceptedOutputContext<'_>,
 ) -> FloeResult<format::AcceptedWriteOutput> {
@@ -49,18 +61,30 @@ pub(super) fn write_accepted_output(
         },
     )
 }
-pub(super) fn write_rejected_output(
-    format: &str,
-    target: &Target,
-    df: &mut DataFrame,
-    source_stem: &str,
-    temp_dir: Option<&Path>,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-) -> FloeResult<String> {
+pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeResult<String> {
+    let RejectedOutputContext {
+        format,
+        target,
+        df,
+        source_stem,
+        temp_dir,
+        cloud,
+        resolver,
+        entity,
+        mode,
+    } = context;
+    io::write::modes::ensure_mode_supported(mode)?;
     let adapter = format::rejected_sink_adapter(format)?;
-    adapter.write_rejected(target, df, source_stem, temp_dir, cloud, resolver, entity)
+    adapter.write_rejected(format::RejectedWriteRequest {
+        target,
+        df,
+        source_stem,
+        temp_dir,
+        cloud,
+        resolver,
+        entity,
+        mode,
+    })
 }
 
 pub(super) fn write_rejected_raw_output(

@@ -164,6 +164,23 @@ pub struct SinkConfig {
     pub archive: Option<ArchiveTarget>,
 }
 
+impl SinkConfig {
+    pub fn resolved_write_mode(&self, entity_name: &str) -> FloeResult<WriteMode> {
+        let accepted = self.accepted.write_mode;
+        if let Some(rejected) = &self.rejected {
+            if rejected.write_mode != accepted {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.write_mode={} and sink.rejected.write_mode={} must match",
+                    entity_name,
+                    accepted.as_str(),
+                    rejected.write_mode.as_str()
+                ))));
+            }
+        }
+        Ok(accepted)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WriteMode {
     #[default]

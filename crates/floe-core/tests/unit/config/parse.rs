@@ -31,6 +31,9 @@ entities:
       accepted:
         format: "parquet"
         path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
     policy:
       severity: "warn"
     schema:
@@ -52,4 +55,50 @@ entities:
     assert_eq!(options.separator.as_deref(), Some(";"));
     assert_eq!(options.encoding.as_deref(), Some("UTF8"));
     assert_eq!(entity.sink.accepted.write_mode, WriteMode::Overwrite);
+    assert_eq!(
+        entity.sink.rejected.as_ref().unwrap().write_mode,
+        WriteMode::Overwrite
+    );
+    assert_eq!(
+        entity.sink.resolved_write_mode(&entity.name).unwrap(),
+        WriteMode::Overwrite
+    );
+}
+
+#[test]
+fn resolved_write_mode_errors_when_accepted_and_rejected_modes_differ() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let mut config = load_config(&path).expect("parse config");
+    let entity = config.entities.first_mut().expect("entity");
+    entity.sink.accepted.write_mode = WriteMode::Append;
+
+    let err = entity
+        .sink
+        .resolved_write_mode(&entity.name)
+        .expect_err("expected mismatch error");
+    let message = err.to_string();
+    assert!(message.contains("entity.name=customer"));
+    assert!(message.contains("sink.accepted.write_mode=append"));
+    assert!(message.contains("sink.rejected.write_mode=overwrite"));
 }

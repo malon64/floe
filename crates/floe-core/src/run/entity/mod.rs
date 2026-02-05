@@ -8,7 +8,7 @@ use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
-    AcceptedOutputContext,
+    AcceptedOutputContext, RejectedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -41,6 +41,7 @@ pub(super) fn run_entity(
     entity: &config::EntityConfig,
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
+    let write_mode = entity.sink.resolved_write_mode(&entity.name)?;
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_remote = matches!(
@@ -427,16 +428,17 @@ pub(super) fn run_entity(
                             entity.name
                         )))
                     })?;
-                    let rejected_path_value = write_rejected_output(
-                        rejected_config.format.as_str(),
-                        rejected_target,
-                        &mut rejected_df,
+                    let rejected_path_value = write_rejected_output(RejectedOutputContext {
+                        format: rejected_config.format.as_str(),
+                        target: rejected_target,
+                        df: &mut rejected_df,
                         source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
+                        temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
                         cloud,
-                        &context.storage_resolver,
+                        resolver: &context.storage_resolver,
                         entity,
-                    )?;
+                        mode: write_mode,
+                    })?;
                     rejected_path = Some(rejected_path_value);
                 } else {
                     accepted_df_opt = Some(df);
@@ -606,7 +608,7 @@ pub(super) fn run_entity(
             cloud,
             resolver: &context.storage_resolver,
             entity,
-            mode: entity.sink.accepted.write_mode,
+            mode: write_mode,
         })?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;

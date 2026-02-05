@@ -2,7 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use floe_core::{validate, ValidateOptions};
+use floe_core::config::WriteMode;
+use floe_core::{load_config, validate, validate_config_for_tests, ValidateOptions};
 
 fn write_temp_config(contents: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -806,4 +807,37 @@ fn parquet_source_allows_s3_storage() {
 "#;
     let yaml = config_with_storages(storages, entity);
     assert_validation_ok(&yaml);
+}
+
+#[test]
+fn validation_errors_when_accepted_and_rejected_write_modes_differ() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let mut config = load_config(&path).expect("parse config");
+    config.entities[0].sink.accepted.write_mode = WriteMode::Append;
+
+    let err = validate_config_for_tests(&config).expect_err("expected mismatch error");
+    let message = err.to_string();
+    assert!(message.contains("entity.name=customer"));
+    assert!(message.contains("sink.accepted.write_mode=append"));
+    assert!(message.contains("sink.rejected.write_mode=overwrite"));
 }

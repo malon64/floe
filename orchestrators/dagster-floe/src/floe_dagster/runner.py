@@ -110,6 +110,12 @@ class DockerRunner(Runner):
                 config_path = maybe_path.resolve()
                 mount_root = _infer_mount_root_for_config(config_path)
                 docker_cmd.extend(["-v", f"{mount_root}:/work"])
+                # When mounting local files, run the container as the current user so Floe
+                # can write reports/outputs back into the mounted directory.
+                uid = getattr(os, "getuid", None)
+                gid = getattr(os, "getgid", None)
+                if uid is not None and gid is not None:
+                    docker_cmd.extend(["--user", f"{uid()}:{gid()}"])
 
                 floe_args = floe_args.copy()
                 if "-c" in floe_args:

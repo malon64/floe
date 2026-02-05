@@ -188,10 +188,14 @@ jobs:
         run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Build floe
         run: |
+          features=""
+          if [[ "${{ matrix.target }}" == *unknown-linux* ]]; then
+            features="--features vendored-openssl"
+          fi
           if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build -p floe-cli --release --target ${{ matrix.target }}
+            cross build -p floe-cli ${features} --release --target ${{ matrix.target }}
           else
-            cargo build -p floe-cli --release --target ${{ matrix.target }}
+            cargo build -p floe-cli ${features} --release --target ${{ matrix.target }}
           fi
       - name: Package binary
         shell: bash

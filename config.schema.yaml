@@ -187,6 +187,9 @@ $defs:
     required:
       - accepted
     properties:
+      write_mode:
+        type: string
+        enum: [overwrite, append]
       accepted:
         $ref: "#/$defs/sink_accepted"
       rejected:

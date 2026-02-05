@@ -1,7 +1,10 @@
+pub mod accepted;
 pub mod csv;
 pub mod delta;
 pub mod iceberg;
+pub mod modes;
 pub mod parquet;
+pub mod parts;
 
 use std::path::{Path, PathBuf};
 

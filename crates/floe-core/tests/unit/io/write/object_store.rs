@@ -44,11 +44,13 @@ fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "delta".to_string(),
                 path: "delta/orders".to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,
@@ -103,11 +105,13 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "delta".to_string(),
                 path: "delta/orders".to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,
@@ -165,11 +169,13 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "delta".to_string(),
                 path: "delta/orders".to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,
@@ -244,11 +250,13 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "delta".to_string(),
                 path: "delta/orders".to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,

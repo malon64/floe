@@ -1,0 +1,3 @@
+{"schema":"floe.log.v1","level":"info","event":"run_started","run_id":"run-123","ts_ms":0}
+{"schema":"floe.log.v1","level":"info","event":"run_finished","run_id":"run-123","status":"success","exit_code":0,"summary_uri":"local:///tmp/report/run_run-123/run.summary.json","ts_ms":1}
+

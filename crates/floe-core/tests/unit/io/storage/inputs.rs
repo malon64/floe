@@ -147,11 +147,13 @@ fn mock_entity(name: &str) -> config::EntityConfig {
             cast_mode: None,
         },
         sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
             accepted: config::SinkTarget {
                 format: "csv".to_string(),
                 path: "out".to_string(),
                 storage: None,
                 options: None,
+                write_mode: config::WriteMode::Overwrite,
             },
             rejected: None,
             archive: None,

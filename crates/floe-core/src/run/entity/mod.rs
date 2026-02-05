@@ -8,7 +8,7 @@ use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
-    AcceptedOutputContext, OutputMode,
+    AcceptedOutputContext, RejectedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::report::build::summarize_validation_sparse;
@@ -41,6 +41,7 @@ pub(super) fn run_entity(
     entity: &config::EntityConfig,
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
+    let write_mode = entity.sink.resolved_write_mode();
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_remote = matches!(
@@ -198,6 +199,13 @@ pub(super) fn run_entity(
                 typed_df,
             } => (input_file, raw_df, typed_df),
             ReadInput::FileError { input_file, error } => {
+                crate::errors::emit(
+                    &context.run_id,
+                    Some(&entity.name),
+                    Some(&input_file.source_uri),
+                    Some(&error.rule),
+                    &format!("entity.name={} {}", entity.name, error.message),
+                );
                 let status = if entity.policy.severity == "abort" {
                     report::FileStatus::Aborted
                 } else {
@@ -354,7 +362,14 @@ pub(super) fn run_entity(
         let mut sink_options_warnings = 0;
         if let Some(message) = sink_options_warning.as_deref() {
             sink_options_warnings = 1;
-            warnings::emit_once(&mut sink_options_warned, message);
+            warnings::emit_once(
+                &mut sink_options_warned,
+                &context.run_id,
+                Some(&entity.name),
+                None,
+                Some("sink_options_ignored"),
+                message,
+            );
             append_sink_options_warning(&mut rules, message);
         }
 
@@ -374,10 +389,17 @@ pub(super) fn run_entity(
                         )?;
                         errors_path = Some(errors_path_value);
                     } else {
-                        warnings::emit(&format!(
+                        let message = format!(
                             "entity.name={} sink.rejected missing; error report not written",
                             entity.name
-                        ));
+                        );
+                        warnings::emit(
+                            &context.run_id,
+                            Some(&entity.name),
+                            None,
+                            Some("sink_rejected_missing"),
+                            &message,
+                        );
                     }
                 }
             }
@@ -406,16 +428,17 @@ pub(super) fn run_entity(
                             entity.name
                         )))
                     })?;
-                    let rejected_path_value = write_rejected_output(
-                        rejected_config.format.as_str(),
-                        rejected_target,
-                        &mut rejected_df,
+                    let rejected_path_value = write_rejected_output(RejectedOutputContext {
+                        format: rejected_config.format.as_str(),
+                        target: rejected_target,
+                        df: &mut rejected_df,
                         source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
+                        temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
                         cloud,
-                        &context.storage_resolver,
+                        resolver: &context.storage_resolver,
                         entity,
-                    )?;
+                        mode: write_mode,
+                    })?;
                     rejected_path = Some(rejected_path_value);
                 } else {
                     accepted_df_opt = Some(df);
@@ -585,7 +608,7 @@ pub(super) fn run_entity(
             cloud,
             resolver: &context.storage_resolver,
             entity,
-            mode: OutputMode::Overwrite,
+            mode: write_mode,
         })?;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;

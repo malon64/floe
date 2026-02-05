@@ -1,3 +1,5 @@
+
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
@@ -87,7 +89,20 @@ pub fn run_with_base(
         report_base: context.report_base_path.clone(),
         ts_ms: event_time_ms(),
     });
-    for entity in &context.config.entities {
+
+    let selected_entities: Vec<&config::EntityConfig> = if options.entities.is_empty() {
+        context.config.entities.iter().collect()
+    } else {
+        let selected: HashSet<&str> = options.entities.iter().map(|s| s.as_str()).collect();
+        context
+            .config
+            .entities
+            .iter()
+            .filter(|entity| selected.contains(entity.name.as_str()))
+            .collect()
+    };
+
+    for entity in selected_entities {
         observer.on_event(RunEvent::EntityStarted {
             run_id: context.run_id.clone(),
             name: entity.name.clone(),

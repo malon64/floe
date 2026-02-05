@@ -159,9 +159,32 @@ fn build_null_values(values: Option<&Vec<String>>) -> Option<NullValues> {
 
 #[derive(Debug)]
 pub struct SinkConfig {
+    pub write_mode: WriteMode,
     pub accepted: SinkTarget,
     pub rejected: Option<SinkTarget>,
     pub archive: Option<ArchiveTarget>,
+}
+
+impl SinkConfig {
+    pub fn resolved_write_mode(&self) -> WriteMode {
+        self.write_mode
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WriteMode {
+    #[default]
+    Overwrite,
+    Append,
+}
+
+impl WriteMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WriteMode::Overwrite => "overwrite",
+            WriteMode::Append => "append",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -170,6 +193,7 @@ pub struct SinkTarget {
     pub path: String,
     pub storage: Option<String>,
     pub options: Option<SinkOptions>,
+    pub write_mode: WriteMode,
 }
 
 #[derive(Debug)]

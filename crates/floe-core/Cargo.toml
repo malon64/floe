@@ -1,6 +1,6 @@
 [package]
 name = "floe-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Core library for Floe, a YAML-driven technical ingestion tool."
 license = "MIT"
@@ -32,3 +32,11 @@ azure_identity = "0.20"
 azure_storage = "0.20"
 azure_storage_blobs = "0.20"
 futures = "0.3"
+
+# Optional: used only to unify transitive TLS feature selection for linux release builds.
+# Enabling `vendored-openssl` forces `reqwest` to build OpenSSL from source and link it
+# statically, avoiding runtime deps on the host/container (e.g. libssl.so.1.0.0).
+reqwest = { version = "0.12", optional = true, default-features = true, features = ["native-tls-vendored"] }
+
+[features]
+vendored-openssl = ["dep:reqwest"]

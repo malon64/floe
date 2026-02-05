@@ -1,9 +1,12 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use floe_core::{
-    load_config, resolve_config_location, run_with_base, set_observer, validate_with_base,
-    FloeResult, RunEvent, RunObserver, RunOptions, ValidateOptions,
+    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
+    RunOptions, ValidateOptions,
 };
-use std::sync::Arc;
+use std::io::Write;
+
+use crate::logging::LogFormat;
+use crate::validate_output::ValidateOutputFormat;
 
 const VERSION: &str = env!("FLOE_VERSION");
 const ROOT_LONG_ABOUT: &str = concat!(
@@ -59,7 +62,9 @@ const VALIDATE_LONG_ABOUT: &str = concat!(
     "  floe validate -c example/config.yml\n",
 );
 
+mod logging;
 mod output;
+mod validate_output;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -85,6 +90,14 @@ enum Command {
             help = "Comma-separated list of entity names"
         )]
         entities: Vec<String>,
+        #[arg(
+            long,
+            alias = "format",
+            value_enum,
+            default_value_t = ValidateOutputFormat::Text,
+            help = "Output format for validate (text|json)"
+        )]
+        output: ValidateOutputFormat,
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
@@ -118,126 +131,114 @@ enum Command {
     },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum LogFormat {
-    Off,
-    Text,
-    Json,
-}
-
-struct CliObserver {
-    format: LogFormat,
-}
-
-impl RunObserver for CliObserver {
-    fn on_event(&self, event: RunEvent) {
-        match self.format {
-            LogFormat::Json => {
-                if let Ok(line) = serde_json::to_string(&event) {
-                    println!("{line}");
-                }
-            }
-            LogFormat::Text => println!("{}", format_event_text(&event)),
-            LogFormat::Off => {}
-        }
-    }
-}
-
-fn format_event_text(event: &RunEvent) -> String {
-    match event {
-        RunEvent::RunStarted {
-            run_id,
-            config,
-            report_base,
-            ..
-        } => format!(
-            "run_start run_id={} config={} report_base={}",
-            run_id,
-            config,
-            report_base.as_deref().unwrap_or("disabled")
-        ),
-        RunEvent::EntityStarted { name, .. } => format!("\nentity_start name={name}"),
-        RunEvent::FileStarted { entity, input, .. } => {
-            format!("  file_start entity={entity} input={input}")
-        }
-        RunEvent::FileFinished {
-            entity,
-            input,
-            status,
-            rows,
-            accepted,
-            rejected,
-            elapsed_ms,
-            ..
-        } => format!(
-            "  file_end entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
-            entity, input, status, rows, accepted, rejected, elapsed_ms
-        ),
-        RunEvent::EntityFinished {
-            name,
-            status,
-            files,
-            rows,
-            accepted,
-            rejected,
-            warnings,
-            errors,
-            ..
-        } => format!(
-            "entity_end name={} status={} files={} rows={} accepted={} rejected={} warnings={} errors={}",
-            name, status, files, rows, accepted, rejected, warnings, errors
-        ),
-        RunEvent::RunFinished {
-            status,
-            exit_code,
-            summary_uri,
-            ..
-        } => format!(
-            "\nrun_end status={} exit_code={} summary={}",
-            status,
-            exit_code,
-            summary_uri.as_deref().unwrap_or("disabled")
-        ),
-    }
-}
-
 fn main() -> FloeResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Validate { config, entities } => {
-            let config_location = resolve_config_location(&config)?;
-            let options = ValidateOptions { entities };
-            validate_with_base(&config_location.path, config_location.base.clone(), options)?;
-            let config = load_config(&config_location.path)?;
-            println!("Config valid: {}", config_location.display);
-            println!("Version: {}", config.version);
-            println!(
-                "Report: {}",
-                config
-                    .report
-                    .as_ref()
-                    .map(|report| report.path.as_str())
-                    .unwrap_or("(disabled)")
-            );
-            println!("Entities: {}", config.entities.len());
-            for entity in &config.entities {
-                println!("Entity: {}", entity.name);
-                println!(
-                    "  Source: {} ({})",
-                    entity.source.format, entity.source.path
-                );
-                println!(
-                    "  Sink accepted: {} ({})",
-                    entity.sink.accepted.format, entity.sink.accepted.path
-                );
-                if let Some(rejected) = &entity.sink.rejected {
-                    println!("  Sink rejected: {} ({})", rejected.format, rejected.path);
+        Command::Validate {
+            config,
+            entities,
+            output,
+        } => {
+            let config_location = match resolve_config_location(&config) {
+                Ok(location) => location,
+                Err(err) => {
+                    match output {
+                        ValidateOutputFormat::Json => {
+                            let json =
+                                validate_output::build_invalid_json(&config, None, err.as_ref());
+                            let mut out = std::io::stdout().lock();
+                            let _ = writeln!(out, "{json}");
+                            let _ = out.flush();
+                        }
+                        ValidateOutputFormat::Text => {
+                            let mut err_out = std::io::stderr().lock();
+                            let _ = writeln!(err_out, "Error: {err}");
+                            let _ = err_out.flush();
+                        }
+                    }
+                    std::process::exit(1);
                 }
-                println!("  Severity: {}", entity.policy.severity);
+            };
+
+            let options = ValidateOptions {
+                entities: entities.clone(),
+            };
+
+            let validation_result =
+                validate_with_base(&config_location.path, config_location.base.clone(), options);
+
+            match output {
+                ValidateOutputFormat::Text => match validation_result {
+                    Ok(()) => {
+                        let config = load_config(&config_location.path)?;
+                        println!("Config valid: {}", config_location.display);
+                        println!("Version: {}", config.version);
+                        println!(
+                            "Report: {}",
+                            config
+                                .report
+                                .as_ref()
+                                .map(|report| report.path.as_str())
+                                .unwrap_or("(disabled)")
+                        );
+                        println!("Entities: {}", config.entities.len());
+                        for entity in &config.entities {
+                            println!("Entity: {}", entity.name);
+                            println!(
+                                "  Source: {} ({})",
+                                entity.source.format, entity.source.path
+                            );
+                            println!(
+                                "  Sink accepted: {} ({})",
+                                entity.sink.accepted.format, entity.sink.accepted.path
+                            );
+                            if let Some(rejected) = &entity.sink.rejected {
+                                println!(
+                                    "  Sink rejected: {} ({})",
+                                    rejected.format, rejected.path
+                                );
+                            }
+                            println!("  Severity: {}", entity.policy.severity);
+                        }
+                        println!("Next: floe run -c {}", config_location.display);
+                        let _ = std::io::stdout().lock().flush();
+                        Ok(())
+                    }
+                    Err(err) => {
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                },
+                ValidateOutputFormat::Json => match validation_result {
+                    Ok(()) => {
+                        let config = load_config(&config_location.path)?;
+                        let json = validate_output::build_valid_json(
+                            &config_location,
+                            &config,
+                            &entities,
+                        )?;
+                        let mut out = std::io::stdout().lock();
+                        let _ = writeln!(out, "{json}");
+                        let _ = out.flush();
+                        Ok(())
+                    }
+                    Err(err) => {
+                        let config = load_config(&config_location.path).ok();
+                        let json = validate_output::build_invalid_json(
+                            &config_location.display,
+                            config.as_ref().map(|config| config.version.as_str()),
+                            err.as_ref(),
+                        );
+                        let mut out = std::io::stdout().lock();
+                        let _ = writeln!(out, "{json}");
+                        let _ = out.flush();
+                        std::process::exit(1);
+                    }
+                },
             }
-            println!("Next: floe run -c {}", config_location.display);
-            Ok(())
         }
         Command::Run {
             config,
@@ -248,19 +249,43 @@ fn main() -> FloeResult<()> {
             log_format,
             dry_run,
         } => {
-            let config_location = resolve_config_location(&config)?;
+            let started_at = floe_core::report::now_rfc3339();
+            let computed_run_id =
+                run_id.unwrap_or_else(|| floe_core::report::run_id_from_timestamp(&started_at));
+
             let options = RunOptions {
-                run_id,
+                run_id: Some(computed_run_id.clone()),
                 entities,
-                dry_run,
+                dry_run,              
             };
-            if !matches!(log_format, LogFormat::Off) {
-                let _ = set_observer(Arc::new(CliObserver {
-                    format: log_format.clone(),
-                }));
-            }
+            logging::install_observer(log_format.clone());
+
+            let config_location = match resolve_config_location(&config) {
+                Ok(location) => location,
+                Err(err) => {
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+            };
+
             let outcome =
-                run_with_base(&config_location.path, config_location.base.clone(), options)?;
+                match run_with_base(&config_location.path, config_location.base.clone(), options) {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        logging::emit_failed_run_events(
+                            &computed_run_id,
+                            err.as_ref(),
+                            &log_format,
+                        );
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
             let mode = if quiet {
                 output::OutputMode::Quiet
             } else if verbose {
@@ -268,8 +293,22 @@ fn main() -> FloeResult<()> {
             } else {
                 output::OutputMode::Default
             };
-            println!("{}", output::format_run_output(&outcome, mode));
-            Ok(())
+            let summary = output::format_run_output(&outcome, mode);
+
+            match log_format {
+                LogFormat::Json => {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "{summary}");
+                    let _ = err.flush();
+                }
+                LogFormat::Text | LogFormat::Off => {
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "{summary}");
+                    let _ = out.flush();
+                }
+            }
+
+            std::process::exit(outcome.summary.run.exit_code);
         }
     }
 }

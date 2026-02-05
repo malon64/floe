@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dagster import AssetKey, Definitions, Failure, MaterializeResult, asset
+from dagster import Definitions, Failure, MaterializeResult, asset
 
 from .events import last_run_finished, parse_ndjson_events, parse_run_finished
 from .plan import FloeValidatePlan
@@ -21,15 +21,12 @@ def load_floe_assets(
 
     assets_defs = []
     for entity in plan.entities:
-        key_parts = entity.asset_key_parts
         group_name = entity.group_name
         name = entity.name
 
-        asset_key = AssetKey(key_parts)
-
         assets_defs.append(
             _make_entity_asset(
-                asset_key=asset_key,
+                key_prefix=list(entity.asset_key_parts[:-1]),
                 group_name=group_name,
                 name=name,
                 config_uri=config_uri,
@@ -42,13 +39,13 @@ def load_floe_assets(
 
 def _make_entity_asset(
     *,
-    asset_key: AssetKey,
+    key_prefix: list[str],
     group_name: str,
     name: str,
     config_uri: str,
     runner: Runner,
 ):
-    @asset(name=name, key=asset_key, group_name=group_name)
+    @asset(name=name, key_prefix=key_prefix, group_name=group_name)
     def _asset(context) -> MaterializeResult:
         run_id = getattr(context, "run_id", None)
         result = runner.run_floe_entity(
@@ -133,4 +130,3 @@ def _extract_entity_stats(summary_json: dict[str, Any], entity_name: str) -> dic
             "entity_report_file": item.get("report_file"),
         }
     return {}
-

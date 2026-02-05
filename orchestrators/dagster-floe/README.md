@@ -12,7 +12,7 @@ Goals of the MVP:
 From repo root:
 
 ```bash
-python -m venv orchestrators/dagster-floe/.venv
+python3 -m venv orchestrators/dagster-floe/.venv
 source orchestrators/dagster-floe/.venv/bin/activate
 pip install -e orchestrators/dagster-floe[dev]
 ```

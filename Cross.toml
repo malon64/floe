@@ -8,3 +8,11 @@ pre-build = [
   "rm -rf /var/lib/apt/lists/*",
 ]
 
+[target.x86_64-unknown-linux-gnu]
+# Needed for deps that rely on `native-tls` / `openssl-sys` when building with `cross`.
+# Without this, the release workflow fails when building the linux/amd64 binary.
+pre-build = [
+  "apt-get update",
+  "apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates",
+  "rm -rf /var/lib/apt/lists/*",
+]

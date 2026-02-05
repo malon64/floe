@@ -59,4 +59,5 @@ FLOE_DOCKER_IMAGE="$FLOE_DOCKER_IMAGE" dagster dev
 - For local development without an installed `floe` binary, you can point `LocalRunner` to a custom command, e.g.:
   - `LocalRunner(\"cargo run -p floe-cli --\")`
 - `DockerRunner` mounts the config directory by default; if your config uses paths like `../data/...`, it mounts a higher parent directory so those paths remain visible. For full control, pass `workdir=...`.
+- When `DockerRunner` mounts local files, it runs the container as your current user (`--user uid:gid`) so Floe can write reports/outputs back into the mounted directory.
 - Design notes and future work: `orchestrators/dagster-floe/INTEGRATION_SPEC.md`

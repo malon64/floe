@@ -40,6 +40,17 @@ pub struct AcceptedWriteOutput {
     pub table_version: Option<i64>,
 }
 
+pub struct RejectedWriteRequest<'a> {
+    pub target: &'a Target,
+    pub df: &'a mut DataFrame,
+    pub source_stem: &'a str,
+    pub mode: config::WriteMode,
+    pub temp_dir: Option<&'a Path>,
+    pub cloud: &'a mut io::storage::CloudClient,
+    pub resolver: &'a config::StorageResolver,
+    pub entity: &'a config::EntityConfig,
+}
+
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 
@@ -99,16 +110,7 @@ pub trait AcceptedSinkAdapter: Send + Sync {
 }
 
 pub trait RejectedSinkAdapter: Send + Sync {
-    fn write_rejected(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        source_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<String>;
+    fn write_rejected(&self, request: RejectedWriteRequest<'_>) -> FloeResult<String>;
 }
 
 #[derive(Debug, Clone, Copy)]

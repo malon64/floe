@@ -232,6 +232,40 @@ fn invalid_cast_mode_errors() {
 }
 
 #[test]
+fn invalid_rejected_write_mode_errors() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+        write_mode: "merge"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.rejected.write_mode",
+            "merge",
+            "overwrite",
+            "append",
+        ],
+    );
+}
+
+#[test]
 fn invalid_normalize_strategy_errors() {
     let entity = r#"  - name: "customer"
     source:

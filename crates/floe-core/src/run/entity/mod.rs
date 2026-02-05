@@ -429,13 +429,16 @@ pub(super) fn run_entity(
                     })?;
                     let rejected_path_value = write_rejected_output(
                         rejected_config.format.as_str(),
-                        rejected_target,
-                        &mut rejected_df,
-                        source_stem,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
-                        &context.storage_resolver,
-                        entity,
+                        io::format::RejectedWriteRequest {
+                            target: rejected_target,
+                            df: &mut rejected_df,
+                            source_stem,
+                            mode: rejected_config.write_mode,
+                            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
+                            cloud,
+                            resolver: &context.storage_resolver,
+                            entity,
+                        },
                     )?;
                     rejected_path = Some(rejected_path_value);
                 } else {

@@ -170,3 +170,112 @@ entities:
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
     assert!(!rejected_contents.contains("__floe_errors"));
 }
+
+#[test]
+fn rejected_csv_defaults_to_append_across_runs() {
+    let root = temp_dir("floe-rejected-append-default");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let rejected_dir = root.join("out/rejected");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "input.csv", "id;name\n1;\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+          nullable: false
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    run_config(&config_path);
+    write_csv(&input_dir, "input.csv", "id;name\n2;\n");
+    run_config(&config_path);
+
+    let rejected_path = rejected_dir.join("input_rejected.csv");
+    let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
+    assert!(rejected_contents.contains("\n1,"));
+    assert!(rejected_contents.contains("\n2,"));
+    assert_eq!(rejected_contents.lines().count(), 3);
+}
+
+#[test]
+fn rejected_csv_overwrite_mode_replaces_previous_run_output() {
+    let root = temp_dir("floe-rejected-overwrite-mode");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let rejected_dir = root.join("out/rejected");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "input.csv", "id;name\n1;\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+        write_mode: "overwrite"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+          nullable: false
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    run_config(&config_path);
+    write_csv(&input_dir, "input.csv", "id;name\n2;\n");
+    run_config(&config_path);
+
+    let rejected_path = rejected_dir.join("input_rejected.csv");
+    let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
+    assert!(!rejected_contents.contains("\n1,"));
+    assert!(rejected_contents.contains("\n2,"));
+    assert_eq!(rejected_contents.lines().count(), 2);
+}

@@ -286,7 +286,12 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     let hash = yaml_hash(value, "sink")?;
     validate_known_keys(hash, "sink", &["accepted", "rejected", "archive"])?;
     let rejected = match hash_get(hash, "rejected") {
-        Some(value) => Some(parse_sink_target(value, "sink.rejected", false)?),
+        Some(value) => Some(parse_sink_target(
+            value,
+            "sink.rejected",
+            false,
+            WriteMode::Append,
+        )?),
         None => None,
     };
     let archive = match hash_get(hash, "archive") {
@@ -295,15 +300,25 @@ fn parse_sink(value: &Yaml) -> FloeResult<SinkConfig> {
     };
 
     Ok(SinkConfig {
-        accepted: parse_sink_target(get_value(hash, "accepted", "sink")?, "sink.accepted", true)?,
+        accepted: parse_sink_target(
+            get_value(hash, "accepted", "sink")?,
+            "sink.accepted",
+            true,
+            WriteMode::Overwrite,
+        )?,
         rejected,
         archive,
     })
 }
 
-fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult<SinkTarget> {
+fn parse_sink_target(
+    value: &Yaml,
+    ctx: &str,
+    allow_options: bool,
+    default_write_mode: WriteMode,
+) -> FloeResult<SinkTarget> {
     let hash = yaml_hash(value, ctx)?;
-    let mut allowed = vec!["format", "path", "storage", "filesystem"];
+    let mut allowed = vec!["format", "path", "storage", "filesystem", "write_mode"];
     if allow_options {
         allowed.push("options");
     }
@@ -323,13 +338,27 @@ fn parse_sink_target(value: &Yaml, ctx: &str, allow_options: bool) -> FloeResult
     } else {
         None
     };
+    let write_mode = match opt_string(hash, "write_mode", ctx)? {
+        Some(value) => parse_write_mode(&value, &format!("{ctx}.write_mode"))?,
+        None => default_write_mode,
+    };
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
         storage: storage.or(filesystem),
         options,
-        write_mode: WriteMode::default(),
+        write_mode,
     })
+}
+
+fn parse_write_mode(value: &str, ctx: &str) -> FloeResult<WriteMode> {
+    match value.to_ascii_lowercase().as_str() {
+        "overwrite" => Ok(WriteMode::Overwrite),
+        "append" => Ok(WriteMode::Append),
+        _ => Err(Box::new(ConfigError(format!(
+            "{ctx}={value} is unsupported (allowed: overwrite, append)"
+        )))),
+    }
 }
 
 fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {

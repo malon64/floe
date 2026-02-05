@@ -159,10 +159,16 @@ is available for templating within that entity.
     - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
     - `row_group_size`: positive integer (rows per row group)
     - `max_size_per_file`: positive integer bytes (default: 256MB; split accepted parquet into parts)
+  - `write_mode` (optional)
+    - `overwrite` (default)
+    - `append` (reserved for future accepted sinks; currently not supported)
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.
   - Supports `{{var}}` templating (see "Templating & domains").
+  - `write_mode` (optional)
+    - `append` (default): append new rejected rows to existing rejected CSV file.
+    - `overwrite`: replace existing rejected CSV file.
 - `archive` (optional)
 - `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.

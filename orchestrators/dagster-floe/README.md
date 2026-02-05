@@ -26,6 +26,33 @@ dagster dev
 
 The example workspace loads `floe_dagster.definitions` which generates assets from `orchestrators/dagster-floe/example/config.yml`.
 
+## Run using Docker (instead of a local `floe` binary)
+
+Prereqs:
+- Docker installed and working (`docker run hello-world` succeeds).
+- A Floe image available (either build locally or pull from GHCR).
+
+Option A — pull from GHCR:
+
+```bash
+export FLOE_DOCKER_IMAGE="ghcr.io/malon64/floe:latest"
+```
+
+Option B — build locally from this repo:
+
+```bash
+docker build -t floe:dev .
+export FLOE_DOCKER_IMAGE="floe:dev"
+```
+
+Then run Dagster:
+
+```bash
+cd orchestrators/dagster-floe
+source .venv/bin/activate
+FLOE_DOCKER_IMAGE="$FLOE_DOCKER_IMAGE" dagster dev
+```
+
 ## Notes
 
 - This connector does **not** parse YAML directly; it uses `floe validate --output json` as the source of truth.

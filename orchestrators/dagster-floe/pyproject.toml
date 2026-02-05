@@ -1,5 +1,5 @@
 [project]
-name = "floe-dagster"
+name = "dagster-floe"
 version = "0.0.0"
 description = "Dagster connector for Floe CLI (config-driven ingestion)"
 requires-python = ">=3.10"

@@ -7,6 +7,8 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
+use super::parts;
+
 struct ParquetAcceptedAdapter;
 
 static PARQUET_ACCEPTED_ADAPTER: ParquetAcceptedAdapter = ParquetAcceptedAdapter;
@@ -56,15 +58,25 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        let filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
+        let sample_filename = io::storage::paths::build_output_filename(output_stem, "", "parquet");
+        let mut part_allocator = parts::PartNameAllocator::from_next_index(0, "parquet");
         match target {
             Target::Local { base_path, .. } => {
-                clear_local_output_dir(base_path)?;
+                let base_path = Path::new(base_path);
+                parts::clear_local_part_files(base_path, "parquet")?;
+                part_allocator = parts::PartNameAllocator::from_local_path(base_path, "parquet")?;
             }
             Target::S3 {
                 storage, base_key, ..
             } => {
-                clear_s3_output_prefix(cloud, resolver, entity, storage, base_key, &filename)?;
+                clear_s3_output_prefix(
+                    cloud,
+                    resolver,
+                    entity,
+                    storage,
+                    base_key,
+                    &sample_filename,
+                )?;
             }
             Target::Gcs {
                 storage,
@@ -73,7 +85,13 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 ..
             } => {
                 clear_gcs_output_prefix(
-                    cloud, resolver, entity, storage, bucket, base_key, &filename,
+                    cloud,
+                    resolver,
+                    entity,
+                    storage,
+                    bucket,
+                    base_key,
+                    &sample_filename,
                 )?;
             }
             Target::Adls {
@@ -84,7 +102,14 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 ..
             } => {
                 clear_adls_output_prefix(
-                    cloud, resolver, entity, storage, container, account, base_path, &filename,
+                    cloud,
+                    resolver,
+                    entity,
+                    storage,
+                    container,
+                    account,
+                    base_path,
+                    &sample_filename,
                 )?;
             }
         }
@@ -104,13 +129,10 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             };
             let max_rows = std::cmp::max(1, max_size_per_file / avg_row_size) as usize;
             let mut offset = 0usize;
-            let mut part_index = 0usize;
             while offset < total_rows {
                 let len = std::cmp::min(max_rows, total_rows - offset);
                 let mut chunk = df.slice(offset as i64, len);
-                let part_stem = io::storage::paths::build_part_stem(part_index);
-                let part_filename =
-                    io::storage::paths::build_output_filename(&part_stem, "", "parquet");
+                let part_filename = part_allocator.allocate_next();
                 io::storage::output::write_output(
                     target,
                     io::storage::output::OutputPlacement::Directory,
@@ -125,14 +147,14 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                     part_files.push(part_filename);
                 }
                 parts_written += 1;
-                part_index += 1;
                 offset += len;
             }
         } else {
+            let part_filename = part_allocator.allocate_next();
             io::storage::output::write_output(
                 target,
                 io::storage::output::OutputPlacement::Directory,
-                &filename,
+                &part_filename,
                 temp_dir,
                 cloud,
                 resolver,
@@ -140,7 +162,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 |path| write_parquet_to_path(df, path, options),
             )?;
             parts_written = 1;
-            part_files.push(filename);
+            part_files.push(part_filename);
         }
 
         Ok(AcceptedWriteOutput {
@@ -149,22 +171,6 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             table_version: None,
         })
     }
-}
-
-fn clear_local_output_dir(base_path: &str) -> FloeResult<()> {
-    let path = Path::new(base_path);
-    if path.as_os_str().is_empty() {
-        return Ok(());
-    }
-    if path.exists() {
-        if path.is_file() {
-            std::fs::remove_file(path)?;
-        } else {
-            std::fs::remove_dir_all(path)?;
-        }
-    }
-    std::fs::create_dir_all(path)?;
-    Ok(())
 }
 
 fn clear_s3_output_prefix(

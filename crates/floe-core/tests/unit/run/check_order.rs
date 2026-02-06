@@ -175,3 +175,65 @@ entities:
     let rejected_contents = fs::read_to_string(&rejected_path).expect("read rejected csv");
     assert!(!rejected_contents.contains("__floe_errors"));
 }
+
+#[test]
+fn rejected_overwrite_keeps_parts_across_files_in_run() {
+    let root = temp_dir("floe-rejected-overwrite");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let rejected_dir = root.join("out/rejected");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id;name\n;alice\n");
+    write_csv(&input_dir, "b.csv", "id;name\n;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+          nullable: false
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.rejected_total, 2);
+
+    let mut rejected_files = fs::read_dir(&rejected_dir)
+        .expect("read rejected dir")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("csv"))
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    rejected_files.sort();
+    assert_eq!(
+        rejected_files,
+        vec!["part-00000.csv".to_string(), "part-00001.csv".to_string()]
+    );
+}

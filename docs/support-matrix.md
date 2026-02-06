@@ -23,14 +23,15 @@ Notes:
 
 | Output | Local | S3 | ADLS | GCS | Notes |
 |---|---|---|---|---|---|
-| Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-00000.parquet` etc. |
+| Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
-| Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Per-file rejected output |
+| Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
 
 Notes:
 - Parquet outputs to cloud are written locally then uploaded.
 - Delta outputs to cloud are **direct** via object_store (no temp upload).
+- `sink.write_mode` applies to accepted and rejected outputs (`overwrite` or `append`).
 
 ## Cloud storage behavior
 

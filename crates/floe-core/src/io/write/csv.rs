@@ -4,9 +4,9 @@ use polars::prelude::{CsvWriter, DataFrame, SerWriter};
 
 use crate::errors::IoError;
 use crate::io::format::{RejectedSinkAdapter, RejectedWriteRequest};
-use crate::{config, io, FloeResult};
+use crate::{io, FloeResult};
 
-use super::{append, overwrite};
+use super::mode_strategy;
 
 struct CsvRejectedAdapter;
 
@@ -39,14 +39,15 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
             entity,
             mode,
         } = request;
-        let mut part_allocator = match mode {
-            config::WriteMode::Overwrite => {
-                overwrite::rejected_csv_part_allocator(target, cloud, resolver, entity)?
-            }
-            config::WriteMode::Append => {
-                append::rejected_csv_part_allocator(target, cloud, resolver, entity)?
-            }
+        let mut ctx = mode_strategy::WriteContext {
+            target,
+            cloud,
+            resolver,
+            entity,
         };
+        let spec = mode_strategy::rejected_csv_spec();
+        let mut part_allocator =
+            mode_strategy::strategy_for(mode).part_allocator(&mut ctx, spec)?;
         let part_filename = part_allocator.allocate_next();
         io::storage::output::write_output(
             target,

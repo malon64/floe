@@ -3,6 +3,7 @@ pub mod append;
 pub mod csv;
 pub mod delta;
 pub mod iceberg;
+pub mod mode_strategy;
 pub mod modes;
 pub mod overwrite;
 pub mod parquet;

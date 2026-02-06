@@ -1,10 +1,8 @@
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 pub fn ensure_mode_supported(mode: config::WriteMode) -> FloeResult<()> {
     match mode {
         config::WriteMode::Overwrite => Ok(()),
-        config::WriteMode::Append => Err(Box::new(ConfigError(
-            "sink.write_mode=append is not supported yet".to_string(),
-        ))),
+        config::WriteMode::Append => Ok(()),
     }
 }

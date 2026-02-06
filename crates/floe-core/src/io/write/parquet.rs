@@ -7,7 +7,7 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
-use super::{append, overwrite};
+use super::mode_strategy;
 
 struct ParquetAcceptedAdapter;
 
@@ -59,14 +59,15 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        let mut part_allocator = match mode {
-            config::WriteMode::Overwrite => {
-                overwrite::parquet_part_allocator(target, cloud, resolver, entity)?
-            }
-            config::WriteMode::Append => {
-                append::parquet_part_allocator(target, cloud, resolver, entity)?
-            }
+        let mut ctx = mode_strategy::WriteContext {
+            target,
+            cloud,
+            resolver,
+            entity,
         };
+        let spec = mode_strategy::accepted_parquet_spec();
+        let mut part_allocator =
+            mode_strategy::strategy_for(mode).part_allocator(&mut ctx, spec)?;
         let options = entity.sink.accepted.options.as_ref();
         let max_size_per_file = options
             .and_then(|options| options.max_size_per_file)

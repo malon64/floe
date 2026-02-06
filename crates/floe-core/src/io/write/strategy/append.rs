@@ -1,7 +1,7 @@
 use crate::{config, FloeResult};
 
-use super::mode_strategy::{append_part_allocator, ModeStrategy, PartSpec, WriteContext};
 use super::parts::PartNameAllocator;
+use super::{append_part_allocator, ModeStrategy, PartSpec, WriteContext};
 
 pub struct AppendStrategy;
 

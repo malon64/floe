@@ -1,7 +1,7 @@
 use crate::{config, FloeResult};
 
-use super::mode_strategy::{overwrite_part_allocator, ModeStrategy, PartSpec, WriteContext};
 use super::parts::PartNameAllocator;
+use super::{overwrite_part_allocator, ModeStrategy, PartSpec, WriteContext};
 
 pub struct OverwriteStrategy;
 

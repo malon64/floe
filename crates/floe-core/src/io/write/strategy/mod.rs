@@ -3,7 +3,10 @@ use std::path::Path;
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
-use super::{append, overwrite, parts};
+use super::parts;
+
+mod append;
+mod overwrite;
 
 #[derive(Debug, Clone, Copy)]
 pub enum PartScope {

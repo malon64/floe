@@ -6,7 +6,7 @@ use crate::errors::IoError;
 use crate::io::format::{RejectedSinkAdapter, RejectedWriteRequest};
 use crate::{io, FloeResult};
 
-use super::mode_strategy;
+use super::strategy;
 
 struct CsvRejectedAdapter;
 
@@ -39,15 +39,14 @@ impl RejectedSinkAdapter for CsvRejectedAdapter {
             entity,
             mode,
         } = request;
-        let mut ctx = mode_strategy::WriteContext {
+        let mut ctx = strategy::WriteContext {
             target,
             cloud,
             resolver,
             entity,
         };
-        let spec = mode_strategy::rejected_csv_spec();
-        let mut part_allocator =
-            mode_strategy::strategy_for(mode).part_allocator(&mut ctx, spec)?;
+        let spec = strategy::rejected_csv_spec();
+        let mut part_allocator = strategy::strategy_for(mode).part_allocator(&mut ctx, spec)?;
         let part_filename = part_allocator.allocate_next();
         io::storage::output::write_output(
             target,

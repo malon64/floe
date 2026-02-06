@@ -365,3 +365,74 @@ entities:
     }
     assert_eq!(total_rows, 7);
 }
+
+#[test]
+fn accepted_output_append_rejects_duplicates_across_runs() {
+    let root = temp_dir("floe-entity-accepted-append-unique");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let rejected_dir = root.join("out/rejected");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+          unique: true
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let first = run_config(&config_path);
+    assert_eq!(first.entity_outcomes[0].report.results.accepted_total, 2);
+    assert_eq!(first.entity_outcomes[0].report.results.rejected_total, 0);
+    assert_eq!(
+        first.entity_outcomes[0].report.accepted_output.part_files,
+        vec!["part-00000.parquet".to_string()]
+    );
+
+    write_csv(&input_dir, "a.csv", "id;name\n2;bob\n3;carol\n");
+
+    let second = run_config(&config_path);
+    assert_eq!(second.entity_outcomes[0].report.results.accepted_total, 1);
+    assert_eq!(second.entity_outcomes[0].report.results.rejected_total, 1);
+    assert_eq!(
+        second.entity_outcomes[0].report.accepted_output.part_files,
+        vec!["part-00001.parquet".to_string()]
+    );
+    let rejected_path = second.entity_outcomes[0]
+        .report
+        .files
+        .first()
+        .and_then(|file| file.output.rejected_path.as_ref())
+        .expect("missing rejected output path");
+    let rejected_path = rejected_path.trim_start_matches("local://");
+    assert!(Path::new(rejected_path).exists());
+}

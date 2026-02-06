@@ -19,6 +19,7 @@ use io::storage::Target;
 mod precheck;
 mod process;
 mod resolve;
+mod unique_existing;
 pub(crate) use resolve::ResolvedEntityTargets;
 
 use crate::report::entity::{build_run_report, RunReportContext};
@@ -172,6 +173,17 @@ pub(super) fn run_entity(
 
     let mut accepted_accum: Vec<DataFrame> = Vec::new();
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
+    unique_existing::seed_unique_tracker_for_append(
+        &mut unique_tracker,
+        write_mode,
+        entity.sink.accepted.format.as_str(),
+        &accepted_target,
+        temp_dir.as_ref().map(|dir| dir.path()),
+        cloud,
+        &context.storage_resolver,
+        entity,
+        &normalized_columns,
+    )?;
 
     // Phase B: row-level validation + entity-level accumulation.
     for prechecked in prechecked_inputs {

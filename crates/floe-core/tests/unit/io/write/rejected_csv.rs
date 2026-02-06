@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use floe_core::io::format::RejectedWriteRequest;
+use floe_core::io::write::parts;
 use floe_core::{config, io, FloeResult};
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
@@ -123,15 +124,27 @@ fn rejected_csv_append_writes_additional_dataset_parts() -> FloeResult<()> {
         "beta",
     )?;
 
-    assert!(first_path.ends_with("part-00000.csv"));
-    assert!(second_path.ends_with("part-00001.csv"));
-    assert!(rejected_dir.join("part-00000.csv").exists());
-    assert!(rejected_dir.join("part-00001.csv").exists());
+    let first_path = first_path.trim_start_matches("local://");
+    let second_path = second_path.trim_start_matches("local://");
+    let first_file = Path::new(first_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("first part file");
+    let second_file = Path::new(second_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("second part file");
+
+    assert_ne!(first_file, second_file);
+    assert!(parts::is_part_filename(first_file, "csv"));
+    assert!(parts::is_part_filename(second_file, "csv"));
+    assert!(Path::new(first_path).exists());
+    assert!(Path::new(second_path).exists());
     assert!(!rejected_dir.join("first_rejected.csv").exists());
     assert!(!rejected_dir.join("second_rejected.csv").exists());
 
-    let first_contents = fs::read_to_string(rejected_dir.join("part-00000.csv"))?;
-    let second_contents = fs::read_to_string(rejected_dir.join("part-00001.csv"))?;
+    let first_contents = fs::read_to_string(first_path)?;
+    let second_contents = fs::read_to_string(second_path)?;
     assert!(first_contents.contains("alpha"));
     assert!(second_contents.contains("beta"));
     Ok(())

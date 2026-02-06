@@ -145,6 +145,10 @@ is available for templating within that entity.
 
 ### `sink` (required)
 
+- `write_mode` (optional)
+  - `overwrite` (default): remove existing dataset parts, then write new ones.
+  - `append`: add new dataset parts without deleting existing ones.
+  - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet` or `delta` (local + cloud). `iceberg` is recognized but not
     implemented yet.
@@ -163,6 +167,7 @@ is available for templating within that entity.
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.
   - Supports `{{var}}` templating (see "Templating & domains").
+  - Rejected outputs are written as dataset parts (`part-*.csv`).
 - `archive` (optional)
 - `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.

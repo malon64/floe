@@ -1,4 +1,8 @@
-# Write Modes Refactor Plan (Phase 1)
+# Write Modes Refactor Plan (Historical)
+
+Status: Implemented in v0.2.3. This document is kept for design history. For
+current behavior, see `docs/config.md`, `docs/support-matrix.md`, and
+`docs/sinks/delta.md`.
 
 ## Scope
 
@@ -7,7 +11,7 @@ This document covers:
 - A refactor plan to introduce explicit write modes with no behavior change in this PR.
 - Initial scaffolding required so append can be implemented in a follow-up PR without wide rewrites.
 
-This phase does **not** implement append writes.
+This phase does **not** implement append writes. (Append is now implemented.)
 
 ## Target Spec Decisions (v0.3 Direction)
 

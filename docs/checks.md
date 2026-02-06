@@ -74,6 +74,8 @@ message are emitted in reports.
   - `warn`: log duplicates and keep all rows.
   - `reject`: keep the first occurrence, reject duplicates.
   - `abort`: abort the file if duplicates are found.
+- In `append` mode, `unique` checks seed from existing accepted data (parquet or delta)
+  so duplicates across runs can be rejected.
 - `cast_mode` defines parsing behavior:
   - `strict`: invalid values cause rejection (or abort per policy).
   - `coerce`: invalid values become null; nullable rules decide acceptance.

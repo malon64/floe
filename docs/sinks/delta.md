@@ -17,8 +17,9 @@ entities:
 
 Semantics:
 - `sink.accepted.format: delta` writes a Delta table at `sink.accepted.path`.
-- Write mode is `overwrite` via Delta transactions (a new `_delta_log` version is
-  committed; history is preserved).
+- Write mode comes from `sink.write_mode`:
+  - `overwrite`: replace data via a new Delta transaction (history preserved).
+  - `append`: add new files via a new Delta transaction (history preserved).
 - Local, S3, ADLS, and GCS storage are supported for delta output.
 
 S3 notes:

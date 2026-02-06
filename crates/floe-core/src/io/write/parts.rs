@@ -103,6 +103,20 @@ pub fn clear_local_part_files(base_path: &Path, extension: &str) -> FloeResult<u
     Ok(part_files.len())
 }
 
+pub fn parse_part_index_from_key(key: &str, extension: &str, min_width: usize) -> Option<usize> {
+    let extension = normalize_extension(extension);
+    let path = Path::new(key);
+    if path.extension()?.to_str()? != extension {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    let digits = stem.strip_prefix("part-")?;
+    if digits.len() < min_width || !digits.bytes().all(|value| value.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<usize>().ok()
+}
+
 fn parse_part_index(file_name: &str, extension: &str) -> Option<usize> {
     let path = Path::new(file_name);
     if path.extension()?.to_str()? != extension {

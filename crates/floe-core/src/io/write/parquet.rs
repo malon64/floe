@@ -7,7 +7,7 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
-use super::parts;
+use super::{append, overwrite};
 
 struct ParquetAcceptedAdapter;
 
@@ -59,7 +59,14 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        let mut part_allocator = prepare_part_allocator(target, mode, cloud, resolver, entity)?;
+        let mut part_allocator = match mode {
+            config::WriteMode::Overwrite => {
+                overwrite::parquet_part_allocator(target, cloud, resolver, entity)?
+            }
+            config::WriteMode::Append => {
+                append::parquet_part_allocator(target, cloud, resolver, entity)?
+            }
+        };
         let options = entity.sink.accepted.options.as_ref();
         let max_size_per_file = options
             .and_then(|options| options.max_size_per_file)
@@ -118,257 +125,6 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             table_version: None,
         })
     }
-}
-
-fn prepare_part_allocator(
-    target: &Target,
-    mode: config::WriteMode,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-) -> FloeResult<parts::PartNameAllocator> {
-    match mode {
-        config::WriteMode::Overwrite => {
-            clear_output_parts(target, cloud, resolver, entity)?;
-            Ok(parts::PartNameAllocator::from_next_index(0, "parquet"))
-        }
-        config::WriteMode::Append => match target {
-            Target::Local { base_path, .. } => {
-                parts::PartNameAllocator::from_local_path(Path::new(base_path), "parquet")
-            }
-            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
-                let next_index = next_cloud_part_index(target, cloud, resolver, entity)?;
-                Ok(parts::PartNameAllocator::from_next_index(
-                    next_index, "parquet",
-                ))
-            }
-        },
-    }
-}
-
-fn clear_output_parts(
-    target: &Target,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-) -> FloeResult<()> {
-    match target {
-        Target::Local { base_path, .. } => {
-            let base_path = Path::new(base_path);
-            let _ = parts::clear_local_part_files(base_path, "parquet")?;
-        }
-        Target::S3 {
-            storage, base_key, ..
-        } => {
-            clear_s3_output_prefix(cloud, resolver, entity, storage, base_key)?;
-        }
-        Target::Gcs {
-            storage,
-            bucket,
-            base_key,
-            ..
-        } => {
-            clear_gcs_output_prefix(cloud, resolver, entity, storage, bucket, base_key)?;
-        }
-        Target::Adls {
-            storage,
-            container,
-            account,
-            base_path,
-            ..
-        } => {
-            clear_adls_output_prefix(
-                cloud, resolver, entity, storage, container, account, base_path,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn next_cloud_part_index(
-    target: &Target,
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-) -> FloeResult<usize> {
-    match target {
-        Target::Local { .. } => Ok(0),
-        Target::S3 {
-            storage, base_key, ..
-        } => {
-            let list_prefix = s3_list_prefix(entity, base_key)?;
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let keys = client.list(&list_prefix)?;
-            next_part_index_from_objects(keys.into_iter().filter_map(|obj| {
-                if obj.key.starts_with(&list_prefix) {
-                    parse_part_index_from_key(&obj.key)
-                } else {
-                    None
-                }
-            }))
-        }
-        Target::Gcs {
-            storage,
-            bucket,
-            base_key,
-            ..
-        } => {
-            let list_prefix = gcs_list_prefix(entity, bucket, base_key)?;
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let keys = client.list(&list_prefix)?;
-            next_part_index_from_objects(keys.into_iter().filter_map(|obj| {
-                if obj.key.starts_with(&list_prefix) {
-                    parse_part_index_from_key(&obj.key)
-                } else {
-                    None
-                }
-            }))
-        }
-        Target::Adls {
-            storage,
-            container,
-            account,
-            base_path,
-            ..
-        } => {
-            let list_prefix = adls_list_prefix(entity, container, account, base_path)?;
-            let client = cloud.client_for(resolver, storage, entity)?;
-            let keys = client.list(&list_prefix)?;
-            next_part_index_from_objects(keys.into_iter().filter_map(|obj| {
-                if obj.key.starts_with(&list_prefix) {
-                    parse_part_index_from_key(&obj.key)
-                } else {
-                    None
-                }
-            }))
-        }
-    }
-}
-
-fn clear_s3_output_prefix(
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    storage: &str,
-    base_key: &str,
-) -> FloeResult<()> {
-    let list_prefix = s3_list_prefix(entity, base_key)?;
-    let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(&list_prefix)?;
-    for object in keys
-        .into_iter()
-        .filter(|obj| obj.key.starts_with(&list_prefix))
-        .filter(|obj| parse_part_index_from_key(&obj.key).is_some())
-    {
-        client.delete_object(&object.uri)?;
-    }
-    Ok(())
-}
-
-fn clear_gcs_output_prefix(
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    storage: &str,
-    bucket: &str,
-    base_key: &str,
-) -> FloeResult<()> {
-    let list_prefix = gcs_list_prefix(entity, bucket, base_key)?;
-    let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(&list_prefix)?;
-    for object in keys
-        .into_iter()
-        .filter(|obj| obj.key.starts_with(&list_prefix))
-        .filter(|obj| parse_part_index_from_key(&obj.key).is_some())
-    {
-        client.delete_object(&object.uri)?;
-    }
-    Ok(())
-}
-
-fn clear_adls_output_prefix(
-    cloud: &mut io::storage::CloudClient,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    storage: &str,
-    container: &str,
-    account: &str,
-    base_path: &str,
-) -> FloeResult<()> {
-    let list_prefix = adls_list_prefix(entity, container, account, base_path)?;
-    let client = cloud.client_for(resolver, storage, entity)?;
-    let keys = client.list(&list_prefix)?;
-    for object in keys
-        .into_iter()
-        .filter(|obj| obj.key.starts_with(&list_prefix))
-        .filter(|obj| parse_part_index_from_key(&obj.key).is_some())
-    {
-        client.delete_object(&object.uri)?;
-    }
-    Ok(())
-}
-
-fn parse_part_index_from_key(key: &str) -> Option<usize> {
-    let file_name = Path::new(key).file_name()?.to_str()?;
-    let stem = file_name.strip_suffix(".parquet")?;
-    let index = stem.strip_prefix("part-")?;
-    if index.is_empty() || !index.chars().all(|ch| ch.is_ascii_digit()) {
-        return None;
-    }
-    index.parse::<usize>().ok()
-}
-
-fn next_part_index_from_objects(indexes: impl IntoIterator<Item = usize>) -> FloeResult<usize> {
-    match indexes.into_iter().max() {
-        Some(index) => index.checked_add(1).ok_or_else(|| {
-            Box::new(ConfigError(
-                "parquet part index overflow while preparing append write".to_string(),
-            )) as Box<dyn std::error::Error + Send + Sync>
-        }),
-        None => Ok(0),
-    }
-}
-
-fn s3_list_prefix(entity: &config::EntityConfig, base_key: &str) -> FloeResult<String> {
-    let prefix = base_key.trim_matches('/');
-    if prefix.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.path must not be bucket root for s3 parquet outputs",
-            entity.name
-        ))));
-    }
-    Ok(format!("{prefix}/"))
-}
-
-fn gcs_list_prefix(
-    entity: &config::EntityConfig,
-    bucket: &str,
-    base_key: &str,
-) -> FloeResult<String> {
-    let prefix = base_key.trim_matches('/');
-    if prefix.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.path must not be bucket root for gcs parquet outputs (bucket={})",
-            entity.name, bucket
-        ))));
-    }
-    Ok(format!("{prefix}/"))
-}
-
-fn adls_list_prefix(
-    entity: &config::EntityConfig,
-    container: &str,
-    account: &str,
-    base_path: &str,
-) -> FloeResult<String> {
-    let prefix = base_path.trim_matches('/');
-    if prefix.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.path must not be container root for adls parquet outputs (container={}, account={})",
-            entity.name, container, account
-        ))));
-    }
-    Ok(format!("{prefix}/"))
 }
 
 fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {

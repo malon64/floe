@@ -165,6 +165,48 @@ impl UniqueTracker {
         self.seen.is_empty()
     }
 
+    pub fn seed_from_df(
+        &mut self,
+        df: &DataFrame,
+        columns: &[config::ColumnConfig],
+    ) -> FloeResult<()> {
+        if df.height() == 0 || self.seen.is_empty() {
+            return Ok(());
+        }
+        let unique_columns: Vec<&config::ColumnConfig> = columns
+            .iter()
+            .filter(|col| col.unique == Some(true))
+            .collect();
+        if unique_columns.is_empty() {
+            return Ok(());
+        }
+
+        for column in unique_columns {
+            let series = df.column(&column.name).map_err(|err| {
+                Box::new(RunError(format!(
+                    "unique column {} not found: {err}",
+                    column.name
+                )))
+            })?;
+            let series = series.as_materialized_series().rechunk();
+            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "unique column {} not tracked",
+                    column.name
+                )))
+            })?;
+            for value in series.iter() {
+                let key = match unique_key(value) {
+                    Some(key) => key,
+                    None => continue,
+                };
+                seen.insert(key);
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn apply(
         &mut self,
         df: &DataFrame,

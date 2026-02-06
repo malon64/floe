@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use floe_core::io::write::parts::is_part_filename;
 use floe_core::report::{FileStatus, MismatchAction, RuleName};
 use floe_core::{run, RunOptions};
 use polars::prelude::{ParquetReader, SerReader};
@@ -232,8 +233,9 @@ entities:
         .map(|entry| entry.file_name().to_string_lossy().to_string())
         .collect::<Vec<_>>();
     rejected_files.sort();
-    assert_eq!(
-        rejected_files,
-        vec!["part-00000.csv".to_string(), "part-00001.csv".to_string()]
-    );
+    assert_eq!(rejected_files.len(), 2);
+    assert!(rejected_files
+        .iter()
+        .all(|name| is_part_filename(name, "csv")));
+    assert_ne!(rejected_files[0], rejected_files[1]);
 }

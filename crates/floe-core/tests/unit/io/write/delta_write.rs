@@ -16,7 +16,7 @@ fn write_delta_table_overwrite() -> FloeResult<()> {
     let config = empty_root_config();
     let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let target = resolve_local_target(&resolver, &table_path)?;
-    let entity = build_entity(&table_path, config::WriteMode::Overwrite, Vec::new());
+    let entity = build_entity(&table_path, config::WriteMode::Overwrite, Vec::new(), None);
     let version1 = write_delta_table(
         &mut df,
         &target,
@@ -66,7 +66,7 @@ fn write_delta_table_append() -> FloeResult<()> {
     let config = empty_root_config();
     let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let target = resolve_local_target(&resolver, &table_path)?;
-    let entity = build_entity(&table_path, config::WriteMode::Append, Vec::new());
+    let entity = build_entity(&table_path, config::WriteMode::Append, Vec::new(), None);
 
     let mut df_first = df!(
         "id" => &[1i64, 2, 3],
@@ -121,6 +121,7 @@ fn delta_append_allows_nulls_for_nullable_columns() -> FloeResult<()> {
             column("id", "int64", Some(false)),
             column("name", "string", Some(true)),
         ],
+        None,
     );
 
     let mut df_first = df!(
@@ -178,6 +179,7 @@ fn delta_append_rejects_nulls_for_non_nullable_columns() -> FloeResult<()> {
             column("id", "int64", Some(false)),
             column("name", "string", Some(false)),
         ],
+        None,
     );
 
     let mut df_first = df!(
@@ -212,6 +214,51 @@ fn delta_append_rejects_nulls_for_non_nullable_columns() -> FloeResult<()> {
     Ok(())
 }
 
+#[test]
+fn delta_write_uses_normalized_schema_names() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![
+            column("User Id", "int64", Some(false)),
+            column("Full Name", "string", Some(true)),
+        ],
+        Some(normalize_config("snake_case")),
+    );
+
+    let mut df = df!(
+        "user_id" => &[1i64, 2],
+        "full_name" => &["alice", "bob"]
+    )?;
+    write_delta_table(
+        &mut df,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    assert_eq!(row_count(&table)?, df.height());
+
+    let field_names = table
+        .snapshot()?
+        .schema()
+        .fields()
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    assert!(field_names.contains(&"user_id".to_string()));
+    assert!(field_names.contains(&"full_name".to_string()));
+
+    Ok(())
+}
+
 fn empty_root_config() -> config::RootConfig {
     config::RootConfig {
         version: "0.1".to_string(),
@@ -241,6 +288,7 @@ fn build_entity(
     table_path: &Path,
     write_mode: config::WriteMode,
     columns: Vec<config::ColumnConfig>,
+    normalize_columns: Option<config::NormalizeColumnsConfig>,
 ) -> config::EntityConfig {
     config::EntityConfig {
         name: "orders".to_string(),
@@ -269,7 +317,7 @@ fn build_entity(
             severity: "warn".to_string(),
         },
         schema: config::SchemaConfig {
-            normalize_columns: None,
+            normalize_columns,
             mismatch: None,
             columns,
         },
@@ -282,6 +330,13 @@ fn column(name: &str, column_type: &str, nullable: Option<bool>) -> config::Colu
         column_type: column_type.to_string(),
         nullable,
         unique: None,
+    }
+}
+
+fn normalize_config(strategy: &str) -> config::NormalizeColumnsConfig {
+    config::NormalizeColumnsConfig {
+        enabled: Some(true),
+        strategy: Some(strategy.to_string()),
     }
 }
 

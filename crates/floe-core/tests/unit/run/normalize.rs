@@ -1,4 +1,4 @@
-use floe_core::run::normalize::normalize_name;
+use floe_core::checks::normalize::normalize_name;
 
 #[test]
 fn normalize_name_snake_case() {

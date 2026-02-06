@@ -14,7 +14,7 @@ use polars::prelude::{DataFrame, DataType, TimeUnit};
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::{object_store, Target};
-use crate::{config, io, ConfigError, FloeResult};
+use crate::{config, io, FloeResult};
 
 struct DeltaAcceptedAdapter;
 
@@ -29,6 +29,7 @@ pub fn write_delta_table(
     target: &Target,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
+    mode: config::WriteMode,
 ) -> FloeResult<i64> {
     if let Target::Local { base_path, .. } = target {
         std::fs::create_dir_all(Path::new(base_path))?;
@@ -59,7 +60,7 @@ pub fn write_delta_table(
             };
             let table = table
                 .write(vec![batch])
-                .with_save_mode(SaveMode::Overwrite)
+                .with_save_mode(save_mode_for_write_mode(mode))
                 .await?;
             let version = table.version().ok_or_else(|| {
                 deltalake::DeltaTableError::Generic(
@@ -85,13 +86,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        if mode == config::WriteMode::Append {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.format=delta does not support sink.write_mode=append yet",
-                entity.name
-            ))));
-        }
-        let version = write_delta_table(df, target, resolver, entity)?;
+        let version = write_delta_table(df, target, resolver, entity, mode)?;
         Ok(AcceptedWriteOutput {
             parts_written: 1,
             part_files: Vec::new(),
@@ -110,6 +105,13 @@ fn dataframe_to_record_batch(df: &DataFrame) -> FloeResult<RecordBatch> {
     }
     Ok(RecordBatch::try_from_iter(columns)
         .map_err(|err| Box::new(RunError(format!("delta record batch build failed: {err}"))))?)
+}
+
+fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
+    match mode {
+        config::WriteMode::Overwrite => SaveMode::Overwrite,
+        config::WriteMode::Append => SaveMode::Append,
+    }
 }
 
 fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRef> {

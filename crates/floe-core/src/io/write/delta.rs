@@ -14,7 +14,7 @@ use polars::prelude::{DataFrame, DataType, TimeUnit};
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::{object_store, Target};
-use crate::{config, io, ConfigError, FloeResult};
+use crate::{config, io, FloeResult};
 
 struct DeltaAcceptedAdapter;
 

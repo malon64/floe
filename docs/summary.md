@@ -33,10 +33,6 @@ important references so you can quickly find the right guide.
   - Sink options (parquet settings): [docs/sinks/options.md](sinks/options.md)
   - Iceberg (not implemented): [docs/sinks/iceberg.md](sinks/iceberg.md)
 
-## Benchmarking & development
-
-- Bench setup and results: [docs/benchmarking.md](benchmarking.md)
-
 ## Notes for v0.2
 
 - Cloud IO for CSV/JSON/Parquet uses temp download/upload (file-level IO).

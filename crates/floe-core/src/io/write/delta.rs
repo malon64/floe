@@ -16,6 +16,7 @@ use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::{object_store, Target};
+use crate::run::normalize;
 use crate::{config, io, FloeResult};
 
 struct DeltaAcceptedAdapter;

@@ -17,7 +17,6 @@ pub enum PartScope {
 #[derive(Debug, Clone, Copy)]
 pub struct PartSpec {
     pub extension: &'static str,
-    pub min_width: usize,
     pub scope: PartScope,
 }
 
@@ -61,7 +60,6 @@ pub fn ensure_mode_supported(mode: config::WriteMode) -> FloeResult<()> {
 pub fn accepted_parquet_spec() -> PartSpec {
     PartSpec {
         extension: "parquet",
-        min_width: 1,
         scope: PartScope::Accepted { format: "parquet" },
     }
 }
@@ -69,27 +67,15 @@ pub fn accepted_parquet_spec() -> PartSpec {
 pub fn rejected_csv_spec() -> PartSpec {
     PartSpec {
         extension: "csv",
-        min_width: 5,
         scope: PartScope::Rejected { format: "csv" },
     }
 }
 
 pub fn append_part_allocator(
-    ctx: &mut WriteContext<'_>,
+    _ctx: &mut WriteContext<'_>,
     spec: PartSpec,
 ) -> FloeResult<parts::PartNameAllocator> {
-    match ctx.target {
-        Target::Local { base_path, .. } => {
-            parts::PartNameAllocator::from_local_path(Path::new(base_path), spec.extension)
-        }
-        Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
-            let next_index = next_cloud_part_index(ctx, spec)?;
-            Ok(parts::PartNameAllocator::from_next_index(
-                next_index,
-                spec.extension,
-            ))
-        }
-    }
+    Ok(parts::PartNameAllocator::unique(spec.extension))
 }
 
 pub fn overwrite_part_allocator(
@@ -100,32 +86,12 @@ pub fn overwrite_part_allocator(
         Target::Local { base_path, .. } => {
             let base_path = Path::new(base_path);
             let _ = parts::clear_local_part_files(base_path, spec.extension)?;
-            parts::PartNameAllocator::from_local_path(base_path, spec.extension)
+            Ok(parts::PartNameAllocator::from_next_index(0, spec.extension))
         }
         Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
             clear_cloud_parts(ctx, spec)?;
             Ok(parts::PartNameAllocator::from_next_index(0, spec.extension))
         }
-    }
-}
-
-fn next_cloud_part_index(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<usize> {
-    let (list_prefix, objects) = list_part_objects(ctx, spec)?;
-    let indexes = objects.into_iter().filter_map(|obj| {
-        if obj.key.starts_with(&list_prefix) {
-            parts::parse_part_index_from_key(&obj.key, spec.extension, spec.min_width)
-        } else {
-            None
-        }
-    });
-    match indexes.max() {
-        Some(index) => index.checked_add(1).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "{} part index overflow while preparing append write",
-                spec.extension
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        }),
-        None => Ok(0),
     }
 }
 
@@ -137,16 +103,14 @@ fn clear_cloud_parts(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<(
     for object in objects
         .into_iter()
         .filter(|obj| obj.key.starts_with(&list_prefix))
-        .filter(|obj| {
-            parts::parse_part_index_from_key(&obj.key, spec.extension, spec.min_width).is_some()
-        })
+        .filter(|obj| parts::is_part_key(&obj.key, spec.extension))
     {
         client.delete_object(&object.uri)?;
     }
     Ok(())
 }
 
-fn list_part_objects(
+pub(crate) fn list_part_objects(
     ctx: &mut WriteContext<'_>,
     spec: PartSpec,
 ) -> FloeResult<(String, Vec<io::storage::ObjectRef>)> {

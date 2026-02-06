@@ -3,14 +3,13 @@ use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
 
 use super::file::required_columns;
-use super::normalize::normalize_schema_columns;
-use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
     AcceptedOutputContext, RejectedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
+use crate::checks::normalize::{normalize_schema_columns, resolve_normalize_strategy};
 use crate::report::build::summarize_validation_sparse;
 
 use io::format::{self, ReadInput};

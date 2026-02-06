@@ -25,7 +25,7 @@ pub fn plan_schema_mismatch(
     declared_columns: &[config::ColumnConfig],
     input_names: &[String],
 ) -> FloeResult<MismatchOutcome> {
-    let normalize_strategy = crate::run::normalize::resolve_normalize_strategy(entity)?;
+    let normalize_strategy = crate::checks::normalize::resolve_normalize_strategy(entity)?;
     let declared_names = declared_columns
         .iter()
         .map(|column| column.name.clone())
@@ -33,7 +33,7 @@ pub fn plan_schema_mismatch(
     let input_names = match normalize_strategy.as_deref() {
         Some(strategy) => input_names
             .iter()
-            .map(|name| crate::run::normalize::normalize_name(name, strategy))
+            .map(|name| crate::checks::normalize::normalize_name(name, strategy))
             .collect::<Vec<_>>(),
         None => input_names.to_vec(),
     };

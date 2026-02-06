@@ -11,7 +11,6 @@ mod context;
 pub(crate) mod entity;
 pub mod events;
 mod file;
-pub mod normalize;
 mod output;
 
 pub(crate) use context::RunContext;

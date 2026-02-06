@@ -1,5 +1,6 @@
 mod cast;
 mod mismatch;
+pub mod normalize;
 mod not_null;
 mod unique;
 

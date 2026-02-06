@@ -12,6 +12,7 @@ use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
 use polars::prelude::{DataFrame, DataType, TimeUnit};
 
+use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::{object_store, Target};
@@ -118,9 +119,14 @@ fn dataframe_to_record_batch(
         });
     }
 
-    let mut fields = Vec::with_capacity(entity.schema.columns.len());
-    let mut arrays = Vec::with_capacity(entity.schema.columns.len());
-    for column in &entity.schema.columns {
+    let schema_columns = if let Some(strategy) = normalize::resolve_normalize_strategy(entity)? {
+        normalize::normalize_schema_columns(&entity.schema.columns, &strategy)?
+    } else {
+        entity.schema.columns.clone()
+    };
+    let mut fields = Vec::with_capacity(schema_columns.len());
+    let mut arrays = Vec::with_capacity(schema_columns.len());
+    for column in &schema_columns {
         let series = df
             .column(column.name.as_str())
             .map_err(|err| Box::new(RunError(format!("delta column lookup failed: {err}"))))?;

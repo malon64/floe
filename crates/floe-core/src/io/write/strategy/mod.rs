@@ -44,12 +44,6 @@ enum CloudProvider {
     Adls { container: String, account: String },
 }
 
-struct CloudObjects {
-    storage: String,
-    list_prefix: String,
-    objects: Vec<io::storage::ObjectRef>,
-}
-
 pub fn strategy_for(mode: config::WriteMode) -> &'static dyn ModeStrategy {
     match mode {
         config::WriteMode::Overwrite => &overwrite::OVERWRITE_STRATEGY,
@@ -116,9 +110,9 @@ pub fn overwrite_part_allocator(
 }
 
 fn next_cloud_part_index(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<usize> {
-    let cloud_objects = list_part_objects(ctx, spec)?;
-    let indexes = cloud_objects.objects.into_iter().filter_map(|obj| {
-        if obj.key.starts_with(&cloud_objects.list_prefix) {
+    let (list_prefix, objects) = list_part_objects(ctx, spec)?;
+    let indexes = objects.into_iter().filter_map(|obj| {
+        if obj.key.starts_with(&list_prefix) {
             parts::parse_part_index_from_key(&obj.key, spec.extension, spec.min_width)
         } else {
             None
@@ -136,14 +130,13 @@ fn next_cloud_part_index(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResu
 }
 
 fn clear_cloud_parts(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<()> {
-    let cloud_objects = list_part_objects(ctx, spec)?;
+    let (list_prefix, objects) = list_part_objects(ctx, spec)?;
     let client = ctx
         .cloud
-        .client_for(ctx.resolver, cloud_objects.storage.as_str(), ctx.entity)?;
-    for object in cloud_objects
-        .objects
+        .client_for(ctx.resolver, ctx.target.storage(), ctx.entity)?;
+    for object in objects
         .into_iter()
-        .filter(|obj| obj.key.starts_with(&cloud_objects.list_prefix))
+        .filter(|obj| obj.key.starts_with(&list_prefix))
         .filter(|obj| {
             parts::parse_part_index_from_key(&obj.key, spec.extension, spec.min_width).is_some()
         })
@@ -153,7 +146,10 @@ fn clear_cloud_parts(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<(
     Ok(())
 }
 
-fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<CloudObjects> {
+fn list_part_objects(
+    ctx: &mut WriteContext<'_>,
+    spec: PartSpec,
+) -> FloeResult<(String, Vec<io::storage::ObjectRef>)> {
     match ctx.target {
         Target::S3 {
             storage, base_key, ..
@@ -162,11 +158,7 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
             let list_prefix = list_prefix(ctx.entity, base_key, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
-            Ok(CloudObjects {
-                storage: storage.clone(),
-                list_prefix,
-                objects,
-            })
+            Ok((list_prefix, objects))
         }
         Target::Gcs {
             storage,
@@ -180,11 +172,7 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
             let list_prefix = list_prefix(ctx.entity, base_key, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
-            Ok(CloudObjects {
-                storage: storage.clone(),
-                list_prefix,
-                objects,
-            })
+            Ok((list_prefix, objects))
         }
         Target::Adls {
             storage,
@@ -200,11 +188,7 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
             let list_prefix = list_prefix(ctx.entity, base_path, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
-            Ok(CloudObjects {
-                storage: storage.clone(),
-                list_prefix,
-                objects,
-            })
+            Ok((list_prefix, objects))
         }
         Target::Local { .. } => Err(Box::new(ConfigError(
             "cloud part listing requested for local target".to_string(),

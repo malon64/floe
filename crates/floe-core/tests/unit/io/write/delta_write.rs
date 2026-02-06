@@ -16,7 +16,7 @@ fn write_delta_table_overwrite() -> FloeResult<()> {
     let config = empty_root_config();
     let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let target = resolve_local_target(&resolver, &table_path)?;
-    let entity = build_entity(&table_path, config::WriteMode::Overwrite);
+    let entity = build_entity(&table_path, config::WriteMode::Overwrite, Vec::new());
     let version1 = write_delta_table(
         &mut df,
         &target,
@@ -66,7 +66,7 @@ fn write_delta_table_append() -> FloeResult<()> {
     let config = empty_root_config();
     let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
     let target = resolve_local_target(&resolver, &table_path)?;
-    let entity = build_entity(&table_path, config::WriteMode::Append);
+    let entity = build_entity(&table_path, config::WriteMode::Append, Vec::new());
 
     let mut df_first = df!(
         "id" => &[1i64, 2, 3],
@@ -107,6 +107,111 @@ fn write_delta_table_append() -> FloeResult<()> {
     Ok(())
 }
 
+#[test]
+fn delta_append_allows_nulls_for_nullable_columns() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![
+            column("id", "int64", Some(false)),
+            column("name", "string", Some(true)),
+        ],
+    );
+
+    let mut df_first = df!(
+        "id" => &[1i64, 2, 3],
+        "name" => &["a", "b", "c"]
+    )?;
+    write_delta_table(
+        &mut df_first,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let mut df_second = df!(
+        "id" => &[4i64, 5],
+        "name" => &[Some("d"), None]
+    )?;
+    write_delta_table(
+        &mut df_second,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    assert_eq!(row_count(&table)?, df_first.height() + df_second.height());
+
+    let schema_fields = table
+        .snapshot()?
+        .schema()
+        .fields()
+        .map(|field| (field.name.clone(), field.nullable))
+        .collect::<Vec<_>>();
+    assert!(schema_fields
+        .iter()
+        .any(|(name, nullable)| { name == "name" && *nullable }));
+
+    Ok(())
+}
+
+#[test]
+fn delta_append_rejects_nulls_for_non_nullable_columns() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![
+            column("id", "int64", Some(false)),
+            column("name", "string", Some(false)),
+        ],
+    );
+
+    let mut df_first = df!(
+        "id" => &[1i64, 2],
+        "name" => &["a", "b"]
+    )?;
+    write_delta_table(
+        &mut df_first,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let mut df_second = df!(
+        "id" => &[3i64, 4],
+        "name" => &[Some("c"), None]
+    )?;
+    let append_result = write_delta_table(
+        &mut df_second,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    );
+    assert!(append_result.is_err());
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    assert_eq!(row_count(&table)?, df_first.height());
+
+    Ok(())
+}
+
 fn empty_root_config() -> config::RootConfig {
     config::RootConfig {
         version: "0.1".to_string(),
@@ -132,7 +237,11 @@ fn resolve_local_target(
     Target::from_resolved(&resolved)
 }
 
-fn build_entity(table_path: &Path, write_mode: config::WriteMode) -> config::EntityConfig {
+fn build_entity(
+    table_path: &Path,
+    write_mode: config::WriteMode,
+    columns: Vec<config::ColumnConfig>,
+) -> config::EntityConfig {
     config::EntityConfig {
         name: "orders".to_string(),
         metadata: None,
@@ -162,8 +271,17 @@ fn build_entity(table_path: &Path, write_mode: config::WriteMode) -> config::Ent
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
-            columns: Vec::new(),
+            columns,
         },
+    }
+}
+
+fn column(name: &str, column_type: &str, nullable: Option<bool>) -> config::ColumnConfig {
+    config::ColumnConfig {
+        name: name.to_string(),
+        column_type: column_type.to_string(),
+        nullable,
+        unique: None,
     }
 }
 

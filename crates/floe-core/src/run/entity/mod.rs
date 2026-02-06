@@ -42,6 +42,7 @@ pub(super) fn run_entity(
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
+    let mut rejected_overwrite_used = false;
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_remote = matches!(
@@ -428,6 +429,16 @@ pub(super) fn run_entity(
                             entity.name
                         )))
                     })?;
+                    let rejected_mode = if write_mode == config::WriteMode::Overwrite {
+                        if rejected_overwrite_used {
+                            config::WriteMode::Append
+                        } else {
+                            rejected_overwrite_used = true;
+                            config::WriteMode::Overwrite
+                        }
+                    } else {
+                        write_mode
+                    };
                     let rejected_path_value = write_rejected_output(RejectedOutputContext {
                         format: rejected_config.format.as_str(),
                         target: rejected_target,
@@ -437,7 +448,7 @@ pub(super) fn run_entity(
                         cloud,
                         resolver: &context.storage_resolver,
                         entity,
-                        mode: write_mode,
+                        mode: rejected_mode,
                     })?;
                     rejected_path = Some(rejected_path_value);
                 } else {

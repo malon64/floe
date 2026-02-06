@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use deltalake::table::builder::DeltaTableBuilder;
+use url::Url;
 
 use crate::errors::{RunError, StorageError};
 use crate::io::read::parquet::read_parquet_lazy;
@@ -154,7 +155,13 @@ fn seed_from_delta(
         .collect::<Vec<_>>();
     for uri in file_uris {
         let local_path = match target {
-            Target::Local { .. } => Path::new(&uri).to_path_buf(),
+            Target::Local { .. } => {
+                let parsed = Url::parse(&uri)
+                    .ok()
+                    .and_then(|url| url.to_file_path().ok())
+                    .unwrap_or_else(|| Path::new(&uri).to_path_buf());
+                parsed
+            }
             Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
                 let temp_dir = temp_dir.ok_or_else(|| {
                     Box::new(StorageError(format!(

@@ -20,7 +20,7 @@ pub fn write_error_report(
     let mut items = Vec::new();
     for (idx, err) in errors_per_row.iter().enumerate() {
         if let Some(err) = err {
-            items.push(format!("{{\"row_index\":{},\"errors\":{}}}", idx, err));
+            items.push(format!("{\"row_index\":{},\"errors\":{}}", idx, err));
         }
     }
     let content = format!("[{}]", items.join(","));

@@ -6,6 +6,7 @@ use deltalake::arrow::array::{
     Int64Array, Int8Array, NullArray, StringArray, Time64NanosecondArray,
     TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
+use deltalake::arrow::datatypes::{Field, Schema};
 use deltalake::arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
@@ -34,7 +35,7 @@ pub fn write_delta_table(
     if let Target::Local { base_path, .. } = target {
         std::fs::create_dir_all(Path::new(base_path))?;
     }
-    let batch = dataframe_to_record_batch(df)?;
+    let batch = dataframe_to_record_batch(df, entity)?;
     let store = object_store::delta_store_config(target, resolver, entity)?;
     let table_url = store.table_url;
     let storage_options = store.storage_options;
@@ -95,16 +96,55 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
     }
 }
 
-fn dataframe_to_record_batch(df: &DataFrame) -> FloeResult<RecordBatch> {
-    let mut columns = Vec::with_capacity(df.width());
-    for column in df.get_columns() {
-        let series = column.as_materialized_series();
-        let name = series.name().to_string();
-        let array = series_to_arrow_array(series)?;
-        columns.push((name, array));
+fn dataframe_to_record_batch(
+    df: &DataFrame,
+    entity: &config::EntityConfig,
+) -> FloeResult<RecordBatch> {
+    if entity.schema.columns.is_empty() {
+        let mut fields = Vec::with_capacity(df.width());
+        let mut arrays = Vec::with_capacity(df.width());
+        for column in df.get_columns() {
+            let series = column.as_materialized_series();
+            let name = series.name().to_string();
+            let array = series_to_arrow_array(series)?;
+            let nullable = array.null_count() > 0;
+            fields.push(Field::new(name, array.data_type().clone(), nullable));
+            arrays.push(array);
+        }
+        let schema = Arc::new(Schema::new(fields));
+        return RecordBatch::try_new(schema, arrays).map_err(|err| {
+            Box::new(RunError(format!("delta record batch build failed: {err}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        });
     }
-    Ok(RecordBatch::try_from_iter(columns)
-        .map_err(|err| Box::new(RunError(format!("delta record batch build failed: {err}"))))?)
+
+    let mut fields = Vec::with_capacity(entity.schema.columns.len());
+    let mut arrays = Vec::with_capacity(entity.schema.columns.len());
+    for column in &entity.schema.columns {
+        let series = df
+            .column(column.name.as_str())
+            .map_err(|err| Box::new(RunError(format!("delta column lookup failed: {err}"))))?;
+        let series = series.as_materialized_series();
+        let array = series_to_arrow_array(series)?;
+        let nullable = column.nullable.unwrap_or(true);
+        if !nullable && array.null_count() > 0 {
+            return Err(Box::new(RunError(format!(
+                "delta write rejected nulls for non-nullable column {}",
+                column.name
+            ))));
+        }
+        fields.push(Field::new(
+            column.name.clone(),
+            array.data_type().clone(),
+            nullable,
+        ));
+        arrays.push(array);
+    }
+    let schema = Arc::new(Schema::new(fields));
+    RecordBatch::try_new(schema, arrays).map_err(|err| {
+        Box::new(RunError(format!("delta record batch build failed: {err}")))
+            as Box<dyn std::error::Error + Send + Sync>
+    })
 }
 
 fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {

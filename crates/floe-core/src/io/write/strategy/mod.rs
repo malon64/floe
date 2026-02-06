@@ -50,6 +50,13 @@ pub fn strategy_for(mode: config::WriteMode) -> &'static dyn ModeStrategy {
     }
 }
 
+pub fn ensure_mode_supported(mode: config::WriteMode) -> FloeResult<()> {
+    match mode {
+        config::WriteMode::Overwrite => Ok(()),
+        config::WriteMode::Append => Ok(()),
+    }
+}
+
 pub fn accepted_parquet_spec() -> PartSpec {
     PartSpec {
         extension: "parquet",

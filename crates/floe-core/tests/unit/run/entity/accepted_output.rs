@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use floe_core::io::write::parts::is_part_filename;
 use floe_core::{run, RunOptions};
 use polars::prelude::{ParquetReader, SerReader};
 
@@ -315,6 +316,18 @@ entities:
             .parts_written,
         6
     );
+    let mut first_part_files = Vec::new();
+    for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
+        let entry = entry.expect("read accepted entry");
+        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("parquet") {
+            first_part_files.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    first_part_files.sort();
+    assert_eq!(first_part_files.len(), 6);
+    assert!(first_part_files
+        .iter()
+        .all(|name| is_part_filename(name, "parquet")));
 
     write_csv(&input_dir, "a.csv", "id;name\n7;zoe\n");
     fs::remove_file(input_dir.join("b.csv")).expect("remove second input");
@@ -328,10 +341,9 @@ entities:
             .parts_written,
         1
     );
-    assert_eq!(
-        second.entity_outcomes[0].report.accepted_output.part_files,
-        vec!["part-00006.parquet".to_string()]
-    );
+    let appended_parts = &second.entity_outcomes[0].report.accepted_output.part_files;
+    assert_eq!(appended_parts.len(), 1);
+    assert!(is_part_filename(&appended_parts[0], "parquet"));
 
     let mut part_files = Vec::new();
     for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
@@ -341,18 +353,17 @@ entities:
         }
     }
     part_files.sort();
-    assert_eq!(
-        part_files,
-        vec![
-            "part-00000.parquet".to_string(),
-            "part-00001.parquet".to_string(),
-            "part-00002.parquet".to_string(),
-            "part-00003.parquet".to_string(),
-            "part-00004.parquet".to_string(),
-            "part-00005.parquet".to_string(),
-            "part-00006.parquet".to_string(),
-        ]
-    );
+    assert_eq!(part_files.len(), 7);
+    assert!(part_files
+        .iter()
+        .all(|name| is_part_filename(name, "parquet")));
+    let extra_parts = part_files
+        .iter()
+        .filter(|name| !first_part_files.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(extra_parts.len(), 1);
+    assert_eq!(extra_parts[0], appended_parts[0]);
 
     let mut total_rows = 0usize;
     for file_name in part_files {

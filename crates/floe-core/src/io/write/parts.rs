@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::{io, FloeResult};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PartFile {
@@ -11,29 +12,41 @@ pub struct PartFile {
 
 #[derive(Debug, Clone)]
 pub struct PartNameAllocator {
-    next_index: usize,
+    next_index: Option<usize>,
     extension: String,
 }
 
 impl PartNameAllocator {
     pub fn from_local_path(base_path: &Path, extension: &str) -> FloeResult<Self> {
         Ok(Self {
-            next_index: next_local_part_index(base_path, extension)?,
+            next_index: Some(next_local_part_index(base_path, extension)?),
             extension: normalize_extension(extension),
         })
     }
 
     pub fn from_next_index(next_index: usize, extension: &str) -> Self {
         Self {
-            next_index,
+            next_index: Some(next_index),
+            extension: normalize_extension(extension),
+        }
+    }
+
+    pub fn unique(extension: &str) -> Self {
+        Self {
+            next_index: None,
             extension: normalize_extension(extension),
         }
     }
 
     pub fn allocate_next(&mut self) -> String {
-        let file_name = part_filename(self.next_index, &self.extension);
-        self.next_index += 1;
-        file_name
+        match self.next_index {
+            Some(index) => {
+                let file_name = part_filename(index, &self.extension);
+                self.next_index = Some(index.saturating_add(1));
+                file_name
+            }
+            None => append_part_filename(&self.extension),
+        }
     }
 }
 
@@ -41,6 +54,36 @@ pub fn part_filename(index: usize, extension: &str) -> String {
     let extension = normalize_extension(extension);
     let stem = io::storage::paths::build_part_stem(index);
     io::storage::paths::build_output_filename(&stem, "", &extension)
+}
+
+pub fn append_part_filename(extension: &str) -> String {
+    let extension = normalize_extension(extension);
+    let id = Uuid::new_v4();
+    format!("part-{id}.{extension}")
+}
+
+pub fn is_part_filename(file_name: &str, extension: &str) -> bool {
+    let extension = normalize_extension(extension);
+    let path = Path::new(file_name);
+    if path.extension().and_then(|ext| ext.to_str()) != Some(extension.as_str()) {
+        return false;
+    }
+    let stem = match path.file_stem().and_then(|stem| stem.to_str()) {
+        Some(stem) => stem,
+        None => return false,
+    };
+    match stem.strip_prefix("part-") {
+        Some(rest) => !rest.is_empty(),
+        None => false,
+    }
+}
+
+pub fn is_part_key(key: &str, extension: &str) -> bool {
+    let file_name = match Path::new(key).file_name().and_then(|name| name.to_str()) {
+        Some(name) => name,
+        None => return false,
+    };
+    is_part_filename(file_name, extension)
 }
 
 pub fn list_local_part_files(base_path: &Path, extension: &str) -> FloeResult<Vec<PartFile>> {
@@ -96,11 +139,22 @@ pub fn clear_local_part_files(base_path: &Path, extension: &str) -> FloeResult<u
         return Ok(0);
     }
 
-    let part_files = list_local_part_files(base_path, extension)?;
-    for part_file in &part_files {
-        std::fs::remove_file(&part_file.path)?;
+    let mut removed = 0usize;
+    for entry in std::fs::read_dir(base_path)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        if is_part_filename(file_name, extension) {
+            std::fs::remove_file(entry.path())?;
+            removed += 1;
+        }
     }
-    Ok(part_files.len())
+    Ok(removed)
 }
 
 fn parse_part_index(file_name: &str, extension: &str) -> Option<usize> {

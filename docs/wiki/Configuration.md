@@ -2,24 +2,27 @@
 
 This page is a practical summary. The full reference is in `docs/config.md` and the example config is `example/config.yml`.
 
-## Minimal example
+## Minimal example (animal)
+
+A tiny, readable example for onboarding:
 
 ```yaml
 version: "0.1"
 report:
   path: "report"
 entities:
-  - name: "customer"
+  - name: "animal"
     source:
       format: "csv"
-      path: "example/in/customer"
+      path: "example/in/animal"
     sink:
+      write_mode: "append"
       accepted:
         format: "parquet"
-        path: "example/out/accepted/customer"
+        path: "example/out/accepted/animal"
       rejected:
         format: "csv"
-        path: "example/out/rejected/customer"
+        path: "example/out/rejected/animal"
     policy:
       severity: "reject"
     schema:
@@ -27,13 +30,21 @@ entities:
         enabled: true
         strategy: "snake_case"
       columns:
-        - name: "customer_id"
+        - name: "animal_id"
           type: "string"
           nullable: false
           unique: true
-        - name: "full_name"
+        - name: "species"
           type: "string"
+        - name: "age"
+          type: "int64"
 ```
+
+## Full example (all features)
+
+For a complete, commented config that covers domains, storages, cloud paths, write modes, mismatch policies, and multiple formats, see:
+
+- `docs/wiki/Full-Config-Example.md`
 
 ## Key sections
 

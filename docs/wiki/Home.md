@@ -7,14 +7,15 @@ This wiki is a practical guide for using Floe with the CLI or Docker. It complem
 ## Quick start
 
 1. Install the CLI (Homebrew or Cargo) or use Docker.
-2. Start from `example/config.yml` and run a local test.
-3. Move to your own dataset and storage targets.
+2. Start from the minimal animal config in `docs/wiki/Configuration.md`.
+3. Move to the full config example for advanced features.
 
 ## Pages
 
 - Installation
 - CLI Usage
 - Configuration
+- Full Config Example
 - Write Modes and Outputs
 - Docker Usage
 - Dagster Integration

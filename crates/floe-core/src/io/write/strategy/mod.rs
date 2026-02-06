@@ -37,6 +37,13 @@ pub trait ModeStrategy {
     ) -> FloeResult<parts::PartNameAllocator>;
 }
 
+#[derive(Debug, Clone)]
+enum CloudProvider {
+    S3,
+    Gcs { bucket: String },
+    Adls { container: String, account: String },
+}
+
 struct CloudObjects {
     storage: String,
     list_prefix: String,
@@ -151,7 +158,8 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
         Target::S3 {
             storage, base_key, ..
         } => {
-            let list_prefix = s3_list_prefix(ctx.entity, base_key, spec)?;
+            let provider = CloudProvider::S3;
+            let list_prefix = list_prefix(ctx.entity, base_key, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
             Ok(CloudObjects {
@@ -166,7 +174,10 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
             base_key,
             ..
         } => {
-            let list_prefix = gcs_list_prefix(ctx.entity, bucket, base_key, spec)?;
+            let provider = CloudProvider::Gcs {
+                bucket: bucket.clone(),
+            };
+            let list_prefix = list_prefix(ctx.entity, base_key, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
             Ok(CloudObjects {
@@ -182,7 +193,11 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
             base_path,
             ..
         } => {
-            let list_prefix = adls_list_prefix(ctx.entity, container, account, base_path, spec)?;
+            let provider = CloudProvider::Adls {
+                container: container.clone(),
+                account: account.clone(),
+            };
+            let list_prefix = list_prefix(ctx.entity, base_path, &provider, spec)?;
             let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
             let objects = client.list(&list_prefix)?;
             Ok(CloudObjects {
@@ -197,85 +212,48 @@ fn list_part_objects(ctx: &mut WriteContext<'_>, spec: PartSpec) -> FloeResult<C
     }
 }
 
-fn s3_list_prefix(
+fn list_prefix(
     entity: &config::EntityConfig,
-    base_key: &str,
-    spec: PartSpec,
-) -> FloeResult<String> {
-    let prefix = base_key.trim_matches('/');
-    if prefix.is_empty() {
-        return Err(Box::new(prefix_error_s3(entity, spec)));
-    }
-    Ok(format!("{prefix}/"))
-}
-
-fn gcs_list_prefix(
-    entity: &config::EntityConfig,
-    bucket: &str,
-    base_key: &str,
-    spec: PartSpec,
-) -> FloeResult<String> {
-    let prefix = base_key.trim_matches('/');
-    if prefix.is_empty() {
-        return Err(Box::new(prefix_error_gcs(entity, bucket, spec)));
-    }
-    Ok(format!("{prefix}/"))
-}
-
-fn adls_list_prefix(
-    entity: &config::EntityConfig,
-    container: &str,
-    account: &str,
     base_path: &str,
+    provider: &CloudProvider,
     spec: PartSpec,
 ) -> FloeResult<String> {
     let prefix = base_path.trim_matches('/');
     if prefix.is_empty() {
-        return Err(Box::new(prefix_error_adls(
-            entity, container, account, spec,
-        )));
+        return Err(Box::new(prefix_error(entity, provider, spec)));
     }
     Ok(format!("{prefix}/"))
 }
 
-fn prefix_error_s3(entity: &config::EntityConfig, spec: PartSpec) -> ConfigError {
-    match spec.scope {
-        PartScope::Accepted { format } => ConfigError(format!(
+fn prefix_error(
+    entity: &config::EntityConfig,
+    provider: &CloudProvider,
+    spec: PartSpec,
+) -> ConfigError {
+    match (&spec.scope, provider) {
+        (PartScope::Accepted { format }, CloudProvider::S3) => ConfigError(format!(
             "entity.name={} sink.accepted.path must not be bucket root for s3 {format} outputs",
             entity.name
         )),
-        PartScope::Rejected { .. } => ConfigError(format!(
-            "entity.name={} sink.rejected.path must not be bucket root for s3 outputs",
-            entity.name
-        )),
-    }
-}
-
-fn prefix_error_gcs(entity: &config::EntityConfig, bucket: &str, spec: PartSpec) -> ConfigError {
-    match spec.scope {
-        PartScope::Accepted { format } => ConfigError(format!(
+        (PartScope::Accepted { format }, CloudProvider::Gcs { bucket }) => ConfigError(format!(
             "entity.name={} sink.accepted.path must not be bucket root for gcs {format} outputs (bucket={})",
             entity.name, bucket
         )),
-        PartScope::Rejected { .. } => ConfigError(format!(
+        (PartScope::Accepted { format }, CloudProvider::Adls { container, account }) => {
+            ConfigError(format!(
+                "entity.name={} sink.accepted.path must not be container root for adls {format} outputs (container={}, account={})",
+                entity.name, container, account
+            ))
+        }
+        (PartScope::Rejected { .. }, CloudProvider::S3) => ConfigError(format!(
+            "entity.name={} sink.rejected.path must not be bucket root for s3 outputs",
+            entity.name
+        )),
+        (PartScope::Rejected { .. }, CloudProvider::Gcs { .. }) => ConfigError(format!(
             "entity.name={} sink.rejected.path must not be bucket root for gcs outputs",
             entity.name
         )),
-    }
-}
-
-fn prefix_error_adls(
-    entity: &config::EntityConfig,
-    container: &str,
-    account: &str,
-    spec: PartSpec,
-) -> ConfigError {
-    match spec.scope {
-        PartScope::Accepted { format } => ConfigError(format!(
-            "entity.name={} sink.accepted.path must not be container root for adls {format} outputs (container={}, account={})",
-            entity.name, container, account
-        )),
-        PartScope::Rejected { .. } => ConfigError(format!(
+        (PartScope::Rejected { .. }, CloudProvider::Adls { .. }) => ConfigError(format!(
             "entity.name={} sink.rejected.path must not be container root for adls outputs",
             entity.name
         )),

@@ -6,8 +6,6 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, FloeResult};
 
-use super::modes;
-
 pub struct AcceptedWriteRequest<'a> {
     pub target: &'a Target,
     pub df: &'a mut DataFrame,
@@ -35,10 +33,10 @@ impl<'a> AdapterAcceptedWriter<'a> {
 
 impl AcceptedWriter for AdapterAcceptedWriter<'_> {
     fn write(&self, request: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
-        modes::ensure_mode_supported(request.mode)?;
         self.adapter.write_accepted(
             request.target,
             request.df,
+            request.mode,
             request.output_stem,
             request.temp_dir,
             request.cloud,

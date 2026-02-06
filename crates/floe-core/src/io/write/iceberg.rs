@@ -19,6 +19,7 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
         &self,
         _target: &Target,
         _df: &mut DataFrame,
+        _mode: config::WriteMode,
         _output_stem: &str,
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,

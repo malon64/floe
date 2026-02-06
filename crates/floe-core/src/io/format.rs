@@ -86,10 +86,12 @@ pub trait InputAdapter: Send + Sync {
 }
 
 pub trait AcceptedSinkAdapter: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     fn write_accepted(
         &self,
         target: &Target,
         df: &mut DataFrame,
+        mode: config::WriteMode,
         output_stem: &str,
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,

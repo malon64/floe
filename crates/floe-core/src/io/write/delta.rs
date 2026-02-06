@@ -14,7 +14,7 @@ use polars::prelude::{DataFrame, DataType, TimeUnit};
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::{object_store, Target};
-use crate::{config, io, FloeResult};
+use crate::{config, io, ConfigError, FloeResult};
 
 struct DeltaAcceptedAdapter;
 
@@ -78,12 +78,19 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         &self,
         target: &Target,
         df: &mut DataFrame,
+        mode: config::WriteMode,
         _output_stem: &str,
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
+        if mode == config::WriteMode::Append {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.format=delta does not support sink.write_mode=append yet",
+                entity.name
+            ))));
+        }
         let version = write_delta_table(df, target, resolver, entity)?;
         Ok(AcceptedWriteOutput {
             parts_written: 1,

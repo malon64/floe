@@ -69,3 +69,19 @@ FLOE_DOCKER_IMAGE="$FLOE_DOCKER_IMAGE" dagster dev
 - `DockerRunner` mounts the config directory by default; if your config uses paths like `../data/...`, it mounts a higher parent directory so those paths remain visible. For full control, pass `workdir=...`.
 - When `DockerRunner` mounts local files, it runs the container as your current user (`--user uid:gid`) so Floe can write reports/outputs back into the mounted directory.
 - Design notes and future work: `orchestrators/dagster-floe/INTEGRATION_SPEC.md`
+
+## Releasing
+
+This repo is a monorepo. Floe and this connector are versioned and tagged independently:
+
+- Floe CLI release tags: `vX.Y.Z`
+- Dagster connector release tags: `dagster-floe-vX.Y.Z` (triggers the PyPI publish workflow)
+
+Example:
+
+```bash
+git checkout main
+git pull
+git tag dagster-floe-v0.1.0
+git push origin dagster-floe-v0.1.0
+```

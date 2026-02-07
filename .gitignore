@@ -33,3 +33,4 @@ adls/
 orchestrators/dagster-floe/.tmp_*/
 orchestrators/dagster-floe/.dg/
 orchestrators/dagster-floe/.venv/
+orchestrators/dagster-floe/src/*.egg-info/

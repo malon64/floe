@@ -1,11 +1,31 @@
 [project]
 name = "dagster-floe"
-version = "0.0.0"
+version = "0.1.0"
 description = "Dagster connector for Floe CLI (config-driven ingestion)"
 requires-python = ">=3.10"
-dependencies = [
-  "dagster>=1.7",
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Floe contributors" }]
+keywords = ["dagster", "orchestration", "data-quality", "ingestion"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries",
 ]
+dependencies = [
+  "dagster>=1.7,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/malon64/floe"
+Repository = "https://github.com/malon64/floe"
+Issues = "https://github.com/malon64/floe/issues"
+Documentation = "https://github.com/malon64/floe/tree/main/orchestrators/dagster-floe"
 
 [project.optional-dependencies]
 dev = [
@@ -18,6 +38,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]

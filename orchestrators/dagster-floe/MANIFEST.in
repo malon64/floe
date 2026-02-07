@@ -1,0 +1,12 @@
+include pyproject.toml
+include README.md
+include INTEGRATION_SPEC.md
+
+recursive-include src/floe_dagster *.py
+recursive-include tests *.py
+recursive-include tests/fixtures *
+
+prune example
+
+global-exclude *.pyc
+global-exclude __pycache__

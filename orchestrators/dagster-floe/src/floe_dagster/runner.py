@@ -149,7 +149,7 @@ def _infer_mount_root_for_config(config_path: Path) -> Path:
     max_ups = 0
     try:
         text = config_path.read_text(encoding="utf-8", errors="ignore")
-        for match in re.finditer(r"(?:(?:\\.\\./)+)", text):
+        for match in re.finditer(r"(?:(?:\.\./)+)", text):
             ups = match.group(0).count("../")
             if ups > max_ups:
                 max_ups = ups

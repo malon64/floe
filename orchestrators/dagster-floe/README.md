@@ -7,9 +7,17 @@ Goals of the MVP:
 - Execute one entity per asset with `floe run --entities <name> --log-format json`
 - Parse NDJSON events from stdout and attach run stats to Dagster materialization metadata
 
-## Install (editable)
+## Install
 
-From repo root:
+Prereqs:
+- Floe installed (either the `floe` CLI binary **or** Docker with a Floe image).
+- Python 3.10+.
+
+```bash
+pip install dagster-floe
+```
+
+## Development install (from this repo)
 
 ```bash
 python3 -m venv orchestrators/dagster-floe/.venv
@@ -17,7 +25,7 @@ source orchestrators/dagster-floe/.venv/bin/activate
 pip install -e orchestrators/dagster-floe[dev]
 ```
 
-## Run the example
+## Run the example (repo-only)
 
 ```bash
 cd orchestrators/dagster-floe

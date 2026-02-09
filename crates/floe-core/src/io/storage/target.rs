@@ -91,6 +91,10 @@ impl Target {
         }
     }
 
+    pub fn is_remote(&self) -> bool {
+        !matches!(self, Target::Local { .. })
+    }
+
     pub fn join_relative(&self, relative: &str) -> String {
         match self {
             Target::Local { base_path, .. } => paths::resolve_output_dir_path(base_path, relative)

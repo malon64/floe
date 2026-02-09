@@ -9,7 +9,7 @@ use io::format::{self, InputFile};
 use io::storage::Target;
 
 pub(super) struct AcceptedOutputContext<'a> {
-    pub(super) format: &'a str,
+    pub(super) adapter: &'a dyn format::AcceptedSinkAdapter,
     pub(super) target: &'a Target,
     pub(super) df: &'a mut DataFrame,
     pub(super) output_stem: &'a str,
@@ -21,7 +21,7 @@ pub(super) struct AcceptedOutputContext<'a> {
 }
 
 pub(super) struct RejectedOutputContext<'a> {
-    pub(super) format: &'a str,
+    pub(super) adapter: &'a dyn format::RejectedSinkAdapter,
     pub(super) target: &'a Target,
     pub(super) df: &'a mut DataFrame,
     pub(super) source_stem: &'a str,
@@ -36,7 +36,7 @@ pub(super) fn write_accepted_output(
     context: AcceptedOutputContext<'_>,
 ) -> FloeResult<format::AcceptedWriteOutput> {
     let AcceptedOutputContext {
-        format,
+        adapter,
         target,
         df,
         output_stem,
@@ -46,7 +46,6 @@ pub(super) fn write_accepted_output(
         entity,
         mode,
     } = context;
-    let adapter = format::accepted_sink_adapter(format)?;
     io::write::accepted::write_with_adapter(
         adapter,
         io::write::accepted::AcceptedWriteRequest {
@@ -63,7 +62,7 @@ pub(super) fn write_accepted_output(
 }
 pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeResult<String> {
     let RejectedOutputContext {
-        format,
+        adapter,
         target,
         df,
         source_stem,
@@ -73,7 +72,6 @@ pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeR
         entity,
         mode,
     } = context;
-    let adapter = format::rejected_sink_adapter(format)?;
     adapter.write_rejected(format::RejectedWriteRequest {
         target,
         df,
@@ -143,12 +141,6 @@ pub(super) fn validate_rejected_target<'a>(
             "sink.rejected is required for {severity} severity"
         )))
     })?;
-    if format::rejected_sink_adapter(rejected_target.format.as_str()).is_err() {
-        return Err(Box::new(ConfigError(format!(
-            "unsupported rejected sink format: {}",
-            rejected_target.format
-        ))));
-    }
     Ok(rejected_target)
 }
 

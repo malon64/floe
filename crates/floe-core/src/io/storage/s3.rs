@@ -74,15 +74,12 @@ impl StorageClient for S3Client {
                     for object in contents {
                         if let Some(key) = object.key {
                             let uri = format_s3_uri(&bucket, &key);
-                            refs.push(ObjectRef {
+                            refs.push(planner::object_ref(
                                 uri,
                                 key,
-                                last_modified: object
-                                    .last_modified
-                                    .as_ref()
-                                    .map(|value| value.to_string()),
-                                size: object.size.map(|value| value as u64),
-                            });
+                                object.last_modified.as_ref().map(|value| value.to_string()),
+                                object.size.map(|value| value as u64),
+                            ));
                         }
                     }
                 }

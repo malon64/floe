@@ -21,14 +21,8 @@ pub fn resolve_inputs(
     // Storage-specific resolution: list + download for cloud, direct paths for local.
     match target {
         Target::S3 { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(crate::errors::RunError("s3 tempdir missing".to_string()))
-            })?;
-            let client = storage_client.ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "s3 storage client missing".to_string(),
-                ))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, "s3")?;
+            let client = require_storage_client(storage_client, "s3")?;
             let (bucket, key) = target.s3_parts().ok_or_else(|| {
                 Box::new(crate::errors::RunError(
                     "s3 target missing bucket".to_string(),
@@ -43,14 +37,8 @@ pub fn resolve_inputs(
             })
         }
         Target::Gcs { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(crate::errors::RunError("gcs tempdir missing".to_string()))
-            })?;
-            let client = storage_client.ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "gcs storage client missing".to_string(),
-                ))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, "gcs")?;
+            let client = require_storage_client(storage_client, "gcs")?;
             let (bucket, key) = target.gcs_parts().ok_or_else(|| {
                 Box::new(crate::errors::RunError(
                     "gcs target missing bucket".to_string(),
@@ -65,14 +53,8 @@ pub fn resolve_inputs(
             })
         }
         Target::Adls { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(crate::errors::RunError("adls tempdir missing".to_string()))
-            })?;
-            let client = storage_client.ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "adls storage client missing".to_string(),
-                ))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, "adls")?;
+            let client = require_storage_client(storage_client, "adls")?;
             let (container, account, base_path) = target.adls_parts().ok_or_else(|| {
                 Box::new(crate::errors::RunError(
                     "adls target missing container".to_string(),
@@ -100,6 +82,27 @@ pub fn resolve_inputs(
             Ok(ResolvedInputs { files, mode })
         }
     }
+}
+
+fn require_temp_dir<'a>(temp_dir: Option<&'a Path>, label: &str) -> FloeResult<&'a Path> {
+    temp_dir.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(crate::errors::RunError(format!(
+            "{} tempdir missing",
+            label
+        )))
+    })
+}
+
+fn require_storage_client<'a>(
+    storage_client: Option<&'a dyn super::StorageClient>,
+    label: &str,
+) -> FloeResult<&'a dyn super::StorageClient> {
+    storage_client.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(crate::errors::RunError(format!(
+            "{} storage client missing",
+            label
+        )))
+    })
 }
 
 fn build_cloud_inputs(

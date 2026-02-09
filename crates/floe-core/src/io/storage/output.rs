@@ -41,12 +41,7 @@ where
             Ok(output_path.display().to_string())
         }
         Target::S3 { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(StorageError(format!(
-                    "entity.name={} missing temp dir for s3 output",
-                    entity.name
-                )))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, entity, "s3")?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
             let client = cloud.client_for(resolver, storage, entity)?;
@@ -55,12 +50,7 @@ where
             Ok(uri)
         }
         Target::Gcs { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(StorageError(format!(
-                    "entity.name={} missing temp dir for gcs output",
-                    entity.name
-                )))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, entity, "gcs")?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
             let client = cloud.client_for(resolver, storage, entity)?;
@@ -69,12 +59,7 @@ where
             Ok(uri)
         }
         Target::Adls { storage, .. } => {
-            let temp_dir = temp_dir.ok_or_else(|| {
-                Box::new(StorageError(format!(
-                    "entity.name={} missing temp dir for adls output",
-                    entity.name
-                )))
-            })?;
+            let temp_dir = require_temp_dir(temp_dir, entity, "adls")?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
             let client = cloud.client_for(resolver, storage, entity)?;
@@ -83,4 +68,17 @@ where
             Ok(uri)
         }
     }
+}
+
+fn require_temp_dir<'a>(
+    temp_dir: Option<&'a Path>,
+    entity: &config::EntityConfig,
+    label: &str,
+) -> FloeResult<&'a Path> {
+    temp_dir.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(StorageError(format!(
+            "entity.name={} missing temp dir for {} output",
+            entity.name, label
+        )))
+    })
 }

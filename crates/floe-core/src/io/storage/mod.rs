@@ -18,6 +18,7 @@ pub mod planner;
 pub mod s3;
 pub mod target;
 pub mod uri;
+pub mod validation;
 
 pub use placement::OutputPlacement;
 
@@ -94,22 +95,14 @@ fn build_client(definition: &config::StorageDefinition) -> FloeResult<Box<dyn St
     let client: Box<dyn StorageClient> = match definition.fs_type.as_str() {
         "local" => Box::new(local::LocalClient::new()),
         "s3" => {
-            let bucket = definition.bucket.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "storage {} requires bucket for type s3",
-                    definition.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let bucket =
+                validation::require_field(definition, definition.bucket.as_ref(), "bucket", "s3")?;
             Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
         }
         "adls" => Box::new(adls::AdlsClient::new(definition)?),
         "gcs" => {
-            let bucket = definition.bucket.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "storage {} requires bucket for type gcs",
-                    definition.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let bucket =
+                validation::require_field(definition, definition.bucket.as_ref(), "bucket", "gcs")?;
             Box::new(gcs::GcsClient::new(bucket)?)
         }
         other => {

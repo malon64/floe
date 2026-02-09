@@ -36,6 +36,20 @@ pub fn stable_sort_refs(mut refs: Vec<ObjectRef>) -> Vec<ObjectRef> {
     refs
 }
 
+pub fn object_ref(
+    uri: String,
+    key: String,
+    last_modified: Option<String>,
+    size: Option<u64>,
+) -> ObjectRef {
+    ObjectRef {
+        uri,
+        key,
+        last_modified,
+        size,
+    }
+}
+
 pub fn filter_by_suffixes(refs: Vec<ObjectRef>, suffixes: &[String]) -> Vec<ObjectRef> {
     let suffixes = suffixes
         .iter()

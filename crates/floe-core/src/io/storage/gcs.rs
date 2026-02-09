@@ -74,12 +74,12 @@ impl StorageClient for GcsClient {
                     for object in items {
                         let key = object.name.clone();
                         let uri = format_gcs_uri(&bucket, &key);
-                        refs.push(ObjectRef {
+                        refs.push(planner::object_ref(
                             uri,
                             key,
-                            last_modified: object.updated.map(|value| value.to_string()),
-                            size: Some(object.size as u64),
-                        });
+                            object.updated.map(|value| value.to_string()),
+                            Some(object.size as u64),
+                        ));
                     }
                 }
                 match response.next_page_token {

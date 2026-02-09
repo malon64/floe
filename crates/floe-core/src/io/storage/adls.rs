@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 use crate::errors::StorageError;
 use crate::{config, ConfigError, FloeResult};
 
-use super::{planner, ObjectRef, StorageClient};
+use super::{planner, validation, ObjectRef, StorageClient};
 
 pub struct AdlsClient {
     account: String,
@@ -22,18 +22,14 @@ pub struct AdlsClient {
 
 impl AdlsClient {
     pub fn new(definition: &config::StorageDefinition) -> FloeResult<Self> {
-        let account = definition.account.clone().ok_or_else(|| {
-            Box::new(StorageError(format!(
-                "storage {} requires account for type adls",
-                definition.name
-            )))
-        })?;
-        let container = definition.container.clone().ok_or_else(|| {
-            Box::new(StorageError(format!(
-                "storage {} requires container for type adls",
-                definition.name
-            )))
-        })?;
+        let account =
+            validation::require_field(definition, definition.account.as_ref(), "account", "adls")?;
+        let container = validation::require_field(
+            definition,
+            definition.container.as_ref(),
+            "container",
+            "adls",
+        )?;
         let prefix = definition.prefix.clone().unwrap_or_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -92,12 +88,12 @@ impl StorageClient for AdlsClient {
                             container, account, key
                         )
                     };
-                    refs.push(ObjectRef {
+                    refs.push(planner::object_ref(
                         uri,
                         key,
-                        last_modified: Some(blob.properties.last_modified.to_string()),
-                        size: Some(blob.properties.content_length),
-                    });
+                        Some(blob.properties.last_modified.to_string()),
+                        Some(blob.properties.content_length),
+                    ));
                 }
             }
             Ok(planner::stable_sort_refs(refs))

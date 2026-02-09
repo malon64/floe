@@ -216,13 +216,5 @@ pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {
 pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
     uri::format_abfs_uri(container, account, path)
 }
-<<<<<<< HEAD:crates/floe-core/src/io/storage/providers/adls.rs
-<<<<<<< HEAD:crates/floe-core/src/io/storage/providers/adls.rs
 
 pub type AdlsLocation = uri::AdlsLocation;
-=======
->>>>>>> 73e9800 (refactor storage input handling and helpers):crates/floe-core/src/io/storage/adls.rs
-=======
-
-pub type AdlsLocation = uri::AdlsLocation;
->>>>>>> 812e960 (refactor adls uri helpers):crates/floe-core/src/io/storage/adls.rs

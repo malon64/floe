@@ -8,8 +8,6 @@ pub mod object_store;
 pub mod ops;
 pub mod providers;
 pub mod target;
-pub mod uri;
-pub mod validation;
 
 pub use core::{extensions, paths, placement, planner, uri, validation};
 pub use ops::{archive, inputs, output};

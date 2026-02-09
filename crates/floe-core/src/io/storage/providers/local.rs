@@ -5,7 +5,7 @@ use glob::glob;
 use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
 
-use super::{planner, ObjectRef, StorageClient};
+use crate::io::storage::{planner, ObjectRef, StorageClient};
 
 pub struct LocalClient;
 

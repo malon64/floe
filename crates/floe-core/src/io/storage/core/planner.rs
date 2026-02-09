@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::FloeResult;
 
-use super::StorageClient;
+use crate::io::storage::StorageClient;
 
 #[derive(Debug, Clone)]
 pub struct ObjectRef {

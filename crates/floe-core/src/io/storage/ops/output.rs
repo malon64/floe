@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::{config, errors::StorageError, FloeResult};
 
-use super::{paths, CloudClient, OutputPlacement, Target};
+use crate::io::storage::{paths, CloudClient, OutputPlacement, Target};
 
 /// Write an output file to a storage target.
 ///

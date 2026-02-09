@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{config, io, report, FloeResult};
 
-use super::{planner, Target};
+use crate::io::storage::{planner, Target};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedInputs {
@@ -16,7 +16,7 @@ pub fn resolve_inputs(
     adapter: &dyn io::format::InputAdapter,
     target: &Target,
     temp_dir: Option<&Path>,
-    storage_client: Option<&dyn super::StorageClient>,
+    storage_client: Option<&dyn crate::io::storage::StorageClient>,
 ) -> FloeResult<ResolvedInputs> {
     // Storage-specific resolution: list + download for cloud, direct paths for local.
     match target {
@@ -94,9 +94,9 @@ fn require_temp_dir<'a>(temp_dir: Option<&'a Path>, label: &str) -> FloeResult<&
 }
 
 fn require_storage_client<'a>(
-    storage_client: Option<&'a dyn super::StorageClient>,
+    storage_client: Option<&'a dyn crate::io::storage::StorageClient>,
     label: &str,
-) -> FloeResult<&'a dyn super::StorageClient> {
+) -> FloeResult<&'a dyn crate::io::storage::StorageClient> {
     storage_client.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
         Box::new(crate::errors::RunError(format!(
             "{} storage client missing",
@@ -106,7 +106,7 @@ fn require_storage_client<'a>(
 }
 
 fn build_cloud_inputs(
-    client: &dyn super::StorageClient,
+    client: &dyn crate::io::storage::StorageClient,
     prefix: &str,
     adapter: &dyn io::format::InputAdapter,
     temp_dir: &Path,
@@ -149,7 +149,7 @@ fn build_cloud_inputs(
 fn build_local_inputs(
     files: &[PathBuf],
     entity: &config::EntityConfig,
-    storage_client: Option<&dyn super::StorageClient>,
+    storage_client: Option<&dyn crate::io::storage::StorageClient>,
 ) -> Vec<io::format::InputFile> {
     files
         .iter()

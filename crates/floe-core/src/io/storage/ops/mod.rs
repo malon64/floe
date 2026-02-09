@@ -1,8 +1,11 @@
 use std::path::Path;
 
-use crate::{config, io, FloeResult};
+pub mod archive;
+pub mod inputs;
+pub mod output;
 
-use super::{archive, inputs, CloudClient, StorageClient, Target};
+use crate::io::storage::{CloudClient, StorageClient, Target};
+use crate::{config, io, FloeResult};
 
 pub fn resolve_inputs(
     config_dir: &Path,

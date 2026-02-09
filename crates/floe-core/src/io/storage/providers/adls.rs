@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 use crate::errors::StorageError;
 use crate::{config, FloeResult};
 
-use super::{planner, uri, validation, ObjectRef, StorageClient};
+use crate::io::storage::{planner, uri, validation, ObjectRef, StorageClient};
 
 pub struct AdlsClient {
     account: String,

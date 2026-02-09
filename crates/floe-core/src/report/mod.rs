@@ -238,6 +238,8 @@ pub struct ColumnSummary {
     pub violations: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

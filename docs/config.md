@@ -138,7 +138,9 @@ is available for templating within that entity.
   - `json_mode` (optional)
     - `array` (default): JSON array ingestion when `source.format: json`.
     - `ndjson`: newline-delimited JSON ingestion.
-    - JSON values must be flat objects; nested objects/arrays are rejected.
+    - Nested JSON is supported via `schema.columns[].source` selectors.
+    - JSON schema mismatch checks only consider top-level selector sources (no `.` or `[`).
+    - For safety, JSON configs are limited to 1024 columns per entity.
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).
@@ -193,9 +195,11 @@ is available for templating within that entity.
   - `source` (optional): source field selector for nested JSON extraction.
     - When omitted, defaults to the value of `name`.
     - For CSV/Parquet, use a column name.
-    - For JSON, selectors may include dot notation and `[index]` (parsed in a later phase).
+    - For JSON, selectors may include dot notation and `[index]` (example: `user.names[0]`).
     - When `source` is set, `normalize_columns` applies to the source selector for matching,
       but the output column name remains the explicit `name`.
+    - When `source` is set, validation summaries and row error logs include the source
+      value alongside the column name.
   - `type` (required): logical type. Accepted values are case-insensitive and
     normalized by removing `-` and `_`.
   - `nullable` (optional): default `true`.

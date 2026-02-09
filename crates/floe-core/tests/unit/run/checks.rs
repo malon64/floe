@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use floe_core::check::{
     build_accept_rows, build_errors_json, cast_mismatch_errors, column_index_map, not_null_errors,
-    unique_errors, CsvRowErrorFormatter, RowError, RowErrorFormatter, TextRowErrorFormatter,
+    row_error_formatter, unique_errors, CsvRowErrorFormatter, RowError, RowErrorFormatter,
+    TextRowErrorFormatter,
 };
 use floe_core::config;
 use polars::df;
@@ -117,7 +120,7 @@ fn csv_formatter_outputs_json_string() {
         RowError::new("not_null", "customer_id", "missing"),
         RowError::new("unique", "order_id", "duplicate"),
     ];
-    let formatter = CsvRowErrorFormatter;
+    let formatter = CsvRowErrorFormatter::default();
     let formatted = formatter.format(&errors);
     assert_eq!(
         formatted,
@@ -126,9 +129,39 @@ fn csv_formatter_outputs_json_string() {
 }
 
 #[test]
+fn csv_formatter_includes_source_when_provided() {
+    let errors = vec![RowError::new("not_null", "customer_id", "missing")];
+    let mut sources = HashMap::new();
+    sources.insert("customer_id".to_string(), "CUSTOMER-ID".to_string());
+    let formatter = row_error_formatter("csv", Some(&sources)).expect("formatter");
+    let formatted = formatter.format(&errors);
+    assert!(formatted.contains("not_null,customer_id,CUSTOMER-ID,missing"));
+}
+
+#[test]
+fn json_formatter_includes_source_when_provided() {
+    let errors = vec![RowError::new("not_null", "customer_id", "missing")];
+    let mut sources = HashMap::new();
+    sources.insert("customer_id".to_string(), "CUSTOMER-ID".to_string());
+    let formatter = row_error_formatter("json", Some(&sources)).expect("formatter");
+    let formatted = formatter.format(&errors);
+    assert!(formatted.contains("\"source\":\"CUSTOMER-ID\""));
+}
+
+#[test]
 fn text_formatter_outputs_json_string() {
     let errors = vec![RowError::new("unique", "order_id", "duplicate")];
-    let formatter = TextRowErrorFormatter;
+    let formatter = TextRowErrorFormatter::default();
     let formatted = formatter.format(&errors);
     assert_eq!(formatted, "\"unique:order_id duplicate\"");
+}
+
+#[test]
+fn text_formatter_includes_source_when_provided() {
+    let errors = vec![RowError::new("unique", "order_id", "duplicate")];
+    let mut sources = HashMap::new();
+    sources.insert("order_id".to_string(), "ORDER-ID".to_string());
+    let formatter = row_error_formatter("text", Some(&sources)).expect("formatter");
+    let formatted = formatter.format(&errors);
+    assert!(formatted.contains("source=ORDER-ID"));
 }

@@ -11,7 +11,7 @@ use super::output::{
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::checks::normalize::{
     output_column_mapping, rename_output_columns, resolve_normalize_strategy,
-    resolve_source_columns,
+    resolve_source_columns, source_column_mapping,
 };
 use crate::report::build::summarize_validation_sparse;
 
@@ -58,11 +58,17 @@ pub(super) fn run_entity(
         .as_ref()
         .and_then(|report| report.formatter.as_deref())
         .unwrap_or("json");
-    let row_error_formatter = check::row_error_formatter(formatter_name)?;
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
     let normalized_columns =
         resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref(), false)?;
+    let source_column_map =
+        source_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
+    let row_error_formatter = if source_column_map.is_empty() {
+        check::row_error_formatter(formatter_name, None)?
+    } else {
+        check::row_error_formatter(formatter_name, Some(&source_column_map))?
+    };
     let json_columns = if entity.source.format == "json" {
         Some(resolve_source_columns(
             &entity.schema.columns,
@@ -379,7 +385,12 @@ pub(super) fn run_entity(
         let mut errors_path = None;
         let mut archived_path = None;
         let mut rules = if has_errors {
-            summarize_validation_sparse(&error_lists, &normalized_columns, severity)
+            summarize_validation_sparse(
+                &error_lists,
+                &normalized_columns,
+                severity,
+                Some(&source_column_map),
+            )
         } else {
             Vec::new()
         };

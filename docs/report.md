@@ -89,10 +89,12 @@ Example rule summary:
   "severity": "reject",
   "violations": 12,
   "columns": [
-    {"column": "customer_id", "violations": 12}
+    {"column": "customer_id", "violations": 12, "source": "CUSTOMER-ID"}
   ]
 }
 ```
 
 Row-level error details are written to the rejected error report JSON
 (`*_reject_errors.json`) when available; reports do not include examples.
+When a column has an explicit `source`, row error logs include a `source`
+field (JSON) or an extra column/annotation (CSV/text) alongside `column`.

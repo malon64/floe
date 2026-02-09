@@ -40,6 +40,7 @@ fn cast_mismatch_errors_flags_invalid_casts() {
 
     let columns = vec![config::ColumnConfig {
         name: "created_at".to_string(),
+        source: None,
         column_type: "datetime".to_string(),
         nullable: Some(true),
         unique: None,
@@ -70,6 +71,7 @@ fn unique_errors_flags_duplicates_after_first() {
 
     let columns = vec![config::ColumnConfig {
         name: "order_id".to_string(),
+        source: None,
         column_type: "string".to_string(),
         nullable: Some(true),
         unique: Some(true),

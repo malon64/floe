@@ -327,6 +327,7 @@ fn build_entity(
 fn column(name: &str, column_type: &str, nullable: Option<bool>) -> config::ColumnConfig {
     config::ColumnConfig {
         name: name.to_string(),
+        source: None,
         column_type: column_type.to_string(),
         nullable,
         unique: None,

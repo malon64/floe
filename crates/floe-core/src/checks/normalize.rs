@@ -43,6 +43,7 @@ pub fn normalize_schema_columns(
         }
         normalized.push(config::ColumnConfig {
             name: normalized_name,
+            source: column.source.clone(),
             column_type: column.column_type.clone(),
             nullable: column.nullable,
             unique: column.unique,

@@ -1,0 +1,45 @@
+version: "0.1"
+
+metadata:
+  project: "floe"
+  description: "Nested JSON selector example"
+  owner: "data-platform"
+  tags: ["example", "json"]
+
+report:
+  path: "./report"
+
+entities:
+  - name: "users"
+    source:
+      format: "json"
+      path: "./in/users"
+      options:
+        json_mode: "ndjson"
+      cast_mode: "strict"
+
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./out/accepted/users"
+      rejected:
+        format: "csv"
+        path: "./out/rejected/users"
+
+    policy:
+      severity: "reject"
+
+    schema:
+      columns:
+        - name: "user_first_name"
+          source: "user.names[0]"
+          type: "string"
+          nullable: false
+        - name: "user_last_name"
+          source: "user.names[1]"
+          type: "string"
+          nullable: true
+        - name: "user_id"
+          source: "user.id"
+          type: "string"
+          nullable: false

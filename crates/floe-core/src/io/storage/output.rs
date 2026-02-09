@@ -8,18 +8,7 @@ use std::path::Path;
 
 use crate::{config, errors::StorageError, FloeResult};
 
-use super::{paths, CloudClient, Target};
-
-/// Determines how an output file should be positioned relative to the target base.
-#[derive(Debug, Clone, Copy)]
-pub enum OutputPlacement {
-    /// Write into the target path/key (file or directory).
-    Output,
-    /// Write into the target path/key treating it as a directory.
-    Directory,
-    /// Write alongside the target (sibling of a file target).
-    Sibling,
-}
+use super::{paths, CloudClient, OutputPlacement, Target};
 
 /// Write an output file to a storage target.
 ///
@@ -51,12 +40,7 @@ where
             writer(&output_path)?;
             Ok(output_path.display().to_string())
         }
-        Target::S3 {
-            storage,
-            bucket,
-            base_key,
-            ..
-        } => {
+        Target::S3 { storage, .. } => {
             let temp_dir = temp_dir.ok_or_else(|| {
                 Box::new(StorageError(format!(
                     "entity.name={} missing temp dir for s3 output",
@@ -65,22 +49,12 @@ where
             })?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
-            let key = match placement {
-                OutputPlacement::Output => paths::resolve_output_key(base_key, filename),
-                OutputPlacement::Directory => paths::resolve_output_dir_key(base_key, filename),
-                OutputPlacement::Sibling => paths::resolve_sibling_key(base_key, filename),
-            };
             let client = cloud.client_for(resolver, storage, entity)?;
-            let uri = super::s3::format_s3_uri(bucket, &key);
+            let uri = target.resolve_output_uri(placement, filename);
             client.upload_from_path(&temp_path, &uri)?;
             Ok(uri)
         }
-        Target::Gcs {
-            storage,
-            bucket,
-            base_key,
-            ..
-        } => {
+        Target::Gcs { storage, .. } => {
             let temp_dir = temp_dir.ok_or_else(|| {
                 Box::new(StorageError(format!(
                     "entity.name={} missing temp dir for gcs output",
@@ -89,23 +63,12 @@ where
             })?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
-            let key = match placement {
-                OutputPlacement::Output => paths::resolve_output_key(base_key, filename),
-                OutputPlacement::Directory => paths::resolve_output_dir_key(base_key, filename),
-                OutputPlacement::Sibling => paths::resolve_sibling_key(base_key, filename),
-            };
             let client = cloud.client_for(resolver, storage, entity)?;
-            let uri = super::gcs::format_gcs_uri(bucket, &key);
+            let uri = target.resolve_output_uri(placement, filename);
             client.upload_from_path(&temp_path, &uri)?;
             Ok(uri)
         }
-        Target::Adls {
-            storage,
-            account,
-            container,
-            base_path,
-            ..
-        } => {
+        Target::Adls { storage, .. } => {
             let temp_dir = temp_dir.ok_or_else(|| {
                 Box::new(StorageError(format!(
                     "entity.name={} missing temp dir for adls output",
@@ -114,13 +77,8 @@ where
             })?;
             let temp_path = temp_dir.join(filename);
             writer(&temp_path)?;
-            let key = match placement {
-                OutputPlacement::Output => paths::resolve_output_key(base_path, filename),
-                OutputPlacement::Directory => paths::resolve_output_dir_key(base_path, filename),
-                OutputPlacement::Sibling => paths::resolve_sibling_key(base_path, filename),
-            };
             let client = cloud.client_for(resolver, storage, entity)?;
-            let uri = super::adls::format_abfs_uri(container, account, &key);
+            let uri = target.resolve_output_uri(placement, filename);
             client.upload_from_path(&temp_path, &uri)?;
             Ok(uri)
         }

@@ -94,7 +94,7 @@ pub(super) fn write_rejected_raw_output(
 ) -> FloeResult<String> {
     io::storage::output::write_output(
         target,
-        io::storage::output::OutputPlacement::Output,
+        io::storage::OutputPlacement::Output,
         &input_file.source_name,
         temp_dir,
         cloud,
@@ -119,7 +119,7 @@ pub(super) fn write_error_report_output(
     let filename = io::storage::paths::build_output_filename(source_stem, "_reject_errors", "json");
     io::storage::output::write_output(
         target,
-        io::storage::output::OutputPlacement::Sibling,
+        io::storage::OutputPlacement::Sibling,
         &filename,
         temp_dir,
         cloud,

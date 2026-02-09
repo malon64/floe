@@ -89,7 +89,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 let part_filename = part_allocator.allocate_next();
                 io::storage::output::write_output(
                     target,
-                    io::storage::output::OutputPlacement::Directory,
+                    io::storage::OutputPlacement::Directory,
                     &part_filename,
                     temp_dir,
                     cloud,
@@ -107,7 +107,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             let part_filename = part_allocator.allocate_next();
             io::storage::output::write_output(
                 target,
-                io::storage::output::OutputPlacement::Directory,
+                io::storage::OutputPlacement::Directory,
                 &part_filename,
                 temp_dir,
                 cloud,

@@ -13,9 +13,13 @@ pub mod object_store;
 pub mod ops;
 pub mod output;
 pub mod paths;
+pub mod placement;
 pub mod planner;
 pub mod s3;
 pub mod target;
+pub mod uri;
+
+pub use placement::OutputPlacement;
 
 pub use archive::archive_input_file;
 pub use planner::{

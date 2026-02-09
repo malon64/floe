@@ -9,8 +9,9 @@ use google_cloud_storage::http::objects::upload::{Media, UploadObjectRequest, Up
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
+use super::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use super::{planner, ObjectRef, StorageClient};
 
 pub struct GcsClient {
@@ -178,33 +179,12 @@ impl StorageClient for GcsClient {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GcsLocation {
-    pub bucket: String,
-    pub key: String,
-}
-
 pub fn parse_gcs_uri(uri: &str) -> FloeResult<GcsLocation> {
-    let stripped = uri.strip_prefix("gs://").ok_or_else(|| {
-        Box::new(ConfigError(format!("expected gcs uri, got {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let mut parts = stripped.splitn(2, '/');
-    let bucket = parts.next().unwrap_or("").to_string();
-    if bucket.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "missing bucket in gcs uri: {}",
-            uri
-        ))));
-    }
-    let key = parts.next().unwrap_or("").to_string();
-    Ok(GcsLocation { bucket, key })
+    parse_bucket_uri("gs", uri)
 }
 
 pub fn format_gcs_uri(bucket: &str, key: &str) -> String {
-    if key.is_empty() {
-        format!("gs://{}", bucket)
-    } else {
-        format!("gs://{}/{}", bucket, key)
-    }
+    format_bucket_uri("gs", bucket, key)
 }
+
+pub type GcsLocation = BucketLocation;

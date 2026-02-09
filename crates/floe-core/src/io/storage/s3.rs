@@ -8,8 +8,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
+use super::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use super::{planner, ObjectRef, StorageClient};
 
 pub struct S3Client {
@@ -202,36 +203,15 @@ impl StorageClient for S3Client {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct S3Location {
-    pub bucket: String,
-    pub key: String,
-}
-
 pub fn parse_s3_uri(uri: &str) -> FloeResult<S3Location> {
-    let stripped = uri.strip_prefix("s3://").ok_or_else(|| {
-        Box::new(ConfigError(format!("expected s3 uri, got {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let mut parts = stripped.splitn(2, '/');
-    let bucket = parts.next().unwrap_or("").to_string();
-    if bucket.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "missing bucket in s3 uri: {}",
-            uri
-        ))));
-    }
-    let key = parts.next().unwrap_or("").to_string();
-    Ok(S3Location { bucket, key })
+    parse_bucket_uri("s3", uri)
 }
 
 pub fn format_s3_uri(bucket: &str, key: &str) -> String {
-    if key.is_empty() {
-        format!("s3://{}", bucket)
-    } else {
-        format!("s3://{}/{}", bucket, key)
-    }
+    format_bucket_uri("s3", bucket, key)
 }
+
+pub type S3Location = BucketLocation;
 
 pub fn filter_keys_by_suffixes(mut keys: Vec<String>, suffixes: &[String]) -> Vec<String> {
     let mut refs = Vec::with_capacity(keys.len());

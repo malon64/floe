@@ -11,6 +11,7 @@ const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
+const MAX_JSON_COLUMNS: usize = 1024;
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if config.entities.is_empty() {
@@ -178,6 +179,14 @@ fn validate_policy(entity: &EntityConfig) -> FloeResult<()> {
 }
 
 fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
+    if entity.source.format == "json" && entity.schema.columns.len() > MAX_JSON_COLUMNS {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} schema.columns has {} entries which exceeds the JSON selector limit of {}",
+            entity.name,
+            entity.schema.columns.len(),
+            MAX_JSON_COLUMNS
+        ))));
+    }
     if let Some(normalize) = &entity.schema.normalize_columns {
         if let Some(strategy) = &normalize.strategy {
             if !is_allowed_normalize_strategy(strategy) {

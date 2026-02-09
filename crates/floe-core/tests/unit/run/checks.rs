@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use floe_core::check::{
     build_accept_rows, build_errors_json, cast_mismatch_errors, column_index_map, not_null_errors,
-    unique_errors, CsvRowErrorFormatter, RowError, RowErrorFormatter, TextRowErrorFormatter,
+    row_error_formatter, unique_errors, CsvRowErrorFormatter, RowError, RowErrorFormatter,
+    TextRowErrorFormatter,
 };
 use floe_core::config;
 use polars::df;
@@ -123,6 +126,16 @@ fn csv_formatter_outputs_json_string() {
         formatted,
         "\"not_null,customer_id,missing\\nunique,order_id,duplicate\""
     );
+}
+
+#[test]
+fn json_formatter_includes_source_when_provided() {
+    let errors = vec![RowError::new("not_null", "customer_id", "missing")];
+    let mut sources = HashMap::new();
+    sources.insert("customer_id".to_string(), "CUSTOMER-ID".to_string());
+    let formatter = row_error_formatter("json", Some(&sources)).expect("formatter");
+    let formatted = formatter.format(&errors);
+    assert!(formatted.contains("\"source\":\"CUSTOMER-ID\""));
 }
 
 #[test]

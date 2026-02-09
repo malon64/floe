@@ -112,12 +112,25 @@ impl RowError {
     }
 
     pub fn to_json(&self) -> String {
-        format!(
-            "{{\"rule\":\"{}\",\"column\":\"{}\",\"message\":\"{}\"}}",
-            json_escape(&self.rule),
-            json_escape(&self.column),
-            json_escape(&self.message)
-        )
+        self.to_json_with_source(None)
+    }
+
+    pub fn to_json_with_source(&self, source: Option<&str>) -> String {
+        match source {
+            Some(source) => format!(
+                "{{\"rule\":\"{}\",\"column\":\"{}\",\"source\":\"{}\",\"message\":\"{}\"}}",
+                json_escape(&self.rule),
+                json_escape(&self.column),
+                json_escape(source),
+                json_escape(&self.message)
+            ),
+            None => format!(
+                "{{\"rule\":\"{}\",\"column\":\"{}\",\"message\":\"{}\"}}",
+                json_escape(&self.rule),
+                json_escape(&self.column),
+                json_escape(&self.message)
+            ),
+        }
     }
 }
 
@@ -125,7 +138,9 @@ pub trait RowErrorFormatter {
     fn format(&self, errors: &[RowError]) -> String;
 }
 
-pub struct JsonRowErrorFormatter;
+pub struct JsonRowErrorFormatter {
+    source_map: Option<HashMap<String, String>>,
+}
 pub struct CsvRowErrorFormatter;
 pub struct TextRowErrorFormatter;
 
@@ -133,7 +148,13 @@ impl RowErrorFormatter for JsonRowErrorFormatter {
     fn format(&self, errors: &[RowError]) -> String {
         let json_items = errors
             .iter()
-            .map(RowError::to_json)
+            .map(|error| {
+                let source = self
+                    .source_map
+                    .as_ref()
+                    .and_then(|map| map.get(&error.column).map(|value| value.as_str()));
+                error.to_json_with_source(source)
+            })
             .collect::<Vec<_>>()
             .join(",");
         format!("[{}]", json_items)
@@ -169,9 +190,14 @@ impl RowErrorFormatter for TextRowErrorFormatter {
     }
 }
 
-pub fn row_error_formatter(name: &str) -> FloeResult<Box<dyn RowErrorFormatter>> {
+pub fn row_error_formatter(
+    name: &str,
+    source_map: Option<&HashMap<String, String>>,
+) -> FloeResult<Box<dyn RowErrorFormatter>> {
     match name {
-        "json" => Ok(Box::new(JsonRowErrorFormatter)),
+        "json" => Ok(Box::new(JsonRowErrorFormatter {
+            source_map: source_map.cloned(),
+        })),
         "csv" => Ok(Box::new(CsvRowErrorFormatter)),
         "text" => Ok(Box::new(TextRowErrorFormatter)),
         other => Err(Box::new(ConfigError(format!(
@@ -192,7 +218,8 @@ pub fn build_errors_json(
     errors_per_row: &[Vec<RowError>],
     accept_rows: &[bool],
 ) -> Vec<Option<String>> {
-    build_errors_formatted(errors_per_row, accept_rows, &JsonRowErrorFormatter)
+    let formatter = JsonRowErrorFormatter { source_map: None };
+    build_errors_formatted(errors_per_row, accept_rows, &formatter)
 }
 
 pub fn build_errors_formatted(

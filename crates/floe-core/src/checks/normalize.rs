@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use polars::prelude::DataFrame;
 
@@ -60,6 +60,32 @@ pub fn resolve_source_columns(
         });
     }
     Ok(resolved)
+}
+
+pub fn source_column_mapping(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> FloeResult<HashMap<String, String>> {
+    let mut mapping = HashMap::new();
+    let mut seen = HashSet::new();
+    for column in columns {
+        let Some(source) = column.source.as_deref() else {
+            continue;
+        };
+        let normalized = if let Some(strategy) = strategy {
+            normalize_name(source, strategy)
+        } else {
+            source.to_string()
+        };
+        if !seen.insert(normalized.clone()) {
+            return Err(Box::new(ConfigError(format!(
+                "column source collision: duplicate source selector {}",
+                normalized
+            ))));
+        }
+        mapping.insert(normalized, source.to_string());
+    }
+    Ok(mapping)
 }
 
 pub fn output_column_mapping(

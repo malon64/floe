@@ -10,7 +10,6 @@ use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
 use crate::FloeResult;
-
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use crate::io::storage::{planner, ObjectRef, StorageClient};
 
@@ -187,7 +186,12 @@ pub fn format_gcs_uri(bucket: &str, key: &str) -> String {
     format_bucket_uri("gs", bucket, key)
 }
 <<<<<<< HEAD:crates/floe-core/src/io/storage/providers/gcs.rs
+<<<<<<< HEAD:crates/floe-core/src/io/storage/providers/gcs.rs
 
 pub type GcsLocation = BucketLocation;
 =======
 >>>>>>> 73e9800 (refactor storage input handling and helpers):crates/floe-core/src/io/storage/gcs.rs
+=======
+
+pub type GcsLocation = BucketLocation;
+>>>>>>> de266c3 (refactor storage uri helpers and output placement):crates/floe-core/src/io/storage/gcs.rs

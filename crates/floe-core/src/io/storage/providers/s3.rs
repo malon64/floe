@@ -9,7 +9,6 @@ use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
 use crate::FloeResult;
-
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use crate::io::storage::{planner, ObjectRef, StorageClient};
 

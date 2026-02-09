@@ -91,6 +91,11 @@ All other storage resolution, listing, download/upload remains in `io::storage`.
 - `io/storage/{s3,gcs,adls}.rs` duplicated `copy_object` implementations (S3 can keep native copy; others can share temp download+upload helper).
 - `io/storage/{s3,gcs,adls}.rs` duplicated `exists` implementations (parse + list + exact key match).
 - `io/storage/{s3,gcs,adls}.rs` duplicated key/name parsing utilities (file name + stem).
+- `io/storage/{s3,gcs,adls}.rs` duplicated URI parse/format helpers (`parse_*_uri`, `format_*_uri`).
+- `io/storage/target.rs` and `io/storage/output.rs` duplicate target→URI generation logic.
+- `io/storage/mod.rs` and `io/storage/adls.rs` duplicate storage-definition validation error patterns.
+- `io/storage/{s3,gcs,adls}.rs` duplicate list→`ObjectRef` mapping (URI, key, metadata wiring).
+- `io/storage/inputs.rs` repeats temp-dir + client presence checks per cloud target.
 
 ## Out of Scope (for this refactor)
 

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::checks::normalize::resolve_normalize_strategy;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
 use super::super::output::{validate_rejected_target, write_rejected_raw_output};
@@ -53,6 +54,12 @@ pub(super) fn run_precheck(
     } = context;
     let mut abort_run = false;
     let mut prechecked_inputs = Vec::with_capacity(input_files.len());
+    let normalize_strategy = resolve_normalize_strategy(entity)?;
+    let mismatch_columns = if entity.source.format == "json" {
+        check::top_level_declared_columns(&entity.schema.columns, normalize_strategy.as_deref())?
+    } else {
+        normalized_columns.to_vec()
+    };
     for input_file in input_files {
         let file_timer = Instant::now();
         observer.on_event(crate::run::events::RunEvent::FileStarted {
@@ -98,7 +105,7 @@ pub(super) fn run_precheck(
                         accepted_count: 0,
                         rejected_count: 0,
                         mismatch: report::FileMismatch {
-                            declared_columns_count: normalized_columns.len() as u64,
+                            declared_columns_count: mismatch_columns.len() as u64,
                             input_columns_count: 0,
                             missing_columns: Vec::new(),
                             extra_columns: Vec::new(),
@@ -150,7 +157,7 @@ pub(super) fn run_precheck(
                 }
             };
 
-        let mismatch = check::plan_schema_mismatch(entity, normalized_columns, &input_columns)?;
+        let mismatch = check::plan_schema_mismatch(entity, &mismatch_columns, &input_columns)?;
         if let Some(message) = mismatch.report.warning.as_deref() {
             warnings::emit(
                 &context.run_id,

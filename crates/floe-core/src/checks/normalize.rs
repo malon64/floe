@@ -57,6 +57,36 @@ pub fn resolve_source_columns(
     }
 }
 
+pub fn resolve_source_columns_with_sources(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> FloeResult<Vec<config::ColumnConfig>> {
+    let mut resolved = Vec::with_capacity(columns.len());
+    let mut seen = HashMap::new();
+    for column in columns {
+        let source_name = column.source_or_name();
+        let normalized_name = if let Some(strategy) = strategy {
+            normalize_name(source_name, strategy)
+        } else {
+            source_name.to_string()
+        };
+        if let Some(existing) = seen.insert(normalized_name.clone(), source_name.to_string()) {
+            return Err(Box::new(ConfigError(format!(
+                "column source collision: {} and {} -> {}",
+                existing, column.name, normalized_name
+            ))));
+        }
+        resolved.push(config::ColumnConfig {
+            name: normalized_name,
+            source: Some(source_name.to_string()),
+            column_type: column.column_type.clone(),
+            nullable: column.nullable,
+            unique: column.unique,
+        });
+    }
+    Ok(resolved)
+}
+
 pub fn output_column_mapping(
     columns: &[config::ColumnConfig],
     strategy: Option<&str>,

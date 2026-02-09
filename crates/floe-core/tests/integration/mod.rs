@@ -1,2 +1,3 @@
+pub mod json_selectors;
 pub mod local_run;
 pub mod run_entities_filter;

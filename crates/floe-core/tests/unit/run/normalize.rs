@@ -27,7 +27,8 @@ fn resolve_source_columns_uses_source_for_matching() {
         nullable: Some(true),
         unique: None,
     }];
-    let resolved = resolve_source_columns(&columns, Some("snake_case")).expect("resolve columns");
+    let resolved =
+        resolve_source_columns(&columns, Some("snake_case"), false).expect("resolve columns");
     assert_eq!(resolved[0].name, "user_id");
 }
 

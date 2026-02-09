@@ -30,31 +30,36 @@ pub fn resolve_normalize_strategy(entity: &config::EntityConfig) -> FloeResult<O
 pub fn resolve_source_columns(
     columns: &[config::ColumnConfig],
     strategy: Option<&str>,
+    keep_sources: bool,
 ) -> FloeResult<Vec<config::ColumnConfig>> {
-    match strategy {
-        Some(strategy) => normalize_schema_columns(columns, strategy),
-        None => {
-            let mut resolved = Vec::with_capacity(columns.len());
-            let mut seen = HashMap::new();
-            for column in columns {
-                let source_name = column.source_or_name();
-                if let Some(existing) = seen.insert(source_name.to_string(), column.name.clone()) {
-                    return Err(Box::new(ConfigError(format!(
-                        "column source collision: {} and {} -> {}",
-                        existing, column.name, source_name
-                    ))));
-                }
-                resolved.push(config::ColumnConfig {
-                    name: source_name.to_string(),
-                    source: None,
-                    column_type: column.column_type.clone(),
-                    nullable: column.nullable,
-                    unique: column.unique,
-                });
-            }
-            Ok(resolved)
+    let mut resolved = Vec::with_capacity(columns.len());
+    let mut seen = HashMap::new();
+    for column in columns {
+        let source_name = column.source_or_name();
+        let normalized_name = if let Some(strategy) = strategy {
+            normalize_name(source_name, strategy)
+        } else {
+            source_name.to_string()
+        };
+        if let Some(existing) = seen.insert(normalized_name.clone(), source_name.to_string()) {
+            return Err(Box::new(ConfigError(format!(
+                "column source collision: {} and {} -> {}",
+                existing, column.name, normalized_name
+            ))));
         }
+        resolved.push(config::ColumnConfig {
+            name: normalized_name,
+            source: if keep_sources {
+                Some(source_name.to_string())
+            } else {
+                None
+            },
+            column_type: column.column_type.clone(),
+            nullable: column.nullable,
+            unique: column.unique,
+        });
     }
+    Ok(resolved)
 }
 
 pub fn output_column_mapping(
@@ -141,32 +146,6 @@ pub fn rename_output_columns(
         )))
     })?;
     Ok(())
-}
-
-fn normalize_schema_columns(
-    columns: &[config::ColumnConfig],
-    strategy: &str,
-) -> FloeResult<Vec<config::ColumnConfig>> {
-    let mut normalized = Vec::with_capacity(columns.len());
-    let mut seen = HashMap::new();
-    for column in columns {
-        let source_name = column.source_or_name();
-        let normalized_name = normalize_name(source_name, strategy);
-        if let Some(existing) = seen.insert(normalized_name.clone(), source_name.to_string()) {
-            return Err(Box::new(ConfigError(format!(
-                "normalized column source collision: {} and {} -> {}",
-                existing, source_name, normalized_name
-            ))));
-        }
-        normalized.push(config::ColumnConfig {
-            name: normalized_name,
-            source: None,
-            column_type: column.column_type.clone(),
-            nullable: column.nullable,
-            unique: column.unique,
-        });
-    }
-    Ok(normalized)
 }
 
 pub fn normalize_dataframe_columns(df: &mut DataFrame, strategy: &str) -> FloeResult<()> {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use polars::prelude::{DataFrame, DataType, Series};
 
 use crate::errors::RunError;
-use crate::{config, report, FloeResult};
+use crate::{config, report, ConfigError, FloeResult};
 
 const MAX_MISMATCH_COLUMNS: usize = 50;
 
@@ -18,6 +18,39 @@ pub struct MismatchOutcome {
     pub extra: Vec<String>,
     pub fill_missing: bool,
     pub ignore_extra: bool,
+}
+
+pub fn top_level_declared_columns(
+    columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+) -> FloeResult<Vec<config::ColumnConfig>> {
+    let mut resolved = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for column in columns {
+        let source = column.source_or_name();
+        if source.contains('.') || source.contains('[') {
+            continue;
+        }
+        let normalized = if let Some(strategy) = normalize_strategy {
+            crate::checks::normalize::normalize_name(source, strategy)
+        } else {
+            source.to_string()
+        };
+        if !seen.insert(normalized.clone()) {
+            return Err(Box::new(ConfigError(format!(
+                "duplicate top-level column selector: {}",
+                normalized
+            ))));
+        }
+        resolved.push(config::ColumnConfig {
+            name: normalized,
+            source: None,
+            column_type: column.column_type.clone(),
+            nullable: column.nullable,
+            unique: column.unique,
+        });
+    }
+    Ok(resolved)
 }
 
 pub fn plan_schema_mismatch(

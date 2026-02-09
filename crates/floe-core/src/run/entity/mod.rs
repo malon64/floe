@@ -62,7 +62,16 @@ pub(super) fn run_entity(
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
     let normalized_columns =
-        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref())?;
+        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref(), false)?;
+    let json_columns = if entity.source.format == "json" {
+        Some(resolve_source_columns(
+            &entity.schema.columns,
+            normalize_strategy.as_deref(),
+            true,
+        )?)
+    } else {
+        None
+    };
     let output_column_map =
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let required_cols = required_columns(&normalized_columns);
@@ -193,10 +202,11 @@ pub(super) fn run_entity(
             mismatch,
             file_timer,
         } = prechecked;
+        let read_columns = json_columns.as_deref().unwrap_or(&normalized_columns);
         let mut inputs = input_adapter.read_inputs(
             entity,
             std::slice::from_ref(&input_file),
-            &normalized_columns,
+            read_columns,
             normalize_strategy.as_deref(),
             collect_raw,
         )?;
@@ -253,7 +263,7 @@ pub(super) fn run_entity(
                     accepted_count: 0,
                     rejected_count: 0,
                     mismatch: report::FileMismatch {
-                        declared_columns_count: normalized_columns.len() as u64,
+                        declared_columns_count: mismatch_report.declared_columns_count,
                         input_columns_count: mismatch_report.input_columns_count,
                         missing_columns: mismatch_report.missing_columns,
                         extra_columns: mismatch_report.extra_columns,

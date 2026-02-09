@@ -8,9 +8,9 @@ use futures::StreamExt;
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
-use super::{planner, validation, ObjectRef, StorageClient};
+use super::{planner, uri, validation, ObjectRef, StorageClient};
 
 pub struct AdlsClient {
     account: String,
@@ -210,44 +210,12 @@ impl StorageClient for AdlsClient {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdlsLocation {
-    pub account: String,
-    pub container: String,
-    pub path: String,
-}
-
 pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {
-    let stripped = uri.strip_prefix("abfs://").ok_or_else(|| {
-        Box::new(ConfigError(format!("expected abfs uri, got {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let (container, rest) = stripped.split_once('@').ok_or_else(|| {
-        Box::new(ConfigError(format!(
-            "missing container in abfs uri: {}",
-            uri
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let (account, path) = rest.split_once(".dfs.core.windows.net").ok_or_else(|| {
-        Box::new(ConfigError(format!("missing account in abfs uri: {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let path = path.trim_start_matches('/');
-    Ok(AdlsLocation {
-        account: account.to_string(),
-        container: container.to_string(),
-        path: path.to_string(),
-    })
+    uri::parse_abfs_uri(uri)
 }
 
 pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
-    let trimmed = path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        format!("abfs://{}@{}.dfs.core.windows.net", container, account)
-    } else {
-        format!(
-            "abfs://{}@{}.dfs.core.windows.net/{}",
-            container, account, trimmed
-        )
-    }
+    uri::format_abfs_uri(container, account, path)
 }
+
+pub type AdlsLocation = uri::AdlsLocation;

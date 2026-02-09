@@ -66,15 +66,11 @@ pub(super) fn run_entity(
     } else {
         check::row_error_formatter(formatter_name, Some(&source_column_map))?
     };
-    let json_columns = if entity.source.format == "json" {
-        Some(resolve_source_columns(
-            &entity.schema.columns,
-            normalize_strategy.as_deref(),
-            true,
-        )?)
-    } else {
-        None
-    };
+    let read_columns = io::format::resolve_read_columns(
+        entity,
+        &normalized_columns,
+        normalize_strategy.as_deref(),
+    )?;
     let output_column_map =
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let required_cols = required_columns(&normalized_columns);
@@ -199,11 +195,10 @@ pub(super) fn run_entity(
             mismatch,
             file_timer,
         } = prechecked;
-        let read_columns = json_columns.as_deref().unwrap_or(&normalized_columns);
         let mut inputs = input_adapter.read_inputs(
             entity,
             std::slice::from_ref(&input_file),
-            read_columns,
+            &read_columns,
             normalize_strategy.as_deref(),
             collect_raw,
         )?;

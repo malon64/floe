@@ -189,6 +189,18 @@ pub fn ensure_rejected_sink_format(entity_name: &str, format: &str) -> FloeResul
     Ok(())
 }
 
+pub fn resolve_read_columns(
+    entity: &config::EntityConfig,
+    normalized_columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+) -> FloeResult<Vec<config::ColumnConfig>> {
+    if entity.source.format == "json" {
+        check::normalize::resolve_source_columns(&entity.schema.columns, normalize_strategy, true)
+    } else {
+        Ok(normalized_columns.to_vec())
+    }
+}
+
 pub fn sink_options_warning(
     entity_name: &str,
     format: &str,

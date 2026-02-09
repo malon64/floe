@@ -11,8 +11,8 @@ use crate::{ConfigError, FloeResult};
 
 pub use cast::{cast_mismatch_counts, cast_mismatch_errors, cast_mismatch_errors_sparse};
 pub use mismatch::{
-    apply_mismatch_plan, apply_schema_mismatch, plan_schema_mismatch, top_level_declared_columns,
-    MismatchOutcome,
+    apply_mismatch_plan, apply_schema_mismatch, plan_schema_mismatch, resolve_mismatch_columns,
+    top_level_declared_columns, MismatchOutcome,
 };
 pub use not_null::{not_null_counts, not_null_errors, not_null_errors_sparse};
 pub use unique::{unique_counts, unique_errors, unique_errors_sparse, UniqueTracker};

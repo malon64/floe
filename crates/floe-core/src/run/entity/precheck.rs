@@ -55,11 +55,8 @@ pub(super) fn run_precheck(
     let mut abort_run = false;
     let mut prechecked_inputs = Vec::with_capacity(input_files.len());
     let normalize_strategy = resolve_normalize_strategy(entity)?;
-    let mismatch_columns = if entity.source.format == "json" {
-        check::top_level_declared_columns(&entity.schema.columns, normalize_strategy.as_deref())?
-    } else {
-        normalized_columns.to_vec()
-    };
+    let mismatch_columns =
+        check::resolve_mismatch_columns(entity, normalized_columns, normalize_strategy.as_deref())?;
     for input_file in input_files {
         let file_timer = Instant::now();
         observer.on_event(crate::run::events::RunEvent::FileStarted {

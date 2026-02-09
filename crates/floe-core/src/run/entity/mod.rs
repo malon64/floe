@@ -9,7 +9,10 @@ use super::output::{
     AcceptedOutputContext, RejectedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
-use crate::checks::normalize::{normalize_schema_columns, resolve_normalize_strategy};
+use crate::checks::normalize::{
+    output_column_mapping, rename_output_columns, resolve_normalize_strategy,
+    resolve_source_columns,
+};
 use crate::report::build::summarize_validation_sparse;
 
 use io::format::{self, ReadInput};
@@ -58,11 +61,10 @@ pub(super) fn run_entity(
     let row_error_formatter = check::row_error_formatter(formatter_name)?;
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
-    let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
-        normalize_schema_columns(&entity.schema.columns, strategy)?
-    } else {
-        entity.schema.columns.clone()
-    };
+    let normalized_columns =
+        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref())?;
+    let output_column_map =
+        output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let required_cols = required_columns(&normalized_columns);
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
@@ -387,7 +389,9 @@ pub(super) fn run_entity(
 
         match entity.policy.severity.as_str() {
             "warn" => {
-                accepted_df_opt = Some(df);
+                let mut accepted_df = df;
+                rename_output_columns(&mut accepted_df, &output_column_map)?;
+                accepted_df_opt = Some(accepted_df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target.as_ref() {
                         let errors_path_value = write_error_report_output(
@@ -420,13 +424,15 @@ pub(super) fn run_entity(
                     validate_rejected_target(entity, "reject")?;
 
                     let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
-                    let accepted_df = df.filter(&accept_mask).map_err(|err| {
+                    let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter accepted rows: {err}")))
                     })?;
                     let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter rejected rows: {err}")))
                     })?;
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    rename_output_columns(&mut rejected_df, &output_column_map)?;
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
@@ -463,7 +469,9 @@ pub(super) fn run_entity(
                     })?;
                     rejected_path = Some(rejected_path_value);
                 } else {
-                    accepted_df_opt = Some(df);
+                    let mut accepted_df = df;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    accepted_df_opt = Some(accepted_df);
                 }
             }
             "abort" => {
@@ -495,7 +503,9 @@ pub(super) fn run_entity(
                     rejected_path = Some(rejected_path_value);
                     errors_path = Some(errors_path_value);
                 } else {
-                    accepted_df_opt = Some(df);
+                    let mut accepted_df = df;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    accepted_df_opt = Some(accepted_df);
                 }
             }
             severity => {

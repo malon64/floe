@@ -29,6 +29,25 @@ fn validate_output_json_is_single_json_object() {
 }
 
 #[test]
+fn validate_output_json_includes_column_source() {
+    let config_path = repo_root().join("example/config.yml");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["validate", "-c"])
+        .arg(&config_path)
+        .args(["--output", "json"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be JSON");
+    let column = &value["plan"]["entities"][0]["schema"]["columns"][0];
+    assert_eq!(column["name"], column["source"]);
+}
+
+#[test]
 fn validate_default_output_is_human_text() {
     let config_path = repo_root().join("example/config.yml");
 

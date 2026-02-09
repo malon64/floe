@@ -189,7 +189,13 @@ is available for templating within that entity.
     before checks. If normalization causes a name collision, the run fails.
 - `columns` (required)
   - Array of column definitions.
-  - `name` (required): column name in the input file.
+  - `name` (required): target column name in the output schema.
+  - `source` (optional): source field selector for nested JSON extraction.
+    - When omitted, defaults to the value of `name`.
+    - For CSV/Parquet, use a column name.
+    - For JSON, selectors may include dot notation and `[index]` (parsed in a later phase).
+    - When `source` is set, `normalize_columns` applies to the source selector for matching,
+      but the output column name remains the explicit `name`.
   - `type` (required): logical type. Accepted values are case-insensitive and
     normalized by removing `-` and `_`.
   - `nullable` (optional): default `true`.

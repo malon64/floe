@@ -119,11 +119,10 @@ fn dataframe_to_record_batch(
         });
     }
 
-    let schema_columns = if let Some(strategy) = normalize::resolve_normalize_strategy(entity)? {
-        normalize::normalize_schema_columns(&entity.schema.columns, &strategy)?
-    } else {
-        entity.schema.columns.clone()
-    };
+    let schema_columns = normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize::resolve_normalize_strategy(entity)?.as_deref(),
+    );
     let mut fields = Vec::with_capacity(schema_columns.len());
     let mut arrays = Vec::with_capacity(schema_columns.len());
     for column in &schema_columns {

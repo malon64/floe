@@ -98,3 +98,66 @@ entities:
     );
     assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Append);
 }
+
+#[test]
+fn parse_config_defaults_column_source_to_name() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "users"
+    source:
+      format: "json"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "user_first_name"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let column = &config.entities[0].schema.columns[0];
+    assert_eq!(column.name, "user_first_name");
+    assert_eq!(column.source_or_name(), "user_first_name");
+    assert!(column.source.is_none());
+}
+
+#[test]
+fn parse_config_preserves_column_source() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "users"
+    source:
+      format: "json"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "user_first_name"
+          source: "user.names[0]"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let column = &config.entities[0].schema.columns[0];
+    assert_eq!(column.name, "user_first_name");
+    assert_eq!(column.source.as_deref(), Some("user.names[0]"));
+    assert_eq!(column.source_or_name(), "user.names[0]");
+}

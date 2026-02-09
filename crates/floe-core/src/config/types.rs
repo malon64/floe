@@ -292,9 +292,16 @@ pub struct SchemaMismatchConfig {
 #[derive(Debug, Clone)]
 pub struct ColumnConfig {
     pub name: String,
+    pub source: Option<String>,
     pub column_type: String,
     pub nullable: Option<bool>,
     pub unique: Option<bool>,
+}
+
+impl ColumnConfig {
+    pub fn source_or_name(&self) -> &str {
+        self.source.as_deref().unwrap_or(self.name.as_str())
+    }
 }
 
 pub(crate) fn parse_data_type(value: &str) -> FloeResult<DataType> {

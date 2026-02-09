@@ -96,5 +96,5 @@ Example rule summary:
 
 Row-level error details are written to the rejected error report JSON
 (`*_reject_errors.json`) when available; reports do not include examples.
-When a column has an explicit `source`, JSON error logs include a `source`
-field alongside `column`.
+When a column has an explicit `source`, row error logs include a `source`
+field (JSON) or an extra column/annotation (CSV/text) alongside `column`.

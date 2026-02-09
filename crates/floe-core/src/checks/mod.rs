@@ -138,11 +138,18 @@ pub trait RowErrorFormatter {
     fn format(&self, errors: &[RowError]) -> String;
 }
 
+#[derive(Default)]
 pub struct JsonRowErrorFormatter {
     source_map: Option<HashMap<String, String>>,
 }
-pub struct CsvRowErrorFormatter;
-pub struct TextRowErrorFormatter;
+#[derive(Default)]
+pub struct CsvRowErrorFormatter {
+    source_map: Option<HashMap<String, String>>,
+}
+#[derive(Default)]
+pub struct TextRowErrorFormatter {
+    source_map: Option<HashMap<String, String>>,
+}
 
 impl RowErrorFormatter for JsonRowErrorFormatter {
     fn format(&self, errors: &[RowError]) -> String {
@@ -166,12 +173,26 @@ impl RowErrorFormatter for CsvRowErrorFormatter {
         let lines = errors
             .iter()
             .map(|error| {
-                format!(
-                    "{},{},{}",
-                    csv_escape(&error.rule),
-                    csv_escape(&error.column),
-                    csv_escape(&error.message)
-                )
+                if let Some(source_map) = self.source_map.as_ref() {
+                    let source = source_map
+                        .get(&error.column)
+                        .map(|value| value.as_str())
+                        .unwrap_or("");
+                    format!(
+                        "{},{},{},{}",
+                        csv_escape(&error.rule),
+                        csv_escape(&error.column),
+                        csv_escape(source),
+                        csv_escape(&error.message)
+                    )
+                } else {
+                    format!(
+                        "{},{},{}",
+                        csv_escape(&error.rule),
+                        csv_escape(&error.column),
+                        csv_escape(&error.message)
+                    )
+                }
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -183,7 +204,17 @@ impl RowErrorFormatter for TextRowErrorFormatter {
     fn format(&self, errors: &[RowError]) -> String {
         let text = errors
             .iter()
-            .map(|error| format!("{}:{} {}", error.rule, error.column, error.message))
+            .map(|error| {
+                if let Some(source_map) = self.source_map.as_ref() {
+                    if let Some(source) = source_map.get(&error.column) {
+                        return format!(
+                            "{}:{} source={} {}",
+                            error.rule, error.column, source, error.message
+                        );
+                    }
+                }
+                format!("{}:{} {}", error.rule, error.column, error.message)
+            })
             .collect::<Vec<_>>()
             .join("; ");
         json_string(&text)
@@ -198,8 +229,12 @@ pub fn row_error_formatter(
         "json" => Ok(Box::new(JsonRowErrorFormatter {
             source_map: source_map.cloned(),
         })),
-        "csv" => Ok(Box::new(CsvRowErrorFormatter)),
-        "text" => Ok(Box::new(TextRowErrorFormatter)),
+        "csv" => Ok(Box::new(CsvRowErrorFormatter {
+            source_map: source_map.cloned(),
+        })),
+        "text" => Ok(Box::new(TextRowErrorFormatter {
+            source_map: source_map.cloned(),
+        })),
         other => Err(Box::new(ConfigError(format!(
             "unsupported report.formatter: {other}"
         )))),

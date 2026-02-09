@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::config::{EntityConfig, RootConfig, StorageDefinition};
 use crate::io::format;
+use crate::io::read::json_selector::parse_selector;
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
@@ -233,6 +234,15 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
                 column.name,
                 ALLOWED_COLUMN_TYPES.join(", ")
             ))));
+        }
+        if entity.source.format == "json" {
+            let selector = column.source_or_name();
+            if let Err(err) = parse_selector(selector) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.columns[{}].source={} is invalid: {}",
+                    entity.name, index, selector, err.message
+                ))));
+            }
         }
     }
 

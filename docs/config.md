@@ -198,7 +198,7 @@ is available for templating within that entity.
     - For JSON, selectors may include dot notation and `[index]` (example: `user.names[0]`).
     - When `source` is set, `normalize_columns` applies to the source selector for matching,
       but the output column name remains the explicit `name`.
-    - When `source` is set, validation summaries and JSON row error logs include the source
+    - When `source` is set, validation summaries and row error logs include the source
       value alongside the column name.
   - `type` (required): logical type. Accepted values are case-insensitive and
     normalized by removing `-` and `_`.

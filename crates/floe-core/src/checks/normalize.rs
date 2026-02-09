@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use polars::prelude::DataFrame;
 
@@ -27,28 +27,151 @@ pub fn resolve_normalize_strategy(entity: &config::EntityConfig) -> FloeResult<O
     }
 }
 
-pub fn normalize_schema_columns(
+pub fn resolve_source_columns(
     columns: &[config::ColumnConfig],
-    strategy: &str,
+    strategy: Option<&str>,
+    keep_sources: bool,
 ) -> FloeResult<Vec<config::ColumnConfig>> {
-    let mut normalized = Vec::with_capacity(columns.len());
+    let mut resolved = Vec::with_capacity(columns.len());
     let mut seen = HashMap::new();
     for column in columns {
-        let normalized_name = normalize_name(&column.name, strategy);
-        if let Some(existing) = seen.insert(normalized_name.clone(), column.name.clone()) {
+        let source_name = column.source_or_name();
+        let normalized_name = if let Some(strategy) = strategy {
+            normalize_name(source_name, strategy)
+        } else {
+            source_name.to_string()
+        };
+        if let Some(existing) = seen.insert(normalized_name.clone(), source_name.to_string()) {
             return Err(Box::new(ConfigError(format!(
-                "normalized column name collision: {} and {} -> {}",
+                "column source collision: {} and {} -> {}",
                 existing, column.name, normalized_name
             ))));
         }
-        normalized.push(config::ColumnConfig {
+        resolved.push(config::ColumnConfig {
             name: normalized_name,
+            source: if keep_sources {
+                Some(source_name.to_string())
+            } else {
+                None
+            },
             column_type: column.column_type.clone(),
             nullable: column.nullable,
             unique: column.unique,
         });
     }
-    Ok(normalized)
+    Ok(resolved)
+}
+
+pub fn source_column_mapping(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> FloeResult<HashMap<String, String>> {
+    let mut mapping = HashMap::new();
+    let mut seen = HashSet::new();
+    for column in columns {
+        let Some(source) = column.source.as_deref() else {
+            continue;
+        };
+        let normalized = if let Some(strategy) = strategy {
+            normalize_name(source, strategy)
+        } else {
+            source.to_string()
+        };
+        if !seen.insert(normalized.clone()) {
+            return Err(Box::new(ConfigError(format!(
+                "column source collision: duplicate source selector {}",
+                normalized
+            ))));
+        }
+        mapping.insert(normalized, source.to_string());
+    }
+    Ok(mapping)
+}
+
+pub fn output_column_mapping(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> FloeResult<HashMap<String, String>> {
+    let mut mapping = HashMap::new();
+    let mut targets = HashMap::new();
+    for column in columns {
+        let source_name = column.source_or_name();
+        let normalized_source = if let Some(strategy) = strategy {
+            normalize_name(source_name, strategy)
+        } else {
+            source_name.to_string()
+        };
+        let target_name = if column.source.is_some() {
+            column.name.clone()
+        } else if let Some(strategy) = strategy {
+            normalize_name(&column.name, strategy)
+        } else {
+            column.name.clone()
+        };
+        if let Some(existing) = targets.insert(target_name.clone(), normalized_source.clone()) {
+            return Err(Box::new(ConfigError(format!(
+                "output column name collision: {} and {} -> {}",
+                existing, normalized_source, target_name
+            ))));
+        }
+        if normalized_source != target_name {
+            mapping.insert(normalized_source, target_name);
+        }
+    }
+    Ok(mapping)
+}
+
+pub fn resolve_output_columns(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> Vec<config::ColumnConfig> {
+    columns
+        .iter()
+        .map(|column| {
+            let name = if column.source.is_some() {
+                column.name.clone()
+            } else if let Some(strategy) = strategy {
+                normalize_name(&column.name, strategy)
+            } else {
+                column.name.clone()
+            };
+            config::ColumnConfig {
+                name,
+                source: None,
+                column_type: column.column_type.clone(),
+                nullable: column.nullable,
+                unique: column.unique,
+            }
+        })
+        .collect()
+}
+
+pub fn rename_output_columns(
+    df: &mut DataFrame,
+    mapping: &HashMap<String, String>,
+) -> FloeResult<()> {
+    if mapping.is_empty() {
+        return Ok(());
+    }
+    let names = df
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let mut renamed = Vec::with_capacity(names.len());
+    for name in &names {
+        if let Some(target) = mapping.get(name) {
+            renamed.push(target.clone());
+        } else {
+            renamed.push(name.clone());
+        }
+    }
+    df.set_column_names(renamed.iter()).map_err(|err| {
+        Box::new(ConfigError(format!(
+            "failed to rename output columns: {err}"
+        )))
+    })?;
+    Ok(())
 }
 
 pub fn normalize_dataframe_columns(df: &mut DataFrame, strategy: &str) -> FloeResult<()> {

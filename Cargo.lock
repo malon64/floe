@@ -3013,7 +3013,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3047,6 +3047,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "uuid",
  "yaml-rust2",
 ]
 

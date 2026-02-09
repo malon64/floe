@@ -207,6 +207,32 @@ fn json_source_rejects_unknown_mode() {
 }
 
 #[test]
+fn json_source_invalid_selector_errors() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "users"
+    source:
+      format: "json"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "user_name"
+          source: "user..name"
+          type: "string"
+"#;
+    assert_validation_error(yaml, &["schema.columns[0].source", "invalid"]);
+}
+
+#[test]
 fn invalid_cast_mode_errors() {
     let entity = r#"  - name: "customer"
     source:

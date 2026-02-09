@@ -2,6 +2,20 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.3
+
+- Added append/overwrite write modes for accepted parquet and delta outputs.
+- Rejected outputs now use dataset-style part files with write modes.
+- Append mode now seeds unique checks from existing accepted data (parquet + delta).
+- Part naming improvements:
+  - UUID parts for append
+  - sequential parts for overwrite
+  - unified part listing/cleanup helpers.
+- Delta append fixes:
+  - enforce schema nullability correctly
+  - respect `normalize_columns` schema names.
+- Dagster Docker runner now writes outputs correctly.
+
 ## v0.2.2
 
 - Added Dagster orchestrator connector (`orchestrators/dagster-floe`) with:

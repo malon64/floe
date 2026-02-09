@@ -90,8 +90,6 @@ entities:
       accepted:
         format: "parquet"
         path: "./out/accepted/orders/"
-        options:
-          max_size_per_file: 1
       rejected:
         format: "csv"
         path: "./out/rejected/orders/"
@@ -102,43 +100,68 @@ entities:
     schema:
       mismatch:
         missing_columns: "fill_nulls"
-        extra_columns: "reject_file"
+        extra_columns: "ignore"
       normalize_columns:
         enabled: true
         strategy: "snake_case"     # snake_case | lower | none
 
       columns:
         - name: "order_id"
+          source: "order.id"
           type: "string"
           nullable: false
           unique: true
 
         - name: "customer_id"
+          source: "customer.id"
           type: "string"
           nullable: false
           unique: false
 
         - name: "order_total"
+          source: "totals.amount"
           type: "number"
           nullable: false
           unique: false
 
         - name: "currency"
+          source: "totals.currency"
           type: "string"
           nullable: true
           unique: false
 
         - name: "created_at"
+          source: "timestamps.created_at"
           type: "datetime"
           nullable: true
           unique: false
 
         - name: "order_date"
+          source: "timestamps.order_date"
           type: "date"
           nullable: true
           unique: false
 
         - name: "is_expedited"
+          source: "shipping.expedited"
           type: "boolean"
+          nullable: true
+          unique: false
+
+        - name: "first_item_sku"
+          source: "items[0].sku"
+          type: "string"
+          nullable: true
+          unique: false
+
+        - name: "first_item_qty"
+          source: "items[0].quantity"
+          type: "number"
+          nullable: true
+          unique: false
+
+        - name: "first_tag"
+          source: "tags[0]"
+          type: "string"
           nullable: true
           unique: false

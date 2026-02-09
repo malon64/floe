@@ -517,10 +517,13 @@ fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
     validate_known_keys(
         hash,
         "schema.columns",
-        &["name", "type", "nullable", "unique"],
+        &["name", "source", "type", "nullable", "unique"],
     )?;
+    let name = get_string(hash, "name", "schema.columns")?;
+    let source = opt_string(hash, "source", "schema.columns")?;
     Ok(ColumnConfig {
-        name: get_string(hash, "name", "schema.columns")?,
+        name: name.clone(),
+        source,
         column_type: get_string(hash, "type", "schema.columns")?,
         nullable: opt_bool(hash, "nullable", "schema.columns")?,
         unique: opt_bool(hash, "unique", "schema.columns")?,

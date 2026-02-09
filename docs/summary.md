@@ -6,6 +6,7 @@ important references so you can quickly find the right guide.
 ## Quick start
 
 - Install and run: see the repository README for a minimal example.
+- Guided onboarding and examples: [GitHub Wiki](https://github.com/malon64/floe/wiki).
 - CLI usage: [docs/cli.md](cli.md)
 - Installation options (Homebrew, Cargo, Docker): [docs/installation.md](installation.md)
 

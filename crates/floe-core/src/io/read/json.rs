@@ -6,6 +6,9 @@ use polars::prelude::{DataFrame, NamedFrom, Series};
 use serde_json::Value;
 
 use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::read::json_selector::{
+    compact_json, evaluate_selector, parse_selector, SelectorToken, SelectorValue,
+};
 use crate::{config, FloeResult};
 
 struct JsonInputAdapter;
@@ -30,14 +33,85 @@ impl std::fmt::Display for JsonReadError {
 
 impl std::error::Error for JsonReadError {}
 
-fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
+struct SelectorPlan {
+    source: String,
+    tokens: Vec<SelectorToken>,
+}
+
+fn build_selector_plan(
+    columns: &[config::ColumnConfig],
+) -> Result<Vec<SelectorPlan>, JsonReadError> {
+    let mut plans = Vec::with_capacity(columns.len());
+    let mut seen = HashSet::new();
+    for column in columns {
+        let source = column.source_or_name().to_string();
+        if !seen.insert(source.clone()) {
+            return Err(JsonReadError {
+                rule: "json_selector_invalid".to_string(),
+                message: format!("duplicate json selector source: {}", source),
+            });
+        }
+        let tokens = parse_selector(&source).map_err(|err| JsonReadError {
+            rule: "json_selector_invalid".to_string(),
+            message: format!("invalid selector {}: {}", source, err.message),
+        })?;
+        plans.push(SelectorPlan { source, tokens });
+    }
+    Ok(plans)
+}
+
+fn extract_row(
+    value: &Value,
+    plans: &[SelectorPlan],
+    cast_mode: &str,
+    location: &str,
+) -> Result<BTreeMap<String, Option<String>>, JsonReadError> {
+    let mut row = BTreeMap::new();
+    for plan in plans {
+        let selected = evaluate_selector(value, &plan.tokens).map_err(|err| JsonReadError {
+            rule: "json_selector_invalid".to_string(),
+            message: format!("invalid selector {}: {}", plan.source, err.message),
+        })?;
+        let cell = match selected {
+            SelectorValue::Null => None,
+            SelectorValue::Scalar(value) => Some(value),
+            SelectorValue::NonScalar(value) => {
+                if cast_mode == "coerce" {
+                    Some(compact_json(&value).map_err(|err| JsonReadError {
+                        rule: "json_selector_non_scalar".to_string(),
+                        message: format!(
+                            "failed to stringify selector {} at {}: {}",
+                            plan.source, location, err.message
+                        ),
+                    })?)
+                } else {
+                    return Err(JsonReadError {
+                        rule: "json_selector_non_scalar".to_string(),
+                        message: format!(
+                            "non-scalar value for selector {} at {}",
+                            plan.source, location
+                        ),
+                    });
+                }
+            }
+        };
+        row.insert(plan.source.clone(), cell);
+    }
+    Ok(row)
+}
+
+fn read_ndjson_file(
+    input_path: &Path,
+    columns: &[config::ColumnConfig],
+    cast_mode: &str,
+) -> Result<DataFrame, JsonReadError> {
     let content = std::fs::read_to_string(input_path).map_err(|err| JsonReadError {
         rule: "json_parse_error".to_string(),
         message: format!("failed to read json at {}: {err}", input_path.display()),
     })?;
 
+    let plans = build_selector_plan(columns)?;
     let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::new();
-    let mut keys = HashSet::new();
     for (idx, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -47,38 +121,21 @@ fn read_ndjson_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
             rule: "json_parse_error".to_string(),
             message: format!("json parse error at line {}: {err}", idx + 1),
         })?;
-        let object = value.as_object().ok_or_else(|| JsonReadError {
-            rule: "json_parse_error".to_string(),
-            message: format!("expected json object at line {}", idx + 1),
-        })?;
-
-        let mut row = BTreeMap::new();
-        for (key, value) in object {
-            if value.is_object() || value.is_array() {
-                return Err(JsonReadError {
-                    rule: "json_unsupported_value".to_string(),
-                    message: format!(
-                        "nested json values are not supported (line {}, key {})",
-                        idx + 1,
-                        key
-                    ),
-                });
-            }
-            let cell = match value {
-                Value::Null => None,
-                Value::String(value) => Some(value.clone()),
-                Value::Bool(value) => Some(value.to_string()),
-                Value::Number(value) => Some(value.to_string()),
-                _ => None,
-            };
-            row.insert(key.clone(), cell);
-            keys.insert(key.clone());
+        if !value.is_object() {
+            return Err(JsonReadError {
+                rule: "json_parse_error".to_string(),
+                message: format!("expected json object at line {}", idx + 1),
+            });
         }
+
+        let row = extract_row(&value, &plans, cast_mode, &format!("line {}", idx + 1))?;
         rows.push(row);
     }
 
-    let mut columns = keys.into_iter().collect::<Vec<String>>();
-    columns.sort();
+    let columns = plans
+        .iter()
+        .map(|plan| plan.source.clone())
+        .collect::<Vec<_>>();
 
     build_dataframe(&columns, &rows)
 }
@@ -106,20 +163,7 @@ fn read_ndjson_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> 
                     rule: "json_parse_error".to_string(),
                     message: format!("expected json object at line {}", idx + 1),
                 })?;
-                let mut keys = Vec::with_capacity(object.len());
-                for (key, value) in object {
-                    if value.is_object() || value.is_array() {
-                        return Err(JsonReadError {
-                            rule: "json_unsupported_value".to_string(),
-                            message: format!(
-                                "nested json values are not supported (line {}, key {})",
-                                idx + 1,
-                                key
-                            ),
-                        });
-                    }
-                    keys.push(key.clone());
-                }
+                let mut keys = object.keys().cloned().collect::<Vec<_>>();
                 keys.sort();
                 return Ok(keys);
             }
@@ -141,7 +185,11 @@ fn read_ndjson_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> 
     }))
 }
 
-fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
+fn read_json_array_file(
+    input_path: &Path,
+    columns: &[config::ColumnConfig],
+    cast_mode: &str,
+) -> Result<DataFrame, JsonReadError> {
     let content = std::fs::read_to_string(input_path).map_err(|err| JsonReadError {
         rule: "json_parse_error".to_string(),
         message: format!("failed to read json at {}: {err}", input_path.display()),
@@ -156,64 +204,26 @@ fn read_json_array_file(input_path: &Path) -> Result<DataFrame, JsonReadError> {
         message: "expected json array at root".to_string(),
     })?;
 
+    let plans = build_selector_plan(columns)?;
     let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::with_capacity(array.len());
-    let mut columns = Vec::new();
 
     for (idx, value) in array.iter().enumerate() {
-        let object = value.as_object().ok_or_else(|| JsonReadError {
-            rule: "json_parse_error".to_string(),
-            message: format!("expected json object at index {}", idx),
-        })?;
-
-        let mut row = BTreeMap::new();
-        if columns.is_empty() {
-            for key in object.keys() {
-                columns.push(key.clone());
-            }
+        if !value.is_object() {
+            return Err(JsonReadError {
+                rule: "json_parse_error".to_string(),
+                message: format!("expected json object at index {}", idx),
+            });
         }
-
-        for (key, value) in object {
-            if value.is_object() || value.is_array() {
-                return Err(JsonReadError {
-                    rule: "json_unsupported_value".to_string(),
-                    message: format!(
-                        "nested json values are not supported (index {}, key {})",
-                        idx, key
-                    ),
-                });
-            }
-            let cell = match value {
-                Value::Null => None,
-                Value::String(value) => Some(value.clone()),
-                Value::Bool(value) => Some(value.to_string()),
-                Value::Number(value) => Some(value.to_string()),
-                _ => None,
-            };
-            row.insert(key.clone(), cell);
-        }
+        let row = extract_row(value, &plans, cast_mode, &format!("index {}", idx))?;
         rows.push(row);
     }
 
+    let columns = plans
+        .iter()
+        .map(|plan| plan.source.clone())
+        .collect::<Vec<_>>();
+
     build_dataframe(&columns, &rows)
-}
-
-fn build_dataframe(
-    columns: &[String],
-    rows: &[BTreeMap<String, Option<String>>],
-) -> Result<DataFrame, JsonReadError> {
-    let mut series = Vec::with_capacity(columns.len());
-    for name in columns {
-        let mut values = Vec::with_capacity(rows.len());
-        for row in rows {
-            values.push(row.get(name).cloned().unwrap_or(None));
-        }
-        series.push(Series::new(name.as_str().into(), values).into());
-    }
-
-    DataFrame::new(series).map_err(|err| JsonReadError {
-        rule: "json_parse_error".to_string(),
-        message: format!("failed to build dataframe: {err}"),
-    })
 }
 
 fn read_json_array_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {
@@ -239,21 +249,28 @@ fn read_json_array_columns(input_path: &Path) -> Result<Vec<String>, JsonReadErr
         rule: "json_parse_error".to_string(),
         message: "expected json object at index 0".to_string(),
     })?;
-    let mut keys = Vec::with_capacity(object.len());
-    for (key, value) in object {
-        if value.is_object() || value.is_array() {
-            return Err(JsonReadError {
-                rule: "json_unsupported_value".to_string(),
-                message: format!(
-                    "nested json values are not supported (index 0, key {})",
-                    key
-                ),
-            });
-        }
-        keys.push(key.clone());
-    }
+    let mut keys = object.keys().cloned().collect::<Vec<_>>();
     keys.sort();
     Ok(keys)
+}
+
+fn build_dataframe(
+    columns: &[String],
+    rows: &[BTreeMap<String, Option<String>>],
+) -> Result<DataFrame, JsonReadError> {
+    let mut series = Vec::with_capacity(columns.len());
+    for name in columns {
+        let mut values = Vec::with_capacity(rows.len());
+        for row in rows {
+            values.push(row.get(name).cloned().unwrap_or(None));
+        }
+        series.push(Series::new(name.as_str().into(), values).into());
+    }
+
+    DataFrame::new(series).map_err(|err| JsonReadError {
+        rule: "json_parse_error".to_string(),
+        message: format!("failed to build dataframe: {err}"),
+    })
 }
 
 impl InputAdapter for JsonInputAdapter {
@@ -306,11 +323,12 @@ impl InputAdapter for JsonInputAdapter {
             .as_ref()
             .and_then(|options| options.json_mode.as_deref())
             .unwrap_or("array");
+        let cast_mode = entity.source.cast_mode.as_deref().unwrap_or("strict");
         for input_file in files {
             let path = &input_file.source_local_path;
             let read_result = match json_mode {
-                "ndjson" => read_ndjson_file(path),
-                "array" => read_json_array_file(path),
+                "ndjson" => read_ndjson_file(path, columns, cast_mode),
+                "array" => read_json_array_file(path, columns, cast_mode),
                 other => Err(JsonReadError {
                     rule: "json_parse_error".to_string(),
                     message: format!(

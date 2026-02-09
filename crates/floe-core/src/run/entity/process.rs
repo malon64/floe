@@ -21,6 +21,7 @@ pub(super) fn append_sink_options_warning(rules: &mut Vec<report::RuleSummary>, 
                 column: column.clone(),
                 violations: 1,
                 target_type: None,
+                source: None,
             });
         }
     } else {
@@ -32,6 +33,7 @@ pub(super) fn append_sink_options_warning(rules: &mut Vec<report::RuleSummary>, 
                 column: column.clone(),
                 violations: 1,
                 target_type: None,
+                source: None,
             }],
         });
     }

@@ -11,6 +11,7 @@ pub fn summarize_validation(
     errors_per_row: &[Vec<check::RowError>],
     columns: &[config::ColumnConfig],
     severity: report::Severity,
+    source_map: Option<&HashMap<String, String>>,
 ) -> Vec<report::RuleSummary> {
     if errors_per_row.iter().all(|errors| errors.is_empty()) {
         return Vec::new();
@@ -54,6 +55,7 @@ pub fn summarize_validation(
                 column: name.clone(),
                 violations: column_acc.violations,
                 target_type: column_acc.target_type.clone(),
+                source: source_map.and_then(|map| map.get(name).cloned()),
             });
         }
         rules.push(report::RuleSummary {
@@ -71,6 +73,7 @@ pub fn summarize_validation_sparse(
     errors: &check::SparseRowErrors,
     columns: &[config::ColumnConfig],
     severity: report::Severity,
+    source_map: Option<&HashMap<String, String>>,
 ) -> Vec<report::RuleSummary> {
     if errors.is_empty() {
         return Vec::new();
@@ -114,6 +117,7 @@ pub fn summarize_validation_sparse(
                 column: name.clone(),
                 violations: column_acc.violations,
                 target_type: column_acc.target_type.clone(),
+                source: source_map.and_then(|map| map.get(name).cloned()),
             });
         }
         rules.push(report::RuleSummary {

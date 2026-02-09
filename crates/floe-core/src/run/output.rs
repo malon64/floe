@@ -73,7 +73,6 @@ pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeR
         entity,
         mode,
     } = context;
-    io::write::modes::ensure_mode_supported(mode)?;
     let adapter = format::rejected_sink_adapter(format)?;
     adapter.write_rejected(format::RejectedWriteRequest {
         target,

@@ -3,14 +3,16 @@ use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
 
 use super::file::required_columns;
-use super::normalize::normalize_schema_columns;
-use super::normalize::resolve_normalize_strategy;
 use super::output::{
     append_rejection_columns, validate_rejected_target, write_accepted_output,
     write_error_report_output, write_rejected_output, write_rejected_raw_output,
     AcceptedOutputContext, RejectedOutputContext,
 };
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
+use crate::checks::normalize::{
+    output_column_mapping, rename_output_columns, resolve_normalize_strategy,
+    resolve_source_columns, source_column_mapping,
+};
 use crate::report::build::summarize_validation_sparse;
 
 use io::format::{self, ReadInput};
@@ -19,6 +21,7 @@ use io::storage::Target;
 mod precheck;
 mod process;
 mod resolve;
+mod unique_existing;
 pub(crate) use resolve::ResolvedEntityTargets;
 
 use crate::report::entity::{build_run_report, RunReportContext};
@@ -42,6 +45,7 @@ pub(super) fn run_entity(
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
+    let mut rejected_overwrite_used = false;
     let input_adapter = format::input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
     let source_is_remote = matches!(
@@ -54,14 +58,28 @@ pub(super) fn run_entity(
         .as_ref()
         .and_then(|report| report.formatter.as_deref())
         .unwrap_or("json");
-    let row_error_formatter = check::row_error_formatter(formatter_name)?;
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
-    let normalized_columns = if let Some(strategy) = normalize_strategy.as_deref() {
-        normalize_schema_columns(&entity.schema.columns, strategy)?
+    let normalized_columns =
+        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref(), false)?;
+    let source_column_map =
+        source_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
+    let row_error_formatter = if source_column_map.is_empty() {
+        check::row_error_formatter(formatter_name, None)?
     } else {
-        entity.schema.columns.clone()
+        check::row_error_formatter(formatter_name, Some(&source_column_map))?
     };
+    let json_columns = if entity.source.format == "json" {
+        Some(resolve_source_columns(
+            &entity.schema.columns,
+            normalize_strategy.as_deref(),
+            true,
+        )?)
+    } else {
+        None
+    };
+    let output_column_map =
+        output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let required_cols = required_columns(&normalized_columns);
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
@@ -170,6 +188,17 @@ pub(super) fn run_entity(
 
     let mut accepted_accum: Vec<DataFrame> = Vec::new();
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
+    unique_existing::seed_unique_tracker_for_append(
+        &mut unique_tracker,
+        write_mode,
+        entity.sink.accepted.format.as_str(),
+        &accepted_target,
+        temp_dir.as_ref().map(|dir| dir.path()),
+        cloud,
+        &context.storage_resolver,
+        entity,
+        &normalized_columns,
+    )?;
 
     // Phase B: row-level validation + entity-level accumulation.
     let collect_raw = true;
@@ -179,10 +208,11 @@ pub(super) fn run_entity(
             mismatch,
             file_timer,
         } = prechecked;
+        let read_columns = json_columns.as_deref().unwrap_or(&normalized_columns);
         let mut inputs = input_adapter.read_inputs(
             entity,
             std::slice::from_ref(&input_file),
-            &normalized_columns,
+            read_columns,
             normalize_strategy.as_deref(),
             collect_raw,
         )?;
@@ -239,7 +269,7 @@ pub(super) fn run_entity(
                     accepted_count: 0,
                     rejected_count: 0,
                     mismatch: report::FileMismatch {
-                        declared_columns_count: normalized_columns.len() as u64,
+                        declared_columns_count: mismatch_report.declared_columns_count,
                         input_columns_count: mismatch_report.input_columns_count,
                         missing_columns: mismatch_report.missing_columns,
                         extra_columns: mismatch_report.extra_columns,
@@ -355,7 +385,12 @@ pub(super) fn run_entity(
         let mut errors_path = None;
         let mut archived_path = None;
         let mut rules = if has_errors {
-            summarize_validation_sparse(&error_lists, &normalized_columns, severity)
+            summarize_validation_sparse(
+                &error_lists,
+                &normalized_columns,
+                severity,
+                Some(&source_column_map),
+            )
         } else {
             Vec::new()
         };
@@ -375,7 +410,9 @@ pub(super) fn run_entity(
 
         match entity.policy.severity.as_str() {
             "warn" => {
-                accepted_df_opt = Some(df);
+                let mut accepted_df = df;
+                rename_output_columns(&mut accepted_df, &output_column_map)?;
+                accepted_df_opt = Some(accepted_df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target.as_ref() {
                         let errors_path_value = write_error_report_output(
@@ -408,13 +445,15 @@ pub(super) fn run_entity(
                     validate_rejected_target(entity, "reject")?;
 
                     let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
-                    let accepted_df = df.filter(&accept_mask).map_err(|err| {
+                    let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter accepted rows: {err}")))
                     })?;
                     let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
                         Box::new(RunError(format!("failed to filter rejected rows: {err}")))
                     })?;
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    rename_output_columns(&mut rejected_df, &output_column_map)?;
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
@@ -428,6 +467,16 @@ pub(super) fn run_entity(
                             entity.name
                         )))
                     })?;
+                    let rejected_mode = if write_mode == config::WriteMode::Overwrite {
+                        if rejected_overwrite_used {
+                            config::WriteMode::Append
+                        } else {
+                            rejected_overwrite_used = true;
+                            config::WriteMode::Overwrite
+                        }
+                    } else {
+                        write_mode
+                    };
                     let rejected_path_value = write_rejected_output(RejectedOutputContext {
                         format: rejected_config.format.as_str(),
                         target: rejected_target,
@@ -437,11 +486,13 @@ pub(super) fn run_entity(
                         cloud,
                         resolver: &context.storage_resolver,
                         entity,
-                        mode: write_mode,
+                        mode: rejected_mode,
                     })?;
                     rejected_path = Some(rejected_path_value);
                 } else {
-                    accepted_df_opt = Some(df);
+                    let mut accepted_df = df;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    accepted_df_opt = Some(accepted_df);
                 }
             }
             "abort" => {
@@ -473,7 +524,9 @@ pub(super) fn run_entity(
                     rejected_path = Some(rejected_path_value);
                     errors_path = Some(errors_path_value);
                 } else {
-                    accepted_df_opt = Some(df);
+                    let mut accepted_df = df;
+                    rename_output_columns(&mut accepted_df, &output_column_map)?;
+                    accepted_df_opt = Some(accepted_df);
                 }
             }
             severity => {

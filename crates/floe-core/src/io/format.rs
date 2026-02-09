@@ -86,10 +86,12 @@ pub trait InputAdapter: Send + Sync {
 }
 
 pub trait AcceptedSinkAdapter: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     fn write_accepted(
         &self,
         target: &Target,
         df: &mut DataFrame,
+        mode: config::WriteMode,
         output_stem: &str,
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
@@ -326,9 +328,9 @@ pub(crate) fn finalize_read_input(
 ) -> FloeResult<ReadInput> {
     if let Some(strategy) = normalize_strategy {
         if let Some(raw_df) = raw_df.as_mut() {
-            crate::run::normalize::normalize_dataframe_columns(raw_df, strategy)?;
+            crate::checks::normalize::normalize_dataframe_columns(raw_df, strategy)?;
         }
-        crate::run::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
+        crate::checks::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
     }
     Ok(ReadInput::Data {
         input_file: input_file.clone(),
@@ -353,7 +355,7 @@ pub(crate) fn build_typed_schema(
     let mut schema = Schema::with_capacity(input_columns.len());
     for name in input_columns {
         let normalized = if let Some(strategy) = normalize_strategy {
-            crate::run::normalize::normalize_name(name, strategy)
+            crate::checks::normalize::normalize_name(name, strategy)
         } else {
             name.to_string()
         };

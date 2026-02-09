@@ -138,13 +138,19 @@ is available for templating within that entity.
   - `json_mode` (optional)
     - `array` (default): JSON array ingestion when `source.format: json`.
     - `ndjson`: newline-delimited JSON ingestion.
-    - JSON values must be flat objects; nested objects/arrays are rejected.
+    - Nested JSON is supported via `schema.columns[].source` selectors.
+    - JSON schema mismatch checks only consider top-level selector sources (no `.` or `[`).
+    - For safety, JSON configs are limited to 1024 columns per entity.
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).
 
 ### `sink` (required)
 
+- `write_mode` (optional)
+  - `overwrite` (default): remove existing dataset parts, then write new ones.
+  - `append`: add new dataset parts without deleting existing ones.
+  - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet` or `delta` (local + cloud). `iceberg` is recognized but not
     implemented yet.
@@ -163,6 +169,7 @@ is available for templating within that entity.
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.
   - Supports `{{var}}` templating (see "Templating & domains").
+  - Rejected outputs are written as dataset parts (`part-*.csv`).
 - `archive` (optional)
 - `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.
@@ -184,7 +191,15 @@ is available for templating within that entity.
     before checks. If normalization causes a name collision, the run fails.
 - `columns` (required)
   - Array of column definitions.
-  - `name` (required): column name in the input file.
+  - `name` (required): target column name in the output schema.
+  - `source` (optional): source field selector for nested JSON extraction.
+    - When omitted, defaults to the value of `name`.
+    - For CSV/Parquet, use a column name.
+    - For JSON, selectors may include dot notation and `[index]` (example: `user.names[0]`).
+    - When `source` is set, `normalize_columns` applies to the source selector for matching,
+      but the output column name remains the explicit `name`.
+    - When `source` is set, validation summaries and row error logs include the source
+      value alongside the column name.
   - `type` (required): logical type. Accepted values are case-insensitive and
     normalized by removing `-` and `_`.
   - `nullable` (optional): default `true`.

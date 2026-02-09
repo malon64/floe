@@ -246,7 +246,7 @@ entities:
 }
 
 #[test]
-fn json_array_nested_values_reject_file() {
+fn json_array_nested_values_are_ignored() {
     let root = temp_dir("floe-json-array-nested");
     let input_dir = root.join("in");
     let accepted_dir = root.join("out/accepted");
@@ -289,8 +289,6 @@ entities:
 
     let outcome = run_config(&config_path);
     let file = &outcome.entity_outcomes[0].report.files[0];
-    assert_eq!(file.status, FileStatus::Rejected);
-    let issue = file.mismatch.error.as_ref().expect("expected json error");
-    assert_eq!(issue.rule, "json_unsupported_value");
-    assert!(issue.message.contains("entity.name=customer"));
+    assert_eq!(file.status, FileStatus::Success);
+    assert!(file.mismatch.error.is_none());
 }

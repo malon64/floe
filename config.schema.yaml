@@ -353,6 +353,8 @@ $defs:
     properties:
       name:
         type: string
+      source:
+        type: string
       type:
         type: string
         enum: [string, integer, number, float, decimal, boolean, date, datetime]

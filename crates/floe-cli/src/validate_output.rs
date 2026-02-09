@@ -164,6 +164,7 @@ struct MismatchPlan {
 #[derive(Serialize)]
 struct ColumnPlan {
     name: String,
+    source: String,
     column_type: String,
     nullable: Option<bool>,
     unique: Option<bool>,
@@ -357,6 +358,7 @@ pub fn build_valid_json(
                     .iter()
                     .map(|column| ColumnPlan {
                         name: column.name.clone(),
+                        source: column.source_or_name().to_string(),
                         column_type: column.column_type.clone(),
                         nullable: column.nullable,
                         unique: column.unique,

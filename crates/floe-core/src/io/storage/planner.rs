@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use crate::FloeResult;
 
+use super::StorageClient;
+
 #[derive(Debug, Clone)]
 pub struct ObjectRef {
     pub uri: String,
@@ -64,6 +66,33 @@ pub fn temp_path_for_key(temp_dir: &Path, key: &str) -> PathBuf {
         .unwrap_or("object");
     let sanitized = sanitize_filename(name);
     temp_dir.join(format!("{hash:016x}_{sanitized}"))
+}
+
+pub fn file_name_from_key(key: &str) -> Option<String> {
+    Path::new(key)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+}
+
+pub fn file_stem_from_name(name: &str) -> Option<String> {
+    Path::new(name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+}
+
+pub fn exists_by_key(client: &dyn StorageClient, key: &str) -> FloeResult<bool> {
+    if key.is_empty() {
+        return Ok(false);
+    }
+    let refs = client.list(key)?;
+    Ok(refs.iter().any(|object| object.key == key))
+}
+
+pub fn copy_via_temp(client: &dyn StorageClient, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let temp_path = client.download_to_temp(src_uri, temp_dir.path())?;
+    client.upload_from_path(&temp_path, dst_uri)?;
+    Ok(())
 }
 
 fn sanitize_filename(name: &str) -> String {

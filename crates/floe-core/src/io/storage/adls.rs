@@ -7,7 +7,7 @@ use azure_storage_blobs::prelude::{BlobServiceClient, ContainerClient};
 use futures::StreamExt;
 use tokio::runtime::Runtime;
 
-use crate::errors::{RunError, StorageError};
+use crate::errors::StorageError;
 use crate::{config, ConfigError, FloeResult};
 
 use super::{planner, ObjectRef, StorageClient};
@@ -179,13 +179,7 @@ impl StorageClient for AdlsClient {
     }
 
     fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
-        let temp_dir = tempfile::TempDir::new().map_err(|err| {
-            Box::new(StorageError(format!("adls tempdir failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
-        let temp_path = self.download_to_temp(src_uri, temp_dir.path())?;
-        self.upload_from_path(&temp_path, dst_uri)?;
-        Ok(())
+        planner::copy_via_temp(self, src_uri, dst_uri)
     }
 
     fn delete_object(&self, uri: &str) -> FloeResult<()> {
@@ -216,11 +210,7 @@ impl StorageClient for AdlsClient {
             .unwrap_or("")
             .trim_start_matches('/')
             .to_string();
-        if key.is_empty() {
-            return Ok(false);
-        }
-        let refs = self.list(&key)?;
-        Ok(refs.iter().any(|object| object.key == key))
+        planner::exists_by_key(self, &key)
     }
 }
 
@@ -264,47 +254,4 @@ pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
             container, account, trimmed
         )
     }
-}
-
-pub fn build_input_files(
-    client: &dyn StorageClient,
-    container: &str,
-    account: &str,
-    prefix: &str,
-    adapter: &dyn crate::io::format::InputAdapter,
-    temp_dir: &Path,
-    entity: &crate::config::EntityConfig,
-    storage: &str,
-) -> FloeResult<Vec<crate::io::format::InputFile>> {
-    let suffixes = adapter.suffixes()?;
-    let list_refs = client.list(prefix)?;
-    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
-    let filtered = planner::stable_sort_refs(filtered);
-    if filtered.is_empty() {
-        return Err(Box::new(RunError(format!(
-            "entity.name={} source.storage={} no input objects matched (container={}, account={}, prefix={}, suffixes={})",
-            entity.name,
-            storage,
-            container,
-            account,
-            prefix,
-            suffixes.join(",")
-        ))));
-    }
-    let mut inputs = Vec::with_capacity(filtered.len());
-    for object in filtered {
-        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
-        let source_name = crate::io::storage::s3::file_name_from_key(&object.key)
-            .unwrap_or_else(|| entity.name.clone());
-        let source_stem = crate::io::storage::s3::file_stem_from_name(&source_name)
-            .unwrap_or_else(|| entity.name.clone());
-        let source_uri = object.uri;
-        inputs.push(crate::io::format::InputFile {
-            source_uri,
-            source_local_path: local_path,
-            source_name,
-            source_stem,
-        });
-    }
-    Ok(inputs)
 }

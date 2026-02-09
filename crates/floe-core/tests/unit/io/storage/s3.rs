@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use floe_core::io::storage::s3::{parse_s3_uri, temp_path_for_key};
-use floe_core::io::storage::{filter_by_suffixes, stable_sort_refs, ObjectRef};
+use floe_core::io::storage::s3::parse_s3_uri;
+use floe_core::io::storage::{filter_by_suffixes, stable_sort_refs, temp_path_for_key, ObjectRef};
 
 #[test]
 fn parse_s3_uri_extracts_bucket_and_key() {

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{config, io, report, FloeResult};
 
-use super::Target;
+use super::{planner, Target};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedInputs {
@@ -34,9 +34,9 @@ pub fn resolve_inputs(
                     "s3 target missing bucket".to_string(),
                 ))
             })?;
-            let files = io::storage::s3::build_input_files(
-                client, bucket, key, adapter, temp_dir, entity, storage,
-            )?;
+            let location = format!("bucket={}", bucket);
+            let files =
+                build_cloud_inputs(client, key, adapter, temp_dir, entity, storage, &location)?;
             Ok(ResolvedInputs {
                 files,
                 mode: report::ResolvedInputMode::Directory,
@@ -56,9 +56,9 @@ pub fn resolve_inputs(
                     "gcs target missing bucket".to_string(),
                 ))
             })?;
-            let files = io::storage::gcs::build_input_files(
-                client, bucket, key, adapter, temp_dir, entity, storage,
-            )?;
+            let location = format!("bucket={}", bucket);
+            let files =
+                build_cloud_inputs(client, key, adapter, temp_dir, entity, storage, &location)?;
             Ok(ResolvedInputs {
                 files,
                 mode: report::ResolvedInputMode::Directory,
@@ -78,8 +78,9 @@ pub fn resolve_inputs(
                     "adls target missing container".to_string(),
                 ))
             })?;
-            let files = io::storage::adls::build_input_files(
-                client, container, account, base_path, adapter, temp_dir, entity, storage,
+            let location = format!("container={}, account={}", container, account);
+            let files = build_cloud_inputs(
+                client, base_path, adapter, temp_dir, entity, storage, &location,
             )?;
             Ok(ResolvedInputs {
                 files,
@@ -99,6 +100,47 @@ pub fn resolve_inputs(
             Ok(ResolvedInputs { files, mode })
         }
     }
+}
+
+fn build_cloud_inputs(
+    client: &dyn super::StorageClient,
+    prefix: &str,
+    adapter: &dyn io::format::InputAdapter,
+    temp_dir: &Path,
+    entity: &config::EntityConfig,
+    storage: &str,
+    location: &str,
+) -> FloeResult<Vec<io::format::InputFile>> {
+    let suffixes = adapter.suffixes()?;
+    let list_refs = client.list(prefix)?;
+    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
+    let filtered = planner::stable_sort_refs(filtered);
+    if filtered.is_empty() {
+        return Err(Box::new(crate::errors::RunError(format!(
+            "entity.name={} source.storage={} no input objects matched ({}, prefix={}, suffixes={})",
+            entity.name,
+            storage,
+            location,
+            prefix,
+            suffixes.join(",")
+        ))));
+    }
+    let mut inputs = Vec::with_capacity(filtered.len());
+    for object in filtered {
+        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
+        let source_name =
+            planner::file_name_from_key(&object.key).unwrap_or_else(|| entity.name.clone());
+        let source_stem =
+            planner::file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
+        let source_uri = object.uri;
+        inputs.push(io::format::InputFile {
+            source_uri,
+            source_local_path: local_path,
+            source_name,
+            source_stem,
+        });
+    }
+    Ok(inputs)
 }
 
 fn build_local_inputs(

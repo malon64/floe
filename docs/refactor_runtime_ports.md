@@ -84,9 +84,16 @@ All other storage resolution, listing, download/upload remains in `io::storage`.
 - **Borrowing / lifetimes**: runtime uses `'static` adapters to avoid lifetime plumbing.
 - **Behavior drift**: run full test suite; maintain existing behavior.
 
+## Duplication Cleanup Candidates
+
+- `io/storage/{s3,gcs,adls}.rs` duplicated `build_input_files` logic (list → filter → download → InputFile).
+- `io/storage/{s3,gcs}.rs` duplicated `temp_path_for_key` / `sanitize_filename` (already in `planner`).
+- `io/storage/{s3,gcs,adls}.rs` duplicated `copy_object` implementations (S3 can keep native copy; others can share temp download+upload helper).
+- `io/storage/{s3,gcs,adls}.rs` duplicated `exists` implementations (parse + list + exact key match).
+- `io/storage/{s3,gcs,adls}.rs` duplicated key/name parsing utilities (file name + stem).
+
 ## Out of Scope (for this refactor)
 
 - Changing accepted/rejected write semantics.
 - New formats (Avro/XML) or orchestrator connectors (Airflow).
 - Storage implementation changes (S3/GCS/ADLS behavior).
-

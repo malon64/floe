@@ -186,5 +186,8 @@ pub fn parse_gcs_uri(uri: &str) -> FloeResult<GcsLocation> {
 pub fn format_gcs_uri(bucket: &str, key: &str) -> String {
     format_bucket_uri("gs", bucket, key)
 }
+<<<<<<< HEAD:crates/floe-core/src/io/storage/providers/gcs.rs
 
 pub type GcsLocation = BucketLocation;
+=======
+>>>>>>> 73e9800 (refactor storage input handling and helpers):crates/floe-core/src/io/storage/gcs.rs

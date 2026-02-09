@@ -4,7 +4,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::FloeResult;
-
 use crate::io::storage::StorageClient;
 
 #[derive(Debug, Clone)]

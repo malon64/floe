@@ -11,7 +11,7 @@ use super::output::{
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::checks::normalize::{
     output_column_mapping, rename_output_columns, resolve_normalize_strategy,
-    resolve_source_columns, resolve_source_columns_with_sources,
+    resolve_source_columns,
 };
 use crate::report::build::summarize_validation_sparse;
 
@@ -62,11 +62,12 @@ pub(super) fn run_entity(
 
     let normalize_strategy = resolve_normalize_strategy(entity)?;
     let normalized_columns =
-        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref())?;
+        resolve_source_columns(&entity.schema.columns, normalize_strategy.as_deref(), false)?;
     let json_columns = if entity.source.format == "json" {
-        Some(resolve_source_columns_with_sources(
+        Some(resolve_source_columns(
             &entity.schema.columns,
             normalize_strategy.as_deref(),
+            true,
         )?)
     } else {
         None

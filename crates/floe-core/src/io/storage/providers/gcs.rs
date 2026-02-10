@@ -9,9 +9,9 @@ use google_cloud_storage::http::objects::upload::{Media, UploadObjectRequest, Up
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
-use crate::FloeResult;
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use crate::io::storage::{planner, ObjectRef, StorageClient};
+use crate::FloeResult;
 
 pub struct GcsClient {
     bucket: String,

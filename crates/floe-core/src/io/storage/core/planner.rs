@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::FloeResult;
 use crate::io::storage::StorageClient;
+use crate::FloeResult;
 
 #[derive(Debug, Clone)]
 pub struct ObjectRef {

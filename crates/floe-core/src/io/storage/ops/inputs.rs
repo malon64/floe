@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::{config, io, report, FloeResult};
 use crate::io::storage::{planner, Target};
+use crate::{config, io, report, FloeResult};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedInputs {

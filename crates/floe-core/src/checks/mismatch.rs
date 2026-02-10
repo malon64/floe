@@ -53,6 +53,18 @@ pub fn top_level_declared_columns(
     Ok(resolved)
 }
 
+pub fn resolve_mismatch_columns(
+    entity: &config::EntityConfig,
+    normalized_columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+) -> FloeResult<Vec<config::ColumnConfig>> {
+    if entity.source.format == "json" {
+        top_level_declared_columns(&entity.schema.columns, normalize_strategy)
+    } else {
+        Ok(normalized_columns.to_vec())
+    }
+}
+
 pub fn plan_schema_mismatch(
     entity: &config::EntityConfig,
     declared_columns: &[config::ColumnConfig],

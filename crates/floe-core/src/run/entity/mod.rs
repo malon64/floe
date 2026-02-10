@@ -15,7 +15,7 @@ use crate::checks::normalize::{
 };
 use crate::report::build::summarize_validation_sparse;
 
-use io::format::{self, ReadInput};
+use io::format::ReadInput;
 use io::storage::Target;
 
 mod precheck;
@@ -39,19 +39,16 @@ pub(super) struct EntityRunResult {
 
 pub(super) fn run_entity(
     context: &RunContext,
-    cloud: &mut io::storage::CloudClient,
+    runtime: &mut dyn crate::runtime::Runtime,
     observer: &dyn RunObserver,
     entity: &config::EntityConfig,
 ) -> FloeResult<EntityRunResult> {
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
     let mut rejected_overwrite_used = false;
-    let input_adapter = format::input_adapter(input.format.as_str())?;
+    let input_adapter = runtime.input_adapter(input.format.as_str())?;
     let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
-    let source_is_remote = matches!(
-        resolved_targets.source,
-        Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. }
-    );
+    let source_is_remote = resolved_targets.source.is_remote();
     let formatter_name = context
         .config
         .report
@@ -69,29 +66,19 @@ pub(super) fn run_entity(
     } else {
         check::row_error_formatter(formatter_name, Some(&source_column_map))?
     };
-    let json_columns = if entity.source.format == "json" {
-        Some(resolve_source_columns(
-            &entity.schema.columns,
-            normalize_strategy.as_deref(),
-            true,
-        )?)
-    } else {
-        None
-    };
+    let read_columns = io::format::resolve_read_columns(
+        entity,
+        &normalized_columns,
+        normalize_strategy.as_deref(),
+    )?;
     let output_column_map =
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let required_cols = required_columns(&normalized_columns);
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
     let needs_temp = source_is_remote
-        || matches!(
-            accepted_target,
-            Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. }
-        )
-        || matches!(
-            rejected_target,
-            Some(Target::S3 { .. } | Target::Adls { .. } | Target::Gcs { .. })
-        );
+        || accepted_target.is_remote()
+        || rejected_target.as_ref().is_some_and(Target::is_remote);
     let temp_dir = if needs_temp {
         Some(
             tempfile::TempDir::new()
@@ -103,7 +90,7 @@ pub(super) fn run_entity(
 
     let (input_files, resolved_mode) = resolve_input_files(
         context,
-        cloud,
+        runtime.storage(),
         entity,
         input_adapter,
         &resolved_targets,
@@ -175,7 +162,7 @@ pub(super) fn run_entity(
             resolved_targets: &resolved_targets,
             archive_target: archive_target.as_ref(),
             temp_dir: temp_dir.as_ref(),
-            cloud,
+            cloud: runtime.storage(),
             observer,
             file_reports: &mut file_reports,
             file_timings_ms: &mut file_timings_ms,
@@ -194,7 +181,7 @@ pub(super) fn run_entity(
         entity.sink.accepted.format.as_str(),
         &accepted_target,
         temp_dir.as_ref().map(|dir| dir.path()),
-        cloud,
+        runtime.storage(),
         &context.storage_resolver,
         entity,
         &normalized_columns,
@@ -208,11 +195,10 @@ pub(super) fn run_entity(
             mismatch,
             file_timer,
         } = prechecked;
-        let read_columns = json_columns.as_deref().unwrap_or(&normalized_columns);
         let mut inputs = input_adapter.read_inputs(
             entity,
             std::slice::from_ref(&input_file),
-            read_columns,
+            &read_columns,
             normalize_strategy.as_deref(),
             collect_raw,
         )?;
@@ -254,7 +240,7 @@ pub(super) fn run_entity(
                             target,
                             &input_file,
                             temp_dir.as_ref().map(|dir| dir.path()),
-                            cloud,
+                            runtime.storage(),
                             &context.storage_resolver,
                             entity,
                         )
@@ -420,7 +406,7 @@ pub(super) fn run_entity(
                             source_stem,
                             &errors_json,
                             temp_dir.as_ref().map(|dir| dir.path()),
-                            cloud,
+                            runtime.storage(),
                             &context.storage_resolver,
                             entity,
                         )?;
@@ -477,13 +463,15 @@ pub(super) fn run_entity(
                     } else {
                         write_mode
                     };
+                    let rejected_adapter =
+                        runtime.rejected_sink_adapter(rejected_config.format.as_str())?;
                     let rejected_path_value = write_rejected_output(RejectedOutputContext {
-                        format: rejected_config.format.as_str(),
+                        adapter: rejected_adapter,
                         target: rejected_target,
                         df: &mut rejected_df,
                         source_stem,
                         temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
+                        cloud: runtime.storage(),
                         resolver: &context.storage_resolver,
                         entity,
                         mode: rejected_mode,
@@ -508,7 +496,7 @@ pub(super) fn run_entity(
                         rejected_target,
                         &input_file,
                         temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
+                        runtime.storage(),
                         &context.storage_resolver,
                         entity,
                     )?;
@@ -517,7 +505,7 @@ pub(super) fn run_entity(
                         source_stem,
                         &errors_json,
                         temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud,
+                        runtime.storage(),
                         &context.storage_resolver,
                         entity,
                     )?;
@@ -542,7 +530,7 @@ pub(super) fn run_entity(
 
         if archive_enabled {
             archived_path = io::storage::ops::archive_input(
-                cloud,
+                runtime.storage(),
                 &context.storage_resolver,
                 entity,
                 archive_target.as_ref(),
@@ -652,13 +640,15 @@ pub(super) fn run_entity(
             })?;
         }
         let output_stem = io::storage::paths::build_part_stem(0);
+        let accepted_adapter =
+            runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;
         let accepted_output = write_accepted_output(AcceptedOutputContext {
-            format: entity.sink.accepted.format.as_str(),
+            adapter: accepted_adapter,
             target: &accepted_target,
             df: &mut accepted_df,
             output_stem: &output_stem,
             temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-            cloud,
+            cloud: runtime.storage(),
             resolver: &context.storage_resolver,
             entity,
             mode: write_mode,
@@ -695,7 +685,7 @@ pub(super) fn run_entity(
             &context.run_id,
             entity,
             &run_report,
-            cloud,
+            runtime.storage(),
             &context.storage_resolver,
         )?;
     }

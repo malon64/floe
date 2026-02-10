@@ -6,6 +6,7 @@ pub mod errors;
 pub mod io;
 pub mod report;
 pub mod run;
+pub mod runtime;
 pub mod warnings;
 
 pub use checks as check;
@@ -13,6 +14,7 @@ pub use config::{resolve_config_location, ConfigLocation};
 pub use errors::ConfigError;
 pub use run::events::{set_observer, RunEvent, RunObserver};
 pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
+pub use runtime::{DefaultRuntime, Runtime};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

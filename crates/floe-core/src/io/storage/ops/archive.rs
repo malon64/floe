@@ -1,7 +1,7 @@
 use crate::errors::RunError;
 use crate::{config, io, FloeResult};
 
-use super::{paths, CloudClient, Target};
+use crate::io::storage::{paths, CloudClient, Target};
 
 pub fn archive_input_file(
     cloud: &mut CloudClient,

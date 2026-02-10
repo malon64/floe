@@ -3,24 +3,19 @@ use std::path::{Path, PathBuf};
 
 use crate::{config, ConfigError, FloeResult};
 
-pub mod adls;
-pub mod archive;
-pub mod extensions;
-pub mod gcs;
-pub mod inputs;
-pub mod local;
+pub mod core;
 pub mod object_store;
 pub mod ops;
-pub mod output;
-pub mod paths;
-pub mod planner;
-pub mod s3;
+pub mod providers;
 pub mod target;
 
-pub use archive::archive_input_file;
+pub use core::{extensions, paths, placement, planner, uri, validation};
+pub use ops::{archive, inputs, output};
+pub use placement::OutputPlacement;
 pub use planner::{
     filter_by_suffixes, join_prefix, normalize_separators, stable_sort_refs, temp_path_for_key,
 };
+pub use providers::{adls, gcs, local, s3};
 pub use target::Target;
 
 pub use planner::ObjectRef;
@@ -90,22 +85,14 @@ fn build_client(definition: &config::StorageDefinition) -> FloeResult<Box<dyn St
     let client: Box<dyn StorageClient> = match definition.fs_type.as_str() {
         "local" => Box::new(local::LocalClient::new()),
         "s3" => {
-            let bucket = definition.bucket.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "storage {} requires bucket for type s3",
-                    definition.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let bucket =
+                validation::require_field(definition, definition.bucket.as_ref(), "bucket", "s3")?;
             Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
         }
         "adls" => Box::new(adls::AdlsClient::new(definition)?),
         "gcs" => {
-            let bucket = definition.bucket.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "storage {} requires bucket for type gcs",
-                    definition.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let bucket =
+                validation::require_field(definition, definition.bucket.as_ref(), "bucket", "gcs")?;
             Box::new(gcs::GcsClient::new(bucket)?)
         }
         other => {

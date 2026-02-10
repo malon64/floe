@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
-use crate::io::storage::CloudClient;
 use crate::report::build::project_metadata_json;
 use crate::report::output::write_summary_report;
+use crate::runtime::{DefaultRuntime, Runtime};
 use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
@@ -78,6 +78,16 @@ pub fn run_with_base(
     config_base: config::ConfigBase,
     options: RunOptions,
 ) -> FloeResult<RunOutcome> {
+    let mut runtime = DefaultRuntime::new();
+    run_with_runtime(config_path, config_base, options, &mut runtime)
+}
+
+pub fn run_with_runtime(
+    config_path: &Path,
+    config_base: config::ConfigBase,
+    options: RunOptions,
+    runtime: &mut dyn Runtime,
+) -> FloeResult<RunOutcome> {
     init_thread_pool();
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
@@ -94,7 +104,6 @@ pub fn run_with_base(
 
     let mut entity_outcomes = Vec::new();
     let mut abort_run = false;
-    let mut cloud = CloudClient::new();
     let observer = default_observer();
     observer.on_event(RunEvent::RunStarted {
         run_id: context.run_id.clone(),
@@ -124,7 +133,7 @@ pub fn run_with_base(
         let EntityRunResult {
             outcome,
             abort_run: aborted,
-        } = run_entity(&context, &mut cloud, observer, entity)?;
+        } = run_entity(&context, runtime, observer, entity)?;
         let report = &outcome.report;
         let (mut status, _) = report::compute_run_outcome(
             &report
@@ -160,7 +169,7 @@ pub fn run_with_base(
             report_target,
             &context.run_id,
             &summary,
-            &mut cloud,
+            runtime.storage(),
             &context.storage_resolver,
         )?;
     }

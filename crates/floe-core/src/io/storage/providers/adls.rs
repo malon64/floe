@@ -7,10 +7,9 @@ use azure_storage_blobs::prelude::{BlobServiceClient, ContainerClient};
 use futures::StreamExt;
 use tokio::runtime::Runtime;
 
-use crate::errors::{RunError, StorageError};
-use crate::{config, ConfigError, FloeResult};
-
-use super::{planner, ObjectRef, StorageClient};
+use crate::errors::StorageError;
+use crate::io::storage::{planner, uri, validation, ObjectRef, StorageClient};
+use crate::{config, FloeResult};
 
 pub struct AdlsClient {
     account: String,
@@ -22,18 +21,14 @@ pub struct AdlsClient {
 
 impl AdlsClient {
     pub fn new(definition: &config::StorageDefinition) -> FloeResult<Self> {
-        let account = definition.account.clone().ok_or_else(|| {
-            Box::new(StorageError(format!(
-                "storage {} requires account for type adls",
-                definition.name
-            )))
-        })?;
-        let container = definition.container.clone().ok_or_else(|| {
-            Box::new(StorageError(format!(
-                "storage {} requires container for type adls",
-                definition.name
-            )))
-        })?;
+        let account =
+            validation::require_field(definition, definition.account.as_ref(), "account", "adls")?;
+        let container = validation::require_field(
+            definition,
+            definition.container.as_ref(),
+            "container",
+            "adls",
+        )?;
         let prefix = definition.prefix.clone().unwrap_or_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -92,12 +87,12 @@ impl StorageClient for AdlsClient {
                             container, account, key
                         )
                     };
-                    refs.push(ObjectRef {
+                    refs.push(planner::object_ref(
                         uri,
                         key,
-                        last_modified: Some(blob.properties.last_modified.to_string()),
-                        size: Some(blob.properties.content_length),
-                    });
+                        Some(blob.properties.last_modified.to_string()),
+                        Some(blob.properties.content_length),
+                    ));
                 }
             }
             Ok(planner::stable_sort_refs(refs))
@@ -179,13 +174,7 @@ impl StorageClient for AdlsClient {
     }
 
     fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
-        let temp_dir = tempfile::TempDir::new().map_err(|err| {
-            Box::new(StorageError(format!("adls tempdir failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
-        let temp_path = self.download_to_temp(src_uri, temp_dir.path())?;
-        self.upload_from_path(&temp_path, dst_uri)?;
-        Ok(())
+        planner::copy_via_temp(self, src_uri, dst_uri)
     }
 
     fn delete_object(&self, uri: &str) -> FloeResult<()> {
@@ -216,95 +205,16 @@ impl StorageClient for AdlsClient {
             .unwrap_or("")
             .trim_start_matches('/')
             .to_string();
-        if key.is_empty() {
-            return Ok(false);
-        }
-        let refs = self.list(&key)?;
-        Ok(refs.iter().any(|object| object.key == key))
+        planner::exists_by_key(self, &key)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdlsLocation {
-    pub account: String,
-    pub container: String,
-    pub path: String,
 }
 
 pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {
-    let stripped = uri.strip_prefix("abfs://").ok_or_else(|| {
-        Box::new(ConfigError(format!("expected abfs uri, got {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let (container, rest) = stripped.split_once('@').ok_or_else(|| {
-        Box::new(ConfigError(format!(
-            "missing container in abfs uri: {}",
-            uri
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let (account, path) = rest.split_once(".dfs.core.windows.net").ok_or_else(|| {
-        Box::new(ConfigError(format!("missing account in abfs uri: {}", uri)))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let path = path.trim_start_matches('/');
-    Ok(AdlsLocation {
-        account: account.to_string(),
-        container: container.to_string(),
-        path: path.to_string(),
-    })
+    uri::parse_abfs_uri(uri)
 }
 
 pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
-    let trimmed = path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        format!("abfs://{}@{}.dfs.core.windows.net", container, account)
-    } else {
-        format!(
-            "abfs://{}@{}.dfs.core.windows.net/{}",
-            container, account, trimmed
-        )
-    }
+    uri::format_abfs_uri(container, account, path)
 }
 
-pub fn build_input_files(
-    client: &dyn StorageClient,
-    container: &str,
-    account: &str,
-    prefix: &str,
-    adapter: &dyn crate::io::format::InputAdapter,
-    temp_dir: &Path,
-    entity: &crate::config::EntityConfig,
-    storage: &str,
-) -> FloeResult<Vec<crate::io::format::InputFile>> {
-    let suffixes = adapter.suffixes()?;
-    let list_refs = client.list(prefix)?;
-    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
-    let filtered = planner::stable_sort_refs(filtered);
-    if filtered.is_empty() {
-        return Err(Box::new(RunError(format!(
-            "entity.name={} source.storage={} no input objects matched (container={}, account={}, prefix={}, suffixes={})",
-            entity.name,
-            storage,
-            container,
-            account,
-            prefix,
-            suffixes.join(",")
-        ))));
-    }
-    let mut inputs = Vec::with_capacity(filtered.len());
-    for object in filtered {
-        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
-        let source_name = crate::io::storage::s3::file_name_from_key(&object.key)
-            .unwrap_or_else(|| entity.name.clone());
-        let source_stem = crate::io::storage::s3::file_stem_from_name(&source_name)
-            .unwrap_or_else(|| entity.name.clone());
-        let source_uri = object.uri;
-        inputs.push(crate::io::format::InputFile {
-            source_uri,
-            source_local_path: local_path,
-            source_name,
-            source_stem,
-        });
-    }
-    Ok(inputs)
-}
+pub type AdlsLocation = uri::AdlsLocation;

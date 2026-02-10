@@ -12,7 +12,7 @@ pub use checks as check;
 pub use config::{resolve_config_location, ConfigLocation};
 pub use errors::ConfigError;
 pub use run::events::{set_observer, RunEvent, RunObserver};
-pub use run::{run, run_with_base, EntityOutcome, RunOutcome};
+pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -25,6 +25,7 @@ pub struct ValidateOptions {
 pub struct RunOptions {
     pub run_id: Option<String>,
     pub entities: Vec<String>,
+    pub dry_run: bool,
 }
 
 pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> {

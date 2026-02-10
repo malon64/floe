@@ -1,7 +1,7 @@
 #[path = "../src/output.rs"]
 mod output;
 
-use floe_core::{report, EntityOutcome, RunOutcome};
+use floe_core::{report, DryRunEntityPreview, EntityOutcome, RunOutcome};
 
 fn sample_outcome() -> RunOutcome {
     let run_id = "run-123".to_string();
@@ -143,13 +143,77 @@ fn sample_outcome() -> RunOutcome {
             file_timings_ms: vec![Some(12)],
         }],
         summary,
+        dry_run_previews: None,
+    }
+}
+
+fn sample_dry_run_outcome() -> RunOutcome {
+    let run_id = "run-456".to_string();
+    let report_base_path = "/tmp/reports-dry".to_string();
+    let version = env!("CARGO_PKG_VERSION").to_string();
+
+    let summary = report::RunSummaryReport {
+        spec_version: version.clone(),
+        tool: report::ToolInfo {
+            name: "floe".to_string(),
+            version: version.clone(),
+            git: None,
+        },
+        run: report::RunInfo {
+            run_id: run_id.clone(),
+            started_at: "2026-01-19T11-00-00Z".to_string(),
+            finished_at: "2026-01-19T11-00-01Z".to_string(),
+            duration_ms: 0,
+            status: report::RunStatus::Success,
+            exit_code: 0,
+        },
+        config: report::ConfigEcho {
+            path: "/tmp/config.yml".to_string(),
+            version,
+            metadata: None,
+        },
+        report: report::ReportEcho {
+            path: report_base_path.clone(),
+            report_file: "disabled (dry-run)".to_string(),
+        },
+        results: report::ResultsTotals {
+            files_total: 0,
+            rows_total: 0,
+            accepted_total: 0,
+            rejected_total: 0,
+            warnings_total: 0,
+            errors_total: 0,
+        },
+        entities: Vec::new(),
+    };
+
+    let previews = vec![DryRunEntityPreview {
+        name: "orders".to_string(),
+        input_path: "/tmp/in/orders".to_string(),
+        input_format: "json".to_string(),
+        accepted_path: "/tmp/out/orders.parquet".to_string(),
+        accepted_format: "parquet".to_string(),
+        rejected_path: Some("/tmp/out/orders.rejected".to_string()),
+        rejected_format: Some("csv".to_string()),
+        archive_path: "/tmp/archive/orders".to_string(),
+        archive_storage: Some("s3".to_string()),
+        report_file: Some("/tmp/reports-dry/run_run-456/orders/run.json".to_string()),
+        scanned_files: vec!["/tmp/in/orders/2026-01-01.json".to_string()],
+    }];
+
+    RunOutcome {
+        run_id,
+        report_base_path: Some(report_base_path),
+        entity_outcomes: Vec::new(),
+        summary,
+        dry_run_previews: Some(previews),
     }
 }
 
 #[test]
 fn format_run_output_default_mode() {
     let outcome = sample_outcome();
-    let output = output::format_run_output(&outcome, output::OutputMode::Default);
+    let output = output::format_run_output(&outcome, output::OutputMode::Default, false);
     let expected = [
         "run id: run-123",
         "report base: /tmp/reports",
@@ -160,6 +224,59 @@ fn format_run_output_default_mode() {
         "Totals: files=1 rows=10 accepted=8 rejected=2",
         "Overall: rejected (exit_code=0)",
         "Run summary: /tmp/reports/run_run-123/run.summary.json",
+    ]
+    .join("\n");
+
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn format_run_output_dry_run_default_mode() {
+    let outcome = sample_dry_run_outcome();
+    let output = output::format_run_output(&outcome, output::OutputMode::Default, true);
+    let expected = [
+        "DRY RUN MODE - No actual execution performed",
+        "run id: run-456",
+        "report base: /tmp/reports-dry",
+        "",
+        "==> entity orders (format=json)",
+        "  Input: /tmp/in/orders (json)",
+        "  Accepted Output: /tmp/out/orders.parquet (parquet)",
+        "  Rejected Output: /tmp/out/orders.rejected (csv)",
+        "  Archive Path: /tmp/archive/orders (s3)",
+        "  Scanned Files:",
+        "    /tmp/in/orders/2026-01-01.json",
+        "",
+        "Totals: files=0 rows=0 accepted=0 rejected=0",
+        "Overall: success (exit_code=0)",
+        "Run summary: /tmp/reports-dry/run_run-456/run.summary.json",
+    ]
+    .join("\n");
+
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn format_run_output_dry_run_verbose_mode() {
+    let outcome = sample_dry_run_outcome();
+    let output = output::format_run_output(&outcome, output::OutputMode::Verbose, true);
+    let expected = [
+        "DRY RUN MODE - No actual execution performed",
+        "run id: run-456",
+        "report base: /tmp/reports-dry",
+        "",
+        "==> entity orders (format=json)",
+        "  Input: /tmp/in/orders (json)",
+        "  Accepted Output: /tmp/out/orders.parquet (parquet)",
+        "  Rejected Output: /tmp/out/orders.rejected (csv)",
+        "  Archive Path: /tmp/archive/orders (s3)",
+        "  Scanned Files:",
+        "    /tmp/in/orders/2026-01-01.json",
+        "  report: /tmp/reports-dry/run_run-456/orders/run.json",
+        "",
+        "Totals: files=0 rows=0 accepted=0 rejected=0",
+        "Overall: success (exit_code=0)",
+        "Run summary: /tmp/reports-dry/run_run-456/run.summary.json",
     ]
     .join("\n");
 

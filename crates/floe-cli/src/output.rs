@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use floe_core::{report, EntityOutcome, RunOutcome};
+use floe_core::{report, DryRunEntityPreview, EntityOutcome, RunOutcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -9,9 +9,11 @@ pub enum OutputMode {
     Verbose,
 }
 
-pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
+pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode, dry_run: bool) -> String {
     let mut lines = Vec::new();
-
+    if dry_run {
+        lines.push("DRY RUN MODE - No actual execution performed".to_string());
+    }
     if mode != OutputMode::Quiet {
         lines.push(format!("run id: {}", &outcome.run_id));
         lines.push(format!(
@@ -19,6 +21,22 @@ pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
             outcome.report_base_path.as_deref().unwrap_or("(disabled)")
         ));
         lines.push(String::new());
+    }
+
+    if dry_run {
+        if let Some(previews) = &outcome.dry_run_previews {
+            if mode != OutputMode::Quiet {
+                for (idx, preview) in previews.iter().enumerate() {
+                    if idx > 0 {
+                        lines.push(String::new());
+                    }
+                    lines.extend(format_dry_run_preview(preview, mode));
+                }
+                lines.push(String::new());
+            }
+            lines.extend(format_run_summary(outcome, mode == OutputMode::Quiet));
+            return lines.join("\n");
+        }
     }
 
     if mode != OutputMode::Quiet {
@@ -34,6 +52,50 @@ pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode) -> String {
     lines.extend(format_run_summary(outcome, mode == OutputMode::Quiet));
 
     lines.join("\n")
+}
+
+fn format_dry_run_preview(preview: &DryRunEntityPreview, mode: OutputMode) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "==> entity {} (format={})",
+        preview.name, preview.input_format
+    ));
+    if mode != OutputMode::Quiet {
+        lines.push(format!(
+            "  Input: {} ({})",
+            preview.input_path, preview.input_format
+        ));
+        lines.push(format!(
+            "  Accepted Output: {} ({})",
+            preview.accepted_path, preview.accepted_format
+        ));
+        if let (Some(format), Some(path)) = (&preview.rejected_format, &preview.rejected_path) {
+            lines.push(format!("  Rejected Output: {} ({})", path, format));
+        } else {
+            lines.push("  Rejected Output: -".to_string());
+        }
+        if !preview.archive_path.is_empty() {
+            lines.push(format!(
+                "  Archive Path: {} ({})",
+                preview.archive_path,
+                preview.archive_storage.as_deref().unwrap_or("default")
+            ));
+        }
+        lines.push("  Scanned Files:".to_string());
+        if !preview.scanned_files.is_empty() {
+            for file in &preview.scanned_files {
+                lines.push(format!("    {}", file));
+            }
+        }
+    }
+
+    // Verbose-only extras
+    if mode == OutputMode::Verbose {
+        if let Some(report_file) = &preview.report_file {
+            lines.push(format!("  report: {}", report_file));
+        }
+    }
+    lines
 }
 
 fn format_entity_output(entity: &EntityOutcome, mode: OutputMode) -> Vec<String> {

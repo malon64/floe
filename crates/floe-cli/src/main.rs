@@ -126,6 +126,8 @@ enum Command {
             help = "Log format for run events (off|text|json)"
         )]
         log_format: LogFormat,
+        #[arg(long, help = "Resolve and print inputs/outputs without executing")]
+        dry_run: bool,
     },
 }
 
@@ -245,6 +247,7 @@ fn main() -> FloeResult<()> {
             quiet,
             verbose,
             log_format,
+            dry_run,
         } => {
             let started_at = floe_core::report::now_rfc3339();
             let computed_run_id =
@@ -253,6 +256,7 @@ fn main() -> FloeResult<()> {
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
+                dry_run,
             };
             logging::install_observer(log_format.clone());
 
@@ -289,7 +293,7 @@ fn main() -> FloeResult<()> {
             } else {
                 output::OutputMode::Default
             };
-            let summary = output::format_run_output(&outcome, mode);
+            let summary = output::format_run_output(&outcome, mode, dry_run);
 
             match log_format {
                 LogFormat::Json => {

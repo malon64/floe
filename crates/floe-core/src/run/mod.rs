@@ -1,11 +1,12 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Once;
 
+use crate::errors::IoError;
 use crate::report::build::project_metadata_json;
 use crate::report::output::write_summary_report;
 use crate::runtime::{DefaultRuntime, Runtime};
-use crate::{config, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
+use crate::{config, io, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
 pub(crate) mod entity;
@@ -14,10 +15,17 @@ mod file;
 mod output;
 
 pub(crate) use context::RunContext;
-use entity::{run_entity, EntityRunResult};
+use entity::{run_entity, EntityRunResult, ResolvedEntityTargets};
 use events::{default_observer, event_time_ms, RunEvent};
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
+
+pub(crate) struct EntityRunPlan<'a> {
+    pub(crate) entity: &'a config::EntityConfig,
+    pub(crate) resolved_targets: ResolvedEntityTargets,
+    pub(crate) resolved_inputs: io::storage::inputs::ResolvedInputs,
+    pub(crate) temp_dir: Option<tempfile::TempDir>,
+}
 
 #[derive(Debug, Clone)]
 pub struct RunOutcome {
@@ -98,8 +106,16 @@ pub fn run_with_runtime(
     if !options.entities.is_empty() {
         validate_entities(&context.config, &options.entities)?;
     }
+
+    let selected_entities = select_entities(&context, &options);
+    let resolution_mode = if options.dry_run {
+        io::storage::inputs::ResolveInputsMode::ListOnly
+    } else {
+        io::storage::inputs::ResolveInputsMode::Download
+    };
+    let plans = resolve_entity_plans(&context, runtime, &selected_entities, resolution_mode)?;
     if options.dry_run {
-        return Ok(create_dry_run_outcome(&context));
+        return create_dry_run_outcome(&context, plans);
     }
 
     let mut entity_outcomes = Vec::new();
@@ -112,28 +128,16 @@ pub fn run_with_runtime(
         ts_ms: event_time_ms(),
     });
 
-    let selected_entities: Vec<&config::EntityConfig> = if options.entities.is_empty() {
-        context.config.entities.iter().collect()
-    } else {
-        let selected: HashSet<&str> = options.entities.iter().map(|s| s.as_str()).collect();
-        context
-            .config
-            .entities
-            .iter()
-            .filter(|entity| selected.contains(entity.name.as_str()))
-            .collect()
-    };
-
-    for entity in selected_entities {
+    for plan in plans {
         observer.on_event(RunEvent::EntityStarted {
             run_id: context.run_id.clone(),
-            name: entity.name.clone(),
+            name: plan.entity.name.clone(),
             ts_ms: event_time_ms(),
         });
         let EntityRunResult {
             outcome,
             abort_run: aborted,
-        } = run_entity(&context, runtime, observer, entity)?;
+        } = run_entity(&context, runtime, observer, plan)?;
         let report = &outcome.report;
         let (mut status, _) = report::compute_run_outcome(
             &report
@@ -147,7 +151,7 @@ pub fn run_with_runtime(
         }
         observer.on_event(RunEvent::EntityFinished {
             run_id: context.run_id.clone(),
-            name: entity.name.clone(),
+            name: report.entity.name.clone(),
             status: run_status_str(status).to_string(),
             files: report.results.files_total,
             rows: report.results.rows_total,
@@ -218,6 +222,72 @@ fn init_thread_pool() {
             .num_threads(threads)
             .build_global();
     });
+}
+
+fn select_entities<'a>(
+    context: &'a RunContext,
+    options: &RunOptions,
+) -> Vec<&'a config::EntityConfig> {
+    if options.entities.is_empty() {
+        context.config.entities.iter().collect()
+    } else {
+        let selected: HashSet<&str> = options.entities.iter().map(|s| s.as_str()).collect();
+        context
+            .config
+            .entities
+            .iter()
+            .filter(|entity| selected.contains(entity.name.as_str()))
+            .collect()
+    }
+}
+
+fn resolve_entity_plans<'a>(
+    context: &'a RunContext,
+    runtime: &mut dyn Runtime,
+    entities: &[&'a config::EntityConfig],
+    mode: io::storage::inputs::ResolveInputsMode,
+) -> FloeResult<Vec<EntityRunPlan<'a>>> {
+    let mut plans = Vec::with_capacity(entities.len());
+    for entity in entities {
+        let input_adapter = runtime.input_adapter(entity.source.format.as_str())?;
+        let resolved_targets = entity::resolve_entity_targets(&context.storage_resolver, entity)?;
+        let needs_temp = matches!(mode, io::storage::inputs::ResolveInputsMode::Download)
+            && (resolved_targets.source.is_remote()
+                || resolved_targets.accepted.is_remote()
+                || resolved_targets
+                    .rejected
+                    .as_ref()
+                    .is_some_and(io::storage::Target::is_remote));
+        let temp_dir = if needs_temp {
+            Some(
+                tempfile::TempDir::new()
+                    .map_err(|err| Box::new(IoError(format!("tempdir failed: {err}"))))?,
+            )
+        } else {
+            None
+        };
+        let storage_client = Some(runtime.storage().client_for(
+            &context.storage_resolver,
+            resolved_targets.source.storage(),
+            entity,
+        )? as &dyn io::storage::StorageClient);
+        let resolved_inputs = io::storage::ops::resolve_inputs(
+            &context.config_dir,
+            entity,
+            input_adapter,
+            &resolved_targets.source,
+            mode,
+            temp_dir.as_ref().map(|dir| dir.path()),
+            storage_client,
+        )?;
+        plans.push(EntityRunPlan {
+            entity,
+            resolved_targets,
+            resolved_inputs,
+            temp_dir,
+        });
+    }
+    Ok(plans)
 }
 
 fn build_run_summary(
@@ -323,132 +393,14 @@ fn build_run_summary(
     }
 }
 
-// TODO keep for output reference, will be removed
-#[allow(dead_code)]
-fn print_dry_run_summary(context: &RunContext) -> FloeResult<()> {
-    println!("DRY RUN MODE - No data will be processed\n");
-    println!("Run ID: {}", context.run_id);
-    println!("Config: {}", context.config_path.display());
-    println!("Config Dir: {}", context.config_dir.display());
-    println!("Entities: {}", context.config.entities.len());
-
-    for entity in &context.config.entities {
-        println!("\nEntity: {}", entity.name);
-        // Input
-        println!("  Input: {} ({})", entity.source.path, entity.source.format);
-        println!(
-            "  Output: {} ({})",
-            entity.sink.accepted.path, entity.sink.accepted.format
-        );
-        // Accepted Output
-        println!(
-            "  Accepted Output: {} ({})",
-            entity.sink.accepted.path, entity.sink.accepted.format
-        );
-        // Rejected Output
-        if let Some(rejected) = &entity.sink.rejected {
-            println!("  Rejected Output: {} ({})", rejected.path, rejected.format);
-        } else {
-            println!("  Rejected Output: None");
-        }
-        // Archive Path (if configured)
-        if let Some(archive) = &entity.sink.archive {
-            println!(
-                "  Archive Path: {} ({})",
-                archive.path,
-                archive.storage.as_deref().unwrap_or("default")
-            );
-        }
-        // Report path
-        if let Some(report_target) = &context.report_target {
-            let report_path = report_target.join_relative(
-                &report::ReportWriter::report_relative_path(&context.run_id, &entity.name),
-            );
-            println!("  Report: {}", report_path);
-        }
-        // Scanned files
-        println!("  Scanned Files:");
-        match scan_input_files(&context.config_dir, &entity.source) {
-            Ok(files) => {
-                for file in files {
-                    println!("   - {}", file.display());
-                }
-            }
-            Err(e) => {
-                println!("   (error scanning: {})", e);
-            }
-        }
-        println!();
-    }
-    // Report base path
-    if let Some(report_base) = &context.report_base_path {
-        println!("Report Path: {}\n", report_base);
-    }
-    // Summary
-    println!("Overall: success (exit_code=0)");
-    if let Some(report_base) = &context.report_base_path {
-        println!(
-            "Run summary: {}/run.summary.json",
-            report_base.trim_end_matches('/')
-        );
-    }
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn scan_input_files(base_dir: &Path, source: &config::SourceConfig) -> FloeResult<Vec<PathBuf>> {
-    use std::fs;
-
-    fn expand_tilde(path_str: &str) -> String {
-        if cfg!(unix) && path_str.starts_with('~') {
-            if let Some(home) = std::env::var_os("HOME") {
-                let home_str = home.to_string_lossy();
-                return path_str.replacen("~", &home_str, 1);
-            }
-        }
-        path_str.to_string()
-    }
-
-    fn resolve_path(base: &Path, p: &str) -> PathBuf {
-        let p = expand_tilde(p);
-        let candidate = PathBuf::from(&p);
-        if candidate.is_absolute() {
-            candidate
-        } else {
-            base.join(candidate)
-        }
-    }
-
-    fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let p = entry.path();
-            if p.is_dir() {
-                walk_dir(&p, files)?;
-            } else if p.is_file() {
-                files.push(p);
-            }
-        }
-        Ok(())
-    }
-
-    let path = resolve_path(base_dir, &source.path);
-    if path.is_file() {
-        return Ok(vec![path]);
-    }
-    if path.is_dir() {
-        let mut files = Vec::new();
-        let _ = walk_dir(&path, &mut files);
-        files.sort();
-        return Ok(files);
-    }
-    Ok(Vec::new())
-}
-
-fn create_dry_run_outcome(context: &RunContext) -> RunOutcome {
+fn create_dry_run_outcome(
+    context: &RunContext,
+    plans: Vec<EntityRunPlan<'_>>,
+) -> FloeResult<RunOutcome> {
     let mut previews: Vec<DryRunEntityPreview> = Vec::new();
 
-    for entity in &context.config.entities {
+    for plan in plans {
+        let entity = plan.entity;
         let rejected_path = entity.sink.rejected.as_ref().map(|r| r.path.clone());
         let rejected_format = entity.sink.rejected.as_ref().map(|r| r.format.clone());
         let (archive_path, archive_storage) = entity
@@ -465,14 +417,6 @@ fn create_dry_run_outcome(context: &RunContext) -> RunOutcome {
             ))
         });
 
-        let scanned_files = match scan_input_files(&context.config_dir, &entity.source) {
-            Ok(files) => files
-                .into_iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>(),
-            Err(_) => Vec::new(),
-        };
-
         previews.push(DryRunEntityPreview {
             name: entity.name.clone(),
             input_path: entity.source.path.clone(),
@@ -484,11 +428,11 @@ fn create_dry_run_outcome(context: &RunContext) -> RunOutcome {
             archive_path,
             archive_storage,
             report_file,
-            scanned_files,
+            scanned_files: plan.resolved_inputs.listed,
         });
     }
 
-    RunOutcome {
+    Ok(RunOutcome {
         run_id: context.run_id.clone(),
         report_base_path: context.report_base_path.clone(),
         entity_outcomes: Vec::new(),
@@ -530,7 +474,7 @@ fn create_dry_run_outcome(context: &RunContext) -> RunOutcome {
             entities: Vec::new(),
         },
         dry_run_previews: Some(previews),
-    }
+    })
 }
 
 fn run_status_str(status: report::RunStatus) -> &'static str {

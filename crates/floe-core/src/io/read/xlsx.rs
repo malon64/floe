@@ -2,7 +2,7 @@ use std::io::{Read, Seek};
 use std::path::Path;
 
 use calamine::{open_workbook, Data, Reader, Xlsx};
-use polars::prelude::{DataFrame, Series};
+use polars::prelude::{DataFrame, NamedFrom, Series};
 
 use crate::errors::IoError;
 use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
@@ -135,10 +135,6 @@ fn open_sheet_range(
     let sheet_name = resolve_sheet_name(&mut workbook, options, input_path)?;
     let range = workbook
         .worksheet_range(&sheet_name)
-        .ok_or_else(|| XlsxReadError {
-            rule: "xlsx_read_error".to_string(),
-            message: format!("sheet {} not found in {}", sheet_name, input_path.display()),
-        })?
         .map_err(|err| XlsxReadError {
             rule: "xlsx_read_error".to_string(),
             message: format!(

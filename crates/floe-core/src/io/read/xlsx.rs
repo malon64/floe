@@ -105,9 +105,9 @@ fn read_xlsx_file(input_path: &Path, options: &XlsxOptions) -> Result<DataFrame,
 
     if data_idx < height {
         for row in data_idx..height {
-            for col in 0..width {
+            for (col, column) in columns.iter_mut().enumerate() {
                 let cell = range.get((row, col)).and_then(cell_to_string);
-                columns[col].push(cell);
+                column.push(cell);
             }
         }
     }

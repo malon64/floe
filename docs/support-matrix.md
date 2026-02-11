@@ -12,11 +12,13 @@ object_store transactions.
 | JSON (array) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=array` (default) |
 | JSON (ndjson) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=ndjson` |
 | Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
+| XLSX | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.sheet` (name), `header_row`/`data_row` (1-based) |
 
 Notes:
 - Cloud inputs are resolved by **prefix listing** + suffix filtering, then downloaded to temp files.
 - Globs and recursive options apply to local inputs only.
 - JSON file extensions accepted: `.json`, `.jsonl`, `.ndjson`, `.djson` (case-insensitive).
+- XLSX file extensions accepted: `.xlsx` (case-insensitive).
 - Nested JSON values (objects/arrays) are rejected.
 
 ## Outputs

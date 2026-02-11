@@ -267,6 +267,9 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
             "recursive",
             "glob",
             "json_mode",
+            "sheet",
+            "header_row",
+            "data_row",
         ],
     )?;
     let defaults = SourceOptions::default();
@@ -279,6 +282,9 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
         recursive: opt_bool(hash, "recursive", "source.options")?.or(defaults.recursive),
         glob: opt_string(hash, "glob", "source.options")?.or(defaults.glob),
         json_mode: opt_string(hash, "json_mode", "source.options")?.or(defaults.json_mode),
+        sheet: opt_string(hash, "sheet", "source.options")?.or(defaults.sheet),
+        header_row: opt_u64(hash, "header_row", "source.options")?.or(defaults.header_row),
+        data_row: opt_u64(hash, "data_row", "source.options")?.or(defaults.data_row),
     })
 }
 

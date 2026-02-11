@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::config::{EntityConfig, RootConfig, StorageDefinition};
+use crate::config::{EntityConfig, RootConfig, SourceOptions, StorageDefinition};
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
 use crate::{ConfigError, FloeResult};
@@ -87,6 +87,32 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
                     entity.name, mode
                 ))));
             }
+        }
+    }
+    if entity.source.format == "xlsx" {
+        let default_options = SourceOptions::default();
+        let options = entity.source.options.as_ref().unwrap_or(&default_options);
+        if let Some(sheet) = options.sheet.as_ref() {
+            if sheet.trim().is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.options.sheet must not be empty",
+                    entity.name
+                ))));
+            }
+        }
+        let header_row = options.header_row.unwrap_or(1);
+        if header_row == 0 {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.options.header_row must be greater than 0",
+                entity.name
+            ))));
+        }
+        let data_row = options.data_row.unwrap_or(header_row + 1);
+        if data_row <= header_row {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.options.data_row must be greater than source.options.header_row",
+                entity.name
+            ))));
         }
     }
 

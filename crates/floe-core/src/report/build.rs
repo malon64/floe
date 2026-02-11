@@ -231,6 +231,15 @@ pub fn source_options_json(options: &config::SourceOptions) -> Value {
     if let Some(json_mode) = &options.json_mode {
         map.insert("json_mode".to_string(), Value::String(json_mode.clone()));
     }
+    if let Some(row_tag) = &options.row_tag {
+        map.insert("row_tag".to_string(), Value::String(row_tag.clone()));
+    }
+    if let Some(namespace) = &options.namespace {
+        map.insert("namespace".to_string(), Value::String(namespace.clone()));
+    }
+    if let Some(value_tag) = &options.value_tag {
+        map.insert("value_tag".to_string(), Value::String(value_tag.clone()));
+    }
     Value::Object(map)
 }
 

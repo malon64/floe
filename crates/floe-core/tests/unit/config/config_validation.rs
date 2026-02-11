@@ -135,6 +135,27 @@ entities:
 fn invalid_source_format_errors() {
     let entity = r#"  - name: "customer"
     source:
+      format: "toml"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(&yaml, &["entity.name=customer", "source.format", "toml"]);
+}
+
+#[test]
+fn xml_source_requires_row_tag() {
+    let entity = r#"  - name: "customer"
+    source:
       format: "xml"
       path: "/tmp/input"
     sink:
@@ -149,7 +170,45 @@ fn invalid_source_format_errors() {
           type: "string"
 "#;
     let yaml = base_config(entity);
-    assert_validation_error(&yaml, &["entity.name=customer", "source.format", "xml"]);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "source.options.row_tag",
+            "xml input",
+        ],
+    );
+}
+
+#[test]
+fn xml_source_invalid_selector_errors() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "xml"
+      path: "/tmp/input"
+      options:
+        row_tag: "row"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          source: "user..id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "schema.columns[0].source=user..id",
+            "empty token",
+        ],
+    );
 }
 
 #[test]

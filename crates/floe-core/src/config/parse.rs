@@ -270,6 +270,9 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
             "sheet",
             "header_row",
             "data_row",
+            "row_tag",
+            "namespace",
+            "value_tag",
         ],
     )?;
     let defaults = SourceOptions::default();
@@ -285,6 +288,9 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
         sheet: opt_string(hash, "sheet", "source.options")?.or(defaults.sheet),
         header_row: opt_u64(hash, "header_row", "source.options")?.or(defaults.header_row),
         data_row: opt_u64(hash, "data_row", "source.options")?.or(defaults.data_row),
+        row_tag: opt_string(hash, "row_tag", "source.options")?.or(defaults.row_tag),
+        namespace: opt_string(hash, "namespace", "source.options")?.or(defaults.namespace),
+        value_tag: opt_string(hash, "value_tag", "source.options")?.or(defaults.value_tag),
     })
 }
 

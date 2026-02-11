@@ -81,6 +81,9 @@ pub struct SourceOptions {
     pub sheet: Option<String>,
     pub header_row: Option<u64>,
     pub data_row: Option<u64>,
+    pub row_tag: Option<String>,
+    pub namespace: Option<String>,
+    pub value_tag: Option<String>,
 }
 
 impl Default for SourceOptions {
@@ -97,6 +100,9 @@ impl Default for SourceOptions {
             sheet: None,
             header_row: Some(1),
             data_row: None,
+            row_tag: None,
+            namespace: None,
+            value_tag: None,
         }
     }
 }

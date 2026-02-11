@@ -194,7 +194,7 @@ pub fn resolve_read_columns(
     normalized_columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
 ) -> FloeResult<Vec<config::ColumnConfig>> {
-    if entity.source.format == "json" {
+    if entity.source.format == "json" || entity.source.format == "xml" {
         check::normalize::resolve_source_columns(&entity.schema.columns, normalize_strategy, true)
     } else {
         Ok(normalized_columns.to_vec())
@@ -282,6 +282,7 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
         "json" => Ok(io::read::json::json_input_adapter()),
         "xlsx" => Ok(io::read::xlsx::xlsx_input_adapter()),
         "avro" => Ok(io::read::avro::avro_input_adapter()),
+        "xml" => Ok(io::read::xml::xml_input_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::Source,
             format,

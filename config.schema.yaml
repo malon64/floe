@@ -148,7 +148,7 @@ $defs:
     properties:
       format:
         type: string
-        enum: [csv, fixed, parquet, json, xlsx, orc]
+        enum: [csv, fixed, parquet, json, xlsx, orc, avro]
       path:
         type: string
       storage:

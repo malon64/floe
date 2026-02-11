@@ -281,6 +281,8 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
         "parquet" => Ok(io::read::parquet::parquet_input_adapter()),
         "json" => Ok(io::read::json::json_input_adapter()),
         "xlsx" => Ok(io::read::xlsx::xlsx_input_adapter()),
+        "avro" => Ok(io::read::avro::avro_input_adapter()),
+        "xlsx" => Ok(io::read::xlsx::xlsx_input_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::Source,
             format,

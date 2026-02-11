@@ -1,3 +1,4 @@
+pub mod avro_input;
 pub mod csv_nulls;
 pub mod json_array;
 pub mod json_ndjson;

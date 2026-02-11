@@ -1,3 +1,4 @@
+pub mod avro;
 pub mod csv;
 pub mod fixed_width;
 pub mod json;

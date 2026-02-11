@@ -18,6 +18,7 @@ Floe inspects only the file header/schema before reading full data:
 - **CSV**: header row (or the first row for headerless CSV).
 - **Parquet**: schema metadata.
 - **NDJSON**: the first valid JSON object line.
+- **Avro**: writer schema fields.
 
 Then it applies the schema mismatch policy:
 

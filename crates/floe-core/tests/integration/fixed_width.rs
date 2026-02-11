@@ -74,8 +74,11 @@ entities:
         .expect("read output parquet");
     let id_col = df.column("id").expect("missing id column");
     let name_col = df.column("name").expect("missing name column");
-    let id_values = id_col.as_materialized_series().utf8().expect("id utf8");
-    let name_values = name_col.as_materialized_series().utf8().expect("name utf8");
+    let id_values = id_col.as_materialized_series().str().expect("id utf8");
+    let name_values = name_col
+        .as_materialized_series()
+        .str()
+        .expect("name utf8");
     assert_eq!(id_values.get(0), Some("0001"));
     assert_eq!(id_values.get(1), Some("0002"));
     assert_eq!(name_values.get(0), Some("Alice"));

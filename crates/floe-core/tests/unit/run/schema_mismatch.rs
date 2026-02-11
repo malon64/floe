@@ -23,6 +23,12 @@ fn write_csv(dir: &Path, name: &str, contents: &str) -> PathBuf {
     path
 }
 
+fn write_tsv(dir: &Path, name: &str, contents: &str) -> PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, contents).expect("write tsv");
+    path
+}
+
 fn write_config(dir: &Path, contents: &str) -> PathBuf {
     let path = dir.join("config.yml");
     fs::write(&path, contents).expect("write config");
@@ -61,6 +67,28 @@ fn config_yaml(
     mismatch: String,
     columns: String,
 ) -> String {
+    config_yaml_with_format(
+        input_dir,
+        accepted_dir,
+        rejected_dir,
+        report_dir,
+        severity,
+        mismatch,
+        columns,
+        "csv",
+    )
+}
+
+fn config_yaml_with_format(
+    input_dir: &Path,
+    accepted_dir: &Path,
+    rejected_dir: Option<&Path>,
+    report_dir: &Path,
+    severity: &str,
+    mismatch: String,
+    columns: String,
+    format: &str,
+) -> String {
     let rejected_block = match rejected_dir {
         Some(dir) => format!(
             "      rejected:\n        format: \"csv\"\n        path: \"{}\"\n",
@@ -75,7 +103,7 @@ report:
 entities:
   - name: "customer"
     source:
-      format: "csv"
+      format: "{format}"
       path: "{input_dir}"
     sink:
       accepted:
@@ -91,7 +119,8 @@ entities:
         rejected_block = rejected_block,
         severity = severity,
         mismatch = mismatch,
-        columns = columns
+        columns = columns,
+        format = format
     )
 }
 
@@ -254,6 +283,42 @@ fn extra_columns_ignore_accepts() {
         "warn",
         mismatch,
         columns,
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let file = &outcome.entity_outcomes[0].report.files[0];
+    assert_eq!(file.status, FileStatus::Success);
+    assert_eq!(file.mismatch.mismatch_action, MismatchAction::IgnoredExtras);
+
+    let output_path = accepted_dir.join("part-00000.parquet");
+    let file = std::fs::File::open(&output_path).expect("open output parquet");
+    let df = ParquetReader::new(file)
+        .finish()
+        .expect("read output parquet");
+    assert!(df.column("extra").is_err());
+}
+
+#[test]
+fn tsv_extra_columns_ignore_accepts() {
+    let root = temp_dir("floe-mismatch-tsv-extra-ignore");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_tsv(&input_dir, "input.tsv", "id\textra\n1\tskip\n");
+
+    let mismatch = mismatch_block(None, Some("ignore"));
+    let columns = columns_block(&[("id", "string")]);
+    let yaml = config_yaml_with_format(
+        &input_dir,
+        &accepted_dir,
+        None,
+        &report_dir,
+        "warn",
+        mismatch,
+        columns,
+        "tsv",
     );
     let config_path = write_config(&root, &yaml);
 

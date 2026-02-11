@@ -276,6 +276,7 @@ pub fn validate_sink_options(
 pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
     match format {
         "csv" => Ok(io::read::csv::csv_input_adapter()),
+        "tsv" => Ok(io::read::csv::tsv_input_adapter()),
         "fixed" => Ok(io::read::fixed_width::fixed_width_input_adapter()),
         "orc" => Ok(io::read::orc::orc_input_adapter()),
         "parquet" => Ok(io::read::parquet::parquet_input_adapter()),

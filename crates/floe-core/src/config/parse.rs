@@ -232,9 +232,11 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
             "cast_mode",
         ],
     )?;
+    let format = get_string(hash, "format", "source")?;
+    let defaults = SourceOptions::defaults_for_format(format.as_str());
     let options = match hash_get(hash, "options") {
-        Some(value) => Some(parse_source_options(value)?),
-        None => Some(SourceOptions::default()),
+        Some(value) => Some(parse_source_options(value, &defaults)?),
+        None => Some(defaults),
     };
 
     let storage = opt_string(hash, "storage", "source")?;
@@ -246,7 +248,7 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     }
 
     Ok(SourceConfig {
-        format: get_string(hash, "format", "source")?,
+        format,
         path: get_string(hash, "path", "source")?,
         storage: storage.or(filesystem),
         options,
@@ -254,7 +256,7 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     })
 }
 
-fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
+fn parse_source_options(value: &Yaml, defaults: &SourceOptions) -> FloeResult<SourceOptions> {
     let hash = yaml_hash(value, "source.options")?;
     validate_known_keys(
         hash,
@@ -275,22 +277,21 @@ fn parse_source_options(value: &Yaml) -> FloeResult<SourceOptions> {
             "value_tag",
         ],
     )?;
-    let defaults = SourceOptions::default();
     Ok(SourceOptions {
         header: opt_bool(hash, "header", "source.options")?.or(defaults.header),
-        separator: opt_string(hash, "separator", "source.options")?.or(defaults.separator),
-        encoding: opt_string(hash, "encoding", "source.options")?.or(defaults.encoding),
+        separator: opt_string(hash, "separator", "source.options")?.or(defaults.separator.clone()),
+        encoding: opt_string(hash, "encoding", "source.options")?.or(defaults.encoding.clone()),
         null_values: opt_vec_string(hash, "null_values", "source.options")?
-            .or(defaults.null_values),
+            .or(defaults.null_values.clone()),
         recursive: opt_bool(hash, "recursive", "source.options")?.or(defaults.recursive),
-        glob: opt_string(hash, "glob", "source.options")?.or(defaults.glob),
-        json_mode: opt_string(hash, "json_mode", "source.options")?.or(defaults.json_mode),
-        sheet: opt_string(hash, "sheet", "source.options")?.or(defaults.sheet),
+        glob: opt_string(hash, "glob", "source.options")?.or(defaults.glob.clone()),
+        json_mode: opt_string(hash, "json_mode", "source.options")?.or(defaults.json_mode.clone()),
+        sheet: opt_string(hash, "sheet", "source.options")?.or(defaults.sheet.clone()),
         header_row: opt_u64(hash, "header_row", "source.options")?.or(defaults.header_row),
         data_row: opt_u64(hash, "data_row", "source.options")?.or(defaults.data_row),
-        row_tag: opt_string(hash, "row_tag", "source.options")?.or(defaults.row_tag),
-        namespace: opt_string(hash, "namespace", "source.options")?.or(defaults.namespace),
-        value_tag: opt_string(hash, "value_tag", "source.options")?.or(defaults.value_tag),
+        row_tag: opt_string(hash, "row_tag", "source.options")?.or(defaults.row_tag.clone()),
+        namespace: opt_string(hash, "namespace", "source.options")?.or(defaults.namespace.clone()),
+        value_tag: opt_string(hash, "value_tag", "source.options")?.or(defaults.value_tag.clone()),
     })
 }
 

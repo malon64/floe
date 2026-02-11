@@ -17,9 +17,7 @@ pub fn parse_selector(value: &str) -> Result<Vec<SelectorToken>, SelectorError> 
         });
     }
 
-    let parts = trimmed
-        .split(|ch| ch == '.' || ch == '/')
-        .collect::<Vec<_>>();
+    let parts = trimmed.split(['.', '/']).collect::<Vec<_>>();
     if parts.iter().any(|part| part.trim().is_empty()) {
         return Err(SelectorError {
             message: "selector contains empty token".to_string(),

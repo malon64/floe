@@ -77,11 +77,11 @@ fn matches_tag(node: Node<'_, '_>, tag: &str, namespace: Option<&str>) -> bool {
         }
         return true;
     }
-    namespace.map_or(true, |ns| name.namespace() == Some(ns))
+    namespace.is_none_or(|ns| name.namespace() == Some(ns))
 }
 
 fn matches_namespace(node: Node<'_, '_>, namespace: Option<&str>) -> bool {
-    namespace.map_or(true, |ns| node.tag_name().namespace() == Some(ns))
+    namespace.is_none_or(|ns| node.tag_name().namespace() == Some(ns))
 }
 
 fn collect_text(node: Node<'_, '_>) -> Option<String> {
@@ -132,9 +132,7 @@ fn evaluate_selector(
     for token in tokens {
         match token {
             SelectorToken::Element(tag) => {
-                let Some(next) = find_child(current, tag.as_str(), namespace) else {
-                    return None;
-                };
+                let next = find_child(current, tag.as_str(), namespace)?;
                 current = next;
             }
             SelectorToken::Attribute(attr) => {

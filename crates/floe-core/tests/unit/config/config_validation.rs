@@ -1,18 +1,16 @@
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use floe_core::{validate, ValidateOptions};
 
 fn write_temp_config(contents: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    path.push(format!("floe-config-validation-{nanos}.yml"));
-    fs::write(&path, contents).expect("write temp config");
-    path
+    let file = tempfile::Builder::new()
+        .prefix("floe-config-validation-")
+        .suffix(".yml")
+        .tempfile()
+        .expect("create temp config");
+    fs::write(file.path(), contents).expect("write temp config");
+    file.into_temp_path().keep().expect("persist temp config")
 }
 
 fn assert_validation_error(contents: &str, expected_parts: &[&str]) {

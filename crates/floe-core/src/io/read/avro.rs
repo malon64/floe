@@ -120,7 +120,7 @@ fn read_avro_file(
     }
 
     let mut values = vec![Vec::new(); columns.len()];
-    while let Some(item) = reader.next() {
+    for item in reader {
         let value = item.map_err(|err| AvroReadError {
             rule: "avro_read_error".to_string(),
             message: format!(

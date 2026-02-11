@@ -57,14 +57,6 @@ fn build_selector_plan(
     Ok(plans)
 }
 
-fn normalize_namespace_match(
-    tag_ns: Option<&str>,
-    tag_prefix: Option<&str>,
-    namespace: &str,
-) -> bool {
-    tag_ns == Some(namespace) || tag_prefix == Some(namespace)
-}
-
 fn split_tag(tag: &str) -> (Option<&str>, &str) {
     if let Some((prefix, local)) = tag.split_once(':') {
         (Some(prefix), local)
@@ -79,27 +71,17 @@ fn matches_tag(node: Node<'_, '_>, tag: &str, namespace: Option<&str>) -> bool {
     if name.name() != local {
         return false;
     }
-    if let Some(prefix) = prefix {
-        if name.prefix() == Some(prefix) {
-            return true;
-        }
+    if prefix.is_some() {
         if let Some(ns) = namespace {
-            return normalize_namespace_match(name.namespace(), name.prefix(), ns);
+            return name.namespace() == Some(ns);
         }
-        return false;
+        return true;
     }
-    if let Some(ns) = namespace {
-        return normalize_namespace_match(name.namespace(), name.prefix(), ns);
-    }
-    true
+    namespace.map_or(true, |ns| name.namespace() == Some(ns))
 }
 
 fn matches_namespace(node: Node<'_, '_>, namespace: Option<&str>) -> bool {
-    if let Some(ns) = namespace {
-        let name = node.tag_name();
-        return normalize_namespace_match(name.namespace(), name.prefix(), ns);
-    }
-    true
+    namespace.map_or(true, |ns| node.tag_name().namespace() == Some(ns))
 }
 
 fn collect_text(node: Node<'_, '_>) -> Option<String> {
@@ -119,11 +101,11 @@ fn collect_text(node: Node<'_, '_>) -> Option<String> {
     }
 }
 
-fn resolve_value_node(
-    node: Node<'_, '_>,
+fn resolve_value_node<'a>(
+    node: Node<'a, 'a>,
     value_tag: Option<&str>,
     namespace: Option<&str>,
-) -> Node<'_, '_> {
+) -> Node<'a, 'a> {
     let Some(value_tag) = value_tag else {
         return node;
     };
@@ -135,7 +117,7 @@ fn resolve_value_node(
     node
 }
 
-fn find_child(node: Node<'_, '_>, tag: &str, namespace: Option<&str>) -> Option<Node<'_, '_>> {
+fn find_child<'a>(node: Node<'a, 'a>, tag: &str, namespace: Option<&str>) -> Option<Node<'a, 'a>> {
     node.children()
         .find(|child| child.is_element() && matches_tag(*child, tag, namespace))
 }

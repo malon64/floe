@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use polars::prelude::{DataFrame, Series};
+use polars::prelude::{DataFrame, NamedFrom, Series};
 
 use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
 use crate::{config, FloeResult};

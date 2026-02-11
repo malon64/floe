@@ -49,6 +49,7 @@ Managed identity, Azure CLI, and other default credential sources are also suppo
 ## Supported behavior
 
 - Inputs: CSV, fixed-width, JSON (array/ndjson), Parquet, and XLSX via prefix listing + suffix filtering.
+- Inputs: CSV, fixed-width, JSON (array/ndjson), ORC, Parquet, and XLSX via prefix listing + suffix filtering.
 - Outputs:
   - Accepted parquet: temp local write then upload.
   - Accepted delta: direct object_store writes (no temp upload).
@@ -58,4 +59,4 @@ Managed identity, Azure CLI, and other default credential sources are also suppo
 ## Limitations
 
 - Source path is treated as a prefix (no glob patterns).
-- Parquet input uses temp download + local read.
+- Parquet/ORC input uses temp download + local read.

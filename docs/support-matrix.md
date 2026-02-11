@@ -12,6 +12,7 @@ object_store transactions.
 | Fixed-width | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.txt`, `.fw` |
 | JSON (array) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=array` (default) |
 | JSON (ndjson) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=ndjson` |
+| ORC | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.orc` |
 | Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
 | XLSX | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.sheet` (name), `header_row`/`data_row` (1-based) |
 

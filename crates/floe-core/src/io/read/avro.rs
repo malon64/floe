@@ -99,7 +99,7 @@ fn read_avro_file(
         rule: "avro_read_error".to_string(),
         message: format!("failed to open avro at {}: {err}", input_path.display()),
     })?;
-    let mut reader = Reader::new(file).map_err(|err| AvroReadError {
+    let reader = Reader::new(file).map_err(|err| AvroReadError {
         rule: "avro_read_error".to_string(),
         message: format!(
             "failed to read avro header at {}: {err}",

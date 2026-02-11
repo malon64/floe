@@ -48,6 +48,8 @@ pub fn top_level_declared_columns(
             column_type: column.column_type.clone(),
             nullable: column.nullable,
             unique: column.unique,
+            width: column.width,
+            trim: column.trim,
         });
     }
     Ok(resolved)

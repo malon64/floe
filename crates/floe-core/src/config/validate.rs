@@ -214,6 +214,22 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
             MAX_JSON_COLUMNS
         ))));
     }
+    if entity.source.format == "fixed" {
+        for (index, column) in entity.schema.columns.iter().enumerate() {
+            let width = column.width.ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} schema.columns[{}].width is required for source.format=fixed",
+                    entity.name, index
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            if width == 0 {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.columns[{}].width must be greater than 0",
+                    entity.name, index
+                ))));
+            }
+        }
+    }
     if let Some(normalize) = &entity.schema.normalize_columns {
         if let Some(strategy) = &normalize.strategy {
             if !is_allowed_normalize_strategy(strategy) {

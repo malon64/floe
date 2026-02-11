@@ -331,6 +331,8 @@ fn column(name: &str, column_type: &str, nullable: Option<bool>) -> config::Colu
         column_type: column_type.to_string(),
         nullable,
         unique: None,
+        width: None,
+        trim: None,
     }
 }
 

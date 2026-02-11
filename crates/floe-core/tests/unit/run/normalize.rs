@@ -26,6 +26,8 @@ fn resolve_source_columns_uses_source_for_matching() {
         column_type: "string".to_string(),
         nullable: Some(true),
         unique: None,
+        width: None,
+        trim: None,
     }];
     let resolved =
         resolve_source_columns(&columns, Some("snake_case"), false).expect("resolve columns");
@@ -40,6 +42,8 @@ fn output_column_mapping_preserves_explicit_target_names() {
         column_type: "string".to_string(),
         nullable: Some(true),
         unique: None,
+        width: None,
+        trim: None,
     }];
     let mapping = output_column_mapping(&columns, Some("snake_case")).expect("build mapping");
     assert_eq!(mapping.get("user_id").map(String::as_str), Some("userId"));

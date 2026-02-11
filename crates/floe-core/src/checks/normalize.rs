@@ -57,6 +57,8 @@ pub fn resolve_source_columns(
             column_type: column.column_type.clone(),
             nullable: column.nullable,
             unique: column.unique,
+            width: column.width,
+            trim: column.trim,
         });
     }
     Ok(resolved)
@@ -141,6 +143,8 @@ pub fn resolve_output_columns(
                 column_type: column.column_type.clone(),
                 nullable: column.nullable,
                 unique: column.unique,
+                width: column.width,
+                trim: column.trim,
             }
         })
         .collect()

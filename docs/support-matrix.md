@@ -9,6 +9,7 @@ object_store transactions.
 | Format | Local | S3 | ADLS | GCS | Notes |
 |---|---|---|---|---|---|
 | CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.csv` |
+| Fixed-width | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.txt`, `.fw` |
 | JSON (array) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=array` (default) |
 | JSON (ndjson) | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.json_mode=ndjson` |
 | Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
@@ -17,6 +18,7 @@ object_store transactions.
 Notes:
 - Cloud inputs are resolved by **prefix listing** + suffix filtering, then downloaded to temp files.
 - Globs and recursive options apply to local inputs only.
+- Fixed-width file extensions accepted: `.txt`, `.fw` (case-insensitive).
 - JSON file extensions accepted: `.json`, `.jsonl`, `.ndjson`, `.djson` (case-insensitive).
 - XLSX file extensions accepted: `.xlsx` (case-insensitive).
 - Nested JSON values (objects/arrays) are rejected.

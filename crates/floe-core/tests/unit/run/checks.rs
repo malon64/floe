@@ -47,6 +47,8 @@ fn cast_mismatch_errors_flags_invalid_casts() {
         column_type: "datetime".to_string(),
         nullable: Some(true),
         unique: None,
+        width: None,
+        trim: None,
     }];
 
     let raw_indices = column_index_map(&raw_df);
@@ -78,6 +80,8 @@ fn unique_errors_flags_duplicates_after_first() {
         column_type: "string".to_string(),
         nullable: Some(true),
         unique: Some(true),
+        width: None,
+        trim: None,
     }];
 
     let indices = column_index_map(&df);

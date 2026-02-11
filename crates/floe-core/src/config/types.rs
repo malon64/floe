@@ -302,6 +302,8 @@ pub struct ColumnConfig {
     pub column_type: String,
     pub nullable: Option<bool>,
     pub unique: Option<bool>,
+    pub width: Option<u64>,
+    pub trim: Option<bool>,
 }
 
 impl ColumnConfig {

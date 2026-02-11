@@ -148,7 +148,7 @@ $defs:
     properties:
       format:
         type: string
-        enum: [csv, parquet, json, xlsx]
+        enum: [csv, fixed, parquet, json]
       path:
         type: string
       storage:
@@ -180,14 +180,6 @@ $defs:
       json_mode:
         type: string
         enum: ["array", "ndjson"]
-      sheet:
-        type: string
-      header_row:
-        type: integer
-        minimum: 1
-      data_row:
-        type: integer
-        minimum: 1
 
   sink:
     type: object
@@ -369,4 +361,9 @@ $defs:
       nullable:
         type: boolean
       unique:
+        type: boolean
+      width:
+        type: integer
+        minimum: 1
+      trim:
         type: boolean

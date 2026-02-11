@@ -153,6 +153,27 @@ fn invalid_source_format_errors() {
 }
 
 #[test]
+fn fixed_width_requires_column_widths() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "fixed"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(&yaml, &["schema.columns[0].width", "source.format=fixed"]);
+}
+
+#[test]
 fn json_source_defaults_to_array_mode() {
     let entity = r#"  - name: "customer"
     source:

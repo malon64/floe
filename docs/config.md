@@ -104,9 +104,10 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `parquet`, and `json`.
+  - Supported: `csv`, `fixed`, `parquet`, and `json`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.
+  - `fixed` reads fixed-width text files using `schema.columns[].width`.
 - `path` (required)
   - Input location. Can be a file, a directory, or a glob pattern
     (example: `/data/in/*.csv`).
@@ -130,6 +131,7 @@ is available for templating within that entity.
     - Used only when `source.path` is a directory.
     - Overrides the default file pattern for the source format:
       - `csv`: `*.csv`
+      - `fixed`: `*.txt`, `*.fw`
       - `parquet`: `*.parquet`
       - `json`: `*.json`
     - If `source.path` itself contains a glob pattern, this option is ignored.
@@ -204,6 +206,8 @@ is available for templating within that entity.
     normalized by removing `-` and `_`.
   - `nullable` (optional): default `true`.
   - `unique` (optional): default `false`.
+  - `width` (required for `source.format: fixed`): number of characters to read.
+  - `trim` (optional, `source.format: fixed`): trim whitespace for the column (default `true`).
 
 ## Supported column types
 

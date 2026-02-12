@@ -28,7 +28,11 @@ pub fn top_level_declared_columns(
     let mut seen = std::collections::HashSet::new();
     for column in columns {
         let source = column.source_or_name();
-        if source.contains('.') || source.contains('[') {
+        if source.contains('.')
+            || source.contains('[')
+            || source.contains('/')
+            || source.contains('@')
+        {
             continue;
         }
         let normalized = if let Some(strategy) = normalize_strategy {
@@ -60,7 +64,7 @@ pub fn resolve_mismatch_columns(
     normalized_columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
 ) -> FloeResult<Vec<config::ColumnConfig>> {
-    if entity.source.format == "json" {
+    if entity.source.format == "json" || entity.source.format == "xml" {
         top_level_declared_columns(&entity.schema.columns, normalize_strategy)
     } else {
         Ok(normalized_columns.to_vec())

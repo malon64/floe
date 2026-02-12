@@ -104,11 +104,12 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, `xlsx`, and `avro`.
+  - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, `xlsx`, `avro`, and `xml`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.
   - `fixed` reads fixed-width text files using `schema.columns[].width`.
   - `xlsx` reads Excel worksheets using `source.options.sheet` + row offsets.
+  - `xml` reads repeated records using `source.options.row_tag`.
 - `path` (required)
   - Input location. Can be a file, a directory, or a glob pattern
     (example: `/data/in/*.csv`).
@@ -119,7 +120,7 @@ is available for templating within that entity.
   - Name of the storage client to use for this source.
   - Defaults to `storages.default` when defined, otherwise `local`.
 - `options` (optional)
-  - CSV/JSON options.
+  - Format-specific options.
   - Defaults if omitted:
     - `header`: `true`
     - `separator`: `";"`
@@ -138,6 +139,7 @@ is available for templating within that entity.
       - `json`: `*.json`
       - `xlsx`: `*.xlsx`
       - `avro`: `*.avro`
+      - `xml`: `*.xml`
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).
@@ -147,6 +149,12 @@ is available for templating within that entity.
     - Nested JSON is supported via `schema.columns[].source` selectors.
     - JSON schema mismatch checks only consider top-level selector sources (no `.` or `[`).
     - For safety, JSON configs are limited to 1024 columns per entity.
+  - `row_tag` (required, `source.format: xml`)
+    - Element name used as row boundary (each matching element becomes one record).
+  - `namespace` (optional, `source.format: xml`)
+    - Namespace URI used to match `row_tag` and selector element tokens.
+  - `value_tag` (optional, `source.format: xml`)
+    - Optional descendant element used when extracting text content from selector targets.
   - `sheet` (optional, `source.format: xlsx`)
     - Sheet name to read (defaults to first sheet).
   - `header_row` (optional, `source.format: xlsx`)
@@ -204,10 +212,12 @@ is available for templating within that entity.
 - `columns` (required)
   - Array of column definitions.
   - `name` (required): target column name in the output schema.
-  - `source` (optional): source field selector for nested JSON extraction.
+  - `source` (optional): source field selector (including nested JSON/XML extraction).
     - When omitted, defaults to the value of `name`.
-    - For CSV/Parquet, use a column name.
+    - For CSV/Parquet/ORC/XLSX/Avro/fixed, use an input column name.
     - For JSON, selectors may include dot notation and `[index]` (example: `user.names[0]`).
+    - For XML, selectors support element paths with `.` or `/`, with optional terminal
+      attribute selection (example: `order.customer.@id` or `order/customer/@id`).
     - When `source` is set, `normalize_columns` applies to the source selector for matching,
       but the output column name remains the explicit `name`.
     - When `source` is set, validation summaries and row error logs include the source

@@ -6,3 +6,5 @@ pub mod json_selector;
 pub mod orc_input;
 pub mod parquet_input;
 pub mod xlsx_input;
+pub mod xml;
+pub mod xml_selector;

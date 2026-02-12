@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::config::{EntityConfig, RootConfig, SourceOptions, StorageDefinition};
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
+use crate::io::read::xml_selector;
 use crate::{ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
@@ -113,6 +114,41 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
                 "entity.name={} source.options.data_row must be greater than source.options.header_row",
                 entity.name
             ))));
+        }
+    }
+    if entity.source.format == "xml" {
+        let options = entity.source.options.as_ref();
+        let row_tag = options
+            .and_then(|options| options.row_tag.as_deref())
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+        if row_tag.is_none() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} source.options.row_tag is required for xml input",
+                entity.name
+            ))));
+        }
+        if let Some(namespace) = options
+            .and_then(|options| options.namespace.as_deref())
+            .map(|value| value.trim())
+        {
+            if namespace.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.options.namespace must not be empty",
+                    entity.name
+                ))));
+            }
+        }
+        if let Some(value_tag) = options
+            .and_then(|options| options.value_tag.as_deref())
+            .map(|value| value.trim())
+        {
+            if value_tag.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} source.options.value_tag must not be empty",
+                    entity.name
+                ))));
+            }
         }
     }
 
@@ -280,6 +316,15 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
         if entity.source.format == "json" {
             let selector = column.source_or_name();
             if let Err(err) = parse_selector(selector) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.columns[{}].source={} is invalid: {}",
+                    entity.name, index, selector, err.message
+                ))));
+            }
+        }
+        if entity.source.format == "xml" {
+            let selector = column.source_or_name();
+            if let Err(err) = xml_selector::parse_selector(selector) {
                 return Err(Box::new(ConfigError(format!(
                     "entity.name={} schema.columns[{}].source={} is invalid: {}",
                     entity.name, index, selector, err.message

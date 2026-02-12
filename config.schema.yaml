@@ -148,7 +148,7 @@ $defs:
     properties:
       format:
         type: string
-        enum: [csv, fixed, parquet, json, xlsx, orc, avro]
+        enum: [csv, fixed, parquet, json, xlsx, orc, avro, xml]
       path:
         type: string
       storage:
@@ -188,6 +188,12 @@ $defs:
       data_row:
         type: integer
         minimum: 1
+      row_tag:
+        type: string
+      namespace:
+        type: string
+      value_tag:
+        type: string
 
   sink:
     type: object

@@ -523,7 +523,9 @@ fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
     validate_known_keys(
         hash,
         "schema.columns",
-        &["name", "source", "type", "nullable", "unique"],
+        &[
+            "name", "source", "type", "nullable", "unique", "width", "trim",
+        ],
     )?;
     let name = get_string(hash, "name", "schema.columns")?;
     let source = opt_string(hash, "source", "schema.columns")?;
@@ -533,6 +535,8 @@ fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
         column_type: get_string(hash, "type", "schema.columns")?,
         nullable: opt_bool(hash, "nullable", "schema.columns")?,
         unique: opt_bool(hash, "unique", "schema.columns")?,
+        width: opt_u64(hash, "width", "schema.columns")?,
+        trim: opt_bool(hash, "trim", "schema.columns")?,
     })
 }
 

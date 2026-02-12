@@ -143,6 +143,8 @@ fn read_fixed_width_file(
         if line.ends_with('\r') {
             line.pop();
         }
+        // Fixed-width is defined in characters (not bytes), so compute char offsets
+        // to avoid splitting UTF-8 sequences for non-ASCII inputs.
         let char_offsets = char_offsets(&line);
         let line_len_chars = char_offsets.len().saturating_sub(1);
         if line_len_chars < total_width {

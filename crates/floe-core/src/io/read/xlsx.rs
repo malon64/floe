@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 use std::path::Path;
 
@@ -189,7 +190,31 @@ fn extract_header(range: &calamine::Range<Data>, row: usize, width: usize) -> Ve
             header.push(name.to_string());
         }
     }
-    header
+    dedupe_header_names(header)
+}
+
+fn dedupe_header_names(names: Vec<String>) -> Vec<String> {
+    let mut base_counts: HashMap<String, usize> = HashMap::new();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut deduped = Vec::with_capacity(names.len());
+
+    for name in names {
+        let count = base_counts.entry(name.clone()).or_insert(0);
+        *count += 1;
+        let mut candidate = if *count == 1 {
+            name.clone()
+        } else {
+            format!("{name}_dup_{}", *count)
+        };
+        while used.contains(&candidate) {
+            *count += 1;
+            candidate = format!("{name}_dup_{}", *count);
+        }
+        used.insert(candidate.clone());
+        deduped.push(candidate);
+    }
+
+    deduped
 }
 
 fn cell_to_string(cell: &Data) -> Option<String> {

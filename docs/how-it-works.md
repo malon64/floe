@@ -8,6 +8,8 @@ entity. The order is deterministic and is reflected in reports.
 ### A) Entity planning (entity-level)
 
 1. Resolve input files/objects (local directory/glob or storage prefix).
+   - In normal runs, resolved cloud objects are then downloaded to temp files.
+   - In dry-run, resolution is list-only for cloud inputs (no downloads, no writes).
 2. Resolve storage targets for accepted/rejected/report outputs.
 3. Prepare output directories if needed.
 
@@ -15,10 +17,14 @@ entity. The order is deterministic and is reflected in reports.
 
 Floe inspects only the file header/schema before reading full data:
 
-- **CSV**: header row (or the first row for headerless CSV).
+- **CSV/TSV**: header row (or the first row for headerless CSV/TSV).
+- **Fixed-width**: declared schema widths and inferred columns from row slices.
 - **Parquet**: schema metadata.
+- **ORC**: schema metadata.
 - **NDJSON**: the first valid JSON object line.
 - **Avro**: writer schema fields.
+- **XLSX**: configured sheet header row.
+- **XML**: fields from the first matching `row_tag` element.
 
 Then it applies the schema mismatch policy:
 

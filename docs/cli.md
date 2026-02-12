@@ -11,6 +11,16 @@
   - Run reports are written under `<report.path>/run_<run_id>/...` as defined in the config.
   - `-c` accepts local paths or cloud URIs (`s3://`, `gs://`, `abfs://`).
   - `--log-format json` emits NDJSON events to stdout (useful for orchestrators).
+  - `--dry-run` resolves entity inputs and output targets without running ingestion.
+  - `--quiet` reduces console output to run totals.
+  - `--verbose` expands run output details.
+
+### Dry-run behavior
+
+- Dry-run resolves input files/objects using the same planning path as real runs.
+- For cloud sources, dry-run lists matching objects but does not download them.
+- Console preview prints resolved file count and a capped list (`50` entries by default).
+- Use `--verbose` to print the full resolved file list.
 
 ## Examples
 
@@ -22,6 +32,8 @@
   - `floe run -c example/config.yml --entities customer`
 - Run with JSON logs:
   - `floe run -c example/config.yml --entities customer --log-format json`
+- Dry-run preview:
+  - `floe run -c example/config.yml --entities customer --dry-run`
 - Report output:
     - `example/report/run_<run_id>/run.summary.json`
     - `example/report/run_<run_id>/customer/run.json`

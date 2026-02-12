@@ -2,6 +2,15 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.4
+
+- Added new source input formats: `tsv`, `xlsx`, `fixed`, `orc`, `avro`, and `xml`.
+- Added nested JSON selector extraction from `schema.columns[].source` with top-level-only mismatch checks.
+- Added source-column mapping behavior (`source` as input selector, `name` as output column) in validation and run surfaces.
+- Added XML selector support (`.` or `/` paths and terminal `@attribute`) with required `source.options.row_tag`.
+- Dry-run now resolves inputs before execution, shows resolved file lists (with capped preview), and uses the same resolved plan as real runs.
+- Refactored runtime/storage boundaries to reduce format- and storage-specific coupling in run orchestration.
+
 ## v0.2.3
 
 - Added append/overwrite write modes for accepted parquet and delta outputs.

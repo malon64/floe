@@ -159,6 +159,7 @@ Inputs:
 - Parquet (local + S3/ADLS/GCS via temp download)
 - XLSX (local + S3/ADLS/GCS via temp download)
 - Avro (local + S3/ADLS/GCS via temp download)
+- XML (local + S3/ADLS/GCS via temp download)
 
 Outputs:
 - Accepted: Parquet (local + cloud via temp upload), Delta (local + cloud via object_store)

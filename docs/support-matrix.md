@@ -16,6 +16,7 @@ object_store transactions.
 | Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
 | XLSX | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.sheet` (name), `header_row`/`data_row` (1-based) |
 | Avro | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.avro` |
+| XML | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.row_tag` required; selectors in `schema.columns[].source` |
 
 Notes:
 - Cloud inputs are resolved by **prefix listing** + suffix filtering, then downloaded to temp files.
@@ -24,6 +25,7 @@ Notes:
 - JSON file extensions accepted: `.json`, `.jsonl`, `.ndjson`, `.djson` (case-insensitive).
 - XLSX file extensions accepted: `.xlsx` (case-insensitive).
 - Avro file extensions accepted: `.avro` (case-insensitive).
+- XML file extensions accepted: `.xml` (case-insensitive).
 - Nested JSON values (objects/arrays) are rejected.
 
 ## Outputs

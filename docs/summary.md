@@ -1,4 +1,4 @@
-# Floe Documentation Summary (v0.2)
+# Floe Documentation Summary
 
 This page is the entry point to Floe documentation. It groups the most
 important references so you can quickly find the right guide.
@@ -37,8 +37,12 @@ important references so you can quickly find the right guide.
 
 - Bench setup and results: [docs/benchmarking.md](benchmarking.md)
 
-## Notes for v0.2
+## Notes
 
+- Recent additions:
+  - New input formats: TSV, XLSX, fixed-width, ORC, Avro, and XML.
+  - `schema.columns[].source` now supports nested JSON selectors and XML selectors.
+  - Dry-run now resolves inputs ahead of execution and previews resolved files.
 - Cloud IO for CSV/JSON/Parquet uses temp download/upload (file-level IO).
 - Delta writes to cloud use transactional object_store (no temp upload).
 - Reports can be written to cloud storages via temp upload.

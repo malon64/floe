@@ -1,8 +1,6 @@
-use crate::{config, io, report, FloeResult};
+use crate::{config, FloeResult};
 
-use crate::run::RunContext;
-use io::format::{InputAdapter, InputFile};
-use io::storage::Target;
+use crate::io::storage::Target;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedEntityTargets {
@@ -11,33 +9,7 @@ pub(crate) struct ResolvedEntityTargets {
     pub(crate) rejected: Option<Target>,
 }
 
-pub(super) fn resolve_input_files(
-    context: &RunContext,
-    cloud: &mut io::storage::CloudClient,
-    entity: &config::EntityConfig,
-    input_adapter: &dyn InputAdapter,
-    resolved_targets: &ResolvedEntityTargets,
-    _source_is_s3: bool,
-    temp_dir: Option<&tempfile::TempDir>,
-) -> FloeResult<(Vec<InputFile>, report::ResolvedInputMode)> {
-    let storage_client = Some(cloud.client_for(
-        &context.storage_resolver,
-        resolved_targets.source.storage(),
-        entity,
-    )? as &dyn io::storage::StorageClient);
-    let temp_dir = temp_dir.map(|dir| dir.path());
-    let resolved = io::storage::ops::resolve_inputs(
-        &context.config_dir,
-        entity,
-        input_adapter,
-        &resolved_targets.source,
-        temp_dir,
-        storage_client,
-    )?;
-    Ok((resolved.files, resolved.mode))
-}
-
-pub(super) fn resolve_entity_targets(
+pub(crate) fn resolve_entity_targets(
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<ResolvedEntityTargets> {

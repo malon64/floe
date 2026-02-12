@@ -9,6 +9,8 @@ pub enum OutputMode {
     Verbose,
 }
 
+const MAX_PREVIEW_FILES: usize = 50;
+
 pub fn format_run_output(outcome: &RunOutcome, mode: OutputMode, dry_run: bool) -> String {
     let mut lines = Vec::new();
     if dry_run {
@@ -81,11 +83,19 @@ fn format_dry_run_preview(preview: &DryRunEntityPreview, mode: OutputMode) -> Ve
                 preview.archive_storage.as_deref().unwrap_or("default")
             ));
         }
-        lines.push("  Scanned Files:".to_string());
-        if !preview.scanned_files.is_empty() {
-            for file in &preview.scanned_files {
-                lines.push(format!("    {}", file));
-            }
+        let total = preview.scanned_files.len();
+        lines.push(format!("  Resolved Inputs: {}", total));
+        lines.push("  Resolved Files:".to_string());
+        let max = if mode == OutputMode::Verbose {
+            total
+        } else {
+            MAX_PREVIEW_FILES.min(total)
+        };
+        for file in preview.scanned_files.iter().take(max) {
+            lines.push(format!("    {}", file));
+        }
+        if mode != OutputMode::Verbose && total > max {
+            lines.push(format!("    ... {} more", total - max));
         }
     }
 

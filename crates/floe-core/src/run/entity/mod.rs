@@ -1,4 +1,4 @@
-use crate::errors::{IoError, RunError};
+use crate::errors::RunError;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
 
@@ -22,13 +22,12 @@ mod precheck;
 mod process;
 mod resolve;
 mod unique_existing;
-pub(crate) use resolve::ResolvedEntityTargets;
+pub(crate) use resolve::{resolve_entity_targets, ResolvedEntityTargets};
 
 use crate::report::entity::{build_run_report, RunReportContext};
 use crate::run::events::{event_time_ms, RunObserver};
 use precheck::{run_precheck, PrecheckContext, PrecheckedInput};
 use process::{append_sink_options_warning, sink_options_warning};
-use resolve::{resolve_entity_targets, resolve_input_files};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
@@ -41,14 +40,14 @@ pub(super) fn run_entity(
     context: &RunContext,
     runtime: &mut dyn crate::runtime::Runtime,
     observer: &dyn RunObserver,
-    entity: &config::EntityConfig,
+    plan: super::EntityRunPlan<'_>,
 ) -> FloeResult<EntityRunResult> {
+    let entity = plan.entity;
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
     let mut rejected_overwrite_used = false;
     let input_adapter = runtime.input_adapter(input.format.as_str())?;
-    let resolved_targets = resolve_entity_targets(&context.storage_resolver, entity)?;
-    let source_is_remote = resolved_targets.source.is_remote();
+    let resolved_targets = plan.resolved_targets;
     let formatter_name = context
         .config
         .report
@@ -76,27 +75,12 @@ pub(super) fn run_entity(
     let required_cols = required_columns(&normalized_columns);
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
-    let needs_temp = source_is_remote
-        || accepted_target.is_remote()
-        || rejected_target.as_ref().is_some_and(Target::is_remote);
-    let temp_dir = if needs_temp {
-        Some(
-            tempfile::TempDir::new()
-                .map_err(|err| Box::new(IoError(format!("tempdir failed: {err}"))))?,
-        )
-    } else {
-        None
-    };
-
-    let (input_files, resolved_mode) = resolve_input_files(
-        context,
-        runtime.storage(),
-        entity,
-        input_adapter,
-        &resolved_targets,
-        source_is_remote,
-        temp_dir.as_ref(),
-    )?;
+    let temp_dir = plan.temp_dir;
+    let io::storage::inputs::ResolvedInputs {
+        files: input_files,
+        listed: resolved_files,
+        mode: resolved_mode,
+    } = plan.resolved_inputs;
 
     let severity = match entity.policy.severity.as_str() {
         "warn" => report::Severity::Warn,
@@ -110,10 +94,6 @@ pub(super) fn run_entity(
     };
     let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
 
-    let resolved_files = input_files
-        .iter()
-        .map(|input| input.source_uri.clone())
-        .collect::<Vec<_>>();
     let reported_files = resolved_files
         .iter()
         .take(MAX_RESOLVED_INPUTS)

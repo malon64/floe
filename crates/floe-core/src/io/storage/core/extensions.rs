@@ -10,6 +10,7 @@ pub fn suffixes_for_format(format: &str) -> FloeResult<Vec<String>> {
             ".ndjson".to_string(),
             ".djson".to_string(),
         ]),
+        "xlsx" => Ok(vec![".xlsx".to_string()]),
         _ => Err(Box::new(ConfigError(format!(
             "unsupported source format for input resolution: {format}"
         )))),

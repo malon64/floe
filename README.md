@@ -155,6 +155,7 @@ Inputs:
 - CSV (local + S3/ADLS/GCS via temp download)
 - JSON (array/ndjson; local + S3/ADLS/GCS via temp download)
 - Parquet (local + S3/ADLS/GCS via temp download)
+- XLSX (local + S3/ADLS/GCS via temp download)
 
 Outputs:
 - Accepted: Parquet (local + cloud via temp upload), Delta (local + cloud via object_store)

@@ -15,6 +15,7 @@ path = "src/lib.rs"
 [dependencies]
 yaml-rust2 = "0.11"
 polars = { version = "0.52.0", features = ["csv", "parquet", "lazy", "timezones", "dtype-date", "dtype-datetime", "dtype-time", "polars-ops", "is_unique", "is_first_distinct"] }
+calamine = "0.24"
 rayon = "1"
 deltalake = { version = "0.30.1", features = ["datafusion", "s3", "azure", "gcs"] }
 url = "2"
@@ -38,6 +39,9 @@ uuid = "1"
 # Enabling `vendored-openssl` forces `reqwest` to build OpenSSL from source and link it
 # statically, avoiding runtime deps on the host/container (e.g. libssl.so.1.0.0).
 reqwest = { version = "0.12", optional = true, default-features = true, features = ["native-tls-vendored"] }
+
+[dev-dependencies]
+rust_xlsxwriter = "0.67"
 
 [features]
 vendored-openssl = ["dep:reqwest"]

@@ -78,6 +78,9 @@ pub struct SourceOptions {
     pub recursive: Option<bool>,
     pub glob: Option<String>,
     pub json_mode: Option<String>,
+    pub sheet: Option<String>,
+    pub header_row: Option<u64>,
+    pub data_row: Option<u64>,
 }
 
 impl Default for SourceOptions {
@@ -91,6 +94,9 @@ impl Default for SourceOptions {
             recursive: Some(false),
             glob: None,
             json_mode: None,
+            sheet: None,
+            header_row: Some(1),
+            data_row: None,
         }
     }
 }

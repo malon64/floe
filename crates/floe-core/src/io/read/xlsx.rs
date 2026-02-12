@@ -190,6 +190,8 @@ fn extract_header(range: &calamine::Range<Data>, row: usize, width: usize) -> Ve
             header.push(name.to_string());
         }
     }
+    // Excel exports often repeat header labels. Polars requires unique column names,
+    // so we dedupe here to avoid DataFrame::new errors during read.
     dedupe_header_names(header)
 }
 

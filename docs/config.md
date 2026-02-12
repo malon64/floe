@@ -104,7 +104,7 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, and `xlsx`.
+  - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, `xlsx`, and `avro`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.
   - `fixed` reads fixed-width text files using `schema.columns[].width`.
@@ -137,6 +137,7 @@ is available for templating within that entity.
       - `orc`: `*.orc`
       - `json`: `*.json`
       - `xlsx`: `*.xlsx`
+      - `avro`: `*.avro`
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).

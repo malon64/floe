@@ -15,6 +15,7 @@ object_store transactions.
 | ORC | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.orc` |
 | Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Temp download then read locally |
 | XLSX | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | `source.options.sheet` (name), `header_row`/`data_row` (1-based) |
+| Avro | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Suffix filter `.avro` |
 
 Notes:
 - Cloud inputs are resolved by **prefix listing** + suffix filtering, then downloaded to temp files.
@@ -22,6 +23,7 @@ Notes:
 - Fixed-width file extensions accepted: `.txt`, `.fw` (case-insensitive).
 - JSON file extensions accepted: `.json`, `.jsonl`, `.ndjson`, `.djson` (case-insensitive).
 - XLSX file extensions accepted: `.xlsx` (case-insensitive).
+- Avro file extensions accepted: `.avro` (case-insensitive).
 - Nested JSON values (objects/arrays) are rejected.
 
 ## Outputs

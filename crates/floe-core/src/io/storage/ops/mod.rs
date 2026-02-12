@@ -12,7 +12,7 @@ pub fn resolve_inputs(
     entity: &config::EntityConfig,
     adapter: &dyn io::format::InputAdapter,
     target: &Target,
-    mode: inputs::ResolveInputsMode,
+    resolution_mode: inputs::ResolveInputsMode,
     temp_dir: Option<&Path>,
     storage_client: Option<&dyn StorageClient>,
 ) -> FloeResult<inputs::ResolvedInputs> {
@@ -21,7 +21,7 @@ pub fn resolve_inputs(
         entity,
         adapter,
         target,
-        mode,
+        resolution_mode,
         temp_dir,
         storage_client,
     )

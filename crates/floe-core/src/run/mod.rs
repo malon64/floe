@@ -231,7 +231,7 @@ fn select_entities<'a>(
     if options.entities.is_empty() {
         context.config.entities.iter().collect()
     } else {
-        let selected: HashSet<&str> = options.entities.iter().map(|s| s.as_str()).collect();
+        let selected: HashSet<&str> = options.entities.iter().map(String::as_str).collect();
         context
             .config
             .entities
@@ -245,19 +245,21 @@ fn resolve_entity_plans<'a>(
     context: &'a RunContext,
     runtime: &mut dyn Runtime,
     entities: &[&'a config::EntityConfig],
-    mode: io::storage::inputs::ResolveInputsMode,
+    resolution_mode: io::storage::inputs::ResolveInputsMode,
 ) -> FloeResult<Vec<EntityRunPlan<'a>>> {
     let mut plans = Vec::with_capacity(entities.len());
     for entity in entities {
         let input_adapter = runtime.input_adapter(entity.source.format.as_str())?;
         let resolved_targets = entity::resolve_entity_targets(&context.storage_resolver, entity)?;
-        let needs_temp = matches!(mode, io::storage::inputs::ResolveInputsMode::Download)
-            && (resolved_targets.source.is_remote()
-                || resolved_targets.accepted.is_remote()
-                || resolved_targets
-                    .rejected
-                    .as_ref()
-                    .is_some_and(io::storage::Target::is_remote));
+        let needs_temp = matches!(
+            resolution_mode,
+            io::storage::inputs::ResolveInputsMode::Download
+        ) && (resolved_targets.source.is_remote()
+            || resolved_targets.accepted.is_remote()
+            || resolved_targets
+                .rejected
+                .as_ref()
+                .is_some_and(io::storage::Target::is_remote));
         let temp_dir = if needs_temp {
             Some(
                 tempfile::TempDir::new()
@@ -276,7 +278,7 @@ fn resolve_entity_plans<'a>(
             entity,
             input_adapter,
             &resolved_targets.source,
-            mode,
+            resolution_mode,
             temp_dir.as_ref().map(|dir| dir.path()),
             storage_client,
         )?;

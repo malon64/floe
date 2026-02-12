@@ -21,7 +21,7 @@ pub fn resolve_inputs(
     entity: &config::EntityConfig,
     adapter: &dyn io::format::InputAdapter,
     target: &Target,
-    mode: ResolveInputsMode,
+    resolution_mode: ResolveInputsMode,
     temp_dir: Option<&Path>,
     storage_client: Option<&dyn crate::io::storage::StorageClient>,
 ) -> FloeResult<ResolvedInputs> {
@@ -35,20 +35,16 @@ pub fn resolve_inputs(
                 ))
             })?;
             let location = format!("bucket={}", bucket);
-            let objects = list_cloud_inputs(client, key, adapter, entity, storage, &location)?;
-            let listed = objects.iter().map(|obj| obj.uri.clone()).collect();
-            let files = match mode {
-                ResolveInputsMode::Download => {
-                    let temp_dir = require_temp_dir(temp_dir, "s3")?;
-                    build_cloud_inputs(client, &objects, temp_dir, entity)?
-                }
-                ResolveInputsMode::ListOnly => Vec::new(),
-            };
-            Ok(ResolvedInputs {
-                files,
-                listed,
-                mode: report::ResolvedInputMode::Directory,
-            })
+            resolve_cloud_inputs_for_prefix(
+                client,
+                key,
+                adapter,
+                entity,
+                storage,
+                &location,
+                resolution_mode,
+                temp_dir,
+            )
         }
         Target::Gcs { storage, .. } => {
             let client = require_storage_client(storage_client, "gcs")?;
@@ -58,20 +54,16 @@ pub fn resolve_inputs(
                 ))
             })?;
             let location = format!("bucket={}", bucket);
-            let objects = list_cloud_inputs(client, key, adapter, entity, storage, &location)?;
-            let listed = objects.iter().map(|obj| obj.uri.clone()).collect();
-            let files = match mode {
-                ResolveInputsMode::Download => {
-                    let temp_dir = require_temp_dir(temp_dir, "gcs")?;
-                    build_cloud_inputs(client, &objects, temp_dir, entity)?
-                }
-                ResolveInputsMode::ListOnly => Vec::new(),
-            };
-            Ok(ResolvedInputs {
-                files,
-                listed,
-                mode: report::ResolvedInputMode::Directory,
-            })
+            resolve_cloud_inputs_for_prefix(
+                client,
+                key,
+                adapter,
+                entity,
+                storage,
+                &location,
+                resolution_mode,
+                temp_dir,
+            )
         }
         Target::Adls { storage, .. } => {
             let client = require_storage_client(storage_client, "adls")?;
@@ -81,27 +73,22 @@ pub fn resolve_inputs(
                 ))
             })?;
             let location = format!("container={}, account={}", container, account);
-            let objects =
-                list_cloud_inputs(client, base_path, adapter, entity, storage, &location)?;
-            let listed = objects.iter().map(|obj| obj.uri.clone()).collect();
-            let files = match mode {
-                ResolveInputsMode::Download => {
-                    let temp_dir = require_temp_dir(temp_dir, "adls")?;
-                    build_cloud_inputs(client, &objects, temp_dir, entity)?
-                }
-                ResolveInputsMode::ListOnly => Vec::new(),
-            };
-            Ok(ResolvedInputs {
-                files,
-                listed,
-                mode: report::ResolvedInputMode::Directory,
-            })
+            resolve_cloud_inputs_for_prefix(
+                client,
+                base_path,
+                adapter,
+                entity,
+                storage,
+                &location,
+                resolution_mode,
+                temp_dir,
+            )
         }
         Target::Local { storage, .. } => {
             let resolved =
                 adapter.resolve_local_inputs(config_dir, &entity.name, &entity.source, storage)?;
             let listed = build_local_listing(&resolved.files, storage_client);
-            let files = match mode {
+            let files = match resolution_mode {
                 ResolveInputsMode::Download => {
                     build_local_inputs(&resolved.files, entity, storage_client)
                 }
@@ -120,6 +107,32 @@ pub fn resolve_inputs(
             })
         }
     }
+}
+
+fn resolve_cloud_inputs_for_prefix(
+    client: &dyn crate::io::storage::StorageClient,
+    prefix: &str,
+    adapter: &dyn io::format::InputAdapter,
+    entity: &config::EntityConfig,
+    storage: &str,
+    location: &str,
+    resolution_mode: ResolveInputsMode,
+    temp_dir: Option<&Path>,
+) -> FloeResult<ResolvedInputs> {
+    let objects = list_cloud_objects(client, prefix, adapter, entity, storage, location)?;
+    let listed = objects.iter().map(|obj| obj.uri.clone()).collect();
+    let files = match resolution_mode {
+        ResolveInputsMode::Download => {
+            let temp_dir = require_temp_dir(temp_dir, storage)?;
+            build_cloud_inputs(client, &objects, temp_dir, entity)?
+        }
+        ResolveInputsMode::ListOnly => Vec::new(),
+    };
+    Ok(ResolvedInputs {
+        files,
+        listed,
+        mode: report::ResolvedInputMode::Directory,
+    })
 }
 
 fn require_temp_dir<'a>(temp_dir: Option<&'a Path>, label: &str) -> FloeResult<&'a Path> {
@@ -143,7 +156,7 @@ fn require_storage_client<'a>(
     })
 }
 
-fn list_cloud_inputs(
+fn list_cloud_objects(
     client: &dyn crate::io::storage::StorageClient,
     prefix: &str,
     adapter: &dyn io::format::InputAdapter,

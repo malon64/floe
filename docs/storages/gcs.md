@@ -39,7 +39,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 ## Supported behavior
 
-- Inputs: CSV, fixed-width, JSON (array/ndjson), Parquet, and XLSX via prefix listing + suffix filtering.
+- Inputs: CSV, fixed-width, JSON (array/ndjson), ORC, Parquet, and XLSX via prefix listing + suffix filtering.
 - Outputs:
   - Accepted parquet: temp local write then upload.
   - Accepted delta: direct object_store writes (no temp upload).
@@ -50,5 +50,5 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 - IO uses temp download/upload (no streaming) for file formats.
 - Source path is treated as a prefix (no glob patterns).
-- Parquet input uses temp download + local read.
+- Parquet/ORC input uses temp download + local read.
 - Accepted Delta uses direct object_store writes (no temp upload).

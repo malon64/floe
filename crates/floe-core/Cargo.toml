@@ -34,6 +34,9 @@ azure_storage = "0.20"
 azure_storage_blobs = "0.20"
 futures = "0.3"
 uuid = "1"
+arrow = "57"
+df-interchange = { version = "0.3.2", features = ["arrow_57", "polars_0_52"] }
+orc-rust = "0.7.1"
 
 # Optional: used only to unify transitive TLS feature selection for linux release builds.
 # Enabling `vendored-openssl` forces `reqwest` to build OpenSSL from source and link it

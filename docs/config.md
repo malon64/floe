@@ -104,10 +104,11 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `fixed`, `parquet`, and `json`.
+  - Supported: `csv`, `fixed`, `parquet`, `json`, and `xlsx`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.
   - `fixed` reads fixed-width text files using `schema.columns[].width`.
+  - `xlsx` reads Excel worksheets using `source.options.sheet` + row offsets.
 - `path` (required)
   - Input location. Can be a file, a directory, or a glob pattern
     (example: `/data/in/*.csv`).
@@ -134,6 +135,7 @@ is available for templating within that entity.
       - `fixed`: `*.txt`, `*.fw`
       - `parquet`: `*.parquet`
       - `json`: `*.json`
+      - `xlsx`: `*.xlsx`
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).
@@ -143,6 +145,12 @@ is available for templating within that entity.
     - Nested JSON is supported via `schema.columns[].source` selectors.
     - JSON schema mismatch checks only consider top-level selector sources (no `.` or `[`).
     - For safety, JSON configs are limited to 1024 columns per entity.
+  - `sheet` (optional, `source.format: xlsx`)
+    - Sheet name to read (defaults to first sheet).
+  - `header_row` (optional, `source.format: xlsx`)
+    - 1-based row index for column headers (default: 1).
+  - `data_row` (optional, `source.format: xlsx`)
+    - 1-based row index where data starts (default: `header_row + 1`).
 - `cast_mode` (optional)
   - `strict` (default): invalid values produce cast errors.
   - `coerce`: invalid values become null (and may still fail `not_null`).

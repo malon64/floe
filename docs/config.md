@@ -138,7 +138,6 @@ is available for templating within that entity.
       - `json`: `*.json`
       - `xlsx`: `*.xlsx`
       - `avro`: `*.avro`
-      - `xlsx`: `*.xlsx`
     - If `source.path` itself contains a glob pattern, this option is ignored.
   - `recursive` (optional)
     - If `true`, directory globs include subdirectories (via `**/`).

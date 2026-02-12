@@ -3129,8 +3129,8 @@ dependencies = [
 name = "floe-core"
 version = "0.2.3"
 dependencies = [
- "arrow",
  "apache-avro",
+ "arrow",
  "aws-config",
  "aws-sdk-s3",
  "azure_core",
@@ -6546,7 +6546,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn",

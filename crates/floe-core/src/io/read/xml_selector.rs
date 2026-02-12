@@ -19,6 +19,8 @@ pub fn parse_selector(value: &str) -> Result<Vec<SelectorToken>, SelectorError> 
 
     let parts = trimmed.split(['.', '/']).collect::<Vec<_>>();
     if parts.iter().any(|part| part.trim().is_empty()) {
+        // Reject malformed selectors like `user..id`, `/id`, or `id/` instead of
+        // silently normalizing them to a different path.
         return Err(SelectorError {
             message: "selector contains empty token".to_string(),
         });

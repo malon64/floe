@@ -143,46 +143,51 @@ fn read_fixed_width_file(
         if line.ends_with('\r') {
             line.pop();
         }
-        let line_bytes = line.as_bytes();
-        if line_bytes.len() < total_width {
+        let char_offsets = char_offsets(&line);
+        let line_len_chars = char_offsets.len().saturating_sub(1);
+        if line_len_chars < total_width {
             return Err(FixedWidthReadError {
                 rule: "fixed_width_line_length".to_string(),
                 message: format!(
                     "line {} has length {} shorter than expected {}",
                     line_index + 1,
-                    line_bytes.len(),
+                    line_len_chars,
                     total_width
                 ),
             });
         }
-        if line_bytes.len() > total_width {
-            let extra = &line_bytes[total_width..];
-            let has_non_whitespace = extra.iter().any(|byte| !byte.is_ascii_whitespace());
-            if has_non_whitespace {
-                return Err(FixedWidthReadError {
-                    rule: "fixed_width_line_length".to_string(),
-                    message: format!(
-                        "line {} has length {} longer than expected {}",
-                        line_index + 1,
-                        line_bytes.len(),
-                        total_width
-                    ),
-                });
-            }
+        if line_len_chars > total_width
+            && line
+                .chars()
+                .skip(total_width)
+                .any(|value| !value.is_whitespace())
+        {
+            return Err(FixedWidthReadError {
+                rule: "fixed_width_line_length".to_string(),
+                message: format!(
+                    "line {} has length {} longer than expected {}",
+                    line_index + 1,
+                    line_len_chars,
+                    total_width
+                ),
+            });
         }
 
         let mut start = 0usize;
         for (idx, spec) in specs.iter().enumerate() {
             let end = start + spec.width;
-            let slice = &line_bytes[start..end];
-            let raw = std::str::from_utf8(slice).map_err(|err| FixedWidthReadError {
-                rule: "fixed_width_parse_error".to_string(),
-                message: format!(
-                    "line {} column {} contains invalid utf-8: {err}",
-                    line_index + 1,
-                    spec.name
-                ),
+            let slice = slice_chars(&line, &char_offsets, start, end).ok_or_else(|| {
+                FixedWidthReadError {
+                    rule: "fixed_width_line_length".to_string(),
+                    message: format!(
+                        "line {} has length {} shorter than expected {}",
+                        line_index + 1,
+                        line_len_chars,
+                        total_width
+                    ),
+                }
             })?;
+            let raw = slice;
             let value = if spec.trim { raw.trim() } else { raw };
             let value = if value.is_empty() {
                 None
@@ -203,4 +208,22 @@ fn read_fixed_width_file(
         rule: "fixed_width_parse_error".to_string(),
         message: format!("failed to build dataframe: {err}"),
     })
+}
+
+fn char_offsets(value: &str) -> Vec<usize> {
+    let mut offsets = Vec::with_capacity(value.chars().count() + 1);
+    for (idx, _) in value.char_indices() {
+        offsets.push(idx);
+    }
+    offsets.push(value.len());
+    offsets
+}
+
+fn slice_chars<'a>(value: &'a str, offsets: &[usize], start: usize, end: usize) -> Option<&'a str> {
+    if start > end || end >= offsets.len() {
+        return None;
+    }
+    let start_byte = *offsets.get(start)?;
+    let end_byte = *offsets.get(end)?;
+    value.get(start_byte..end_byte)
 }

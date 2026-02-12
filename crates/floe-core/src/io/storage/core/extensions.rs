@@ -3,6 +3,7 @@ use crate::{ConfigError, FloeResult};
 pub fn suffixes_for_format(format: &str) -> FloeResult<Vec<String>> {
     match format {
         "csv" => Ok(vec![".csv".to_string()]),
+        "tsv" => Ok(vec![".tsv".to_string()]),
         "fixed" => Ok(vec![".txt".to_string(), ".fw".to_string()]),
         "orc" => Ok(vec![".orc".to_string()]),
         "parquet" => Ok(vec![".parquet".to_string()]),

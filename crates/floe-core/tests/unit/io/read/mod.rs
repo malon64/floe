@@ -5,6 +5,7 @@ pub mod json_ndjson;
 pub mod json_selector;
 pub mod orc_input;
 pub mod parquet_input;
+pub mod tsv;
 pub mod xlsx_input;
 pub mod xml;
 pub mod xml_selector;

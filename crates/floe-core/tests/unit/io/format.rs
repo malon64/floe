@@ -11,3 +11,9 @@ fn input_registry_returns_fixed_adapter() {
     let adapter = input_adapter("fixed").expect("adapter");
     assert_eq!(adapter.format(), "fixed");
 }
+
+#[test]
+fn input_registry_returns_tsv_adapter() {
+    let adapter = input_adapter("tsv").expect("adapter");
+    assert_eq!(adapter.format(), "tsv");
+}

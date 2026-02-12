@@ -154,6 +154,7 @@ Checks and policy details: [docs/checks.md](docs/checks.md)
 Inputs:
 - CSV (local + S3/ADLS/GCS via temp download)
 - Fixed-width (local + S3/ADLS/GCS via temp download)
+- TSV (tab-delimited; local + S3/ADLS/GCS via temp download)
 - JSON (array/ndjson; local + S3/ADLS/GCS via temp download)
 - ORC (local + S3/ADLS/GCS via temp download)
 - Parquet (local + S3/ADLS/GCS via temp download)

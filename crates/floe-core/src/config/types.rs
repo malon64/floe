@@ -69,7 +69,7 @@ pub struct SourceConfig {
     pub cast_mode: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SourceOptions {
     pub header: Option<bool>,
     pub separator: Option<String>,
@@ -108,6 +108,14 @@ impl Default for SourceOptions {
 }
 
 impl SourceOptions {
+    pub fn defaults_for_format(format: &str) -> Self {
+        let mut defaults = SourceOptions::default();
+        if format == "tsv" {
+            defaults.separator = Some("\t".to_string());
+        }
+        defaults
+    }
+
     pub fn to_csv_parse_options(&self) -> FloeResult<CsvParseOptions> {
         let separator = parse_separator(self.separator.as_deref().unwrap_or(";"))?;
         let encoding = parse_encoding(self.encoding.as_deref())?;

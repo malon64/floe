@@ -104,9 +104,10 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, `xlsx`, `avro`, and `xml`.
+  - Supported: `csv`, `tsv`, `fixed`, `parquet`, `orc`, `json`, `xlsx`, `avro`, and `xml`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.
+  - `tsv` uses tab-delimited parsing (same options as `csv`).
   - `fixed` reads fixed-width text files using `schema.columns[].width`.
   - `xlsx` reads Excel worksheets using `source.options.sheet` + row offsets.
   - `xml` reads repeated records using `source.options.row_tag`.
@@ -123,7 +124,7 @@ is available for templating within that entity.
   - Format-specific options.
   - Defaults if omitted:
     - `header`: `true`
-    - `separator`: `";"`
+    - `separator`: `";"` (or `"\t"` when `source.format` is `tsv`)
     - `encoding`: `"UTF8"`
     - `null_values`: `[]`
     - `recursive`: `false`
@@ -133,6 +134,7 @@ is available for templating within that entity.
     - Used only when `source.path` is a directory.
     - Overrides the default file pattern for the source format:
       - `csv`: `*.csv`
+      - `tsv`: `*.tsv`
       - `fixed`: `*.txt`, `*.fw`
       - `parquet`: `*.parquet`
       - `orc`: `*.orc`

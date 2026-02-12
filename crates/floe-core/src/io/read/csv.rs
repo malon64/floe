@@ -9,14 +9,20 @@ use crate::errors::{IoError, RunError};
 use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
 use crate::{config, FloeResult};
 
-struct CsvInputAdapter;
+struct DelimitedInputAdapter {
+    format: &'static str,
+}
 
-static CSV_INPUT_ADAPTER: CsvInputAdapter = CsvInputAdapter;
+static CSV_INPUT_ADAPTER: DelimitedInputAdapter = DelimitedInputAdapter { format: "csv" };
+static TSV_INPUT_ADAPTER: DelimitedInputAdapter = DelimitedInputAdapter { format: "tsv" };
 
 pub(crate) fn csv_input_adapter() -> &'static dyn InputAdapter {
     &CSV_INPUT_ADAPTER
 }
 
+pub(crate) fn tsv_input_adapter() -> &'static dyn InputAdapter {
+    &TSV_INPUT_ADAPTER
+}
 #[derive(Debug, Clone)]
 pub struct CsvReadPlan {
     pub schema: Schema,
@@ -73,9 +79,9 @@ pub fn read_csv_header(
         .collect())
 }
 
-impl InputAdapter for CsvInputAdapter {
+impl InputAdapter for DelimitedInputAdapter {
     fn format(&self) -> &'static str {
-        "csv"
+        self.format
     }
 
     fn read_input_columns(
@@ -84,11 +90,11 @@ impl InputAdapter for CsvInputAdapter {
         input_file: &InputFile,
         columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
-        let default_options = config::SourceOptions::default();
+        let default_options = config::SourceOptions::defaults_for_format(self.format);
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
         resolve_input_columns(&input_file.source_local_path, source_options, columns).map_err(
             |err| FileReadError {
-                rule: "csv_read_error".to_string(),
+                rule: format!("{}_read_error", self.format),
                 message: err.to_string(),
             },
         )
@@ -102,7 +108,7 @@ impl InputAdapter for CsvInputAdapter {
         normalize_strategy: Option<&str>,
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
-        let default_options = config::SourceOptions::default();
+        let default_options = config::SourceOptions::defaults_for_format(self.format);
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {

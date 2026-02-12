@@ -48,7 +48,6 @@ Managed identity, Azure CLI, and other default credential sources are also suppo
 
 ## Supported behavior
 
-- Inputs: CSV, fixed-width, JSON (array/ndjson), Parquet, and XLSX via prefix listing + suffix filtering.
 - Inputs: CSV, fixed-width, JSON (array/ndjson), ORC, Parquet, and XLSX via prefix listing + suffix filtering.
 - Outputs:
   - Accepted parquet: temp local write then upload.

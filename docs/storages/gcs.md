@@ -39,7 +39,6 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 ## Supported behavior
 
-- Inputs: CSV, fixed-width, JSON (array/ndjson), Parquet, and XLSX via prefix listing + suffix filtering.
 - Inputs: CSV, fixed-width, JSON (array/ndjson), ORC, Parquet, and XLSX via prefix listing + suffix filtering.
 - Outputs:
   - Accepted parquet: temp local write then upload.

@@ -104,7 +104,6 @@ is available for templating within that entity.
 ### `source` (required)
 
 - `format` (required)
-  - Supported: `csv`, `fixed`, `parquet`, `json`, and `xlsx`.
   - Supported: `csv`, `fixed`, `parquet`, `orc`, `json`, and `xlsx`.
   - Cloud inputs (S3/ADLS/GCS) use temp download + local read.
   - `json` supports NDJSON and JSON array modes.

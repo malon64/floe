@@ -1,7 +1,6 @@
 """Airflow demo DAG for Floe (advanced dynamic mapping).
 
 This DAG loads a static manifest at import time, then:
-- validates once
 - maps one run task per entity defined in the manifest
 """
 
@@ -63,27 +62,9 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     tags=["floe", "example"],
 )
 def floe_example_entity_mapped() -> None:
-    @task
-    def validate_config() -> dict[str, Any]:
-        cmd = [*_split_cmd(FLOE_CMD), "validate", "-c", FLOE_CONFIG, "--output", "json"]
-        completed = _run_cli(cmd)
-
-        payload = json.loads(completed.stdout)
-        if payload.get("schema") != "floe.plan.v1":
-            raise ValueError(f"unexpected validate schema: {payload.get('schema')}")
-        if not bool(payload.get("valid", False)):
-            raise ValueError("floe config is invalid; mapped run stopped")
-
-        return {
-            "config": FLOE_CONFIG,
-            "entities": ENTITY_NAMES,
-            "entity_count": len(ENTITY_NAMES),
-        }
-
     @task(outlets=ALL_ENTITY_ASSETS)
     def run_entity(
         entity: str,
-        validate_payload: dict[str, Any],
         *,
         outlet_events: dict[Any, Any] | None = None,
     ) -> dict[str, Any]:
@@ -91,7 +72,7 @@ def floe_example_entity_mapped() -> None:
             *_split_cmd(FLOE_CMD),
             "run",
             "-c",
-            validate_payload["config"],
+            FLOE_CONFIG,
             "--entities",
             entity,
             "--log-format",
@@ -139,7 +120,7 @@ def floe_example_entity_mapped() -> None:
             "warnings": run_finished["warnings"],
             "errors": run_finished["errors"],
             "summary_uri": run_finished.get("summary_uri"),
-            "config_uri": validate_payload["config"],
+            "config_uri": FLOE_CONFIG,
             "floe_log_schema": "floe.log.v1",
             "finished_at_ts_ms": run_finished["ts_ms"],
         }
@@ -147,8 +128,7 @@ def floe_example_entity_mapped() -> None:
     if not ENTITY_NAMES:
         raise ValueError("manifest has no entities")
 
-    validate_payload = validate_config()
-    run_entity.partial(validate_payload=validate_payload).expand(entity=ENTITY_NAMES)
+    run_entity.expand(entity=ENTITY_NAMES)
 
 
 floe_example_entity_mapped()

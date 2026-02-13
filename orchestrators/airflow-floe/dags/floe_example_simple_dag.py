@@ -1,7 +1,6 @@
 """Airflow demo DAG for Floe (default config-level run).
 
 This DAG loads a static manifest at import time, then:
-- validates once for the full config
 - runs once for the full config
 """
 
@@ -60,40 +59,8 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     tags=["floe", "example"],
 )
 def floe_example_simple() -> None:
-    @task
-    def validate_config() -> dict[str, Any]:
-        cmd = [*_split_cmd(FLOE_CMD), "validate", "-c", FLOE_CONFIG, "--output", "json"]
-        completed = _run_cli(cmd)
-
-        payload = json.loads(completed.stdout)
-        if payload.get("schema") != "floe.plan.v1":
-            raise ValueError(f"unexpected validate schema: {payload.get('schema')}")
-
-        errors = payload.get("errors", [])
-        warnings = payload.get("warnings", [])
-        entity_names = [entity.name for entity in MANIFEST.entities]
-
-        return {
-            "schema": "floe.airflow.validate.v1",
-            "config_uri": FLOE_CONFIG,
-            "valid": bool(payload.get("valid", False)),
-            "error_count": len(errors),
-            "warning_count": len(warnings),
-            "entity_count": len(entity_names),
-            "selected_entities": entity_names,
-            "floe_schema": "floe.plan.v1",
-            "generated_at_ts_ms": payload.get("generated_at_ts_ms", 0),
-        }
-
     @task(outlets=ALL_ENTITY_ASSETS)
-    def run_config(
-        validate_payload: dict[str, Any],
-        *,
-        outlet_events: dict[Any, Any] | None = None,
-    ) -> dict[str, Any]:
-        if not validate_payload["valid"]:
-            raise ValueError("floe config is invalid; run step stopped")
-
+    def run_config(*, outlet_events: dict[Any, Any] | None = None) -> dict[str, Any]:
         cmd = [*_split_cmd(FLOE_CMD), "run", "-c", FLOE_CONFIG, "--log-format", "json"]
         completed = _run_cli(cmd)
 
@@ -142,7 +109,7 @@ def floe_example_simple() -> None:
             "finished_at_ts_ms": run_finished["ts_ms"],
         }
 
-    run_config(validate_config())
+    run_config()
 
 
 floe_example_simple()

@@ -11,7 +11,7 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `schemas/`: JSON Schemas for XCom payloads and manifest contract
 - `dags/floe_manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
 - `example/config.yml`: small Floe config for demo
-- `dags/floe_example_simple_dag.py`: default DAG that validates once, then runs the full config once
+- `dags/floe_example_simple_dag.py`: default DAG that runs the full config once
 - `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
 
 ## Quick usage
@@ -32,7 +32,6 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 ## Notes
 
 - The DAG uses Floe CLI contracts directly and expects:
-  - validate schema: `floe.plan.v1`
   - run log schema: `floe.log.v1`
   - terminal event: `run_finished`
 - Assets are created at parse time from `FLOE_MANIFEST` and materialized when run tasks finish.

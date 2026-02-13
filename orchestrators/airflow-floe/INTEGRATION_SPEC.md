@@ -12,11 +12,13 @@ This document defines the execution contract and payload schemas for Airflow.
 ## 2. Scope
 
 In scope:
-- validate and run orchestration contract
+- run orchestration and asset materialization contract
+- manifest-driven parse-time topology loading
 - local and docker runner behavior
 - NDJSON parsing contract
 - XCom payload schema and versioning policy
 - task success/failure mapping
+- validate contract usage in control-plane/CI
 
 Out of scope for MVP:
 - cloud summary fetch helpers inside Airflow package
@@ -101,28 +103,32 @@ Minimum fields:
 Default model (recommended):
 1. **deploy/control-plane step**: generate manifest (`floe plan --format airflow`)
 2. DAG import reads manifest only (static entity/asset definitions)
-3. `FloeValidateOperator`: validate full config once (runtime guard)
-4. `FloeRunOperator`: run full config once
-5. optional downstream tasks consume `summary_uri` and publish materializations
+3. `FloeRunOperator`: run full config once
+4. optional downstream tasks consume `summary_uri` and publish materializations
 
 Optional model (advanced):
-1. validate once
-2. extract selected entities from params/manifest
-3. dynamically map one run task per entity
-4. aggregate outcomes downstream
+1. extract selected entities from params/manifest
+2. dynamically map one run task per entity
+3. aggregate outcomes downstream
 
 Execution contract per task:
 1. call runner (`local` or `docker`) to execute Floe CLI
 2. capture stdout/stderr and process exit code
-3. parse contract payload (`validate` JSON or run NDJSON)
+3. parse contract payload (run NDJSON)
 4. build adapter payload (`floe.airflow.*.v1`)
 5. push adapter payload to XCom
 6. map task status using rules in section 6
 
 Important constraints:
 - do not call `floe validate` during DAG file import
+- runtime DAG examples are run-only (`floe run`)
 - do not mutate asset definitions at runtime
 - publish asset materialization results at runtime from run outputs
+
+Control-plane (CI/CD) recommendation:
+- run `floe validate --output json` as a pre-deploy gate
+- run `floe plan --format airflow --output-path ...` to generate manifest artifacts
+- deploy DAGs with static manifest references
 
 ## 5. Adapter Payload Schemas (XCom)
 
@@ -180,10 +186,11 @@ Optional fields:
 
 ### 6.1 Validate task
 
+- used in control-plane/CI (not required in runtime DAGs)
 - success when command exits 0 and payload parses
 - failure when command fails, output is not valid JSON, or schema is unexpected
 
-Note: `valid=false` is still a successful task execution if the command contract is respected; downstream DAG logic decides whether to stop.
+Note: `valid=false` can be treated as a failed pipeline gate in CI policy.
 
 ### 6.2 Run task
 
@@ -214,8 +221,8 @@ Note: `valid=false` is still a successful task execution if the command contract
 
 1. create Python models for both payload schemas
 2. implement command runners (`LocalRunner`, `DockerRunner`)
-3. implement parse/validate for validate JSON contract
-4. implement parse/validate for run NDJSON contract
+3. implement parse/validate for run NDJSON contract
+4. keep validate JSON support for control-plane workflows
 5. implement XCom push utilities
 6. add unit tests for parser and schema validation
 7. add integration tests for local and docker happy paths
@@ -228,6 +235,7 @@ Note: `valid=false` is still a successful task execution if the command contract
 4. DAG import should consume a static manifest, not invoke Floe CLI directly.
 5. Runtime should publish materialization outcomes for entities actually processed.
 6. Dynamic entity subsets are supported at runtime, but asset definitions remain static for the deployed DAG version.
+7. Runtime DAGs are run-only; `validate` belongs to CI/control-plane.
 
 ## 12. Post-Manifest Connector Roadmap
 
@@ -242,9 +250,9 @@ Once `floe.airflow.manifest.v1` is available, connector work is:
 - optional entity-mapped DAG from same manifest
 
 3. Operators
-- `FloeValidateOperator` (runtime guard)
 - `FloeRunOperator` (full config or selected entities)
 - `FloePublishAssetsOperator` (publish per-entity materialization metadata from summary)
+- optional control-plane utility: `FloeValidateOperator` (CI-oriented usage)
 
 4. Runtime parsing
 - NDJSON parser for `floe.log.v1`

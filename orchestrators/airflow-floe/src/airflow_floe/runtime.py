@@ -70,11 +70,18 @@ def build_dag_manifest_context_or_empty(
         return DagManifestContext(
             manifest_path=manifest_path,
             manifest=None,
-            config_path=str(Path(fallback_config).resolve()),
+            config_path=_normalize_fallback_config_path(fallback_config),
             assets_by_entity={},
             entities_by_name={},
             entity_names=[],
         )
+
+
+def _normalize_fallback_config_path(config_value: str) -> str:
+    if "://" in config_value:
+        # Keep URI-style config overrides untouched (s3://, gs://, abfs://, ...).
+        return config_value
+    return str(Path(config_value).resolve())
 
 
 def resolve_config_path(manifest_path: str, config_uri: str) -> str:

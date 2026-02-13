@@ -136,6 +136,21 @@ class RuntimeHelpersTests(unittest.TestCase):
             self.assertEqual(context.assets_by_entity, {})
             self.assertEqual(context.config_path, str(default_config.resolve()))
 
+    def test_build_dag_manifest_context_or_empty_preserves_uri_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            missing_manifest = base / "missing.manifest.json"
+            default_config = base / "config.yml"
+            default_config.write_text("version: v1\n", encoding="utf-8")
+
+            context = build_dag_manifest_context_or_empty(
+                str(missing_manifest),
+                config_override="s3://bucket/config.yml",
+                default_config_path=str(default_config),
+            )
+            self.assertIsNone(context.manifest)
+            self.assertEqual(context.config_path, "s3://bucket/config.yml")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from airflow_floe.hooks import FloeManifestHook  # noqa: E402
 from airflow_floe.operators import FloeRunHook, FloeRunOperator  # noqa: E402
+from airflow_floe.runtime import build_dag_manifest_context  # noqa: E402
 
 
 class HookAndOperatorTests(unittest.TestCase):
@@ -140,6 +141,70 @@ class HookAndOperatorTests(unittest.TestCase):
             actual = operator.execute({})
         run_mock.assert_called_once_with("/tmp/config.yml", entities=["orders"])
         self.assertEqual(actual, expected)
+
+    def test_run_operator_populates_asset_events_from_manifest_context(self) -> None:
+        class OutletEvent:
+            def __init__(self) -> None:
+                self.extra = None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            manifest_path = self._write_manifest(base, config_path)
+            manifest_context = build_dag_manifest_context(str(manifest_path))
+            outlet_asset = manifest_context.assets_by_entity["orders"]
+            outlet_event = OutletEvent()
+
+            summary_path = base / "report" / "run.summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_payload = {
+                "entities": [
+                    {
+                        "name": "orders",
+                        "status": "success",
+                        "results": {
+                            "files_total": 2,
+                            "rows_total": 11,
+                            "accepted_total": 10,
+                            "rejected_total": 1,
+                            "warnings_total": 0,
+                            "errors_total": 0,
+                        },
+                    }
+                ]
+            }
+            summary_path.write_text(json.dumps(summary_payload), encoding="utf-8")
+
+            operator = FloeRunOperator(
+                task_id="run_floe",
+                config_path=str(config_path),
+                floe_cmd="floe",
+                manifest_context=manifest_context,
+            )
+            payload = {
+                "schema": "floe.airflow.run.v1",
+                "run_id": "run-1",
+                "status": "success",
+                "exit_code": 0,
+                "files": 1,
+                "rows": 10,
+                "accepted": 9,
+                "rejected": 1,
+                "warnings": 0,
+                "errors": 0,
+                "summary_uri": f"local://{summary_path}",
+                "config_uri": str(config_path),
+                "floe_log_schema": "floe.log.v1",
+                "finished_at_ts_ms": 1739500000000,
+            }
+
+            with patch("airflow_floe.operators.FloeRunHook.run", return_value=payload):
+                operator.execute({"outlet_events": {outlet_asset: outlet_event}})
+
+            self.assertIsNotNone(outlet_event.extra)
+            self.assertEqual(outlet_event.extra["entity"], "orders")
+            self.assertEqual(outlet_event.extra["rows_total"], 11)
 
 
 if __name__ == "__main__":

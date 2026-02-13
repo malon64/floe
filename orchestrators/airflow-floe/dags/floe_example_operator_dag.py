@@ -28,7 +28,9 @@ MANIFEST_HOOK = FloeManifestHook(
     config_override=os.environ.get("FLOE_CONFIG"),
     default_config_path=DEFAULT_CONFIG,
 )
+CTX = MANIFEST_HOOK.get_context()
 FLOE_CONFIG = MANIFEST_HOOK.get_config_path()
+ALL_ENTITY_ASSETS = list(CTX.assets_by_entity.values())
 
 
 @dag(
@@ -43,6 +45,8 @@ def floe_example_operator() -> None:
         task_id="run_floe",
         floe_cmd=FLOE_CMD,
         config_path=FLOE_CONFIG,
+        manifest_context=CTX,
+        outlets=ALL_ENTITY_ASSETS,
     )
 
 

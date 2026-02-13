@@ -56,6 +56,7 @@ floe manifest generate \
   - run log schema: `floe.log.v1`
   - terminal event: `run_finished`
 - Assets are created at parse time from `FLOE_MANIFEST` and materialized when run tasks finish.
+- `floe_example_operator` also publishes asset events when manifest assets are available.
 - If `FLOE_MANIFEST` is missing/invalid, DAGs still run with `FLOE_CONFIG` (or example config fallback) but no assets are loaded/materialized.
 - The returned task payload shape follows `floe.airflow.run.v1`.
 - Use the simple DAG as default architecture. Use entity-mapped only when you need per-entity retries/concurrency.

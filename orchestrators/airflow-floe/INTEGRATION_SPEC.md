@@ -62,7 +62,18 @@ If NDJSON is malformed or no `run_finished` exists, the Airflow task fails.
 
 ## 4. Airflow Execution Model
 
-For each task:
+Default model (recommended):
+1. `FloeValidateOperator`: validate full config once
+2. `FloeRunOperator`: run full config once
+3. optional downstream tasks consume `summary_uri`
+
+Optional model (advanced):
+1. validate once
+2. extract entities from plan
+3. dynamically map one run task per entity
+4. aggregate outcomes downstream
+
+Execution contract per task:
 1. call runner (`local` or `docker`) to execute Floe CLI
 2. capture stdout/stderr and process exit code
 3. parse contract payload (`validate` JSON or run NDJSON)

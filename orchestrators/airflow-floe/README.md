@@ -7,10 +7,8 @@ This folder contains an Airflow-oriented integration spec and a minimal runnable
 - `INTEGRATION_SPEC.md`: contract between Airflow and Floe CLI
 - `schemas/`: JSON Schema for XCom payloads
 - `example/config.yml`: small Floe config for demo
-- `dags/floe_example_dag.py`: demo DAG that:
-  - validates config with `floe validate --output json`
-  - extracts entity list from validate payload
-  - runs one mapped task per entity with `floe run --entities <name> --log-format json`
+- `dags/floe_example_simple_dag.py`: default DAG that validates once, then runs the full config once
+- `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
 
 ## Quick usage
 
@@ -23,7 +21,7 @@ export FLOE_CMD="floe"
 export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
 ```
 
-4. Trigger DAG `floe_example`.
+4. Trigger DAG `floe_example_simple`.
 
 ## Notes
 
@@ -32,3 +30,4 @@ export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.
   - run log schema: `floe.log.v1`
   - terminal event: `run_finished`
 - The returned task payload shape follows `floe.airflow.run.v1`.
+- Use the simple DAG as default architecture. Use entity-mapped only when you need per-entity retries/concurrency.

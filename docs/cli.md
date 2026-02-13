@@ -15,6 +15,12 @@
   - `--quiet` reduces console output to run totals.
   - `--verbose` expands run output details.
 
+- `floe manifest generate -c <config> --target airflow|dagster --output <path|-> [--entities <name[,name...]>]`
+  - Validate config and generate orchestrator manifest JSON.
+  - `--target airflow` outputs `schema=floe.airflow.manifest.v1`.
+  - `--target dagster` outputs `schema=floe.dagster.manifest.v1`.
+  - `--output -` writes manifest JSON to stdout.
+
 ### Dry-run behavior
 
 - Dry-run resolves input files/objects using the same planning path as real runs.
@@ -34,6 +40,10 @@
   - `floe run -c example/config.yml --entities customer --log-format json`
 - Dry-run preview:
   - `floe run -c example/config.yml --entities customer --dry-run`
+- Generate Airflow manifest:
+  - `floe manifest generate -c example/config.yml --target airflow --output orchestrators/airflow-floe/example/manifest.airflow.json`
+- Generate Dagster manifest:
+  - `floe manifest generate -c example/config.yml --target dagster --output -`
 - Report output:
     - `example/report/run_<run_id>/run.summary.json`
     - `example/report/run_<run_id>/customer/run.json`

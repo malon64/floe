@@ -6,6 +6,7 @@ use floe_core::{
 use std::io::Write;
 
 use crate::logging::LogFormat;
+use crate::manifest_output::ManifestTarget;
 use crate::validate_output::ValidateOutputFormat;
 
 const VERSION: &str = env!("FLOE_VERSION");
@@ -62,7 +63,16 @@ const VALIDATE_LONG_ABOUT: &str = concat!(
     "  floe validate -c example/config.yml\n",
 );
 
+const MANIFEST_LONG_ABOUT: &str = concat!(
+    "Generate orchestrator manifest JSON from a validated Floe config.\n",
+    "\n",
+    "Examples:\n",
+    "  floe manifest generate -c example/config.yml --target airflow --output manifest.airflow.json\n",
+    "  floe manifest generate -c example/config.yml --target dagster --output -\n",
+);
+
 mod logging;
+mod manifest_output;
 mod output;
 mod validate_output;
 
@@ -128,6 +138,33 @@ enum Command {
         log_format: LogFormat,
         #[arg(long, help = "Resolve and print inputs/outputs without executing")]
         dry_run: bool,
+    },
+    #[command(
+        about = "Generate orchestrator manifest JSON",
+        long_about = MANIFEST_LONG_ABOUT
+    )]
+    Manifest {
+        #[command(subcommand)]
+        command: ManifestCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ManifestCommand {
+    #[command(about = "Generate a manifest JSON file")]
+    Generate {
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
+        #[arg(long, value_enum, help = "Manifest target (airflow|dagster)")]
+        target: ManifestTarget,
+        #[arg(short, long, help = "Output path for manifest JSON, or '-' for stdout")]
+        output: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Optional comma-separated list of entity names"
+        )]
+        entities: Vec<String>,
     },
 }
 
@@ -310,5 +347,50 @@ fn main() -> FloeResult<()> {
 
             std::process::exit(outcome.summary.run.exit_code);
         }
+        Command::Manifest { command } => match command {
+            ManifestCommand::Generate {
+                config,
+                target,
+                output,
+                entities,
+            } => {
+                let config_location = match resolve_config_location(&config) {
+                    Ok(location) => location,
+                    Err(err) => {
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
+
+                let options = ValidateOptions {
+                    entities: entities.clone(),
+                };
+                if let Err(err) =
+                    validate_with_base(&config_location.path, config_location.base.clone(), options)
+                {
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+
+                let config = load_config(&config_location.path)?;
+                let manifest_json = manifest_output::build_manifest_json(
+                    &config_location,
+                    &config,
+                    target,
+                    &entities,
+                )?;
+                manifest_output::write_manifest(&output, &manifest_json)?;
+                if output != "-" {
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "Manifest written: {output}");
+                    let _ = out.flush();
+                }
+                Ok(())
+            }
+        },
     }
 }

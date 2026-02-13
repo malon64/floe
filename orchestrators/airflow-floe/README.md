@@ -16,9 +16,7 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `src/airflow_floe/hooks.py`: reusable manifest hook (`FloeManifestHook`)
 - `src/airflow_floe/operators.py`: reusable run hook/operator (`FloeRunHook`, `FloeRunOperator`)
 - `example/config.yml`: small Floe config for demo
-- `dags/floe_example_simple_dag.py`: default DAG that runs the full config once
-- `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
-- `dags/floe_example_operator_dag.py`: simple DAG using `FloeRunOperator`
+- `dags/floe_example_operator_dag.py`: example DAG using `FloeRunOperator`
 
 ## Quick usage
 
@@ -47,8 +45,7 @@ floe manifest generate \
   --output orchestrators/airflow-floe/example/manifest.airflow.json
 ```
 
-6. Trigger DAG `floe_example_simple`.
-   - Alternative operator-first demo: `floe_example_operator`
+6. Trigger DAG `floe_example_operator`.
 
 ## Notes
 
@@ -59,5 +56,4 @@ floe manifest generate \
 - `floe_example_operator` also publishes asset events when manifest assets are available.
 - If `FLOE_MANIFEST` is missing/invalid, DAGs still run with `FLOE_CONFIG` (or example config fallback) but no assets are loaded/materialized.
 - The returned task payload shape follows `floe.airflow.run.v1`.
-- Use the simple DAG as default architecture. Use entity-mapped only when you need per-entity retries/concurrency.
 - Local run summaries emitted as `local://...` are resolved and loaded by the connector runtime helpers.

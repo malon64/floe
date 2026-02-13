@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/malon64/floe/orchestrators/airflow-floe/schemas/floe.airflow.run.v1.json",
+  "title": "Floe Airflow Run Payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "status",
+    "exit_code",
+    "files",
+    "rows",
+    "accepted",
+    "rejected",
+    "warnings",
+    "errors",
+    "floe_log_schema",
+    "finished_at_ts_ms"
+  ],
+  "properties": {
+    "schema": {
+      "const": "floe.airflow.run.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "success_with_warnings",
+        "rejected",
+        "aborted",
+        "failed"
+      ]
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rejected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary_uri": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "config_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "floe_log_schema": {
+      "const": "floe.log.v1"
+    },
+    "finished_at_ts_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

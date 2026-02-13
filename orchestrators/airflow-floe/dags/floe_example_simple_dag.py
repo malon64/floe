@@ -9,14 +9,20 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from airflow.sdk import dag, task
 
-from floe_hook import FloeManifestHook
-from floe_runtime import (
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from airflow_floe.hooks import FloeManifestHook
+from airflow_floe.runtime import (
     build_asset_event_extra,
     load_run_summary,
     parse_run_finished,
@@ -26,9 +32,9 @@ from floe_runtime import (
 FLOE_CMD = os.environ.get("FLOE_CMD", "floe")
 FLOE_MANIFEST = os.environ.get(
     "FLOE_MANIFEST",
-    str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
+    str(ROOT_DIR / "example" / "manifest.airflow.json"),
 )
-DEFAULT_CONFIG = str(Path(__file__).resolve().parents[1] / "example" / "config.yml")
+DEFAULT_CONFIG = str(ROOT_DIR / "example" / "config.yml")
 MANIFEST_HOOK = FloeManifestHook(
     manifest_path=FLOE_MANIFEST,
     config_override=os.environ.get("FLOE_CONFIG"),

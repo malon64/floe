@@ -1,6 +1,8 @@
 # Floe + Airflow (MVP example)
 
-This folder contains an Airflow-oriented integration spec and a minimal runnable DAG example.
+This folder contains:
+- a reusable Python connector package (`src/airflow_floe`)
+- example DAGs (`dags/`) that consume the package
 
 For local setup of both Dagster and Airflow with isolated virtual environments, see:
 - `orchestrators/LOCAL_DEV.md`
@@ -9,10 +11,10 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 
 - `INTEGRATION_SPEC.md`: contract between Airflow and Floe CLI
 - `schemas/`: JSON Schemas for XCom payloads and manifest contract
-- `dags/floe_manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
-- `dags/floe_runtime.py`: shared runtime helpers (manifest context, run event parsing, summary loading)
-- `dags/floe_hook.py`: reusable manifest hook (`FloeManifestHook`)
-- `dags/floe_operators.py`: reusable run hook/operator (`FloeRunHook`, `FloeRunOperator`)
+- `src/airflow_floe/manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
+- `src/airflow_floe/runtime.py`: shared runtime helpers (manifest context, run event parsing, summary loading)
+- `src/airflow_floe/hooks.py`: reusable manifest hook (`FloeManifestHook`)
+- `src/airflow_floe/operators.py`: reusable run hook/operator (`FloeRunHook`, `FloeRunOperator`)
 - `example/config.yml`: small Floe config for demo
 - `dags/floe_example_simple_dag.py`: default DAG that runs the full config once
 - `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
@@ -21,8 +23,13 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 ## Quick usage
 
 1. Make sure `floe` is available in PATH (or set `FLOE_CMD`).
-2. Point Airflow DAGs folder to `orchestrators/airflow-floe/dags`.
-3. Set optional env vars:
+2. (Optional but recommended) install the connector package:
+
+```bash
+python -m pip install -e orchestrators/airflow-floe
+```
+3. Point Airflow DAGs folder to `orchestrators/airflow-floe/dags`.
+4. Set optional env vars:
 
 ```bash
 export FLOE_CMD="floe"
@@ -31,7 +38,7 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 # export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
 ```
 
-4. Generate manifest from Floe config:
+5. Generate manifest from Floe config:
 
 ```bash
 floe manifest generate \
@@ -40,7 +47,7 @@ floe manifest generate \
   --output orchestrators/airflow-floe/example/manifest.airflow.json
 ```
 
-5. Trigger DAG `floe_example_simple`.
+6. Trigger DAG `floe_example_simple`.
    - Alternative operator-first demo: `floe_example_operator`
 
 ## Notes

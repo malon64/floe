@@ -8,9 +8,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from airflow.sdk import Asset
+try:
+    from airflow.sdk import Asset
+except Exception:  # pragma: no cover - fallback for local unit tests without Airflow
+    @dataclass
+    class Asset:  # type: ignore[override]
+        name: str
+        uri: str
+        group: str | None = None
 
-from floe_manifest import AirflowManifest, ManifestEntity, load_manifest
+from .manifest import AirflowManifest, ManifestEntity, load_manifest
 
 
 @dataclass(frozen=True)

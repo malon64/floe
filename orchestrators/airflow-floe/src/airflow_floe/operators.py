@@ -6,7 +6,7 @@ import shlex
 import subprocess
 from typing import Any
 
-from floe_runtime import parse_run_finished
+from .runtime import parse_run_finished
 
 try:
     from airflow.models.baseoperator import BaseOperator

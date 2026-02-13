@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from floe_runtime import DagManifestContext, build_dag_manifest_context_or_empty
+from .runtime import DagManifestContext, build_dag_manifest_context_or_empty
 
 
 def load_manifest_context(
@@ -55,7 +55,7 @@ class FloeManifestHook:
 
     @staticmethod
     def default_example_paths() -> tuple[str, str]:
-        base = Path(__file__).resolve().parents[1]
+        base = Path(__file__).resolve().parents[2]
         manifest = str(base / "example" / "manifest.airflow.json")
         config = str(base / "example" / "config.yml")
         return manifest, config

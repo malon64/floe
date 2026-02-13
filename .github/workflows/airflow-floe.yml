@@ -24,6 +24,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Syntax check
-        run: python -m compileall orchestrators/airflow-floe/dags orchestrators/airflow-floe/tests
+        run: python -m compileall orchestrators/airflow-floe/src orchestrators/airflow-floe/dags orchestrators/airflow-floe/tests
+      - name: Package install check
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install orchestrators/airflow-floe --no-deps
       - name: Tests
         run: python -m unittest discover -s orchestrators/airflow-floe/tests -p "test_*.py"

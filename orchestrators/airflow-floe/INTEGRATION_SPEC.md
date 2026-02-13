@@ -76,7 +76,7 @@ Target purpose:
 - avoid running Floe subprocess in DAG parse phase
 
 Interim implementation status:
-- `orchestrators/airflow-floe/dags/floe_manifest.py` can already convert
+- `orchestrators/airflow-floe/src/airflow_floe/manifest.py` can already convert
   `floe validate --output json` payloads (`floe.plan.v1`) into the manifest model.
 - Example DAGs now load `floe.airflow.manifest.v1` at parse time and publish
   per-entity asset metadata on run completion.

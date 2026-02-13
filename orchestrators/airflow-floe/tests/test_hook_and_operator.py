@@ -30,10 +30,10 @@ def _install_airflow_stub() -> None:
 
 
 _install_airflow_stub()
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from floe_hook import FloeManifestHook  # noqa: E402
-from floe_operators import FloeRunHook, FloeRunOperator  # noqa: E402
+from airflow_floe.hooks import FloeManifestHook  # noqa: E402
+from airflow_floe.operators import FloeRunHook, FloeRunOperator  # noqa: E402
 
 
 class HookAndOperatorTests(unittest.TestCase):
@@ -136,7 +136,7 @@ class HookAndOperatorTests(unittest.TestCase):
             floe_cmd="floe",
         )
         expected = {"schema": "floe.airflow.run.v1", "run_id": "run-1"}
-        with patch("floe_operators.FloeRunHook.run", return_value=expected) as run_mock:
+        with patch("airflow_floe.operators.FloeRunHook.run", return_value=expected) as run_mock:
             actual = operator.execute({})
         run_mock.assert_called_once_with("/tmp/config.yml", entities=["orders"])
         self.assertEqual(actual, expected)

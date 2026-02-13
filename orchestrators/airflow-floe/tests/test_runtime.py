@@ -28,9 +28,9 @@ def _install_airflow_stub() -> None:
 
 
 _install_airflow_stub()
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from floe_runtime import (  # noqa: E402
+from airflow_floe.runtime import (  # noqa: E402
     build_dag_manifest_context,
     build_dag_manifest_context_or_empty,
     load_run_summary,

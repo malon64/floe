@@ -15,9 +15,9 @@ from typing import Any
 
 from airflow.sdk import dag, task
 
+from floe_hook import FloeManifestHook
 from floe_runtime import (
     build_asset_event_extra,
-    build_dag_manifest_context,
     load_run_summary,
     parse_run_finished,
     summary_entities_by_name,
@@ -28,11 +28,13 @@ FLOE_MANIFEST = os.environ.get(
     "FLOE_MANIFEST",
     str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
 )
-CTX = build_dag_manifest_context(
+DEFAULT_CONFIG = str(Path(__file__).resolve().parents[1] / "example" / "config.yml")
+MANIFEST_HOOK = FloeManifestHook(
     manifest_path=FLOE_MANIFEST,
     config_override=os.environ.get("FLOE_CONFIG"),
+    default_config_path=DEFAULT_CONFIG,
 )
-MANIFEST = CTX.manifest
+CTX = MANIFEST_HOOK.get_context()
 ENTITY_ASSETS = CTX.assets_by_entity
 ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
 FLOE_CONFIG = CTX.config_path
@@ -67,8 +69,8 @@ def floe_example_simple() -> None:
         summary_entities = summary_entities_by_name(summary)
 
         if outlet_events is not None:
-            for entity in MANIFEST.entities:
-                asset = ENTITY_ASSETS[entity.name]
+            for entity_name, entity in CTX.entities_by_name.items():
+                asset = ENTITY_ASSETS[entity_name]
                 event = outlet_events.get(asset)
                 if event is None:
                     continue

@@ -11,9 +11,12 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `schemas/`: JSON Schemas for XCom payloads and manifest contract
 - `dags/floe_manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
 - `dags/floe_runtime.py`: shared runtime helpers (manifest context, run event parsing, summary loading)
+- `dags/floe_hook.py`: reusable manifest hook (`FloeManifestHook`)
+- `dags/floe_operators.py`: reusable run hook/operator (`FloeRunHook`, `FloeRunOperator`)
 - `example/config.yml`: small Floe config for demo
 - `dags/floe_example_simple_dag.py`: default DAG that runs the full config once
 - `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
+- `dags/floe_example_operator_dag.py`: simple DAG using `FloeRunOperator`
 
 ## Quick usage
 
@@ -38,6 +41,7 @@ floe manifest generate \
 ```
 
 5. Trigger DAG `floe_example_simple`.
+   - Alternative operator-first demo: `floe_example_operator`
 
 ## Notes
 
@@ -45,6 +49,7 @@ floe manifest generate \
   - run log schema: `floe.log.v1`
   - terminal event: `run_finished`
 - Assets are created at parse time from `FLOE_MANIFEST` and materialized when run tasks finish.
+- If `FLOE_MANIFEST` is missing/invalid, DAGs still run with `FLOE_CONFIG` (or example config fallback) but no assets are loaded/materialized.
 - The returned task payload shape follows `floe.airflow.run.v1`.
 - Use the simple DAG as default architecture. Use entity-mapped only when you need per-entity retries/concurrency.
 - Local run summaries emitted as `local://...` are resolved and loaded by the connector runtime helpers.

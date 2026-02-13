@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
 
 from floe_runtime import (  # noqa: E402
     build_dag_manifest_context,
+    build_dag_manifest_context_or_empty,
     load_run_summary,
     parse_run_finished,
 )
@@ -118,6 +119,22 @@ class RuntimeHelpersTests(unittest.TestCase):
             self.assertEqual(context.entity_names, ["orders"])
             self.assertIn("orders", context.assets_by_entity)
             self.assertIn("orders", context.entities_by_name)
+
+    def test_build_dag_manifest_context_or_empty_when_missing_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            missing_manifest = base / "missing.manifest.json"
+            default_config = base / "config.yml"
+            default_config.write_text("version: v1\n", encoding="utf-8")
+
+            context = build_dag_manifest_context_or_empty(
+                str(missing_manifest),
+                default_config_path=str(default_config),
+            )
+            self.assertIsNone(context.manifest)
+            self.assertEqual(context.entity_names, [])
+            self.assertEqual(context.assets_by_entity, {})
+            self.assertEqual(context.config_path, str(default_config.resolve()))
 
 
 if __name__ == "__main__":

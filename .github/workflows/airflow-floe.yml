@@ -1,0 +1,29 @@
+name: Airflow Floe (Python)
+
+on:
+  pull_request:
+    paths:
+      - "orchestrators/airflow-floe/**"
+      - ".github/workflows/airflow-floe.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "orchestrators/airflow-floe/**"
+      - ".github/workflows/airflow-floe.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Syntax check
+        run: python -m compileall orchestrators/airflow-floe/dags orchestrators/airflow-floe/tests
+      - name: Tests
+        run: python -m unittest discover -s orchestrators/airflow-floe/tests -p "test_*.py"

@@ -16,7 +16,7 @@ from floe_manifest import AirflowManifest, ManifestEntity, load_manifest
 @dataclass(frozen=True)
 class DagManifestContext:
     manifest_path: str
-    manifest: AirflowManifest
+    manifest: AirflowManifest | None
     config_path: str
     assets_by_entity: dict[str, Asset]
     entities_by_name: dict[str, ManifestEntity]
@@ -41,6 +41,33 @@ def build_dag_manifest_context(
         entities_by_name=entities_by_name,
         entity_names=entity_names,
     )
+
+
+def build_dag_manifest_context_or_empty(
+    manifest_path: str,
+    *,
+    config_override: str | None = None,
+    default_config_path: str | None = None,
+) -> DagManifestContext:
+    try:
+        return build_dag_manifest_context(
+            manifest_path=manifest_path,
+            config_override=config_override,
+        )
+    except Exception:
+        fallback_config = config_override or default_config_path
+        if fallback_config is None:
+            raise ValueError(
+                "manifest loading failed and no fallback config path was provided"
+            )
+        return DagManifestContext(
+            manifest_path=manifest_path,
+            manifest=None,
+            config_path=str(Path(fallback_config).resolve()),
+            assets_by_entity={},
+            entities_by_name={},
+            entity_names=[],
+        )
 
 
 def resolve_config_path(manifest_path: str, config_uri: str) -> str:

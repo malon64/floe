@@ -15,9 +15,9 @@ from typing import Any
 
 from airflow.sdk import dag, task
 
+from floe_hook import FloeManifestHook
 from floe_runtime import (
     build_asset_event_extra,
-    build_dag_manifest_context,
     load_run_summary,
     parse_run_finished,
     summary_entities_by_name,
@@ -29,11 +29,13 @@ FLOE_MANIFEST = os.environ.get(
     "FLOE_MANIFEST",
     str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
 )
-CTX = build_dag_manifest_context(
+DEFAULT_CONFIG = str(Path(__file__).resolve().parents[1] / "example" / "config.yml")
+MANIFEST_HOOK = FloeManifestHook(
     manifest_path=FLOE_MANIFEST,
     config_override=os.environ.get("FLOE_CONFIG"),
+    default_config_path=DEFAULT_CONFIG,
 )
-MANIFEST = CTX.manifest
+CTX = MANIFEST_HOOK.get_context()
 ENTITY_ASSETS = CTX.assets_by_entity
 ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
 ENTITIES_BY_NAME = CTX.entities_by_name
@@ -111,10 +113,32 @@ def floe_example_entity_mapped() -> None:
             "finished_at_ts_ms": run_finished["ts_ms"],
         }
 
-    if not ENTITY_NAMES:
-        raise ValueError("manifest has no entities")
+    @task
+    def run_config_without_manifest() -> dict[str, Any]:
+        cmd = [*_split_cmd(FLOE_CMD), "run", "-c", FLOE_CONFIG, "--log-format", "json"]
+        completed = _run_cli(cmd)
+        run_finished = parse_run_finished(completed.stdout)
+        return {
+            "schema": "floe.airflow.run.v1",
+            "run_id": run_finished["run_id"],
+            "status": run_finished["status"],
+            "exit_code": run_finished["exit_code"],
+            "files": run_finished["files"],
+            "rows": run_finished["rows"],
+            "accepted": run_finished["accepted"],
+            "rejected": run_finished["rejected"],
+            "warnings": run_finished["warnings"],
+            "errors": run_finished["errors"],
+            "summary_uri": run_finished.get("summary_uri"),
+            "config_uri": FLOE_CONFIG,
+            "floe_log_schema": "floe.log.v1",
+            "finished_at_ts_ms": run_finished["ts_ms"],
+        }
 
-    run_entity.expand(entity=ENTITY_NAMES)
+    if ENTITY_NAMES:
+        run_entity.expand(entity=ENTITY_NAMES)
+    else:
+        run_config_without_manifest()
 
 
 floe_example_entity_mapped()

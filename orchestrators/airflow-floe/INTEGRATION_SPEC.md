@@ -76,7 +76,7 @@ Target purpose:
 - avoid running Floe subprocess in DAG parse phase
 
 Interim implementation status:
-- `orchestrators/airflow-floe/dags/floe_manifest.py` can already convert
+- `orchestrators/airflow-floe/src/airflow_floe/manifest.py` can already convert
   `floe validate --output json` payloads (`floe.plan.v1`) into the manifest model.
 - Example DAGs now load `floe.airflow.manifest.v1` at parse time and publish
   per-entity asset metadata on run completion.
@@ -257,6 +257,14 @@ Once `floe.airflow.manifest.v1` is available, connector work is:
 4. Runtime parsing
 - NDJSON parser for `floe.log.v1`
 - summary loader from `summary_uri` (local first, cloud later)
+
+## 13. Current connector status
+
+Implemented in this repo:
+- `FloeManifestHook` to load manifest context and assets (with no-manifest fallback context)
+- `FloeRunHook` + `FloeRunOperator` for run execution and normalized `floe.airflow.run.v1` payloads
+- local summary URI support for `file://...` and `local://...`
+- dedicated Airflow connector CI workflow (`.github/workflows/airflow-floe.yml`)
 
 5. Asset publication model
 - static definitions from manifest

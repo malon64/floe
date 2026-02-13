@@ -1,0 +1,44 @@
+[project]
+name = "airflow-floe"
+version = "0.1.0"
+description = "Airflow connector for Floe CLI (manifest-first orchestration)"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Floe contributors" }]
+keywords = ["airflow", "orchestration", "ingestion", "data-quality"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  "apache-airflow>=3.1,<4",
+]
+
+[project.urls]
+Homepage = "https://github.com/malon64/floe"
+Repository = "https://github.com/malon64/floe"
+Issues = "https://github.com/malon64/floe/issues"
+Documentation = "https://github.com/malon64/floe/tree/main/orchestrators/airflow-floe"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]

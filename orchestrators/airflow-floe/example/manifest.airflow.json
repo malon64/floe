@@ -1,27 +1,33 @@
 {
   "schema": "floe.airflow.manifest.v1",
-  "generated_at_ts_ms": 1739502000000,
-  "floe_version": "0.2.4",
-  "config_uri": "./config.yml",
+  "generated_at_ts_ms": 1771001085139,
+  "floe_version": "0.2.4 (2e411b3)",
+  "config_uri": "/Users/a.metwalli/floe/orchestrators/airflow-floe/example/config.yml",
   "config_checksum": null,
   "entities": [
     {
       "name": "employees",
       "domain": "hr",
       "group_name": "hr",
+      "asset_key": [
+        "hr",
+        "employees"
+      ],
       "source_format": "csv",
-      "accepted_sink_uri": "./out/accepted/employees",
-      "rejected_sink_uri": "./out/rejected/employees",
-      "asset_key": ["hr", "employees"]
+      "accepted_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/employees",
+      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees"
     },
     {
       "name": "orders",
       "domain": "sales",
       "group_name": "sales",
+      "asset_key": [
+        "sales",
+        "orders"
+      ],
       "source_format": "csv",
-      "accepted_sink_uri": "./out/accepted/orders_delta",
-      "rejected_sink_uri": "./out/rejected/orders",
-      "asset_key": ["sales", "orders"]
+      "accepted_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/orders_delta",
+      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/orders"
     }
   ]
 }

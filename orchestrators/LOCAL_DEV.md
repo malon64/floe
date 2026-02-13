@@ -93,8 +93,7 @@ Open Airflow UI at `http://127.0.0.1:8080`.
 - Password: generated in terminal (or in `$AIRFLOW_HOME/simple_auth_manager_passwords.json.generated`)
 
 Trigger DAG:
-- `floe_example_simple` (default config-level run)
-- `floe_example_entity_mapped` (advanced per-entity mapped runs)
+- `floe_example_operator` (operator-based connector example)
 
 After at least one successful run, check Airflow Assets UI:
 - assets are declared from `FLOE_MANIFEST` at parse time
@@ -131,6 +130,5 @@ airflow jobs check --job-type SchedulerJob --allow-multiple --limit 5
   - unpause DAGs if needed:
 
 ```bash
-airflow dags unpause floe_example_simple
-airflow dags unpause floe_example_entity_mapped
+airflow dags unpause floe_example_operator
 ```

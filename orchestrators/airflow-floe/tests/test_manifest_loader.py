@@ -5,12 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-# airflow-floe is not packaged yet; import module directly from DAG folder.
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from floe_manifest import (  # noqa: E402
+from airflow_floe.manifest import (  # noqa: E402
     MANIFEST_SCHEMA,
     VALIDATE_SCHEMA,
     AirflowManifest,

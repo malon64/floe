@@ -1,0 +1,27 @@
+{
+  "schema": "floe.airflow.manifest.v1",
+  "generated_at_ts_ms": 1739502000000,
+  "floe_version": "0.2.4",
+  "config_uri": "./config.yml",
+  "config_checksum": null,
+  "entities": [
+    {
+      "name": "employees",
+      "domain": "hr",
+      "group_name": "hr",
+      "source_format": "csv",
+      "accepted_sink_uri": "./out/accepted/employees",
+      "rejected_sink_uri": "./out/rejected/employees",
+      "asset_key": ["hr", "employees"]
+    },
+    {
+      "name": "orders",
+      "domain": "sales",
+      "group_name": "sales",
+      "source_format": "csv",
+      "accepted_sink_uri": "./out/accepted/orders_delta",
+      "rejected_sink_uri": "./out/rejected/orders",
+      "asset_key": ["sales", "orders"]
+    }
+  ]
+}

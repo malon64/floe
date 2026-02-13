@@ -1,8 +1,8 @@
 """Airflow demo DAG for Floe (default config-level run).
 
-This DAG follows the default Airflow approach for Floe:
-- validate once for the full config
-- run once for the full config
+This DAG loads a static manifest at import time, then:
+- validates once for the full config
+- runs once for the full config
 """
 
 from __future__ import annotations
@@ -15,12 +15,29 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from airflow.decorators import dag, task
+from airflow.sdk import dag, task
+
+from floe_manifest import load_manifest
+from floe_runtime import (
+    build_asset_event_extra,
+    build_entity_assets,
+    load_run_summary,
+    resolve_config_path,
+    summary_entities_by_name,
+)
 
 FLOE_CMD = os.environ.get("FLOE_CMD", "floe")
+FLOE_MANIFEST = os.environ.get(
+    "FLOE_MANIFEST",
+    str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
+)
+MANIFEST = load_manifest(FLOE_MANIFEST)
+ENTITY_ASSETS = build_entity_assets(MANIFEST, FLOE_MANIFEST)
+ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
+
 FLOE_CONFIG = os.environ.get(
     "FLOE_CONFIG",
-    str(Path(__file__).resolve().parents[1] / "example" / "config.yml"),
+    resolve_config_path(FLOE_MANIFEST, MANIFEST.config_uri),
 )
 
 
@@ -54,7 +71,7 @@ def floe_example_simple() -> None:
 
         errors = payload.get("errors", [])
         warnings = payload.get("warnings", [])
-        entity_count = len(payload.get("plan", {}).get("entities", []))
+        entity_names = [entity.name for entity in MANIFEST.entities]
 
         return {
             "schema": "floe.airflow.validate.v1",
@@ -62,13 +79,18 @@ def floe_example_simple() -> None:
             "valid": bool(payload.get("valid", False)),
             "error_count": len(errors),
             "warning_count": len(warnings),
-            "entity_count": entity_count,
+            "entity_count": len(entity_names),
+            "selected_entities": entity_names,
             "floe_schema": "floe.plan.v1",
             "generated_at_ts_ms": payload.get("generated_at_ts_ms", 0),
         }
 
-    @task
-    def run_config(validate_payload: dict[str, Any]) -> dict[str, Any]:
+    @task(outlets=ALL_ENTITY_ASSETS)
+    def run_config(
+        validate_payload: dict[str, Any],
+        *,
+        outlet_events: dict[Any, Any] | None = None,
+    ) -> dict[str, Any]:
         if not validate_payload["valid"]:
             raise ValueError("floe config is invalid; run step stopped")
 
@@ -87,6 +109,21 @@ def floe_example_simple() -> None:
 
         if run_finished is None:
             raise ValueError("run_finished event not found")
+
+        summary = load_run_summary(run_finished.get("summary_uri"), FLOE_CONFIG)
+        summary_entities = summary_entities_by_name(summary)
+
+        if outlet_events is not None:
+            for entity in MANIFEST.entities:
+                asset = ENTITY_ASSETS[entity.name]
+                event = outlet_events.get(asset)
+                if event is None:
+                    continue
+                event.extra = build_asset_event_extra(
+                    entity=entity,
+                    run_finished=run_finished,
+                    summary_entity=summary_entities.get(entity.name),
+                )
 
         return {
             "schema": "floe.airflow.run.v1",

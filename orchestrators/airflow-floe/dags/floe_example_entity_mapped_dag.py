@@ -1,8 +1,8 @@
 """Airflow demo DAG for Floe (advanced dynamic mapping).
 
-This example uses Floe CLI contracts directly:
-- validate: floe validate --output json
-- run: floe run --log-format json
+This DAG loads a static manifest at import time, then:
+- validates once
+- maps one run task per entity defined in the manifest
 """
 
 from __future__ import annotations
@@ -15,14 +15,33 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from airflow.decorators import dag, task
+from airflow.sdk import dag, task
+
+from floe_manifest import load_manifest
+from floe_runtime import (
+    build_asset_event_extra,
+    build_entity_assets,
+    load_run_summary,
+    resolve_config_path,
+    summary_entities_by_name,
+)
 
 # Override with env vars in real deployments.
 FLOE_CMD = os.environ.get("FLOE_CMD", "floe")
+FLOE_MANIFEST = os.environ.get(
+    "FLOE_MANIFEST",
+    str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
+)
+MANIFEST = load_manifest(FLOE_MANIFEST)
+ENTITY_ASSETS = build_entity_assets(MANIFEST, FLOE_MANIFEST)
+ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
+ENTITIES_BY_NAME = {entity.name: entity for entity in MANIFEST.entities}
+
 FLOE_CONFIG = os.environ.get(
     "FLOE_CONFIG",
-    str(Path(__file__).resolve().parents[1] / "example" / "config.yml"),
+    resolve_config_path(FLOE_MANIFEST, MANIFEST.config_uri),
 )
+ENTITY_NAMES = [entity.name for entity in MANIFEST.entities]
 
 
 def _split_cmd(command: str) -> list[str]:
@@ -45,39 +64,34 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
 )
 def floe_example_entity_mapped() -> None:
     @task
-    def validate_plan() -> dict[str, Any]:
+    def validate_config() -> dict[str, Any]:
         cmd = [*_split_cmd(FLOE_CMD), "validate", "-c", FLOE_CONFIG, "--output", "json"]
         completed = _run_cli(cmd)
 
         payload = json.loads(completed.stdout)
         if payload.get("schema") != "floe.plan.v1":
             raise ValueError(f"unexpected validate schema: {payload.get('schema')}")
-
-        entities = [
-            entity["name"]
-            for entity in payload.get("plan", {}).get("entities", [])
-            if entity.get("name")
-        ]
-        if not entities:
-            raise ValueError("no entities found in validate plan")
+        if not bool(payload.get("valid", False)):
+            raise ValueError("floe config is invalid; mapped run stopped")
 
         return {
             "config": FLOE_CONFIG,
-            "entities": entities,
-            "entity_count": len(entities),
+            "entities": ENTITY_NAMES,
+            "entity_count": len(ENTITY_NAMES),
         }
 
-    @task
-    def extract_entities(plan: dict[str, Any]) -> list[str]:
-        return plan["entities"]
-
-    @task
-    def run_entity(entity: str, plan: dict[str, Any]) -> dict[str, Any]:
+    @task(outlets=ALL_ENTITY_ASSETS)
+    def run_entity(
+        entity: str,
+        validate_payload: dict[str, Any],
+        *,
+        outlet_events: dict[Any, Any] | None = None,
+    ) -> dict[str, Any]:
         cmd = [
             *_split_cmd(FLOE_CMD),
             "run",
             "-c",
-            plan["config"],
+            validate_payload["config"],
             "--entities",
             entity,
             "--log-format",
@@ -98,6 +112,20 @@ def floe_example_entity_mapped() -> None:
         if run_finished is None:
             raise ValueError("run_finished event not found")
 
+        summary = load_run_summary(run_finished.get("summary_uri"), FLOE_CONFIG)
+        summary_entities = summary_entities_by_name(summary)
+        manifest_entity = ENTITIES_BY_NAME[entity]
+
+        if outlet_events is not None:
+            asset = ENTITY_ASSETS[entity]
+            event = outlet_events.get(asset)
+            if event is not None:
+                event.extra = build_asset_event_extra(
+                    entity=manifest_entity,
+                    run_finished=run_finished,
+                    summary_entity=summary_entities.get(entity),
+                )
+
         return {
             "schema": "floe.airflow.run.v1",
             "entity": entity,
@@ -111,14 +139,16 @@ def floe_example_entity_mapped() -> None:
             "warnings": run_finished["warnings"],
             "errors": run_finished["errors"],
             "summary_uri": run_finished.get("summary_uri"),
-            "config_uri": plan["config"],
+            "config_uri": validate_payload["config"],
             "floe_log_schema": "floe.log.v1",
             "finished_at_ts_ms": run_finished["ts_ms"],
         }
 
-    plan = validate_plan()
-    entities = extract_entities(plan)
-    run_entity.partial(plan=plan).expand(entity=entities)
+    if not ENTITY_NAMES:
+        raise ValueError("manifest has no entities")
+
+    validate_payload = validate_config()
+    run_entity.partial(validate_payload=validate_payload).expand(entity=ENTITY_NAMES)
 
 
 floe_example_entity_mapped()

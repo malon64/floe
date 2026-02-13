@@ -2,6 +2,9 @@
 
 This folder contains a small Dagster connector for Floe, implemented as a Python package.
 
+For local setup of both Dagster and Airflow with isolated virtual environments, see:
+- `orchestrators/LOCAL_DEV.md`
+
 Goals of the MVP:
 - Generate one Dagster asset per Floe entity by calling `floe validate --output json`
 - Execute one entity per asset with `floe run --entities <name> --log-format json`

@@ -60,16 +60,54 @@ Contract:
 
 If NDJSON is malformed or no `run_finished` exists, the Airflow task fails.
 
+### 3.3 Manifest command (next Floe contract)
+
+Target command (to implement in Floe):
+
+```bash
+floe plan -c <config_path> --format airflow --output-path <manifest_path>
+```
+
+Target purpose:
+- pre-parse config outside Airflow runtime
+- generate a static manifest consumed by DAG import
+- avoid running Floe subprocess in DAG parse phase
+
+Interim implementation status:
+- `orchestrators/airflow-floe/dags/floe_manifest.py` can already convert
+  `floe validate --output json` payloads (`floe.plan.v1`) into the manifest model.
+- Example DAGs now load `floe.airflow.manifest.v1` at parse time and publish
+  per-entity asset metadata on run completion.
+
+Target manifest schema (proposal): `floe.airflow.manifest.v1`
+
+Minimum fields:
+- `schema`: `floe.airflow.manifest.v1`
+- `generated_at_ts_ms`
+- `floe_version`
+- `config_uri`
+- `config_checksum` (or equivalent fingerprint)
+- `entities[]` with:
+  - `name`
+  - `domain` (optional)
+  - `group_name` (optional)
+  - `source_format`
+  - `accepted_sink_uri`
+  - `rejected_sink_uri` (optional)
+  - `asset_key` (or deterministic derivation inputs)
+
 ## 4. Airflow Execution Model
 
 Default model (recommended):
-1. `FloeValidateOperator`: validate full config once
-2. `FloeRunOperator`: run full config once
-3. optional downstream tasks consume `summary_uri`
+1. **deploy/control-plane step**: generate manifest (`floe plan --format airflow`)
+2. DAG import reads manifest only (static entity/asset definitions)
+3. `FloeValidateOperator`: validate full config once (runtime guard)
+4. `FloeRunOperator`: run full config once
+5. optional downstream tasks consume `summary_uri` and publish materializations
 
 Optional model (advanced):
 1. validate once
-2. extract entities from plan
+2. extract selected entities from params/manifest
 3. dynamically map one run task per entity
 4. aggregate outcomes downstream
 
@@ -80,6 +118,11 @@ Execution contract per task:
 4. build adapter payload (`floe.airflow.*.v1`)
 5. push adapter payload to XCom
 6. map task status using rules in section 6
+
+Important constraints:
+- do not call `floe validate` during DAG file import
+- do not mutate asset definitions at runtime
+- publish asset materialization results at runtime from run outputs
 
 ## 5. Adapter Payload Schemas (XCom)
 
@@ -176,6 +219,45 @@ Note: `valid=false` is still a successful task execution if the command contract
 5. implement XCom push utilities
 6. add unit tests for parser and schema validation
 7. add integration tests for local and docker happy paths
+
+## 11. Decisions (2026-02-13)
+
+1. Airflow default connector model is DAG/operator-oriented, not asset-first execution.
+2. Asset visibility is supported, but execution remains centered on Floe run tasks.
+3. Config parsing authority stays in Floe, not in Python connector code.
+4. DAG import should consume a static manifest, not invoke Floe CLI directly.
+5. Runtime should publish materialization outcomes for entities actually processed.
+6. Dynamic entity subsets are supported at runtime, but asset definitions remain static for the deployed DAG version.
+
+## 12. Post-Manifest Connector Roadmap
+
+Once `floe.airflow.manifest.v1` is available, connector work is:
+
+1. Manifest loader module
+- read/validate `floe.airflow.manifest.v1`
+- fail fast on schema mismatch
+
+2. DAG factory from manifest
+- build default simple DAG from static manifest
+- optional entity-mapped DAG from same manifest
+
+3. Operators
+- `FloeValidateOperator` (runtime guard)
+- `FloeRunOperator` (full config or selected entities)
+- `FloePublishAssetsOperator` (publish per-entity materialization metadata from summary)
+
+4. Runtime parsing
+- NDJSON parser for `floe.log.v1`
+- summary loader from `summary_uri` (local first, cloud later)
+
+5. Asset publication model
+- static definitions from manifest
+- runtime materialization events only for executed entities
+
+6. Testing
+- unit: manifest schema validation, parser, payload builders
+- integration: simple DAG end-to-end using manifest
+- integration: entity subset run + correct materialization publication
 
 ## 10. Example Payloads
 

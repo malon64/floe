@@ -6,9 +6,12 @@
 Thumbs.db
 .cargo/
 .venv/
+.venv-airflow/
+.venv-dagster/
 __pycache__/
 .pytest_cache/
 *.pyc
+.airflow/
 
 # Editors
 .idea/
@@ -34,3 +37,9 @@ orchestrators/dagster-floe/.tmp_*/
 orchestrators/dagster-floe/.dg/
 orchestrators/dagster-floe/.venv/
 orchestrators/dagster-floe/src/*.egg-info/
+
+# Airflow
+orchestrators/airflow-floe/.venv/
+orchestrators/airflow-floe/example/out/
+orchestrators/airflow-floe/example/report/
+orchestrators/airflow-floe/data/

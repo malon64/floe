@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/malon64/floe/orchestrators/airflow-floe/schemas/floe.airflow.validate.v1.json",
+  "title": "Floe Airflow Validate Payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "config_uri",
+    "valid",
+    "error_count",
+    "warning_count",
+    "floe_schema",
+    "generated_at_ts_ms"
+  ],
+  "properties": {
+    "schema": {
+      "const": "floe.airflow.validate.v1"
+    },
+    "config_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warning_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "entity_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "selected_entities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "floe_schema": {
+      "const": "floe.plan.v1"
+    },
+    "generated_at_ts_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

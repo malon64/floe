@@ -6,7 +6,6 @@ This DAG loads a static manifest at import time, then:
 
 from __future__ import annotations
 
-import json
 import os
 import shlex
 import subprocess
@@ -16,12 +15,11 @@ from typing import Any
 
 from airflow.sdk import dag, task
 
-from floe_manifest import load_manifest
 from floe_runtime import (
     build_asset_event_extra,
-    build_entity_assets,
+    build_dag_manifest_context,
     load_run_summary,
-    resolve_config_path,
+    parse_run_finished,
     summary_entities_by_name,
 )
 
@@ -31,16 +29,16 @@ FLOE_MANIFEST = os.environ.get(
     "FLOE_MANIFEST",
     str(Path(__file__).resolve().parents[1] / "example" / "manifest.airflow.json"),
 )
-MANIFEST = load_manifest(FLOE_MANIFEST)
-ENTITY_ASSETS = build_entity_assets(MANIFEST, FLOE_MANIFEST)
-ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
-ENTITIES_BY_NAME = {entity.name: entity for entity in MANIFEST.entities}
-
-FLOE_CONFIG = os.environ.get(
-    "FLOE_CONFIG",
-    resolve_config_path(FLOE_MANIFEST, MANIFEST.config_uri),
+CTX = build_dag_manifest_context(
+    manifest_path=FLOE_MANIFEST,
+    config_override=os.environ.get("FLOE_CONFIG"),
 )
-ENTITY_NAMES = [entity.name for entity in MANIFEST.entities]
+MANIFEST = CTX.manifest
+ENTITY_ASSETS = CTX.assets_by_entity
+ALL_ENTITY_ASSETS = list(ENTITY_ASSETS.values())
+ENTITIES_BY_NAME = CTX.entities_by_name
+FLOE_CONFIG = CTX.config_path
+ENTITY_NAMES = CTX.entity_names
 
 
 def _split_cmd(command: str) -> list[str]:
@@ -79,19 +77,7 @@ def floe_example_entity_mapped() -> None:
             "json",
         ]
         completed = _run_cli(cmd)
-
-        run_finished: dict[str, Any] | None = None
-        for line in completed.stdout.splitlines():
-            if not line.strip():
-                continue
-            event = json.loads(line)
-            if event.get("schema") != "floe.log.v1":
-                continue
-            if event.get("event") == "run_finished":
-                run_finished = event
-
-        if run_finished is None:
-            raise ValueError("run_finished event not found")
+        run_finished = parse_run_finished(completed.stdout)
 
         summary = load_run_summary(run_finished.get("summary_uri"), FLOE_CONFIG)
         summary_entities = summary_entities_by_name(summary)

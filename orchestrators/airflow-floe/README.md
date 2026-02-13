@@ -10,6 +10,7 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `INTEGRATION_SPEC.md`: contract between Airflow and Floe CLI
 - `schemas/`: JSON Schemas for XCom payloads and manifest contract
 - `dags/floe_manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
+- `dags/floe_runtime.py`: shared runtime helpers (manifest context, run event parsing, summary loading)
 - `example/config.yml`: small Floe config for demo
 - `dags/floe_example_simple_dag.py`: default DAG that runs the full config once
 - `dags/floe_example_entity_mapped_dag.py`: advanced DAG that maps one run task per entity
@@ -27,7 +28,16 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 # export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
 ```
 
-4. Trigger DAG `floe_example_simple`.
+4. Generate manifest from Floe config:
+
+```bash
+floe manifest generate \
+  -c orchestrators/airflow-floe/example/config.yml \
+  --target airflow \
+  --output orchestrators/airflow-floe/example/manifest.airflow.json
+```
+
+5. Trigger DAG `floe_example_simple`.
 
 ## Notes
 
@@ -37,4 +47,4 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 - Assets are created at parse time from `FLOE_MANIFEST` and materialized when run tasks finish.
 - The returned task payload shape follows `floe.airflow.run.v1`.
 - Use the simple DAG as default architecture. Use entity-mapped only when you need per-entity retries/concurrency.
-- Next architecture step: generate a static Airflow manifest from Floe (see `INTEGRATION_SPEC.md`, section "Manifest command"), then load DAG definitions from that manifest at import time.
+- Local run summaries emitted as `local://...` are resolved and loaded by the connector runtime helpers.

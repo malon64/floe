@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+import tempfile
+import types
+import unittest
+
+
+def _install_airflow_stub() -> None:
+    if "airflow.sdk" in sys.modules:
+        return
+
+    airflow_module = types.ModuleType("airflow")
+    sdk_module = types.ModuleType("airflow.sdk")
+
+    class Asset:  # pragma: no cover - simple import stub
+        def __init__(self, name: str, uri: str, group: str | None = None) -> None:
+            self.name = name
+            self.uri = uri
+            self.group = group
+
+    sdk_module.Asset = Asset
+    airflow_module.sdk = sdk_module
+    sys.modules["airflow"] = airflow_module
+    sys.modules["airflow.sdk"] = sdk_module
+
+
+_install_airflow_stub()
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
+
+from floe_runtime import (  # noqa: E402
+    build_dag_manifest_context,
+    load_run_summary,
+    parse_run_finished,
+)
+
+
+class RuntimeHelpersTests(unittest.TestCase):
+    def test_parse_run_finished_event(self) -> None:
+        stdout = "\n".join(
+            [
+                json.dumps({"schema": "floe.log.v1", "event": "run_started"}),
+                json.dumps(
+                    {
+                        "schema": "floe.log.v1",
+                        "event": "run_finished",
+                        "run_id": "run-1",
+                    }
+                ),
+            ]
+        )
+        event = parse_run_finished(stdout)
+        self.assertEqual(event["event"], "run_finished")
+        self.assertEqual(event["run_id"], "run-1")
+
+    def test_parse_run_finished_missing_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "run_finished event not found"):
+            parse_run_finished(json.dumps({"schema": "floe.log.v1", "event": "run_started"}))
+
+    def test_load_run_summary_supports_local_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            summary_path = base / "report" / "run_1" / "run.summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_payload = {"entities": [{"name": "orders"}]}
+            summary_path.write_text(json.dumps(summary_payload), encoding="utf-8")
+
+            payload = load_run_summary(f"local://{summary_path}", str(config_path))
+            self.assertEqual(payload, summary_payload)
+
+    def test_load_run_summary_supports_relative_local_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            summary_path = base / "report" / "run.summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_payload = {"entities": [{"name": "customer"}]}
+            summary_path.write_text(json.dumps(summary_payload), encoding="utf-8")
+
+            payload = load_run_summary("local://report/run.summary.json", str(config_path))
+            self.assertEqual(payload, summary_payload)
+
+    def test_build_dag_manifest_context_loads_entities_and_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            manifest_path = base / "manifest.airflow.json"
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            accepted_path = base / "out" / "accepted" / "orders"
+
+            manifest_payload = {
+                "schema": "floe.airflow.manifest.v1",
+                "generated_at_ts_ms": 1739500000000,
+                "floe_version": "0.2.4",
+                "config_uri": str(config_path),
+                "config_checksum": None,
+                "entities": [
+                    {
+                        "name": "orders",
+                        "domain": "sales",
+                        "group_name": "sales",
+                        "source_format": "csv",
+                        "accepted_sink_uri": f"local://{accepted_path}",
+                        "rejected_sink_uri": None,
+                        "asset_key": ["sales", "orders"],
+                    }
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+            context = build_dag_manifest_context(str(manifest_path))
+            self.assertEqual(context.config_path, str(config_path))
+            self.assertEqual(context.entity_names, ["orders"])
+            self.assertIn("orders", context.assets_by_entity)
+            self.assertIn("orders", context.entities_by_name)
+
+
+if __name__ == "__main__":
+    unittest.main()

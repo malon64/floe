@@ -1,5 +1,5 @@
 {
-  "schema": "floe.airflow.manifest.v1",
+  "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 1771001085139,
   "floe_version": "0.2.4 (2e411b3)",
   "config_uri": "/Users/a.metwalli/floe/orchestrators/airflow-floe/example/config.yml",

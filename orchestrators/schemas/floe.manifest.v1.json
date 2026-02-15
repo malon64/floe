@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/malon64/floe/orchestrators/schemas/floe.manifest.v1.json",
+  "title": "Floe Common Manifest v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_ts_ms",
+    "floe_version",
+    "spec_version",
+    "manifest_id",
+    "config_uri",
+    "report_base_uri",
+    "execution",
+    "runners",
+    "entities"
+  ],
+  "properties": {
+    "schema": {
+      "const": "floe.manifest.v1"
+    },
+    "generated_at_ts_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "floe_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_checksum": {
+      "type": ["string", "null"]
+    },
+    "report_base_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domains": {
+      "type": "array"
+    },
+    "execution": {
+      "type": "object"
+    },
+    "runners": {
+      "type": "object"
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "group_name",
+          "asset_key",
+          "source_format",
+          "accepted_sink_uri",
+          "source",
+          "sinks"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "domain": {
+            "type": ["string", "null"]
+          },
+          "group_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "asset_key": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "source_format": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted_sink_uri": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rejected_sink_uri": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -78,13 +78,13 @@ Target purpose:
 Interim implementation status:
 - `orchestrators/airflow-floe/src/airflow_floe/manifest.py` can already convert
   `floe validate --output json` payloads (`floe.plan.v1`) into the manifest model.
-- Example DAGs now load `floe.airflow.manifest.v1` at parse time and publish
+- Example DAGs now load `floe.manifest.v1` at parse time and publish
   per-entity asset metadata on run completion.
 
-Target manifest schema (proposal): `floe.airflow.manifest.v1`
+Target manifest schema (proposal): `floe.manifest.v1`
 
 Minimum fields:
-- `schema`: `floe.airflow.manifest.v1`
+- `schema`: `floe.manifest.v1`
 - `generated_at_ts_ms`
 - `floe_version`
 - `config_uri`
@@ -239,10 +239,10 @@ Note: `valid=false` can be treated as a failed pipeline gate in CI policy.
 
 ## 12. Post-Manifest Connector Roadmap
 
-Once `floe.airflow.manifest.v1` is available, connector work is:
+Once `floe.manifest.v1` is available, connector work is:
 
 1. Manifest loader module
-- read/validate `floe.airflow.manifest.v1`
+- read/validate `floe.manifest.v1`
 - fail fast on schema mismatch
 
 2. DAG factory from manifest

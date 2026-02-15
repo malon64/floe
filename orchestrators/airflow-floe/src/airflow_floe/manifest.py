@@ -1,7 +1,7 @@
 """Manifest loader for Airflow-Floe integration.
 
 This module supports two input schemas:
-- floe.airflow.manifest.v1 (native manifest)
+- floe.manifest.v1 (native manifest)
 - floe.plan.v1 (output of `floe validate --output json`, converted on load)
 """
 
@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-MANIFEST_SCHEMA = "floe.airflow.manifest.v1"
+MANIFEST_SCHEMA = "floe.manifest.v1"
 VALIDATE_SCHEMA = "floe.plan.v1"
 
 

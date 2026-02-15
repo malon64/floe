@@ -41,7 +41,7 @@ class HookAndOperatorTests(unittest.TestCase):
     def _write_manifest(self, base: Path, config_path: Path) -> Path:
         manifest_path = base / "manifest.airflow.json"
         payload = {
-            "schema": "floe.airflow.manifest.v1",
+            "schema": "floe.manifest.v1",
             "generated_at_ts_ms": 1739500000000,
             "floe_version": "0.2.4",
             "config_uri": str(config_path),

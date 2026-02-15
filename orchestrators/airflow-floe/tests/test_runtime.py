@@ -95,7 +95,7 @@ class RuntimeHelpersTests(unittest.TestCase):
             accepted_path = base / "out" / "accepted" / "orders"
 
             manifest_payload = {
-                "schema": "floe.airflow.manifest.v1",
+                "schema": "floe.manifest.v1",
                 "generated_at_ts_ms": 1739500000000,
                 "floe_version": "0.2.4",
                 "config_uri": str(config_path),

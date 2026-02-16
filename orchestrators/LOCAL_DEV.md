@@ -1,8 +1,7 @@
 # Local Orchestrators Setup (Dagster + Airflow)
 
-This guide sets up two isolated Python virtual environments from the repo root:
-- `.venv-dagster` for `orchestrators/dagster-floe`
-- `.venv-airflow` for `orchestrators/airflow-floe`
+This guide sets up one shared Python virtual environment from the repo root:
+- `.venv-orchestrators` for both `orchestrators/dagster-floe` and `orchestrators/airflow-floe`
 
 Recommended working directory for all commands in this guide:
 - repo root (`floe/`)
@@ -17,68 +16,57 @@ Using repo root keeps relative paths stable for:
 - Python 3.12 installed (recommended for Airflow stability)
 - Floe CLI available (`floe --version`) or use `cargo run -p floe-cli --`
 
-## 1) Dagster environment
+## 1) Create a shared venv (once)
 
 From `floe/`:
 
 ```bash
-python3.12 -m venv .venv-dagster
-source .venv-dagster/bin/activate
+python3.12 -m venv .venv-orchestrators
+source .venv-orchestrators/bin/activate
 pip install --upgrade pip
 pip install -e orchestrators/dagster-floe[dev]
+pip install -e orchestrators/airflow-floe[dev]
 ```
 
 `uv` variant:
 
 ```bash
-uv venv .venv-dagster --python 3.12
-source .venv-dagster/bin/activate
+uv venv .venv-orchestrators --python 3.12
+source .venv-orchestrators/bin/activate
 uv pip install -e orchestrators/dagster-floe[dev]
+uv pip install dagster-webserver
+uv pip install -e orchestrators/airflow-floe[dev]
 ```
 
-Run Dagster example:
+## 2) Run Dagster example
+
+From `floe/`:
 
 ```bash
-cd orchestrators/dagster-floe
-dagster dev
+source .venv-orchestrators/bin/activate
+export FLOE_MANIFEST="$PWD/orchestrators/dagster-floe/example/manifest.dagster.json"
+dagster dev -w orchestrators/dagster-floe/workspace.yaml
 ```
 
 Open Dagster UI at `http://127.0.0.1:3000`.
 
-Deactivate when done:
+## 3) Run Airflow example (without default examples)
+
+From `floe/` in another terminal:
 
 ```bash
-deactivate
-```
-
-## 2) Airflow environment
-
-From `floe/`:
-
-```bash
-python3.12 -m venv .venv-airflow
-source .venv-airflow/bin/activate
-pip install --upgrade pip
-pip install "apache-airflow==3.1.7"
-```
-
-`uv` variant:
-
-```bash
-uv venv .venv-airflow --python 3.12
-source .venv-airflow/bin/activate
-uv pip install "apache-airflow==3.1.7"
-```
-
-Set runtime environment variables (still from `floe/`):
-
-```bash
+source .venv-orchestrators/bin/activate
 export AIRFLOW_HOME="$PWD/.airflow"
 export AIRFLOW__CORE__DAGS_FOLDER="$PWD/orchestrators/airflow-floe/dags"
+export AIRFLOW__CORE__LOAD_EXAMPLES="False"
 export FLOE_CMD="floe"
 export FLOE_MANIFEST="$PWD/orchestrators/airflow-floe/example/manifest.airflow.json"
-# optional override:
-# export FLOE_CONFIG="$PWD/orchestrators/airflow-floe/example/config.yml"
+```
+
+If your Airflow DB was initialized previously with examples enabled, reset once:
+
+```bash
+airflow db reset -y
 ```
 
 Start Airflow:
@@ -93,7 +81,7 @@ Open Airflow UI at `http://127.0.0.1:8080`.
 - Password: generated in terminal (or in `$AIRFLOW_HOME/simple_auth_manager_passwords.json.generated`)
 
 Trigger DAG:
-- `floe_example_operator` (operator-based connector example)
+- `floe_example_operator`
 
 After at least one successful run, check Airflow Assets UI:
 - assets are declared from `FLOE_MANIFEST` at parse time
@@ -105,7 +93,7 @@ Deactivate when done:
 deactivate
 ```
 
-## 3) Optional: use local Cargo build instead of installed `floe`
+## 4) Optional: use local Cargo build instead of installed `floe`
 
 In Airflow env:
 
@@ -113,7 +101,7 @@ In Airflow env:
 export FLOE_CMD="cargo run -p floe-cli --"
 ```
 
-## 4) Troubleshooting
+## 5) Troubleshooting
 
 - Task stuck in `queued`:
   - verify scheduler is alive:
@@ -123,7 +111,7 @@ airflow jobs check --job-type SchedulerJob --allow-multiple --limit 5
 ```
 
 - If scheduler crashes on Python 3.14:
-  - use Python 3.12 for `.venv-airflow`.
+  - use Python 3.12 for `.venv-orchestrators`.
 
 - DAGs not visible:
   - confirm `AIRFLOW__CORE__DAGS_FOLDER` points to `orchestrators/airflow-floe/dags`

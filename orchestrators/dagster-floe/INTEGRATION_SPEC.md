@@ -55,6 +55,27 @@ Code organization:
 
 This keeps asset keys stable across orchestrators.
 
+## 4.1 Job model (production target)
+
+Target operating model:
+
+- 1 Floe config file per domain
+- 1 generated manifest per config
+- 1 Dagster job per manifest
+
+In Dagster terms:
+
+- assets remain entity-level (`1 entity = 1 asset`)
+- one `define_asset_job(...)` is generated for each manifest/config boundary
+- each job selects assets belonging to its manifest only
+
+This gives explicit run boundaries and operational control (schedule, retries, concurrency, ownership) per domain/config.
+
+Current state:
+
+- single-manifest wiring already generates one job for that manifest
+- multi-manifest directory loading is tracked as next phase work
+
 ## 5. Run-time execution contract
 
 The connector executes commands from `manifest.execution`, not hardcoded CLI args.
@@ -122,8 +143,19 @@ No backward-compatibility bridge from `floe.plan.v1` is planned in Dagster conne
 - No Dagster `AssetCheckResult` mapping from Floe checks yet.
 - No multi-entity single-process optimization in this phase.
 
-## 10. Next phase
+## 10. Next phase (implementation backlog)
 
-1. Add optional multi-manifest directory loading (`*.manifest.json`) for multi-config deployments.
-2. Add pluggable runner adapters (Kubernetes/ECS) under same manifest contract.
-3. Add summary loading for remote URIs (`s3://`, `gs://`, `abfs://`).
+1. Multi-manifest loading at parse-time.
+   Scope: support loading a directory of manifests (`*.manifest.json`) to generate assets from multiple Floe configs/domains in one Dagster code location.
+2. Generate one Dagster job per manifest/config.
+   Scope: when multiple manifests are loaded, build one `define_asset_job` per manifest and expose stable job names (for schedule/sensor targeting).
+3. Support execution defaults from manifest.
+   Scope: apply `execution.defaults.env` and `execution.defaults.workdir` in `LocalRunner` when launching Floe subprocesses.
+4. Strict manifest schema validation in connector.
+   Scope: validate loaded JSON payloads against `orchestrators/schemas/floe.manifest.v1.json` before building assets or running tasks.
+5. Runner adapters for non-local execution.
+   Scope: keep `local_process` as baseline and add adapter structure for `kubernetes_*` and `ecs_task` runner types without changing manifest contract.
+6. Remote `summary_uri` loading.
+   Scope: support reading run summaries from cloud URIs (`s3://`, `gs://`, `abfs://`) to enrich Dagster metadata outside local-only mode.
+7. Single Floe run for multiple selected assets.
+   Scope: optional optimization mode where one Floe run materializes a selected entity set, then connector fans out metadata to corresponding assets.

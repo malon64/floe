@@ -26,3 +26,17 @@ def test_build_definitions_from_manifest_path() -> None:
         entities=["employees"],
     )
     assert defs is not None
+    job = defs.get_job_def("floe_mfv1_test_manifest_job")
+    assert job is not None
+
+
+def test_build_definitions_can_disable_job_creation() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    defs = build_definitions(
+        manifest_path=str(fixture),
+        runner=_NoopRunner(),
+        entities=["employees"],
+        with_job=False,
+    )
+    job_names = [job.name for job in defs.resolve_all_job_defs()]
+    assert "floe_mfv1_test_manifest_job" not in job_names

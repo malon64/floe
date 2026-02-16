@@ -9,7 +9,9 @@ from dagster import Definitions, Failure, MaterializeResult, asset
 
 from .events import last_run_finished, parse_ndjson_events, parse_run_finished
 from .manifest import (
+    DagsterManifest,
     ManifestExecution,
+    ManifestEntity,
     ManifestRunnerDefinition,
     load_manifest,
     resolve_config_uri,
@@ -23,13 +25,22 @@ def load_floe_assets(
     runner: Runner,
     entities: list[str] | None = None,
 ) -> Definitions:
+    assets_defs, _selected_entities = build_floe_asset_defs(
+        manifest_path=manifest_path,
+        runner=runner,
+        entities=entities,
+    )
+    return Definitions(assets=assets_defs)
+
+
+def build_floe_asset_defs(
+    manifest_path: str,
+    runner: Runner,
+    entities: list[str] | None = None,
+) -> tuple[list[Any], list[ManifestEntity]]:
     manifest = load_manifest(manifest_path)
     config_uri = resolve_config_uri(manifest_path, manifest.config_uri)
-
-    entity_items = manifest.entities
-    if entities:
-        selected = set(entities)
-        entity_items = [item for item in entity_items if item.name in selected]
+    entity_items = selected_manifest_entities(manifest, entities)
 
     assets_defs = []
     for entity in entity_items:
@@ -52,7 +63,16 @@ def load_floe_assets(
             )
         )
 
-    return Definitions(assets=assets_defs)
+    return assets_defs, entity_items
+
+
+def selected_manifest_entities(
+    manifest: DagsterManifest, entities: list[str] | None = None
+) -> list[ManifestEntity]:
+    if not entities:
+        return list(manifest.entities)
+    selected = set(entities)
+    return [item for item in manifest.entities if item.name in selected]
 
 
 def _make_entity_asset(

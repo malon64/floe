@@ -2,6 +2,22 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.5
+
+- Added `floe manifest generate` as the common manifest surface for orchestrators (`floe.manifest.v1`).
+- Airflow connector updates:
+  - manifest-first operator flow (`FloeRunOperator` / `FloeManifestHook`)
+  - multi-manifest DAG registration (`FLOE_MANIFEST_DIR`, one DAG per manifest)
+  - streamed Floe stdout/stderr in task logs
+  - enriched asset event metadata with per-entity report references.
+- Dagster connector updates:
+  - migration to common manifest contract
+  - strict manifest schema validation
+  - multi-manifest loading with one Dagster job per manifest and collision guards.
+- CLI cleanup:
+  - removed `floe validate --output json` (orchestrator automation now relies on generated manifests).
+- Documentation updates for local orchestrator workflows and manifest-driven integration specs.
+
 ## v0.2.4
 
 - Added new source input formats: `tsv`, `xlsx`, `fixed`, `orc`, `avro`, and `xml`.

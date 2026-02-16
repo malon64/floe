@@ -145,7 +145,7 @@ No backward-compatibility bridge from `floe.plan.v1` is planned in Dagster conne
 
 ## 10. Next phase (implementation backlog)
 
-1. Multi-manifest loading at parse-time.
+1. Multi-manifest loading at parse-time. (Done)
    Scope: support loading a directory of manifests (`*.manifest.json`) to generate assets from multiple Floe configs/domains in one Dagster code location.
 2. Generate one Dagster job per manifest/config. (Done for single-manifest flow)
    Scope: when multiple manifests are loaded, build one `define_asset_job` per manifest and expose stable job names (for schedule/sensor targeting).

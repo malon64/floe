@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Iterable
 
 from dagster import AssetSelection, Definitions, define_asset_job
 
@@ -23,23 +24,94 @@ def build_definitions(
     with_job: bool = True,
     job_name: str | None = None,
 ) -> Definitions:
-    runner_impl = runner or build_runner_from_env()
-    manifest = load_manifest(manifest_path)
-    assets_defs, selected_entities = build_floe_asset_defs(
-        manifest_path=manifest_path,
-        runner=runner_impl,
+    return build_definitions_from_manifest_paths(
+        manifest_paths=[manifest_path],
         entities=entities,
+        runner=runner,
+        with_job=with_job,
+        job_name=job_name,
     )
 
-    jobs = []
-    if with_job and selected_entities:
-        selection = AssetSelection.assets(*[entity.asset_key for entity in selected_entities])
-        jobs.append(
-            define_asset_job(
-                name=job_name or _default_job_name(manifest_path, manifest.manifest_id),
-                selection=selection,
-            )
+
+def build_definitions_from_manifest_dir(
+    *,
+    manifest_dir: str,
+    pattern: str = "*.manifest.json",
+    runner: Runner | None = None,
+    with_job: bool = True,
+) -> Definitions:
+    paths = sorted(
+        str(path.resolve())
+        for path in Path(manifest_dir).expanduser().resolve().glob(pattern)
+        if path.is_file()
+    )
+    if not paths:
+        raise ValueError(
+            f"no manifest files found in {manifest_dir!r} using pattern {pattern!r}"
         )
+    return build_definitions_from_manifest_paths(
+        manifest_paths=paths,
+        runner=runner,
+        with_job=with_job,
+    )
+
+
+def build_definitions_from_manifest_paths(
+    *,
+    manifest_paths: Iterable[str],
+    entities: list[str] | None = None,
+    runner: Runner | None = None,
+    with_job: bool = True,
+    job_name: str | None = None,
+) -> Definitions:
+    manifest_paths_list = list(manifest_paths)
+    if not manifest_paths_list:
+        raise ValueError("manifest_paths cannot be empty")
+    if job_name is not None and len(manifest_paths_list) != 1:
+        raise ValueError("job_name override is only supported for a single manifest")
+
+    runner_impl = runner or build_runner_from_env()
+    assets_defs: list[object] = []
+    jobs = []
+    seen_asset_keys: set[tuple[str, ...]] = set()
+    seen_job_names: set[str] = set()
+
+    for manifest_path in manifest_paths_list:
+        manifest = load_manifest(manifest_path)
+        selected_entities = None if entities is None else list(entities)
+        manifest_assets, manifest_entities = build_floe_asset_defs(
+            manifest_path=manifest_path,
+            runner=runner_impl,
+            entities=selected_entities,
+        )
+        assets_defs.extend(manifest_assets)
+        _validate_no_duplicate_asset_keys(
+            seen_asset_keys=seen_asset_keys,
+            manifest_path=manifest_path,
+            entity_asset_keys=[entity.asset_key for entity in manifest_entities],
+        )
+
+        if with_job and manifest_entities:
+            manifest_job_name = (
+                job_name
+                if job_name is not None and len(manifest_paths_list) == 1
+                else _default_job_name(manifest_path, manifest.manifest_id)
+            )
+            if manifest_job_name in seen_job_names:
+                raise ValueError(
+                    f"duplicate job name {manifest_job_name!r} generated from manifests; "
+                    "ensure unique manifest_id values"
+                )
+            seen_job_names.add(manifest_job_name)
+            selection = AssetSelection.assets(
+                *[entity.asset_key for entity in manifest_entities]
+            )
+            jobs.append(
+                define_asset_job(
+                    name=manifest_job_name,
+                    selection=selection,
+                )
+            )
 
     return Definitions(assets=assets_defs, jobs=jobs)
 
@@ -52,3 +124,20 @@ def _default_job_name(manifest_path: str, manifest_id: str) -> str:
     if not re.match(r"[a-zA-Z_]", normalized):
         normalized = f"m_{normalized}"
     return f"floe_{normalized}_job"
+
+
+def _validate_no_duplicate_asset_keys(
+    *,
+    seen_asset_keys: set[tuple[str, ...]],
+    manifest_path: str,
+    entity_asset_keys: list[list[str]],
+) -> None:
+    for asset_key_parts in entity_asset_keys:
+        key_tuple = tuple(asset_key_parts)
+        if key_tuple in seen_asset_keys:
+            key_value = "/".join(asset_key_parts)
+            raise ValueError(
+                f"duplicate asset key {key_value!r} across manifests; "
+                f"conflict found while processing {manifest_path}"
+            )
+        seen_asset_keys.add(key_tuple)

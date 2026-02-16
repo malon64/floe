@@ -7,6 +7,7 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 
 Current model:
 - Parse-time: Dagster loads a generated `floe.manifest.v1` JSON file.
+- Parse-time can also load a directory of manifests (`*.manifest.json`) for multi-config deployments.
 - Run-time: each asset executes Floe for one entity using the manifest `execution` contract.
 - Metadata: connector parses NDJSON events and attaches run stats to materializations.
 
@@ -40,10 +41,13 @@ floe manifest generate \
 
 ```bash
 cd orchestrators/dagster-floe
-FLOE_MANIFEST=./example/manifest.dagster.json dagster dev
+FLOE_MANIFEST_DIR=./example/manifests dagster dev
 ```
 
 The example workspace loads `example/definitions.py`, which wires local example files/manifest to the reusable connector APIs.
+The repository example includes two manifests by domain:
+- `example/manifests/hr.manifest.json`
+- `example/manifests/sales.manifest.json`
 
 ## Notes
 

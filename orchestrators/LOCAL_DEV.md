@@ -44,7 +44,9 @@ From `floe/`:
 
 ```bash
 source .venv-orchestrators/bin/activate
-export FLOE_MANIFEST="$PWD/orchestrators/dagster-floe/example/manifest.dagster.json"
+export FLOE_MANIFEST_DIR="$PWD/orchestrators/dagster-floe/example/manifests"
+# optional single-manifest override:
+# export FLOE_MANIFEST="$PWD/orchestrators/dagster-floe/example/manifest.dagster.json"
 dagster dev -w orchestrators/dagster-floe/workspace.yaml
 ```
 

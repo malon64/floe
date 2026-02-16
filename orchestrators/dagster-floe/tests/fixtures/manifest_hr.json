@@ -1,0 +1,76 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 1738860000000,
+  "floe_version": "0.2.4",
+  "spec_version": "0.2",
+  "manifest_id": "mfv1-hr",
+  "config_uri": "./config.hr.yml",
+  "config_checksum": "hr123",
+  "report_base_uri": "./report",
+  "domains": [
+    {"name": "hr", "incoming_dir": "./in/hr"}
+  ],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": ["run", "-c", "{config_uri}", "--log-format", "json"],
+    "per_entity_args": ["--entities", "{entity_name}"],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {"0": "success_or_rejected", "1": "technical_failure"}
+    },
+    "defaults": {"env": {}, "workdir": null}
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": {
+        "type": "local_process",
+        "image": null,
+        "namespace": null,
+        "service_account": null,
+        "resources": null,
+        "env": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "employees",
+      "domain": "hr",
+      "group_name": "hr",
+      "asset_key": ["hr", "employees"],
+      "source_format": "csv",
+      "accepted_sink_uri": "./out/accepted/employees",
+      "rejected_sink_uri": "./out/rejected/employees",
+      "runner": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "./in/hr/employees.csv",
+        "path": "./in/hr/employees.csv",
+        "resolved": true,
+        "cast_mode": null,
+        "options": {"header": true}
+      },
+      "sinks": {
+        "accepted": {
+          "format": "parquet",
+          "storage": "local",
+          "uri": "./out/accepted/employees",
+          "path": "./out/accepted/employees",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "./out/rejected/employees",
+          "path": "./out/rejected/employees",
+          "resolved": true
+        },
+        "archive": null
+      }
+    }
+  ]
+}

@@ -6,10 +6,21 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `orchestrators/LOCAL_DEV.md`
 
 Current model:
-- Parse-time: Dagster loads a generated `floe.manifest.v1` JSON file.
-- Parse-time can also load a directory of manifests (`*.manifest.json`) for multi-config deployments.
-- Run-time: each asset executes Floe for one entity using the manifest `execution` contract.
-- Metadata: connector parses NDJSON events and attaches run stats to materializations.
+- Parse-time reads Floe manifests (`floe.manifest.v1`), not Floe YAML.
+- Supports single manifest and multi-manifest directory loading.
+- Builds one asset per entity and one job per manifest.
+- Runs Floe with manifest execution contract and JSON logs.
+- Publishes run/entity metadata from NDJSON + summary.
+
+## What Is Implemented
+
+- Manifest-first orchestration (`floe.manifest.v1`).
+- Strict schema validation at manifest load time.
+- Asset generation from `entities[]` (`asset_key`, `group_name` respected).
+- One Dagster job per manifest (stable job names).
+- Multi-manifest loading (`*.manifest.json`) with collision checks.
+- Local runner (`local_process`) support.
+- `execution.defaults.env` and `execution.defaults.workdir` support.
 
 ## Install
 
@@ -56,7 +67,15 @@ The repository example includes two manifests by domain:
 - For local development without an installed `floe` binary, you can point `LocalRunner` to a custom command, e.g.:
   - `LocalRunner(\"cargo run -p floe-cli --\")`
 - Manifest runner support in connector is currently `local_process` only.
+- For local setup commands, use `orchestrators/LOCAL_DEV.md`.
 - Design notes and future work: `orchestrators/dagster-floe/INTEGRATION_SPEC.md`
+
+## What Is Not Implemented Yet
+
+- Kubernetes/ECS runner adapters.
+- Cloud summary loading (`s3://`, `gs://`, `abfs://`).
+- Single-process multi-entity fan-out execution mode.
+- Floe checks mapped to Dagster `AssetCheckResult`.
 
 ## Releasing
 

@@ -240,6 +240,7 @@ class FloeRunOperator(BaseOperator):
                 entity=manifest_entity,
                 run_finished=payload,
                 summary_entity=summary_entities.get(entity_name),
+                config_path=self.config_path,
             )
 
 

@@ -117,6 +117,7 @@ On run completion, operator enriches outlet events with per-entity metrics using
 
 - `run_finished` payload
 - optional `summary_uri` loaded summary file
+- per-entity report reference (`entity_report_file`, typically `{run_id}/{entity}/run.json`)
 
 ## 7. Validate payload support
 
@@ -154,6 +155,24 @@ Task fails when:
 
 ## 10. Open roadmap
 
-1. Add Kubernetes/ECS runner implementations behind same runner contract.
-2. Optional split operator classes per runner family (`Local`, `K8s`, `ECS`) while keeping one manifest contract.
-3. Add schema validation in connector package before runtime use (strict local check against `floe.manifest.v1.json`).
+1. Remote report loading (cloud URIs).
+   - Support `summary_uri` and entity report loading for `s3://`, `gs://`, `abfs://` in addition to local/file.
+   - Keep current local behavior unchanged and fail clearly when remote credentials are missing.
+2. Runner backend implementations from manifest contract.
+   - Implement `kubernetes_pod` / `kubernetes_job` and `ecs_task` mappings.
+   - Preserve `local_process` as dev default.
+3. Strict manifest validation at parse-time.
+   - Validate every loaded manifest against `orchestrators/schemas/floe.manifest.v1.json`.
+   - Fail fast with explicit validation errors in DAG import diagnostics.
+4. Multi-manifest robustness.
+   - Add explicit collision policy for DAG ids and asset keys across manifests.
+   - Expose clear warnings/errors when conflicts occur.
+5. Run payload and metadata contract hardening.
+   - Stabilize `floe.airflow.run.v1` fields and document backward-compatible evolution.
+   - Ensure per-entity metadata always includes `entity_report_file` when resolvable.
+6. Error policy and retry semantics.
+   - Define retryable vs terminal failures for NDJSON parse, missing `run_finished`, summary load issues, and runner errors.
+   - Align task states and exit-code interpretation with `execution.result_contract.exit_codes`.
+7. Connector CI e2e coverage.
+   - Add end-to-end tests for single-manifest and multi-manifest DAG registration.
+   - Add run-time tests for streamed logs + asset metadata enrichment paths.

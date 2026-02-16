@@ -31,11 +31,13 @@ _install_airflow_stub()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from airflow_floe.runtime import (  # noqa: E402
+    build_asset_event_extra,
     build_dag_manifest_context,
     build_dag_manifest_context_or_empty,
     load_run_summary,
     parse_run_finished,
 )
+from airflow_floe.manifest import ManifestEntity  # noqa: E402
 
 
 def _execution_and_runners(config_path: str) -> dict:
@@ -223,6 +225,36 @@ class RuntimeHelpersTests(unittest.TestCase):
             )
             self.assertIsNone(context.manifest)
             self.assertEqual(context.config_path, "s3://bucket/config.yml")
+
+    def test_build_asset_event_extra_derives_entity_report_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            summary_path = base / "report" / "run_1" / "run.summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text('{"entities":[]}', encoding="utf-8")
+
+            entity = ManifestEntity(
+                name="orders",
+                domain="sales",
+                group_name="sales",
+                source_format="csv",
+                accepted_sink_uri="local:///tmp/out",
+                rejected_sink_uri=None,
+                asset_key=["sales", "orders"],
+                runner=None,
+            )
+            event = build_asset_event_extra(
+                entity=entity,
+                run_finished={"run_id": "run-1", "summary_uri": f"local://{summary_path}"},
+                summary_entity={"name": "orders", "status": "success", "results": {}},
+                config_path=str(config_path),
+            )
+            self.assertEqual(
+                event["entity_report_file"],
+                str(summary_path.parent / "orders" / "run.json"),
+            )
 
 
 if __name__ == "__main__":

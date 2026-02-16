@@ -1,0 +1,41 @@
+version: "0.2"
+metadata:
+  project: "floe-airflow-example-hr"
+
+domains:
+  - name: "hr"
+    incoming_dir: "./in/hr"
+
+report:
+  path: "./report"
+
+entities:
+  - name: "employees"
+    domain: "hr"
+    source:
+      format: "csv"
+      path: "./in/hr/employees.csv"
+      options:
+        header: true
+        separator: ","
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./out/accepted/employees"
+      rejected:
+        format: "csv"
+        path: "./out/rejected/employees"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "employee_id"
+          type: "string"
+          nullable: false
+          unique: true
+        - name: "start_date"
+          type: "date"
+          nullable: false
+        - name: "salary"
+          type: "number"
+          nullable: false

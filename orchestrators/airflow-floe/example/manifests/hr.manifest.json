@@ -1,0 +1,116 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 1771245437766,
+  "floe_version": "0.2.4",
+  "spec_version": "0.2",
+  "manifest_id": "mfv1-1382cbe0a11e3ae3",
+  "config_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/config.hr.yml",
+  "config_checksum": null,
+  "report_base_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./report",
+  "domains": [
+    {
+      "name": "hr",
+      "incoming_dir": "./in/hr"
+    }
+  ],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "-c",
+      "{config_uri}",
+      "--log-format",
+      "json",
+      "--quiet"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "1": "technical_failure",
+        "0": "success_or_rejected",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    }
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": {
+        "type": "local_process",
+        "image": null,
+        "namespace": null,
+        "service_account": null,
+        "resources": null,
+        "env": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "employees",
+      "domain": "hr",
+      "group_name": "hr",
+      "asset_key": [
+        "hr",
+        "employees"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/employees",
+      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./in/hr/employees.csv",
+        "path": "./in/hr/employees.csv",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "UTF8",
+          "glob": null,
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "parquet",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/employees",
+          "path": "./out/accepted/employees",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees",
+          "path": "./out/rejected/employees",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null
+    }
+  ]
+}

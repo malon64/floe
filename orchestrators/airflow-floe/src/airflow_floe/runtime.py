@@ -217,11 +217,18 @@ def build_asset_event_extra(
     entity: ManifestEntity,
     run_finished: dict[str, Any],
     summary_entity: dict[str, Any] | None,
+    config_path: str | None = None,
 ) -> dict[str, Any]:
     summary_entity = summary_entity or {}
     results = summary_entity.get("results") if isinstance(summary_entity, dict) else None
     if not isinstance(results, dict):
         results = {}
+    entity_report_file = _resolve_entity_report_file(
+        entity_name=entity.name,
+        summary_entity=summary_entity,
+        summary_uri=run_finished.get("summary_uri"),
+        config_path=config_path,
+    )
 
     return {
         "entity": entity.name,
@@ -229,6 +236,7 @@ def build_asset_event_extra(
         "run_id": run_finished.get("run_id"),
         "status": summary_entity.get("status", run_finished.get("status")),
         "summary_uri": run_finished.get("summary_uri"),
+        "entity_report_file": entity_report_file,
         "files_total": results.get("files_total"),
         "rows_total": results.get("rows_total"),
         "accepted_total": results.get("accepted_total", run_finished.get("accepted")),
@@ -236,3 +244,26 @@ def build_asset_event_extra(
         "warnings_total": results.get("warnings_total", run_finished.get("warnings")),
         "errors_total": results.get("errors_total", run_finished.get("errors")),
     }
+
+
+def _resolve_entity_report_file(
+    *,
+    entity_name: str,
+    summary_entity: dict[str, Any],
+    summary_uri: Any,
+    config_path: str | None,
+) -> str | None:
+    explicit = summary_entity.get("report_file")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+
+    if not isinstance(summary_uri, str) or not summary_uri:
+        return None
+    if not config_path:
+        return None
+
+    summary_path = _resolve_summary_path(summary_uri, config_path)
+    if summary_path is None:
+        return None
+
+    return str(summary_path.parent / entity_name / "run.json")

@@ -64,7 +64,7 @@ export AIRFLOW__CORE__LOAD_EXAMPLES="False"
 export FLOE_CMD="floe"
 export FLOE_MANIFEST="$PWD/orchestrators/airflow-floe/example/manifest.airflow.json"
 # optional multi-manifest mode (1 manifest => 1 DAG):
-# export FLOE_MANIFEST_DIR="$PWD/orchestrators/dagster-floe/example/manifests"
+# export FLOE_MANIFEST_DIR="$PWD/orchestrators/airflow-floe/example/manifests"
 ```
 
 If your Airflow DB was initialized previously with examples enabled, reset once:

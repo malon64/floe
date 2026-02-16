@@ -277,6 +277,7 @@ class HookAndOperatorTests(unittest.TestCase):
                     {
                         "name": "orders",
                         "status": "success",
+                        "report_file": str(base / "report" / "run-1" / "orders" / "run.json"),
                         "results": {
                             "files_total": 2,
                             "rows_total": 11,
@@ -319,6 +320,10 @@ class HookAndOperatorTests(unittest.TestCase):
             self.assertIsNotNone(outlet_event.extra)
             self.assertEqual(outlet_event.extra["entity"], "orders")
             self.assertEqual(outlet_event.extra["rows_total"], 11)
+            self.assertEqual(
+                outlet_event.extra["entity_report_file"],
+                str(base / "report" / "run-1" / "orders" / "run.json"),
+            )
 
 
 if __name__ == "__main__":

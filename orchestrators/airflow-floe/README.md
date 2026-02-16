@@ -33,7 +33,7 @@ python -m pip install -e orchestrators/airflow-floe
 export FLOE_CMD="floe"
 export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manifest.airflow.json"
 # optional multi-manifest mode (1 manifest => 1 DAG):
-# export FLOE_MANIFEST_DIR="/absolute/path/to/manifests"
+# export FLOE_MANIFEST_DIR="/absolute/path/to/orchestrators/airflow-floe/example/manifests"
 # optional override:
 # export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
 ```
@@ -44,6 +44,18 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 floe manifest generate \
   -c orchestrators/airflow-floe/example/config.yml \
   --output orchestrators/airflow-floe/example/manifest.airflow.json
+```
+
+For multi-manifest mode (one DAG per manifest), generate domain manifests:
+
+```bash
+floe manifest generate \
+  -c orchestrators/airflow-floe/example/config.hr.yml \
+  --output orchestrators/airflow-floe/example/manifests/hr.manifest.json
+
+floe manifest generate \
+  -c orchestrators/airflow-floe/example/config.sales.yml \
+  --output orchestrators/airflow-floe/example/manifests/sales.manifest.json
 ```
 
 6. Trigger DAG `floe_example_operator`.

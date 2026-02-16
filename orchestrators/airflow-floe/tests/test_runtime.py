@@ -120,6 +120,36 @@ class RuntimeHelpersTests(unittest.TestCase):
             self.assertIn("orders", context.assets_by_entity)
             self.assertIn("orders", context.entities_by_name)
 
+    def test_build_dag_manifest_context_supports_local_scheme_config_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            manifest_path = base / "manifest.airflow.json"
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+
+            manifest_payload = {
+                "schema": "floe.manifest.v1",
+                "generated_at_ts_ms": 1739500000000,
+                "floe_version": "0.2.4",
+                "config_uri": f"local://{config_path}",
+                "config_checksum": None,
+                "entities": [
+                    {
+                        "name": "orders",
+                        "domain": "sales",
+                        "group_name": "sales",
+                        "source_format": "csv",
+                        "accepted_sink_uri": f"local://{base}/out/accepted/orders",
+                        "rejected_sink_uri": None,
+                        "asset_key": ["sales", "orders"],
+                    }
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+            context = build_dag_manifest_context(str(manifest_path))
+            self.assertEqual(context.config_path, str(config_path))
+
     def test_build_dag_manifest_context_or_empty_when_missing_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

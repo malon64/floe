@@ -12,10 +12,12 @@ fn repo_root() -> PathBuf {
 #[test]
 fn manifest_generate_common_to_file() {
     let config_path = repo_root().join("example/config.yml");
-    let expected_config_uri = std::fs::canonicalize(&config_path)
-        .expect("canonicalize config path")
-        .display()
-        .to_string();
+    let expected_config_uri = format!(
+        "local://{}",
+        std::fs::canonicalize(&config_path)
+            .expect("canonicalize config path")
+            .display()
+    );
     let tmp = tempdir().expect("create temp dir");
     let output_path = tmp.path().join("manifest.airflow.json");
 
@@ -33,6 +35,9 @@ fn manifest_generate_common_to_file() {
 
     assert_eq!(value["schema"], "floe.manifest.v1");
     assert_eq!(value["config_uri"], expected_config_uri);
+    assert!(value["manifest_id"].as_str().is_some());
+    assert!(value["execution"].is_object());
+    assert!(value["runners"].is_object());
 
     let entities = value["entities"].as_array().expect("entities array");
     let names: Vec<_> = entities

@@ -1,126 +1,13 @@
-use serde::Serialize;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
+use crate::manifest::model::{
+    CommonManifest, ManifestArchiveTarget, ManifestDomain, ManifestEntity, ManifestExecution,
+    ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerDefinition, ManifestRunners,
+    ManifestSinkTarget, ManifestSinks, ManifestSource,
+};
 use crate::FloeResult;
-
-#[derive(Debug, Serialize)]
-pub struct CommonManifest {
-    pub schema: &'static str,
-    pub generated_at_ts_ms: u64,
-    pub floe_version: &'static str,
-    pub spec_version: String,
-    pub manifest_id: String,
-    pub config_uri: String,
-    pub config_checksum: Option<String>,
-    pub report_base_uri: String,
-    pub domains: Vec<ManifestDomain>,
-    pub execution: ManifestExecution,
-    pub runners: ManifestRunners,
-    pub entities: Vec<ManifestEntity>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestDomain {
-    pub name: String,
-    pub incoming_dir: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestExecution {
-    pub entrypoint: &'static str,
-    pub base_args: Vec<&'static str>,
-    pub per_entity_args: Vec<&'static str>,
-    pub log_format: &'static str,
-    pub result_contract: ManifestResultContract,
-    pub defaults: ManifestExecutionDefaults,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestResultContract {
-    pub run_finished_event: bool,
-    pub summary_uri_field: &'static str,
-    pub exit_codes: HashMap<&'static str, &'static str>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestExecutionDefaults {
-    pub env: HashMap<String, String>,
-    pub workdir: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestRunners {
-    pub default: &'static str,
-    pub definitions: HashMap<&'static str, ManifestRunnerDefinition>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestRunnerDefinition {
-    pub runner_type: &'static str,
-    pub image: Option<String>,
-    pub namespace: Option<String>,
-    pub service_account: Option<String>,
-    pub resources: Option<ManifestRunnerResources>,
-    pub env: Option<HashMap<String, String>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestRunnerResources {
-    pub cpu: Option<String>,
-    pub memory_mb: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestEntity {
-    pub name: String,
-    pub domain: Option<String>,
-    pub group_name: String,
-    pub asset_key: Vec<String>,
-    pub source_format: String,
-    pub accepted_sink_uri: String,
-    pub rejected_sink_uri: Option<String>,
-    pub tags: Option<HashMap<String, String>>,
-    pub source: ManifestSource,
-    pub sinks: ManifestSinks,
-    pub runner: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestSource {
-    pub format: String,
-    pub storage: String,
-    pub uri: String,
-    pub path: String,
-    pub resolved: bool,
-    pub cast_mode: Option<String>,
-    pub options: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestSinks {
-    pub accepted: ManifestSinkTarget,
-    pub rejected: Option<ManifestSinkTarget>,
-    pub archive: Option<ManifestArchiveTarget>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestSinkTarget {
-    pub format: String,
-    pub storage: String,
-    pub uri: String,
-    pub path: String,
-    pub resolved: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ManifestArchiveTarget {
-    pub storage: String,
-    pub uri: String,
-    pub path: String,
-    pub resolved: bool,
-}
 
 #[derive(Debug)]
 struct ResolvedOrRaw {
@@ -290,14 +177,17 @@ fn build_common_manifest(
         });
     }
 
+    let config_uri = canonical_config_uri(&config_location.display);
+    let config_checksum = None;
+
     CommonManifest {
         schema: "floe.manifest.v1",
         generated_at_ts_ms: now_ts_ms(),
         floe_version: env!("CARGO_PKG_VERSION"),
         spec_version: config.version.clone(),
-        manifest_id: build_manifest_id(&config_location.display, None),
-        config_uri: config_location.display.clone(),
-        config_checksum: None,
+        manifest_id: build_manifest_id(&config_uri, config_checksum),
+        config_uri,
+        config_checksum: config_checksum.map(ToString::to_string),
         report_base_uri: report_base.uri,
         domains: config
             .domains
@@ -337,8 +227,32 @@ fn resolve_or_raw(
     }
 }
 
+fn canonical_config_uri(display: &str) -> String {
+    if display.contains("://") {
+        display.to_string()
+    } else {
+        format!("local://{}", display)
+    }
+}
+
 fn build_manifest_id(config_uri: &str, config_checksum: Option<&str>) -> String {
-    format!("{}::{}", config_uri, config_checksum.unwrap_or(""))
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    hash = fnv1a_update(hash, config_uri.as_bytes(), FNV_PRIME);
+    hash = fnv1a_update(hash, &[0], FNV_PRIME);
+    hash = fnv1a_update(hash, config_checksum.unwrap_or("").as_bytes(), FNV_PRIME);
+
+    format!("mfv1-{hash:016x}")
+}
+
+fn fnv1a_update(mut hash: u64, bytes: &[u8], prime: u64) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(prime);
+    }
+    hash
 }
 
 fn map_source_options(options: Option<&SourceOptions>) -> Option<serde_json::Value> {
@@ -436,4 +350,41 @@ fn now_ts_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_manifest_id, canonical_config_uri};
+
+    #[test]
+    fn canonical_config_uri_local_path() {
+        assert_eq!(
+            canonical_config_uri("/tmp/floe/config.yml"),
+            "local:///tmp/floe/config.yml"
+        );
+    }
+
+    #[test]
+    fn canonical_config_uri_remote_uri() {
+        assert_eq!(
+            canonical_config_uri("s3://bucket/config.yml"),
+            "s3://bucket/config.yml"
+        );
+    }
+
+    #[test]
+    fn manifest_id_is_stable() {
+        let left = build_manifest_id("local:///tmp/floe/config.yml", Some("abc"));
+        let right = build_manifest_id("local:///tmp/floe/config.yml", Some("abc"));
+        assert_eq!(left, right);
+        assert!(left.starts_with("mfv1-"));
+        assert_eq!(left.len(), 21);
+    }
+
+    #[test]
+    fn manifest_id_changes_with_checksum() {
+        let left = build_manifest_id("local:///tmp/floe/config.yml", Some("abc"));
+        let right = build_manifest_id("local:///tmp/floe/config.yml", Some("def"));
+        assert_ne!(left, right);
+    }
 }

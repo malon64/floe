@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from .manifest import ManifestExecution, ManifestRunnerDefinition, render_execution_args
 
@@ -65,16 +66,28 @@ class LocalRunner(Runner):
             )
             if run_id and not _contains_run_id_placeholder(execution):
                 args.extend(["--run-id", run_id])
+            cwd = _resolve_workdir(
+                config_uri=config_uri, workdir=execution.defaults.workdir
+            )
+            env_overrides = execution.defaults.env
         else:
             args = [*self._floe_cmd, "run", "-c", config_uri, "--entities", entity]
             if run_id:
                 args.extend(["--run-id", run_id])
             args.extend(["--log-format", log_format])
-        return _run(args)
+            cwd = None
+            env_overrides = None
+        return _run(args, cwd=cwd, env_overrides=env_overrides)
 
 
-def _run(args: list[str], cwd: str | None = None) -> RunResult:
+def _run(
+    args: list[str],
+    cwd: str | None = None,
+    env_overrides: dict[str, str] | None = None,
+) -> RunResult:
     env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
     proc = subprocess.run(
         args,
         cwd=cwd,
@@ -89,3 +102,17 @@ def _contains_run_id_placeholder(execution: ManifestExecution) -> bool:
     return any("{run_id}" in token for token in execution.base_args) or any(
         "{run_id}" in token for token in execution.per_entity_args
     )
+
+
+def _resolve_workdir(config_uri: str, workdir: str | None) -> str | None:
+    if not workdir:
+        return None
+
+    workdir_path = Path(workdir)
+    if workdir_path.is_absolute():
+        return str(workdir_path)
+
+    if "://" not in config_uri:
+        return str((Path(config_uri).resolve().parent / workdir_path).resolve())
+
+    return str(workdir_path.resolve())

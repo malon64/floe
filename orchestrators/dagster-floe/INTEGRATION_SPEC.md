@@ -147,11 +147,11 @@ No backward-compatibility bridge from `floe.plan.v1` is planned in Dagster conne
 
 1. Multi-manifest loading at parse-time.
    Scope: support loading a directory of manifests (`*.manifest.json`) to generate assets from multiple Floe configs/domains in one Dagster code location.
-2. Generate one Dagster job per manifest/config.
+2. Generate one Dagster job per manifest/config. (Done for single-manifest flow)
    Scope: when multiple manifests are loaded, build one `define_asset_job` per manifest and expose stable job names (for schedule/sensor targeting).
-3. Support execution defaults from manifest.
+3. Support execution defaults from manifest. (Done for local runner)
    Scope: apply `execution.defaults.env` and `execution.defaults.workdir` in `LocalRunner` when launching Floe subprocesses.
-4. Strict manifest schema validation in connector.
+4. Strict manifest schema validation in connector. (Done for `load_manifest`)
    Scope: validate loaded JSON payloads against `orchestrators/schemas/floe.manifest.v1.json` before building assets or running tasks.
 5. Runner adapters for non-local execution.
    Scope: keep `local_process` as baseline and add adapter structure for `kubernetes_*` and `ecs_task` runner types without changing manifest contract.

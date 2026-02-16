@@ -68,3 +68,25 @@ def test_manifest_rejects_non_json_log_format():
 
     with pytest.raises(ValueError, match="execution.log_format"):
         DagsterManifest.from_dict(payload)
+
+
+def test_manifest_schema_rejects_unknown_top_level_key(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload["unexpected_top_level"] = True
+    manifest_path = tmp_path / "manifest.invalid.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        load_manifest(manifest_path)
+
+
+def test_manifest_schema_rejects_missing_entity_source(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    del payload["entities"][0]["source"]
+    manifest_path = tmp_path / "manifest.invalid.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        load_manifest(manifest_path)

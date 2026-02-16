@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "dagster>=1.7,<2",
+  "jsonschema>=4",
 ]
 
 [project.urls]
@@ -42,3 +43,6 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"floe_dagster" = ["schemas/*.json"]

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from importlib import resources
 import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+
+from jsonschema import Draft202012Validator
 
 MANIFEST_SCHEMA = "floe.manifest.v1"
 
@@ -177,6 +181,7 @@ def load_manifest(path: str | Path) -> DagsterManifest:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("manifest file must contain a JSON object")
+    _validate_manifest_payload(payload)
     return DagsterManifest.from_dict(payload)
 
 
@@ -312,3 +317,22 @@ def _optional_string_map(data: dict[str, Any], key: str) -> dict[str, str] | Non
     ):
         raise ValueError(f"{key} must be a map<string,string> when provided")
     return value
+
+
+def _validate_manifest_payload(payload: dict[str, Any]) -> None:
+    validator = _manifest_validator()
+    errors = sorted(validator.iter_errors(payload), key=lambda error: list(error.path))
+    if not errors:
+        return
+    first = errors[0]
+    path = ".".join(str(part) for part in first.absolute_path) or "$"
+    raise ValueError(f"manifest schema validation failed at {path}: {first.message}")
+
+
+@lru_cache(maxsize=1)
+def _manifest_validator() -> Draft202012Validator:
+    schema_path = resources.files("floe_dagster").joinpath(
+        "schemas/floe.manifest.v1.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    return Draft202012Validator(schema)

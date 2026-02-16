@@ -6,6 +6,7 @@ import shlex
 import subprocess
 from typing import Any
 
+from .manifest import ManifestExecution, ManifestRunnerDefinition
 from .runtime import (
     DagManifestContext,
     build_asset_event_extra,
@@ -34,23 +35,61 @@ def _split_cmd(command: str) -> list[str]:
 class FloeRunHook:
     """Execute `floe run` and return normalized Airflow run payload."""
 
-    def __init__(self, floe_cmd: str = "floe") -> None:
+    def __init__(self, floe_cmd: str | None = None) -> None:
         self.floe_cmd = floe_cmd
 
-    def build_args(self, config_path: str, entities: list[str] | None = None) -> list[str]:
-        args = [*_split_cmd(self.floe_cmd), "run", "-c", config_path, "--log-format", "json"]
+    def build_args(
+        self,
+        config_path: str,
+        entities: list[str] | None = None,
+        *,
+        execution: ManifestExecution | None = None,
+    ) -> list[str]:
+        if execution is None:
+            cmd = self.floe_cmd or "floe"
+            args = [*_split_cmd(cmd), "run", "-c", config_path, "--log-format", "json"]
+            if entities:
+                args.extend(["--entities", ",".join(entities)])
+            return args
+
+        command = self.floe_cmd or execution.entrypoint
+        args = [*_split_cmd(command)]
+        args.extend(_render_tokens(execution.base_args, config_path))
         if entities:
-            args.extend(["--entities", ",".join(entities)])
+            args.extend(_render_entity_tokens(execution.per_entity_args, config_path, entities))
         return args
 
-    def run(self, config_path: str, entities: list[str] | None = None) -> dict[str, Any]:
+    def run(
+        self,
+        config_path: str,
+        entities: list[str] | None = None,
+        *,
+        execution: ManifestExecution | None = None,
+        runner_definition: ManifestRunnerDefinition | None = None,
+    ) -> dict[str, Any]:
+        if runner_definition is not None and runner_definition.runner_type != "local_process":
+            raise ValueError(
+                "unsupported runner type for Airflow FloeRunOperator: "
+                f"{runner_definition.runner_type}"
+            )
+        if execution is not None and execution.log_format != "json":
+            raise ValueError(
+                "unsupported execution.log_format for Airflow FloeRunOperator: "
+                f"{execution.log_format}. Expected 'json'."
+            )
+
         completed = subprocess.run(
-            self.build_args(config_path, entities=entities),
+            self.build_args(config_path, entities=entities, execution=execution),
             check=True,
             text=True,
             capture_output=True,
         )
         run_finished = parse_run_finished(completed.stdout)
+        summary_uri_field = (
+            execution.result_contract.summary_uri_field
+            if execution is not None
+            else "summary_uri"
+        )
         payload: dict[str, Any] = {
             "schema": "floe.airflow.run.v1",
             "run_id": run_finished["run_id"],
@@ -62,7 +101,7 @@ class FloeRunHook:
             "rejected": run_finished["rejected"],
             "warnings": run_finished["warnings"],
             "errors": run_finished["errors"],
-            "summary_uri": run_finished.get("summary_uri"),
+            "summary_uri": run_finished.get(summary_uri_field),
             "config_uri": config_path,
             "floe_log_schema": "floe.log.v1",
             "finished_at_ts_ms": run_finished["ts_ms"],
@@ -82,7 +121,7 @@ class FloeRunOperator(BaseOperator):
         *,
         config_path: str,
         entities: list[str] | None = None,
-        floe_cmd: str = "floe",
+        floe_cmd: str | None = None,
         manifest_context: DagManifestContext | None = None,
         **kwargs: Any,
     ) -> None:
@@ -94,9 +133,54 @@ class FloeRunOperator(BaseOperator):
 
     def execute(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
         hook = FloeRunHook(floe_cmd=self.floe_cmd)
-        payload = hook.run(self.config_path, entities=self.entities)
+        execution, runner_definition = self._resolve_execution_contract()
+        payload = hook.run(
+            self.config_path,
+            entities=self.entities,
+            execution=execution,
+            runner_definition=runner_definition,
+        )
         self._emit_asset_events(payload, context)
         return payload
+
+    def _resolve_execution_contract(
+        self,
+    ) -> tuple[ManifestExecution | None, ManifestRunnerDefinition | None]:
+        if self.manifest_context is None or self.manifest_context.manifest is None:
+            return None, None
+
+        manifest = self.manifest_context.manifest
+        execution = manifest.execution
+        runners = manifest.runners
+
+        entity_names = (
+            self.entities
+            if self.entities
+            else list(self.manifest_context.entities_by_name.keys())
+        )
+        requested_runner_names = set()
+        for entity_name in entity_names:
+            entity = self.manifest_context.entities_by_name.get(entity_name)
+            if entity is None:
+                continue
+            requested_runner_names.add(entity.runner or runners.default)
+
+        if not requested_runner_names:
+            requested_runner_names.add(runners.default)
+        if len(requested_runner_names) > 1:
+            raise ValueError(
+                "multiple runner names are not supported in one FloeRunOperator call: "
+                f"{sorted(requested_runner_names)}"
+            )
+
+        runner_name = next(iter(requested_runner_names))
+        runner_definition = runners.definitions.get(runner_name)
+        if runner_definition is None:
+            raise ValueError(
+                f"runner '{runner_name}' not found in manifest.runners.definitions"
+            )
+
+        return execution, runner_definition
 
     def _emit_asset_events(
         self, payload: dict[str, Any], context: dict[str, Any] | None
@@ -132,3 +216,17 @@ class FloeRunOperator(BaseOperator):
                 run_finished=payload,
                 summary_entity=summary_entities.get(entity_name),
             )
+
+
+def _render_tokens(tokens: list[str], config_uri: str) -> list[str]:
+    return [token.replace("{config_uri}", config_uri) for token in tokens]
+
+
+def _render_entity_tokens(
+    tokens: list[str], config_uri: str, entities: list[str]
+) -> list[str]:
+    joined_entities = ",".join(entities)
+    return [
+        token.replace("{config_uri}", config_uri).replace("{entity_name}", joined_entities)
+        for token in tokens
+    ]

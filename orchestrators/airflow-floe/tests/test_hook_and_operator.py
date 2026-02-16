@@ -33,8 +33,50 @@ _install_airflow_stub()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from airflow_floe.hooks import FloeManifestHook  # noqa: E402
+from airflow_floe.manifest import ManifestExecution  # noqa: E402
 from airflow_floe.operators import FloeRunHook, FloeRunOperator  # noqa: E402
 from airflow_floe.runtime import build_dag_manifest_context  # noqa: E402
+
+
+def _execution_and_runners(config_path: str) -> dict:
+    return {
+        "execution": {
+            "entrypoint": "floe",
+            "base_args": [
+                "run",
+                "-c",
+                "{config_uri}",
+                "--log-format",
+                "json",
+                "--quiet",
+            ],
+            "per_entity_args": ["--entities", "{entity_name}"],
+            "log_format": "json",
+            "result_contract": {
+                "run_finished_event": True,
+                "summary_uri_field": "summary_uri",
+                "exit_codes": {
+                    "0": "success_or_rejected",
+                    "1": "technical_failure",
+                    "2": "aborted",
+                },
+            },
+            "defaults": {"env": {}, "workdir": None},
+        },
+        "runners": {
+            "default": "local",
+            "definitions": {
+                "local": {
+                    "type": "local_process",
+                    "image": None,
+                    "namespace": None,
+                    "service_account": None,
+                    "resources": None,
+                    "env": None,
+                }
+            },
+        },
+    }
 
 
 class HookAndOperatorTests(unittest.TestCase):
@@ -55,9 +97,11 @@ class HookAndOperatorTests(unittest.TestCase):
                     "accepted_sink_uri": f"local://{base}/out/accepted/orders",
                     "rejected_sink_uri": None,
                     "asset_key": ["sales", "orders"],
+                    "runner": None,
                 }
             ],
         }
+        payload.update(_execution_and_runners(str(config_path)))
         manifest_path.write_text(json.dumps(payload), encoding="utf-8")
         return manifest_path
 
@@ -95,6 +139,31 @@ class HookAndOperatorTests(unittest.TestCase):
         args = hook.build_args("/tmp/config.yml", entities=["orders", "customer"])
         self.assertIn("--entities", args)
         self.assertIn("orders,customer", args)
+
+    def test_run_hook_build_args_from_manifest_execution(self) -> None:
+        hook = FloeRunHook(floe_cmd=None)
+        execution = ManifestExecution.from_dict(
+            _execution_and_runners("/tmp/config.yml")["execution"]
+        )
+        args = hook.build_args(
+            "/tmp/config.yml",
+            entities=["orders", "customer"],
+            execution=execution,
+        )
+        self.assertEqual(
+            args,
+            [
+                "floe",
+                "run",
+                "-c",
+                "/tmp/config.yml",
+                "--log-format",
+                "json",
+                "--quiet",
+                "--entities",
+                "orders,customer",
+            ],
+        )
 
     def test_run_hook_run_returns_normalized_payload(self) -> None:
         hook = FloeRunHook(floe_cmd="floe")
@@ -139,7 +208,12 @@ class HookAndOperatorTests(unittest.TestCase):
         expected = {"schema": "floe.airflow.run.v1", "run_id": "run-1"}
         with patch("airflow_floe.operators.FloeRunHook.run", return_value=expected) as run_mock:
             actual = operator.execute({})
-        run_mock.assert_called_once_with("/tmp/config.yml", entities=["orders"])
+        run_mock.assert_called_once_with(
+            "/tmp/config.yml",
+            entities=["orders"],
+            execution=None,
+            runner_definition=None,
+        )
         self.assertEqual(actual, expected)
 
     def test_run_operator_populates_asset_events_from_manifest_context(self) -> None:

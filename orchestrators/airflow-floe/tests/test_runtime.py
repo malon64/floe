@@ -38,6 +38,47 @@ from airflow_floe.runtime import (  # noqa: E402
 )
 
 
+def _execution_and_runners(config_path: str) -> dict:
+    return {
+        "execution": {
+            "entrypoint": "floe",
+            "base_args": [
+                "run",
+                "-c",
+                "{config_uri}",
+                "--log-format",
+                "json",
+                "--quiet",
+            ],
+            "per_entity_args": ["--entities", "{entity_name}"],
+            "log_format": "json",
+            "result_contract": {
+                "run_finished_event": True,
+                "summary_uri_field": "summary_uri",
+                "exit_codes": {
+                    "0": "success_or_rejected",
+                    "1": "technical_failure",
+                    "2": "aborted",
+                },
+            },
+            "defaults": {"env": {}, "workdir": None},
+        },
+        "runners": {
+            "default": "local",
+            "definitions": {
+                "local": {
+                    "type": "local_process",
+                    "image": None,
+                    "namespace": None,
+                    "service_account": None,
+                    "resources": None,
+                    "env": None,
+                }
+            },
+        },
+    }
+
+
 class RuntimeHelpersTests(unittest.TestCase):
     def test_parse_run_finished_event(self) -> None:
         stdout = "\n".join(
@@ -112,6 +153,7 @@ class RuntimeHelpersTests(unittest.TestCase):
                     }
                 ],
             }
+            manifest_payload.update(_execution_and_runners(str(config_path)))
             manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
 
             context = build_dag_manifest_context(str(manifest_path))
@@ -145,6 +187,7 @@ class RuntimeHelpersTests(unittest.TestCase):
                     }
                 ],
             }
+            manifest_payload.update(_execution_and_runners(f"local://{config_path}"))
             manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
 
             context = build_dag_manifest_context(str(manifest_path))

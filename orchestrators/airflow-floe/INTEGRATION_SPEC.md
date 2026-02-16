@@ -1,316 +1,151 @@
-# Floe x Airflow Integration Spec (MVP)
+# Floe x Airflow Integration Spec
 
 ## 1. Goal
 
-Provide a stable Airflow integration layer that:
-- uses Floe CLI as the single source of truth for planning and execution
-- exposes compact, versioned payloads to XCom
-- remains decoupled from Floe internal report file growth
+Airflow consumes a static Floe manifest (`floe.manifest.v1`) and executes Floe runs without parsing Floe YAML configs directly at DAG parse-time.
 
-This document defines the execution contract and payload schemas for Airflow.
+The connector must:
 
-## 2. Scope
+- load topology from manifest at parse-time
+- execute using manifest execution contract at run-time
+- select runner from manifest runner contract
+- publish normalized run payloads and asset materialization metadata
 
-In scope:
-- run orchestration and asset materialization contract
-- manifest-driven parse-time topology loading
-- local and docker runner behavior
-- NDJSON parsing contract
-- XCom payload schema and versioning policy
-- task success/failure mapping
-- validate contract usage in control-plane/CI
+## 2. Source of truth
 
-Out of scope for MVP:
-- cloud summary fetch helpers inside Airflow package
-- scheduler/sensor design
-- in-task dedup or incremental semantics
+### 2.1 Manifest schema
 
-## 3. Upstream Floe Contracts (consumed by Airflow)
+- Schema id: `floe.manifest.v1`
+- Canonical schema file: `orchestrators/schemas/floe.manifest.v1.json`
 
-### 3.1 Validate command
+### 2.2 Manifest generation
 
-Command:
+Current CLI command:
 
 ```bash
-floe validate -c <config_path> --output json
+floe manifest generate -c <config> --output <manifest_path>
 ```
 
-Contract:
-- output is a single JSON document
-- JSON includes `schema: "floe.plan.v1"`
-- `valid` indicates validation result
-- when invalid, `errors` is present
+Recommended deployment flow:
 
-### 3.2 Run command
+1. Generate manifest in CI/CD.
+2. Validate manifest against JSON schema.
+3. Deploy DAGs + manifest together.
 
-Command:
+## 3. Parse-time behavior in Airflow
 
-```bash
-floe run -c <config_path> [--entities <entity>] --log-format json
-```
+At import time, Airflow connector:
 
-Contract:
-- stdout contains NDJSON lines only
-- each JSON line contains `schema: "floe.log.v1"`
-- terminal event must include `event: "run_finished"`
-- `run_finished` includes:
-  - `run_id`
-  - `status`
-  - `exit_code`
-  - `summary_uri` (optional)
-  - totals (`files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`)
+1. loads manifest (`FloeManifestHook`)
+2. builds static entity list and assets from `entities[]`
+3. resolves config path/URI from `config_uri`
 
-If NDJSON is malformed or no `run_finished` exists, the Airflow task fails.
+No Floe subprocess is invoked during DAG parse.
 
-### 3.3 Manifest command (next Floe contract)
+Fallback mode is supported:
 
-Target command (to implement in Floe):
+- if manifest is missing/invalid, DAG can still run with `FLOE_CONFIG` (no assets loaded)
 
-```bash
-floe plan -c <config_path> --format airflow --output-path <manifest_path>
-```
+## 4. Run-time execution contract
 
-Target purpose:
-- pre-parse config outside Airflow runtime
-- generate a static manifest consumed by DAG import
-- avoid running Floe subprocess in DAG parse phase
+The connector executes commands from `manifest.execution`, not from hardcoded CLI args.
 
-Interim implementation status:
-- `orchestrators/airflow-floe/src/airflow_floe/manifest.py` can already convert
-  `floe validate --output json` payloads (`floe.plan.v1`) into the manifest model.
-- Example DAGs now load `floe.manifest.v1` at parse time and publish
-  per-entity asset metadata on run completion.
+### 4.1 Command assembly
 
-Target manifest schema (proposal): `floe.manifest.v1`
+For a run task, final command is built as:
 
-Minimum fields:
-- `schema`: `floe.manifest.v1`
-- `generated_at_ts_ms`
-- `floe_version`
-- `config_uri`
-- `config_checksum` (or equivalent fingerprint)
-- `entities[]` with:
-  - `name`
-  - `domain` (optional)
-  - `group_name` (optional)
-  - `source_format`
-  - `accepted_sink_uri`
-  - `rejected_sink_uri` (optional)
-  - `asset_key` (or deterministic derivation inputs)
+`[entrypoint] + base_args(rendered) + per_entity_args(rendered if entities selected)`
 
-## 4. Airflow Execution Model
+Placeholder support:
 
-Default model (recommended):
-1. **deploy/control-plane step**: generate manifest (`floe plan --format airflow`)
-2. DAG import reads manifest only (static entity/asset definitions)
-3. `FloeRunOperator`: run full config once
-4. optional downstream tasks consume `summary_uri` and publish materializations
+- `{config_uri}` -> resolved config path/URI used by the task
+- `{entity_name}` -> comma-joined selected entities for current task
 
-Optional model (advanced):
-1. extract selected entities from params/manifest
-2. dynamically map one run task per entity
-3. aggregate outcomes downstream
+Current requirement:
 
-Execution contract per task:
-1. call runner (`local` or `docker`) to execute Floe CLI
-2. capture stdout/stderr and process exit code
-3. parse contract payload (run NDJSON)
-4. build adapter payload (`floe.airflow.*.v1`)
-5. push adapter payload to XCom
-6. map task status using rules in section 6
+- `execution.log_format` must be `json` (connector parses NDJSON `floe.log.v1`)
 
-Important constraints:
-- do not call `floe validate` during DAG file import
-- runtime DAG examples are run-only (`floe run`)
-- do not mutate asset definitions at runtime
-- publish asset materialization results at runtime from run outputs
+### 4.2 Result parsing
 
-Control-plane (CI/CD) recommendation:
-- run `floe validate --output json` as a pre-deploy gate
-- run `floe plan --format airflow --output-path ...` to generate manifest artifacts
-- deploy DAGs with static manifest references
+Connector expects `run_finished` event from NDJSON stream and extracts summary URI from:
 
-## 5. Adapter Payload Schemas (XCom)
+- `execution.result_contract.summary_uri_field`
 
-Airflow must push only adapter payloads to XCom, not full report files.
+The run payload pushed by operator remains:
 
-### 5.1 Validate payload
+- schema: `floe.airflow.run.v1`
 
-Schema id: `floe.airflow.validate.v1`
+## 5. Runner contract
 
-JSON schema file:
-- `orchestrators/airflow-floe/schemas/floe.airflow.validate.v1.json`
+Runner selection source:
 
-Required fields:
-- `schema`
-- `config_uri`
-- `valid`
-- `error_count`
-- `warning_count`
-- `floe_schema`
-- `generated_at_ts_ms`
+- `entities[].runner` if provided
+- otherwise `runners.default`
 
-Optional fields:
-- `errors` (trimmed list)
-- `warnings` (trimmed list)
-- `entity_count`
-- `selected_entities`
+Runner lookup:
 
-### 5.2 Run payload
+- selected runner name must exist in `runners.definitions`
 
-Schema id: `floe.airflow.run.v1`
+### 5.1 Supported now
 
-JSON schema file:
-- `orchestrators/airflow-floe/schemas/floe.airflow.run.v1.json`
+- `type: local_process`
+  - executed by `FloeRunOperator` using local subprocess
 
-Required fields:
-- `schema`
-- `run_id`
-- `status`
-- `exit_code`
-- `files`
-- `rows`
-- `accepted`
-- `rejected`
-- `warnings`
-- `errors`
-- `floe_log_schema`
-- `finished_at_ts_ms`
+### 5.2 Planned
 
-Optional fields:
-- `summary_uri`
-- `entity`
-- `config_uri`
+- `type: kubernetes_pod` / `kubernetes_job`
+  - map to Airflow Kubernetes operators
+- `type: ecs_task`
+  - map to Airflow ECS operator
 
-## 6. Task Status Mapping
+Current fail-fast behavior:
 
-### 6.1 Validate task
+- unsupported runner types raise explicit task error
+- mixed runner names in a single `FloeRunOperator` invocation are rejected
 
-- used in control-plane/CI (not required in runtime DAGs)
-- success when command exits 0 and payload parses
-- failure when command fails, output is not valid JSON, or schema is unexpected
+## 6. Asset materialization
 
-Note: `valid=false` can be treated as a failed pipeline gate in CI policy.
+Static assets are created from manifest at parse-time.
 
-### 6.2 Run task
+On run completion, operator enriches outlet events with per-entity metrics using:
 
-- success when:
-  - process exits 0
-  - NDJSON parsing succeeds
-  - `run_finished` exists
-  - `run_finished.exit_code == 0`
-- failure otherwise
+- `run_finished` payload
+- optional `summary_uri` loaded summary file
 
-## 7. Versioning and Compatibility
+## 7. Validate payload support
 
-- Airflow adapter payloads are versioned independently:
-  - `floe.airflow.validate.v1`
-  - `floe.airflow.run.v1`
-- Floe upstream schemas (`floe.plan.v1`, `floe.log.v1`) are treated as dependencies.
-- Unknown optional fields from Floe are ignored.
-- Missing required fields fail fast with a clear contract error.
+`floe.plan.v1` loader remains available as compatibility path.
 
-## 8. Security and Size Constraints
+When converting validate payload to `floe.manifest.v1`, connector injects default:
 
-- no credentials in payload
-- no full run report JSON in XCom
-- no raw NDJSON stream in XCom
-- optional issue lists (`errors`, `warnings`) should be truncated by adapter policy
+- `execution` contract
+- `runners` contract (`local_process`)
 
-## 9. Implementation Checklist
+This is a bridge path; production should prefer generated manifest files.
 
-1. create Python models for both payload schemas
-2. implement command runners (`LocalRunner`, `DockerRunner`)
-3. implement parse/validate for run NDJSON contract
-4. keep validate JSON support for control-plane workflows
-5. implement XCom push utilities
-6. add unit tests for parser and schema validation
-7. add integration tests for local and docker happy paths
+## 8. Error policy
 
-## 11. Decisions (2026-02-13)
+Task fails when:
 
-1. Airflow default connector model is DAG/operator-oriented, not asset-first execution.
-2. Asset visibility is supported, but execution remains centered on Floe run tasks.
-3. Config parsing authority stays in Floe, not in Python connector code.
-4. DAG import should consume a static manifest, not invoke Floe CLI directly.
-5. Runtime should publish materialization outcomes for entities actually processed.
-6. Dynamic entity subsets are supported at runtime, but asset definitions remain static for the deployed DAG version.
-7. Runtime DAGs are run-only; `validate` belongs to CI/control-plane.
+- manifest schema/required fields are invalid
+- runner resolution fails
+- unsupported runner type is selected
+- NDJSON cannot be parsed
+- `run_finished` event is missing
 
-## 12. Post-Manifest Connector Roadmap
+## 9. Connector modules
 
-Once `floe.manifest.v1` is available, connector work is:
+- `src/airflow_floe/manifest.py`
+  - manifest models + loaders (`floe.manifest.v1`, `floe.plan.v1` compatibility)
+- `src/airflow_floe/runtime.py`
+  - context build, URI/path handling, run summary loading
+- `src/airflow_floe/operators.py`
+  - run operator/hook, execution + runner resolution, payload emission
+- `src/airflow_floe/hooks.py`
+  - manifest context hook for DAG wiring
 
-1. Manifest loader module
-- read/validate `floe.manifest.v1`
-- fail fast on schema mismatch
+## 10. Open roadmap
 
-2. DAG factory from manifest
-- build default simple DAG from static manifest
-- optional entity-mapped DAG from same manifest
-
-3. Operators
-- `FloeRunOperator` (full config or selected entities)
-- `FloePublishAssetsOperator` (publish per-entity materialization metadata from summary)
-- optional control-plane utility: `FloeValidateOperator` (CI-oriented usage)
-
-4. Runtime parsing
-- NDJSON parser for `floe.log.v1`
-- summary loader from `summary_uri` (local first, cloud later)
-
-## 13. Current connector status
-
-Implemented in this repo:
-- `FloeManifestHook` to load manifest context and assets (with no-manifest fallback context)
-- `FloeRunHook` + `FloeRunOperator` for run execution and normalized `floe.airflow.run.v1` payloads
-- local summary URI support for `file://...` and `local://...`
-- dedicated Airflow connector CI workflow (`.github/workflows/airflow-floe.yml`)
-
-5. Asset publication model
-- static definitions from manifest
-- runtime materialization events only for executed entities
-
-6. Testing
-- unit: manifest schema validation, parser, payload builders
-- integration: simple DAG end-to-end using manifest
-- integration: entity subset run + correct materialization publication
-
-## 10. Example Payloads
-
-Validate payload example:
-
-```json
-{
-  "schema": "floe.airflow.validate.v1",
-  "config_uri": "./example/config.yml",
-  "valid": true,
-  "error_count": 0,
-  "warning_count": 0,
-  "entity_count": 2,
-  "selected_entities": ["customer"],
-  "floe_schema": "floe.plan.v1",
-  "generated_at_ts_ms": 1739500000000
-}
-```
-
-Run payload example:
-
-```json
-{
-  "schema": "floe.airflow.run.v1",
-  "run_id": "2026-02-13T10-00-00Z",
-  "entity": "customer",
-  "status": "success",
-  "exit_code": 0,
-  "files": 3,
-  "rows": 1200,
-  "accepted": 1188,
-  "rejected": 12,
-  "warnings": 1,
-  "errors": 0,
-  "summary_uri": "./report/run_2026-02-13T10-00-00Z/run.summary.json",
-  "config_uri": "./example/config.yml",
-  "floe_log_schema": "floe.log.v1",
-  "finished_at_ts_ms": 1739500005000
-}
-```
+1. Add Kubernetes/ECS runner implementations behind same runner contract.
+2. Optional split operator classes per runner family (`Local`, `K8s`, `ECS`) while keeping one manifest contract.
+3. Add schema validation in connector package before runtime use (strict local check against `floe.manifest.v1.json`).

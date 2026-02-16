@@ -62,11 +62,15 @@ class ManifestLoaderTests(unittest.TestCase):
         self.assertEqual(manifest.config_uri, "./example/config.yml")
         self.assertEqual(manifest.floe_version, "0.2.4")
         self.assertEqual(len(manifest.entities), 2)
+        self.assertEqual(manifest.execution.entrypoint, "floe")
+        self.assertEqual(manifest.runners.default, "local")
+        self.assertIn("local", manifest.runners.definitions)
 
         employees = manifest.entities[0]
         self.assertEqual(employees.name, "employees")
         self.assertEqual(employees.asset_key, ["hr", "employees"])
         self.assertEqual(employees.rejected_sink_uri, "./out/rejected/employees")
+        self.assertIsNone(employees.runner)
 
         orders = manifest.entities[1]
         self.assertEqual(orders.group_name, "floe")

@@ -42,6 +42,11 @@ At definitions load time, Dagster connector:
 
 No Floe subprocess is invoked during parse-time.
 
+Code organization:
+
+- connector logic is packaged under `src/floe_dagster/`
+- repository example wiring lives in `example/definitions.py`
+
 ## 4. Asset mapping
 
 - 1 Floe entity = 1 Dagster asset

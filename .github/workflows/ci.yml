@@ -182,7 +182,7 @@ jobs:
               cargo test -p floe-core --test unit
             fi
             if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
-              || [ "${{ steps.changes.outputs.core_code_global }}" = "true" ]; then
+              || [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
               cargo test -p floe-core --test integration
             fi
             cargo test -p floe-core --doc

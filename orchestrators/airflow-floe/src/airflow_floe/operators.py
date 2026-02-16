@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import shlex
 import subprocess
+import threading
 from typing import Any
 
 from .manifest import ManifestExecution, ManifestRunnerDefinition
@@ -66,6 +68,8 @@ class FloeRunHook:
         *,
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
+        log_stdout: Any | None = None,
+        log_stderr: Any | None = None,
     ) -> dict[str, Any]:
         if runner_definition is not None and runner_definition.runner_type != "local_process":
             raise ValueError(
@@ -78,13 +82,29 @@ class FloeRunHook:
                 f"{execution.log_format}. Expected 'json'."
             )
 
-        completed = subprocess.run(
-            self.build_args(config_path, entities=entities, execution=execution),
-            check=True,
+        args = self.build_args(config_path, entities=entities, execution=execution)
+        process = subprocess.Popen(
+            args,
             text=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
         )
-        run_finished = parse_run_finished(completed.stdout)
+        stdout_text, stderr_text = _capture_and_log_process_output(
+            process,
+            log_stdout=log_stdout,
+            log_stderr=log_stderr,
+        )
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(
+                returncode=return_code,
+                cmd=args,
+                output=stdout_text,
+                stderr=stderr_text,
+            )
+
+        run_finished = parse_run_finished(stdout_text)
         summary_uri_field = (
             execution.result_contract.summary_uri_field
             if execution is not None
@@ -134,11 +154,16 @@ class FloeRunOperator(BaseOperator):
     def execute(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
         hook = FloeRunHook(floe_cmd=self.floe_cmd)
         execution, runner_definition = self._resolve_execution_contract()
+        logger = getattr(self, "log", None)
+        log_stdout = logger.info if logger is not None else None
+        log_stderr = logger.warning if logger is not None else None
         payload = hook.run(
             self.config_path,
             entities=self.entities,
             execution=execution,
             runner_definition=runner_definition,
+            log_stdout=log_stdout,
+            log_stderr=log_stderr,
         )
         self._emit_asset_events(payload, context)
         return payload
@@ -215,6 +240,7 @@ class FloeRunOperator(BaseOperator):
                 entity=manifest_entity,
                 run_finished=payload,
                 summary_entity=summary_entities.get(entity_name),
+                config_path=self.config_path,
             )
 
 
@@ -230,3 +256,44 @@ def _render_entity_tokens(
         token.replace("{config_uri}", config_uri).replace("{entity_name}", joined_entities)
         for token in tokens
     ]
+
+
+def _capture_and_log_process_output(
+    process: subprocess.Popen[str],
+    *,
+    log_stdout: Any | None = None,
+    log_stderr: Any | None = None,
+) -> tuple[str, str]:
+    stdout_pipe = process.stdout
+    stderr_pipe = process.stderr
+    if stdout_pipe is None or stderr_pipe is None:
+        raise ValueError("failed to capture process stdout/stderr")
+
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+
+    def _consume(pipe: Any, buffer: io.StringIO, logger: Any | None, prefix: str) -> None:
+        for line in pipe:
+            buffer.write(line)
+            if logger is not None:
+                stripped = line.rstrip("\n")
+                if stripped:
+                    logger("%s %s", prefix, stripped)
+        pipe.close()
+
+    stdout_thread = threading.Thread(
+        target=_consume,
+        args=(stdout_pipe, stdout_buffer, log_stdout, "[floe/stdout]"),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_consume,
+        args=(stderr_pipe, stderr_buffer, log_stderr, "[floe/stderr]"),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    stdout_thread.join()
+    stderr_thread.join()
+
+    return stdout_buffer.getvalue(), stderr_buffer.getvalue()

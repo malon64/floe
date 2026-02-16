@@ -9,6 +9,7 @@ from .manifest import (
     build_manifest_from_validate_payload,
     load_manifest,
 )
+from .manifest_discovery import ManifestDagSpec, discover_manifest_dag_specs
 from .operators import FloeRunHook, FloeRunOperator
 from .runtime import (
     DagManifestContext,
@@ -29,6 +30,7 @@ __all__ = [
     "FloeRunHook",
     "FloeRunOperator",
     "MANIFEST_SCHEMA",
+    "ManifestDagSpec",
     "ManifestEntity",
     "VALIDATE_SCHEMA",
     "build_asset_event_extra",
@@ -36,6 +38,7 @@ __all__ = [
     "build_dag_manifest_context_or_empty",
     "build_entity_assets",
     "build_manifest_from_validate_payload",
+    "discover_manifest_dag_specs",
     "load_manifest",
     "load_manifest_context",
     "load_run_summary",

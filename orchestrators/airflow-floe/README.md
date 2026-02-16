@@ -32,6 +32,8 @@ python -m pip install -e orchestrators/airflow-floe
 ```bash
 export FLOE_CMD="floe"
 export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manifest.airflow.json"
+# optional multi-manifest mode (1 manifest => 1 DAG):
+# export FLOE_MANIFEST_DIR="/absolute/path/to/orchestrators/airflow-floe/example/manifests"
 # optional override:
 # export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
 ```
@@ -44,7 +46,20 @@ floe manifest generate \
   --output orchestrators/airflow-floe/example/manifest.airflow.json
 ```
 
+For multi-manifest mode (one DAG per manifest), generate domain manifests:
+
+```bash
+floe manifest generate \
+  -c orchestrators/airflow-floe/example/config.hr.yml \
+  --output orchestrators/airflow-floe/example/manifests/hr.manifest.json
+
+floe manifest generate \
+  -c orchestrators/airflow-floe/example/config.sales.yml \
+  --output orchestrators/airflow-floe/example/manifests/sales.manifest.json
+```
+
 6. Trigger DAG `floe_example_operator`.
+   - In multi-manifest mode (`FLOE_MANIFEST_DIR`), DAGs are generated as `floe_<manifest_name>`.
 
 ## Notes
 
@@ -56,3 +71,4 @@ floe manifest generate \
 - If `FLOE_MANIFEST` is missing/invalid, DAGs still run with `FLOE_CONFIG` (or example config fallback) but no assets are loaded/materialized.
 - The returned task payload shape follows `floe.airflow.run.v1`.
 - Local run summaries emitted as `local://...` are resolved and loaded by the connector runtime helpers.
+- Floe NDJSON stdout/stderr are streamed into task logs (Audit/Task Log view) and still parsed for `run_finished`.

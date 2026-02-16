@@ -43,8 +43,8 @@
 - Print common manifest to stdout:
   - `floe manifest generate -c example/config.yml --output -`
 - Report output:
-    - `example/report/run_<run_id>/run.summary.json`
-    - `example/report/run_<run_id>/customer/run.json`
+  - `example/report/run_<run_id>/run.summary.json`
+  - `example/report/run_<run_id>/customer/run.json`
 
 - Set a run id:
   - `floe run -c example/config.yml --entities customer --run-id dev-001`

@@ -1,5 +1,4 @@
 load_from:
-  - python_module:
-      module_name: floe_dagster.definitions
+  - python_file:
+      relative_path: example/definitions.py
       working_directory: .
-

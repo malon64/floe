@@ -3,6 +3,7 @@ include README.md
 include INTEGRATION_SPEC.md
 
 recursive-include src/floe_dagster *.py
+recursive-include src/floe_dagster/schemas *.json
 recursive-include tests *.py
 recursive-include tests/fixtures *
 

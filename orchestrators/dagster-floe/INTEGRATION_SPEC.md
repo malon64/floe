@@ -1,61 +1,96 @@
-# Floe × Dagster integration (spec, MVP → future)
+# Floe x Dagster Integration Spec
 
-This document describes how the `orchestrators/dagster-floe` connector is intended to integrate Floe into Dagster.
+## Goal
 
-## Goals
+Dagster must consume Floe manifests (`floe.manifest.v1`) as the single orchestration contract, without parsing Floe YAML at runtime.
 
-- **One Floe config → many Dagster assets** (one asset per Floe entity).
-- **No YAML parsing in Python**: Dagster must use Floe as the source of truth:
-  - `floe validate --output json` produces the machine-readable plan.
-  - `floe run --log-format json` emits machine-readable NDJSON events.
-- **Orchestrator-friendly metadata**: attach per-entity counts and report locations to Dagster materializations.
+Production target model:
 
-## Asset mapping
+- 1 config per domain
+- 1 manifest per config
+- 1 Dagster job per manifest
+- entity-level assets inside each job
 
-- **1 Floe entity = 1 Dagster asset**
-- Domain support (optional):
-  - if `entity.domain` is set: asset key = `[domain, entity_name]`, group = `domain`
-  - else: asset key = `[entity_name]`, group = `"floe"`
+## Source of truth
 
-## Execution model (MVP)
+- Manifest schema id: `floe.manifest.v1`
+- Canonical schema file: `orchestrators/schemas/floe.manifest.v1.json`
+- Generation command:
 
-Each entity asset runs Floe for that entity:
+```bash
+floe manifest generate -c <config> --output <manifest_path>
+```
 
-- validate (plan): `floe validate -c <config> --output json`
-- run (events): `floe run -c <config> --entities <entity> --log-format json`
-  - NDJSON events must be on **stdout** only
-  - human summary must be on **stderr** (Dagster will log it as normal text)
-  - the last event must be `run_finished` and contain `summary_uri`
+## Implemented today
 
-After the process exits:
+### Parse-time
 
-1) parse NDJSON from stdout
-2) find the last `run_finished`
-3) read `run.summary.json` from `summary_uri` (local-only in MVP)
-4) emit `MaterializeResult(metadata=...)` with:
-   - run id, status, exit_code
-   - files/rows/accepted/rejected/warnings/errors (best-effort per entity)
-   - summary uri and per-entity report file path
+- Loads a single manifest file or a manifest directory (`*.manifest.json`).
+- Builds one Dagster asset per `entities[]` item.
+- Asset key comes from `entity.asset_key`.
+- Group comes from `entity.group_name`.
 
-## Runners
+### Jobs
 
-The connector supports two runners:
+- Generates one Dagster `define_asset_job(...)` per manifest.
+- Job selection is constrained to assets from that manifest only.
+- Stable job naming based on `manifest_id`.
+- Duplicate protection:
+  - duplicate asset keys across manifests => error
+  - duplicate generated job names => error
 
-- `LocalRunner`: calls a local `floe` binary via `subprocess`
-  - can be configured with multi-token commands (e.g. `cargo run -p floe-cli --`)
-- `DockerRunner`: calls `docker run --rm <image> floe ...`
-  - intended for future use with `ghcr.io/<owner>/floe:<tag>`
+### Run-time execution
 
-## Non-goals (MVP)
+- Uses `manifest.execution` (no hardcoded CLI contract).
+- Command rendering supports placeholders:
+  - `{config_uri}`
+  - `{entity_name}`
+  - `{run_id}`
+- Applies `execution.defaults.env` and `execution.defaults.workdir` in local runner.
+- Enforces JSON log mode (`execution.log_format == json`).
 
-- No cloud credentials management in Python.
-- No Dagster Checks mapping from Floe validation rules.
-- No sensors/schedules/resources.
-- No “single Floe run for multiple assets” orchestration (each asset calls Floe today).
+### Runner contract
 
-## Future work
+- Runner selected by:
+  - `entity.runner`, fallback `runners.default`
+- Current supported runner type:
+  - `local_process`
+- Unsupported runner types fail fast.
 
-- **Batch execution**: one Dagster run materializing multiple assets should be able to trigger a *single* Floe run and then fan-out results.
-- **Dagster checks**: map Floe check results (cast/not_null/unique/mismatch) into Dagster `AssetCheckResult`.
-- **Cloud summary loading**: support reading `summary_uri` from `s3://` / `gs://` / `abfs://` using cloud SDKs or Floe helpers.
-- **Config-as-asset**: represent the config itself as a Dagster asset and generate downstream entity assets from it.
+### Metadata and reports
+
+- Parses NDJSON stdout and extracts final `run_finished`.
+- Loads local summary from `summary_uri` when available.
+- Attaches run/entity stats in Dagster materialization metadata.
+
+### Validation
+
+- Strict JSON Schema validation at manifest load time.
+- Invalid payloads fail before asset/job construction.
+
+### Code organization
+
+- Connector package logic: `src/floe_dagster/`
+- Repo-only example wiring: `example/definitions.py`
+
+## Remaining work
+
+1. Non-local runner adapters.
+Use the same manifest contract for `kubernetes_*` and `ecs_task`.
+
+2. Remote summary loading.
+Read `summary_uri` for cloud backends (`s3://`, `gs://`, `abfs://`) to enrich metadata outside local mode.
+
+3. Single-process fan-out mode (optional optimization).
+Allow one Floe run for multiple selected entities, then fan out results to corresponding assets.
+
+4. Dagster checks mapping.
+Map Floe quality results to `AssetCheckResult`.
+
+5. Multi-manifest operations polish.
+Add explicit policy for cross-manifest collisions and optional selection/filter mechanisms.
+
+## Non-goals for this phase
+
+- No backward compatibility bridge from `floe.plan.v1`.
+- No direct YAML parsing in connector runtime.

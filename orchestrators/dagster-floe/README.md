@@ -1,14 +1,26 @@
-# Floe + Dagster (MVP)
+# Floe + Dagster
 
-This folder contains a small Dagster connector for Floe, implemented as a Python package.
+This folder contains the Dagster connector for Floe.
 
 For local setup of both Dagster and Airflow with isolated virtual environments, see:
 - `orchestrators/LOCAL_DEV.md`
 
-Goals of the MVP:
-- Generate one Dagster asset per Floe entity by calling `floe validate --output json`
-- Execute one entity per asset with `floe run --entities <name> --log-format json`
-- Parse NDJSON events from stdout and attach run stats to Dagster materialization metadata
+Current model:
+- Parse-time reads Floe manifests (`floe.manifest.v1`), not Floe YAML.
+- Supports single manifest and multi-manifest directory loading.
+- Builds one asset per entity and one job per manifest.
+- Runs Floe with manifest execution contract and JSON logs.
+- Publishes run/entity metadata from NDJSON + summary.
+
+## What Is Implemented
+
+- Manifest-first orchestration (`floe.manifest.v1`).
+- Strict schema validation at manifest load time.
+- Asset generation from `entities[]` (`asset_key`, `group_name` respected).
+- One Dagster job per manifest (stable job names).
+- Multi-manifest loading (`*.manifest.json`) with collision checks.
+- Local runner (`local_process`) support.
+- `execution.defaults.env` and `execution.defaults.workdir` support.
 
 ## Install
 
@@ -28,50 +40,42 @@ source orchestrators/dagster-floe/.venv/bin/activate
 pip install -e orchestrators/dagster-floe[dev]
 ```
 
+## Generate a manifest
+
+```bash
+floe manifest generate \
+  -c orchestrators/dagster-floe/example/config.yml \
+  --output orchestrators/dagster-floe/example/manifest.dagster.json
+```
+
 ## Run the example (repo-only)
 
 ```bash
 cd orchestrators/dagster-floe
-dagster dev
+FLOE_MANIFEST_DIR=./example/manifests dagster dev
 ```
 
-The example workspace loads `floe_dagster.definitions` which generates assets from `orchestrators/dagster-floe/example/config.yml`.
-
-## Run using Docker (instead of a local `floe` binary)
-
-Prereqs:
-- Docker installed and working (`docker run hello-world` succeeds).
-- A Floe image available (either build locally or pull from GHCR).
-
-Option A — pull from GHCR:
-
-```bash
-export FLOE_DOCKER_IMAGE="ghcr.io/malon64/floe:latest"
-```
-
-Option B — build locally from this repo:
-
-```bash
-docker build -t floe:dev .
-export FLOE_DOCKER_IMAGE="floe:dev"
-```
-
-Then run Dagster:
-
-```bash
-cd orchestrators/dagster-floe
-source .venv/bin/activate
-FLOE_DOCKER_IMAGE="$FLOE_DOCKER_IMAGE" dagster dev
-```
+The example workspace loads `example/definitions.py`, which wires local example files/manifest to the reusable connector APIs.
+The repository example includes two manifests by domain:
+- `example/manifests/hr.manifest.json`
+- `example/manifests/sales.manifest.json`
 
 ## Notes
 
-- This connector does **not** parse YAML directly; it uses `floe validate --output json` as the source of truth.
+- This connector does **not** parse YAML directly; it consumes `floe.manifest.v1`.
+- Connector logic lives under `src/floe_dagster/`; local wiring for demo lives in `example/definitions.py`.
 - For local development without an installed `floe` binary, you can point `LocalRunner` to a custom command, e.g.:
   - `LocalRunner(\"cargo run -p floe-cli --\")`
-- `DockerRunner` mounts the config directory by default; if your config uses paths like `../data/...`, it mounts a higher parent directory so those paths remain visible. For full control, pass `workdir=...`.
-- When `DockerRunner` mounts local files, it runs the container as your current user (`--user uid:gid`) so Floe can write reports/outputs back into the mounted directory.
+- Manifest runner support in connector is currently `local_process` only.
+- For local setup commands, use `orchestrators/LOCAL_DEV.md`.
 - Design notes and future work: `orchestrators/dagster-floe/INTEGRATION_SPEC.md`
+
+## What Is Not Implemented Yet
+
+- Kubernetes/ECS runner adapters.
+- Cloud summary loading (`s3://`, `gs://`, `abfs://`).
+- Single-process multi-entity fan-out execution mode.
+- Floe checks mapped to Dagster `AssetCheckResult`.
 
 ## Releasing
 

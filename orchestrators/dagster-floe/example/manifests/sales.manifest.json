@@ -1,0 +1,146 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 1771001087000,
+  "floe_version": "0.2.4",
+  "spec_version": "0.2",
+  "manifest_id": "mfv1-dagster-sales",
+  "config_uri": "../config.sales.yml",
+  "config_checksum": null,
+  "report_base_uri": "../report",
+  "domains": [
+    {
+      "name": "sales",
+      "incoming_dir": "../in/sales"
+    }
+  ],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "-c",
+      "{config_uri}",
+      "--log-format",
+      "json",
+      "--quiet"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "1": "technical_failure",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    }
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": {
+        "type": "local_process",
+        "image": null,
+        "namespace": null,
+        "service_account": null,
+        "resources": null,
+        "env": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "orders",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": [
+        "sales",
+        "orders"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "../out/accepted/orders",
+      "rejected_sink_uri": "../out/rejected/orders",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "../in/sales/orders.csv",
+        "path": "../in/sales/orders.csv",
+        "resolved": true,
+        "cast_mode": null,
+        "options": {
+          "header": true,
+          "separator": ","
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "parquet",
+          "storage": "local",
+          "uri": "../out/accepted/orders",
+          "path": "../out/accepted/orders",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "../out/rejected/orders",
+          "path": "../out/rejected/orders",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null
+    },
+    {
+      "name": "invoices",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": [
+        "sales",
+        "invoices"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "../out/accepted/invoices",
+      "rejected_sink_uri": "../out/rejected/invoices",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "../in/sales/invoices.csv",
+        "path": "../in/sales/invoices.csv",
+        "resolved": true,
+        "cast_mode": null,
+        "options": {
+          "header": true,
+          "separator": ","
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "parquet",
+          "storage": "local",
+          "uri": "../out/accepted/invoices",
+          "path": "../out/accepted/invoices",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "../out/rejected/invoices",
+          "path": "../out/rejected/invoices",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null
+    }
+  ]
+}

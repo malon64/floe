@@ -47,9 +47,14 @@ jobs:
             core_code:
               - "crates/floe-core/src/**"
               - "crates/floe-core/Cargo.toml"
-            core_code_non_manifest:
+            core_code_global:
               - "crates/floe-core/src/**"
+              - "!crates/floe-core/src/io/**"
+              - "!crates/floe-core/src/report/**"
+              - "!crates/floe-core/src/run/**"
               - "!crates/floe-core/src/manifest/**"
+              - "!crates/floe-core/src/config/**"
+              - "!crates/floe-core/src/checks/**"
               - "crates/floe-core/Cargo.toml"
             manifest:
               - "crates/floe-core/src/manifest/**"
@@ -169,7 +174,7 @@ jobs:
               cargo test -p floe-core --test unit run::normalize::
               ran_unit=1
             fi
-            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.core_code_non_manifest }}" = "true" ]; then
+            if [ "$ran_unit" = "0" ] && [ "${{ steps.changes.outputs.core_code_global }}" = "true" ]; then
               cargo test -p floe-core --test unit
               ran_unit=1
             fi
@@ -177,7 +182,7 @@ jobs:
               cargo test -p floe-core --test unit
             fi
             if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
-              || [ "${{ steps.changes.outputs.core_code_non_manifest }}" = "true" ]; then
+              || [ "${{ steps.changes.outputs.core_code_global }}" = "true" ]; then
               cargo test -p floe-core --test integration
             fi
             cargo test -p floe-core --doc

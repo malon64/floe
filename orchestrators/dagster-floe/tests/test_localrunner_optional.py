@@ -17,43 +17,6 @@ def _write(path: Path, content: str) -> None:
     shutil.which("floe") is None or not bool(os.environ.get("FLOE_TEST_LOCALRUNNER")),
     reason="requires a local floe binary + FLOE_TEST_LOCALRUNNER=1",
 )
-def test_localrunner_runs_example_validate_json(tmp_path):
-    config_path = tmp_path / "config.yml"
-    _write(
-        config_path,
-        """
-        version: "0.1"
-        metadata:
-          project: "dagster-floe-tests"
-        report:
-          path: "./report"
-        entities:
-          - name: demo
-            source:
-              format: csv
-              path: "./in"
-              cast_mode: strict
-              options:
-                header: true
-            sink:
-              accepted: { format: parquet, path: "./out/accepted/demo" }
-              rejected: { format: csv, path: "./out/rejected/demo" }
-            policy: { severity: reject }
-            schema:
-              columns:
-                - { name: id, type: string, nullable: false, unique: false }
-        """,
-    )
-
-    runner = LocalRunner("floe")
-    data = runner.run_floe_validate(config_uri=str(config_path), entities=None)
-    assert data["schema"] == "floe.plan.v1"
-
-
-@pytest.mark.skipif(
-    shutil.which("floe") is None or not bool(os.environ.get("FLOE_TEST_LOCALRUNNER")),
-    reason="requires a local floe binary + FLOE_TEST_LOCALRUNNER=1",
-)
 def test_localrunner_runs_example_entity_json_logs(tmp_path):
     config_path = tmp_path / "config.yml"
     in_dir = tmp_path / "in"

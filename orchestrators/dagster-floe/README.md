@@ -1,14 +1,14 @@
-# Floe + Dagster (MVP)
+# Floe + Dagster
 
-This folder contains a small Dagster connector for Floe, implemented as a Python package.
+This folder contains the Dagster connector for Floe.
 
 For local setup of both Dagster and Airflow with isolated virtual environments, see:
 - `orchestrators/LOCAL_DEV.md`
 
-Goals of the MVP:
-- Generate one Dagster asset per Floe entity by calling `floe validate --output json`
-- Execute one entity per asset with `floe run --entities <name> --log-format json`
-- Parse NDJSON events from stdout and attach run stats to Dagster materialization metadata
+Current model:
+- Parse-time: Dagster loads a generated `floe.manifest.v1` JSON file.
+- Run-time: each asset executes Floe for one entity using the manifest `execution` contract.
+- Metadata: connector parses NDJSON events and attaches run stats to materializations.
 
 ## Install
 
@@ -28,14 +28,22 @@ source orchestrators/dagster-floe/.venv/bin/activate
 pip install -e orchestrators/dagster-floe[dev]
 ```
 
+## Generate a manifest
+
+```bash
+floe manifest generate \
+  -c orchestrators/dagster-floe/example/config.yml \
+  --output orchestrators/dagster-floe/example/manifest.dagster.json
+```
+
 ## Run the example (repo-only)
 
 ```bash
 cd orchestrators/dagster-floe
-dagster dev
+FLOE_MANIFEST=./example/manifest.dagster.json dagster dev
 ```
 
-The example workspace loads `floe_dagster.definitions` which generates assets from `orchestrators/dagster-floe/example/config.yml`.
+The example workspace loads `floe_dagster.definitions`, which creates assets from the manifest entities.
 
 ## Run using Docker (instead of a local `floe` binary)
 
@@ -66,9 +74,10 @@ FLOE_DOCKER_IMAGE="$FLOE_DOCKER_IMAGE" dagster dev
 
 ## Notes
 
-- This connector does **not** parse YAML directly; it uses `floe validate --output json` as the source of truth.
+- This connector does **not** parse YAML directly; it consumes `floe.manifest.v1`.
 - For local development without an installed `floe` binary, you can point `LocalRunner` to a custom command, e.g.:
   - `LocalRunner(\"cargo run -p floe-cli --\")`
+- `DockerRunner` remains available for local experimentation, but manifest runner support in connector is currently `local_process` only.
 - `DockerRunner` mounts the config directory by default; if your config uses paths like `../data/...`, it mounts a higher parent directory so those paths remain visible. For full control, pass `workdir=...`.
 - When `DockerRunner` mounts local files, it runs the container as your current user (`--user uid:gid`) so Floe can write reports/outputs back into the mounted directory.
 - Design notes and future work: `orchestrators/dagster-floe/INTEGRATION_SPEC.md`

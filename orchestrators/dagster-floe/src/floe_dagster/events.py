@@ -39,13 +39,14 @@ def last_run_finished(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return last
 
 
-def parse_run_finished(event: dict[str, Any]) -> FloeRunFinished:
+def parse_run_finished(
+    event: dict[str, Any], summary_uri_field: str = "summary_uri"
+) -> FloeRunFinished:
     if event.get("event") != "run_finished":
         raise ValueError("expected run_finished event")
     return FloeRunFinished(
         run_id=str(event.get("run_id")),
         status=str(event.get("status")),
         exit_code=int(event.get("exit_code")),
-        summary_uri=event.get("summary_uri"),
+        summary_uri=event.get(summary_uri_field),
     )
-

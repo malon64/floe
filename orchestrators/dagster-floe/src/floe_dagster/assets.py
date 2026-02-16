@@ -3,34 +3,52 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from dagster import Definitions, Failure, MaterializeResult, asset
 
 from .events import last_run_finished, parse_ndjson_events, parse_run_finished
-from .plan import FloeValidatePlan
+from .manifest import (
+    ManifestExecution,
+    ManifestRunnerDefinition,
+    load_manifest,
+    resolve_config_uri,
+    resolve_entity_runner,
+)
 from .runner import Runner
 
 
 def load_floe_assets(
-    config_uri: str,
+    manifest_path: str,
     runner: Runner,
     entities: list[str] | None = None,
 ) -> Definitions:
-    plan_json = runner.run_floe_validate(config_uri=config_uri, entities=entities)
-    plan = FloeValidatePlan.from_validate_json(plan_json)
+    manifest = load_manifest(manifest_path)
+    config_uri = resolve_config_uri(manifest_path, manifest.config_uri)
+
+    entity_items = manifest.entities
+    if entities:
+        selected = set(entities)
+        entity_items = [item for item in entity_items if item.name in selected]
 
     assets_defs = []
-    for entity in plan.entities:
-        group_name = entity.group_name
-        name = entity.name
+    for entity in entity_items:
+        runner_definition = resolve_entity_runner(manifest, entity)
+        if runner_definition.runner_type != "local_process":
+            raise ValueError(
+                f"unsupported runner type for dagster-floe: {runner_definition.runner_type}"
+            )
 
         assets_defs.append(
             _make_entity_asset(
-                key_prefix=list(entity.asset_key_parts[:-1]),
-                group_name=group_name,
-                name=name,
+                key_prefix=list(entity.asset_key[:-1]),
+                asset_name=entity.asset_key[-1],
+                group_name=entity.group_name,
+                entity_name=entity.name,
                 config_uri=config_uri,
                 runner=runner,
+                execution=manifest.execution,
+                runner_definition=runner_definition,
             )
         )
 
@@ -40,19 +58,24 @@ def load_floe_assets(
 def _make_entity_asset(
     *,
     key_prefix: list[str],
+    asset_name: str,
     group_name: str,
-    name: str,
+    entity_name: str,
     config_uri: str,
     runner: Runner,
+    execution: ManifestExecution,
+    runner_definition: ManifestRunnerDefinition,
 ):
-    @asset(name=name, key_prefix=key_prefix, group_name=group_name)
+    @asset(name=asset_name, key_prefix=key_prefix, group_name=group_name)
     def _asset(context) -> MaterializeResult:
         run_id = getattr(context, "run_id", None)
         result = runner.run_floe_entity(
             config_uri=config_uri,
             run_id=run_id,
-            entity=name,
-            log_format="json",
+            entity=entity_name,
+            log_format=execution.log_format,
+            execution=execution,
+            runner_definition=runner_definition,
         )
 
         if result.stderr.strip():
@@ -61,15 +84,18 @@ def _make_entity_asset(
 
         events = parse_ndjson_events(result.stdout)
         finished_event = last_run_finished(events)
-        finished = parse_run_finished(finished_event)
+        finished = parse_run_finished(
+            finished_event,
+            summary_uri_field=execution.result_contract.summary_uri_field,
+        )
 
         summary_uri = finished.summary_uri
         entity_stats: dict[str, Any] = {}
 
         if summary_uri:
             try:
-                summary_json = _load_summary_json(summary_uri)
-                entity_stats = _extract_entity_stats(summary_json, name)
+                summary_json = _load_summary_json(summary_uri, config_uri)
+                entity_stats = _extract_entity_stats(summary_json, entity_name)
             except Exception as exc:  # noqa: BLE001
                 context.log.warning(f"failed to load run summary: {exc}")
 
@@ -85,7 +111,7 @@ def _make_entity_asset(
 
         if result.exit_code != 0 or finished.exit_code != 0:
             raise Failure(
-                description=f"floe run failed for entity {name}",
+                description=f"floe run failed for entity {entity_name}",
                 metadata=metadata,
             )
 
@@ -94,12 +120,20 @@ def _make_entity_asset(
     return _asset
 
 
-def _load_summary_json(summary_uri: str) -> dict[str, Any]:
+def _load_summary_json(summary_uri: str, config_uri: str) -> dict[str, Any]:
     if summary_uri.startswith("local://"):
-        path_str = summary_uri[len("local://") :]
-        path = Path(path_str)
+        raw_path = unquote(summary_uri[len("local://") :])
+        path = Path(raw_path)
+    elif summary_uri.startswith("file://"):
+        parsed = urlparse(summary_uri)
+        path = Path(unquote(parsed.path))
+    elif "://" in summary_uri:
+        raise ValueError(f"unsupported non-local summary URI: {summary_uri}")
     else:
         path = Path(summary_uri)
+
+    if not path.is_absolute() and "://" not in config_uri:
+        path = (Path(config_uri).resolve().parent / path).resolve()
 
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):

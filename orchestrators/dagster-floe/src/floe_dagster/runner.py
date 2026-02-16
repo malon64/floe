@@ -6,7 +6,8 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
+from .manifest import ManifestExecution, ManifestRunnerDefinition, render_execution_args
 
 
 @dataclass(frozen=True)
@@ -17,15 +18,14 @@ class RunResult:
 
 
 class Runner:
-    def run_floe_validate(self, config_uri: str, entities: list[str] | None) -> dict[str, Any]:
-        raise NotImplementedError
-
     def run_floe_entity(
         self,
         config_uri: str,
         run_id: str | None,
         entity: str,
         log_format: str = "json",
+        execution: ManifestExecution | None = None,
+        runner_definition: ManifestRunnerDefinition | None = None,
     ) -> RunResult:
         raise NotImplementedError
 
@@ -34,28 +34,44 @@ class LocalRunner(Runner):
     def __init__(self, floe_bin: str = "floe") -> None:
         self._floe_cmd = shlex.split(floe_bin)
 
-    def run_floe_validate(self, config_uri: str, entities: list[str] | None) -> dict[str, Any]:
-        args = [*self._floe_cmd, "validate", "-c", config_uri, "--output", "json"]
-        if entities:
-            args.extend(["--entities", ",".join(entities)])
-        result = _run(args)
-        if result.exit_code != 0:
-            raise RuntimeError(result.stdout.strip() or result.stderr.strip())
-        import json
-
-        return json.loads(result.stdout)
-
     def run_floe_entity(
         self,
         config_uri: str,
         run_id: str | None,
         entity: str,
         log_format: str = "json",
+        execution: ManifestExecution | None = None,
+        runner_definition: ManifestRunnerDefinition | None = None,
     ) -> RunResult:
-        args = [*self._floe_cmd, "run", "-c", config_uri, "--entities", entity]
-        if run_id:
-            args.extend(["--run-id", run_id])
-        args.extend(["--log-format", log_format])
+        if runner_definition is not None and runner_definition.runner_type != "local_process":
+            raise ValueError(
+                "unsupported runner type for LocalRunner: "
+                f"{runner_definition.runner_type}"
+            )
+
+        if execution is not None:
+            if execution.log_format != "json":
+                raise ValueError(
+                    "unsupported execution.log_format for LocalRunner: "
+                    f"{execution.log_format}"
+                )
+            if not execution.result_contract.run_finished_event:
+                raise ValueError(
+                    "execution.result_contract.run_finished_event must be true"
+                )
+            args = [*self._floe_cmd]
+            args.extend(
+                render_execution_args(
+                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                )
+            )
+            if run_id and not _contains_run_id_placeholder(execution):
+                args.extend(["--run-id", run_id])
+        else:
+            args = [*self._floe_cmd, "run", "-c", config_uri, "--entities", entity]
+            if run_id:
+                args.extend(["--run-id", run_id])
+            args.extend(["--log-format", log_format])
         return _run(args)
 
 
@@ -72,27 +88,34 @@ class DockerRunner(Runner):
         self._workdir = workdir
         self._env = env or {}
 
-    def run_floe_validate(self, config_uri: str, entities: list[str] | None) -> dict[str, Any]:
-        args = ["validate", "-c", config_uri, "--output", "json"]
-        if entities:
-            args.extend(["--entities", ",".join(entities)])
-        result = self._run_in_container(args, config_uri=config_uri)
-        if result.exit_code != 0:
-            raise RuntimeError(result.stdout.strip() or result.stderr.strip())
-        import json
-
-        return json.loads(result.stdout)
-
     def run_floe_entity(
         self,
         config_uri: str,
         run_id: str | None,
         entity: str,
         log_format: str = "json",
+        execution: ManifestExecution | None = None,
+        runner_definition: ManifestRunnerDefinition | None = None,
     ) -> RunResult:
-        args = ["run", "-c", config_uri, "--entities", entity, "--log-format", log_format]
-        if run_id:
-            args.extend(["--run-id", run_id])
+        if runner_definition is not None and runner_definition.runner_type not in (
+            "docker",
+            "local_process",
+        ):
+            raise ValueError(
+                "unsupported runner type for DockerRunner: "
+                f"{runner_definition.runner_type}"
+            )
+
+        if execution is not None:
+            args = render_execution_args(
+                execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+            )
+            if run_id and not _contains_run_id_placeholder(execution):
+                args.extend(["--run-id", run_id])
+        else:
+            args = ["run", "-c", config_uri, "--entities", entity, "--log-format", log_format]
+            if run_id:
+                args.extend(["--run-id", run_id])
         return self._run_in_container(args, config_uri=config_uri)
 
     def _run_in_container(self, floe_args: list[str], config_uri: str) -> RunResult:
@@ -175,3 +198,9 @@ def _run(args: list[str], cwd: str | None = None) -> RunResult:
         capture_output=True,
     )
     return RunResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+def _contains_run_id_placeholder(execution: ManifestExecution) -> bool:
+    return any("{run_id}" in token for token in execution.base_args) or any(
+        "{run_id}" in token for token in execution.per_entity_args
+    )

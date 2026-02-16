@@ -63,6 +63,8 @@ export AIRFLOW__CORE__DAGS_FOLDER="$PWD/orchestrators/airflow-floe/dags"
 export AIRFLOW__CORE__LOAD_EXAMPLES="False"
 export FLOE_CMD="floe"
 export FLOE_MANIFEST="$PWD/orchestrators/airflow-floe/example/manifest.airflow.json"
+# optional multi-manifest mode (1 manifest => 1 DAG):
+# export FLOE_MANIFEST_DIR="$PWD/orchestrators/dagster-floe/example/manifests"
 ```
 
 If your Airflow DB was initialized previously with examples enabled, reset once:
@@ -84,10 +86,12 @@ Open Airflow UI at `http://127.0.0.1:8080`.
 
 Trigger DAG:
 - `floe_example_operator`
+  - If `FLOE_MANIFEST_DIR` is set, Airflow creates one DAG per manifest (`floe_<manifest_name>`).
 
 After at least one successful run, check Airflow Assets UI:
 - assets are declared from `FLOE_MANIFEST` at parse time
 - materialization metadata is published when run tasks finish
+- task logs include streamed Floe NDJSON/stdout/stderr lines
 
 Deactivate when done:
 

@@ -40,6 +40,11 @@ At import time, Airflow connector:
 2. builds static entity list and assets from `entities[]`
 3. resolves config path/URI from `config_uri`
 
+Multi-manifest mode:
+
+- when `FLOE_MANIFEST_DIR` is set, connector loads all `*.manifest.json` and builds one DAG per manifest (`floe_<manifest_name>`)
+- fallback to single-manifest mode when directory is empty/missing
+
 No Floe subprocess is invoked during DAG parse.
 
 Fallback mode is supported:
@@ -74,6 +79,7 @@ Connector expects `run_finished` event from NDJSON stream and extracts summary U
 The run payload pushed by operator remains:
 
 - schema: `floe.airflow.run.v1`
+- stdout/stderr lines are streamed into Airflow task logs while preserving NDJSON parsing
 
 ## 5. Runner contract
 
@@ -137,6 +143,8 @@ Task fails when:
 
 - `src/airflow_floe/manifest.py`
   - manifest models + loaders (`floe.manifest.v1`, legacy `floe.plan.v1` compatibility)
+- `src/airflow_floe/manifest_discovery.py`
+  - multi-manifest discovery and deterministic DAG id derivation
 - `src/airflow_floe/runtime.py`
   - context build, URI/path handling, run summary loading
 - `src/airflow_floe/operators.py`

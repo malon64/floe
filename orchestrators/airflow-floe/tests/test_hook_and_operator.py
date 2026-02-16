@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -167,7 +168,7 @@ class HookAndOperatorTests(unittest.TestCase):
 
     def test_run_hook_run_returns_normalized_payload(self) -> None:
         hook = FloeRunHook(floe_cmd="floe")
-        stdout = json.dumps(
+        stdout_line = json.dumps(
             {
                 "schema": "floe.log.v1",
                 "event": "run_finished",
@@ -184,19 +185,56 @@ class HookAndOperatorTests(unittest.TestCase):
                 "ts_ms": 1739500000000,
             }
         )
-        with patch("subprocess.run") as run_mock:
-            run_mock.return_value = subprocess.CompletedProcess(
-                args=["floe"],
-                returncode=0,
-                stdout=stdout,
-                stderr="",
-            )
+        fake_process = _FakePopen(
+            stdout=f"{stdout_line}\n",
+            stderr="",
+            returncode=0,
+        )
+        with patch("subprocess.Popen", return_value=fake_process):
             payload = hook.run("/tmp/config.yml", entities=["orders"])
 
         self.assertEqual(payload["schema"], "floe.airflow.run.v1")
         self.assertEqual(payload["run_id"], "run-1")
         self.assertEqual(payload["entity"], "orders")
         self.assertEqual(payload["config_uri"], "/tmp/config.yml")
+
+    def test_run_hook_streams_stdout_and_stderr_to_loggers(self) -> None:
+        hook = FloeRunHook(floe_cmd="floe")
+        stdout_line = json.dumps(
+            {
+                "schema": "floe.log.v1",
+                "event": "run_finished",
+                "run_id": "run-1",
+                "status": "success",
+                "exit_code": 0,
+                "files": 1,
+                "rows": 10,
+                "accepted": 9,
+                "rejected": 1,
+                "warnings": 0,
+                "errors": 0,
+                "summary_uri": "local:///tmp/report/run.summary.json",
+                "ts_ms": 1739500000000,
+            }
+        )
+        fake_process = _FakePopen(
+            stdout=f"{stdout_line}\n",
+            stderr="warn line\n",
+            returncode=0,
+        )
+        stdout_logs: list[str] = []
+        stderr_logs: list[str] = []
+
+        with patch("subprocess.Popen", return_value=fake_process):
+            hook.run(
+                "/tmp/config.yml",
+                entities=["orders"],
+                log_stdout=lambda fmt, prefix, text: stdout_logs.append(fmt % (prefix, text)),
+                log_stderr=lambda fmt, prefix, text: stderr_logs.append(fmt % (prefix, text)),
+            )
+
+        self.assertTrue(any("[floe/stdout]" in line for line in stdout_logs))
+        self.assertTrue(any("[floe/stderr]" in line for line in stderr_logs))
 
     def test_run_operator_execute_uses_hook(self) -> None:
         operator = FloeRunOperator(
@@ -213,6 +251,8 @@ class HookAndOperatorTests(unittest.TestCase):
             entities=["orders"],
             execution=None,
             runner_definition=None,
+            log_stdout=None,
+            log_stderr=None,
         )
         self.assertEqual(actual, expected)
 
@@ -283,3 +323,13 @@ class HookAndOperatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakePopen:
+    def __init__(self, *, stdout: str, stderr: str, returncode: int) -> None:
+        self.stdout = io.StringIO(stdout)
+        self.stderr = io.StringIO(stderr)
+        self._returncode = returncode
+
+    def wait(self) -> int:
+        return self._returncode

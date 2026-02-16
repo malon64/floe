@@ -38,6 +38,47 @@ from airflow_floe.runtime import (  # noqa: E402
 )
 
 
+def _execution_and_runners(config_path: str) -> dict:
+    return {
+        "execution": {
+            "entrypoint": "floe",
+            "base_args": [
+                "run",
+                "-c",
+                "{config_uri}",
+                "--log-format",
+                "json",
+                "--quiet",
+            ],
+            "per_entity_args": ["--entities", "{entity_name}"],
+            "log_format": "json",
+            "result_contract": {
+                "run_finished_event": True,
+                "summary_uri_field": "summary_uri",
+                "exit_codes": {
+                    "0": "success_or_rejected",
+                    "1": "technical_failure",
+                    "2": "aborted",
+                },
+            },
+            "defaults": {"env": {}, "workdir": None},
+        },
+        "runners": {
+            "default": "local",
+            "definitions": {
+                "local": {
+                    "type": "local_process",
+                    "image": None,
+                    "namespace": None,
+                    "service_account": None,
+                    "resources": None,
+                    "env": None,
+                }
+            },
+        },
+    }
+
+
 class RuntimeHelpersTests(unittest.TestCase):
     def test_parse_run_finished_event(self) -> None:
         stdout = "\n".join(
@@ -95,7 +136,7 @@ class RuntimeHelpersTests(unittest.TestCase):
             accepted_path = base / "out" / "accepted" / "orders"
 
             manifest_payload = {
-                "schema": "floe.airflow.manifest.v1",
+                "schema": "floe.manifest.v1",
                 "generated_at_ts_ms": 1739500000000,
                 "floe_version": "0.2.4",
                 "config_uri": str(config_path),
@@ -112,6 +153,7 @@ class RuntimeHelpersTests(unittest.TestCase):
                     }
                 ],
             }
+            manifest_payload.update(_execution_and_runners(str(config_path)))
             manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
 
             context = build_dag_manifest_context(str(manifest_path))
@@ -119,6 +161,37 @@ class RuntimeHelpersTests(unittest.TestCase):
             self.assertEqual(context.entity_names, ["orders"])
             self.assertIn("orders", context.assets_by_entity)
             self.assertIn("orders", context.entities_by_name)
+
+    def test_build_dag_manifest_context_supports_local_scheme_config_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            manifest_path = base / "manifest.airflow.json"
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+
+            manifest_payload = {
+                "schema": "floe.manifest.v1",
+                "generated_at_ts_ms": 1739500000000,
+                "floe_version": "0.2.4",
+                "config_uri": f"local://{config_path}",
+                "config_checksum": None,
+                "entities": [
+                    {
+                        "name": "orders",
+                        "domain": "sales",
+                        "group_name": "sales",
+                        "source_format": "csv",
+                        "accepted_sink_uri": f"local://{base}/out/accepted/orders",
+                        "rejected_sink_uri": None,
+                        "asset_key": ["sales", "orders"],
+                    }
+                ],
+            }
+            manifest_payload.update(_execution_and_runners(f"local://{config_path}"))
+            manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+            context = build_dag_manifest_context(str(manifest_path))
+            self.assertEqual(context.config_path, str(config_path))
 
     def test_build_dag_manifest_context_or_empty_when_missing_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

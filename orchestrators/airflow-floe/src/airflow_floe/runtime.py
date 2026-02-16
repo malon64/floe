@@ -78,6 +78,8 @@ def build_dag_manifest_context_or_empty(
 
 
 def _normalize_fallback_config_path(config_value: str) -> str:
+    if config_value.startswith("local://"):
+        return _local_uri_to_path(config_value)
     if "://" in config_value:
         # Keep URI-style config overrides untouched (s3://, gs://, abfs://, ...).
         return config_value
@@ -85,6 +87,9 @@ def _normalize_fallback_config_path(config_value: str) -> str:
 
 
 def resolve_config_path(manifest_path: str, config_uri: str) -> str:
+    if config_uri.startswith("local://"):
+        return _local_uri_to_path(config_uri, manifest_path)
+
     if "://" in config_uri:
         # Keep remote config URI untouched.
         return config_uri
@@ -95,6 +100,19 @@ def resolve_config_path(manifest_path: str, config_uri: str) -> str:
 
     base = Path(manifest_path).resolve().parent
     return str((base / config_path).resolve())
+
+
+def _local_uri_to_path(local_uri: str, manifest_path: str | None = None) -> str:
+    raw_path = unquote(local_uri[len("local://") :])
+    local_path = Path(raw_path)
+    if local_path.is_absolute():
+        return str(local_path)
+
+    if manifest_path is not None:
+        base = Path(manifest_path).resolve().parent
+        return str((base / local_path).resolve())
+
+    return str(local_path.resolve())
 
 
 def _resolve_target_uri(manifest_path: str, target_uri: str) -> str:

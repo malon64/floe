@@ -1,9 +1,54 @@
 {
-  "schema": "floe.airflow.manifest.v1",
+  "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 1771001085139,
-  "floe_version": "0.2.4 (2e411b3)",
-  "config_uri": "/Users/a.metwalli/floe/orchestrators/airflow-floe/example/config.yml",
+  "floe_version": "0.2.4",
+  "spec_version": "0.2",
+  "manifest_id": "mfv1-2f5ea4f66cb72fe2",
+  "config_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/config.yml",
   "config_checksum": null,
+  "report_base_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./report",
+  "domains": [
+    {
+      "name": "hr",
+      "incoming_dir": "./in/hr"
+    },
+    {
+      "name": "sales",
+      "incoming_dir": "./in/sales"
+    }
+  ],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": ["run", "-c", "{config_uri}", "--log-format", "json", "--quiet"],
+    "per_entity_args": ["--entities", "{entity_name}"],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "1": "technical_failure",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    }
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": {
+        "type": "local_process",
+        "image": null,
+        "namespace": null,
+        "service_account": null,
+        "resources": null,
+        "env": null
+      }
+    }
+  },
   "entities": [
     {
       "name": "employees",
@@ -15,7 +60,49 @@
       ],
       "source_format": "csv",
       "accepted_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/employees",
-      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees"
+      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./in/hr/employees.csv",
+        "path": "./in/hr/employees.csv",
+        "resolved": true,
+        "cast_mode": null,
+        "options": {
+          "header": true,
+          "separator": ",",
+          "encoding": null,
+          "null_values": null,
+          "recursive": null,
+          "glob": null,
+          "json_mode": null,
+          "sheet": null,
+          "header_row": null,
+          "data_row": null,
+          "row_tag": null,
+          "namespace": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "parquet",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/employees",
+          "path": "./out/accepted/employees",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/employees",
+          "path": "./out/rejected/employees",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null
     },
     {
       "name": "orders",
@@ -27,7 +114,49 @@
       ],
       "source_format": "csv",
       "accepted_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/orders_delta",
-      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/orders"
+      "rejected_sink_uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/orders",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "local",
+        "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./in/sales/orders.csv",
+        "path": "./in/sales/orders.csv",
+        "resolved": true,
+        "cast_mode": null,
+        "options": {
+          "header": true,
+          "separator": ",",
+          "encoding": null,
+          "null_values": null,
+          "recursive": null,
+          "glob": null,
+          "json_mode": null,
+          "sheet": null,
+          "header_row": null,
+          "data_row": null,
+          "row_tag": null,
+          "namespace": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "delta",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/accepted/orders_delta",
+          "path": "./out/accepted/orders_delta",
+          "resolved": true
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "local",
+          "uri": "local:///Users/a.metwalli/floe/orchestrators/airflow-floe/example/./out/rejected/orders",
+          "path": "./out/rejected/orders",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null
     }
   ]
 }

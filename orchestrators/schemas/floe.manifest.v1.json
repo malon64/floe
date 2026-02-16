@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/malon64/floe/orchestrators/schemas/floe.manifest.v1.json",
+  "title": "Floe Common Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at_ts_ms",
+    "floe_version",
+    "spec_version",
+    "manifest_id",
+    "config_uri",
+    "report_base_uri",
+    "domains",
+    "execution",
+    "runners",
+    "entities"
+  ],
+  "properties": {
+    "schema": {
+      "const": "floe.manifest.v1"
+    },
+    "generated_at_ts_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "floe_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_checksum": {
+      "type": ["string", "null"]
+    },
+    "report_base_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "incoming_dir"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "incoming_dir": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entrypoint",
+        "base_args",
+        "per_entity_args",
+        "log_format",
+        "result_contract",
+        "defaults"
+      ],
+      "properties": {
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "per_entity_args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "log_format": {
+          "type": "string",
+          "enum": ["json", "text"]
+        },
+        "result_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run_finished_event",
+            "summary_uri_field",
+            "exit_codes"
+          ],
+          "properties": {
+            "run_finished_event": {
+              "type": "boolean"
+            },
+            "summary_uri_field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "exit_codes": {
+              "type": "object",
+              "minProperties": 1,
+              "patternProperties": {
+                "^[0-9]+$": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["env", "workdir"],
+          "properties": {
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "workdir": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      }
+    },
+    "runners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "definitions"],
+      "properties": {
+        "default": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "local_process",
+                  "docker",
+                  "kubernetes_pod",
+                  "kubernetes_job",
+                  "ecs_task"
+                ]
+              },
+              "image": {
+                "type": ["string", "null"]
+              },
+              "namespace": {
+                "type": ["string", "null"]
+              },
+              "service_account": {
+                "type": ["string", "null"]
+              },
+              "resources": {
+                "type": ["object", "null"],
+                "additionalProperties": false,
+                "properties": {
+                  "cpu": {
+                    "type": ["string", "null"]
+                  },
+                  "memory_mb": {
+                    "type": ["integer", "null"],
+                    "minimum": 1
+                  }
+                }
+              },
+              "env": {
+                "type": ["object", "null"],
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "group_name",
+          "asset_key",
+          "source_format",
+          "accepted_sink_uri",
+          "source",
+          "sinks"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "domain": {
+            "type": ["string", "null"]
+          },
+          "group_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "asset_key": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "source_format": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted_sink_uri": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rejected_sink_uri": {
+            "type": ["string", "null"]
+          },
+          "tags": {
+            "type": ["object", "null"],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "runner": {
+            "type": ["string", "null"]
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["format", "storage", "uri", "path", "resolved"],
+            "properties": {
+              "format": {
+                "type": "string",
+                "minLength": 1
+              },
+              "storage": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uri": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "resolved": {
+                "type": "boolean"
+              },
+              "cast_mode": {
+                "type": ["string", "null"]
+              },
+              "options": {
+                "type": ["object", "null"]
+              }
+            }
+          },
+          "sinks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["accepted"],
+            "properties": {
+              "accepted": {
+                "$ref": "#/$defs/sink_target"
+              },
+              "rejected": {
+                "anyOf": [
+                  { "$ref": "#/$defs/sink_target" },
+                  { "type": "null" }
+                ]
+              },
+              "archive": {
+                "anyOf": [
+                  { "$ref": "#/$defs/archive_target" },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sink_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "storage", "uri", "path", "resolved"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      }
+    },
+    "archive_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage", "uri", "path", "resolved"],
+      "properties": {
+        "storage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

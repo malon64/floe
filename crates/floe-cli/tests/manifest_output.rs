@@ -10,19 +10,21 @@ fn repo_root() -> PathBuf {
 }
 
 #[test]
-fn manifest_generate_airflow_to_file() {
+fn manifest_generate_common_to_file() {
     let config_path = repo_root().join("example/config.yml");
-    let expected_config_uri = std::fs::canonicalize(&config_path)
-        .expect("canonicalize config path")
-        .display()
-        .to_string();
+    let expected_config_uri = format!(
+        "local://{}",
+        std::fs::canonicalize(&config_path)
+            .expect("canonicalize config path")
+            .display()
+    );
     let tmp = tempdir().expect("create temp dir");
     let output_path = tmp.path().join("manifest.airflow.json");
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
     cmd.args(["manifest", "generate", "-c"])
         .arg(&config_path)
-        .args(["--target", "airflow", "--output"])
+        .args(["--output"])
         .arg(&output_path)
         .assert()
         .success()
@@ -31,8 +33,11 @@ fn manifest_generate_airflow_to_file() {
     let payload = fs::read_to_string(&output_path).expect("manifest file exists");
     let value: Value = serde_json::from_str(&payload).expect("manifest should be valid json");
 
-    assert_eq!(value["schema"], "floe.airflow.manifest.v1");
+    assert_eq!(value["schema"], "floe.manifest.v1");
     assert_eq!(value["config_uri"], expected_config_uri);
+    assert!(value["manifest_id"].as_str().is_some());
+    assert!(value["execution"].is_object());
+    assert!(value["runners"].is_object());
 
     let entities = value["entities"].as_array().expect("entities array");
     let names: Vec<_> = entities
@@ -46,20 +51,20 @@ fn manifest_generate_airflow_to_file() {
 }
 
 #[test]
-fn manifest_generate_dagster_to_stdout() {
+fn manifest_generate_common_to_stdout() {
     let config_path = repo_root().join("example/config.yml");
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
     let assert = cmd
         .args(["manifest", "generate", "-c"])
         .arg(&config_path)
-        .args(["--target", "dagster", "--output", "-"])
+        .args(["--output", "-"])
         .assert()
         .success();
 
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
-    assert_eq!(value["schema"], "floe.dagster.manifest.v1");
+    assert_eq!(value["schema"], "floe.manifest.v1");
 }
 
 #[test]
@@ -70,14 +75,7 @@ fn manifest_generate_with_entity_filter() {
     let assert = cmd
         .args(["manifest", "generate", "-c"])
         .arg(&config_path)
-        .args([
-            "--target",
-            "airflow",
-            "--entities",
-            "orders",
-            "--output",
-            "-",
-        ])
+        .args(["--entities", "orders", "--output", "-"])
         .assert()
         .success();
 
@@ -96,7 +94,7 @@ fn manifest_generate_invalid_config_fails() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
     cmd.args(["manifest", "generate", "-c"])
         .arg(&fixture_path)
-        .args(["--target", "airflow", "--output", "-"])
+        .args(["--output", "-"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Error:"));

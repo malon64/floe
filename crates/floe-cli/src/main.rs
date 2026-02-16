@@ -1,12 +1,11 @@
 use clap::{Parser, Subcommand};
 use floe_core::{
-    load_config, resolve_config_location, run_with_base, validate_with_base, FloeResult,
-    RunOptions, ValidateOptions,
+    build_common_manifest_json, load_config, resolve_config_location, run_with_base,
+    validate_with_base, FloeResult, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
 use crate::logging::LogFormat;
-use crate::manifest_output::ManifestTarget;
 use crate::validate_output::ValidateOutputFormat;
 
 const VERSION: &str = env!("FLOE_VERSION");
@@ -67,8 +66,8 @@ const MANIFEST_LONG_ABOUT: &str = concat!(
     "Generate orchestrator manifest JSON from a validated Floe config.\n",
     "\n",
     "Examples:\n",
-    "  floe manifest generate -c example/config.yml --target airflow --output manifest.airflow.json\n",
-    "  floe manifest generate -c example/config.yml --target dagster --output -\n",
+    "  floe manifest generate -c example/config.yml --output manifest.common.json\n",
+    "  floe manifest generate -c example/config.yml --output -\n",
 );
 
 mod logging;
@@ -155,8 +154,6 @@ enum ManifestCommand {
     Generate {
         #[arg(short, long, help = "Path or URI to the Floe config file")]
         config: String,
-        #[arg(long, value_enum, help = "Manifest target (airflow|dagster)")]
-        target: ManifestTarget,
         #[arg(short, long, help = "Output path for manifest JSON, or '-' for stdout")]
         output: String,
         #[arg(
@@ -350,7 +347,6 @@ fn main() -> FloeResult<()> {
         Command::Manifest { command } => match command {
             ManifestCommand::Generate {
                 config,
-                target,
                 output,
                 entities,
             } => {
@@ -377,12 +373,8 @@ fn main() -> FloeResult<()> {
                 }
 
                 let config = load_config(&config_location.path)?;
-                let manifest_json = manifest_output::build_manifest_json(
-                    &config_location,
-                    &config,
-                    target,
-                    &entities,
-                )?;
+                let manifest_json =
+                    build_common_manifest_json(&config_location, &config, &entities)?;
                 manifest_output::write_manifest(&output, &manifest_json)?;
                 if output != "-" {
                     let mut out = std::io::stdout().lock();

@@ -11,7 +11,7 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 
 - `INTEGRATION_SPEC.md`: contract between Airflow and Floe CLI
 - `schemas/`: JSON Schemas for XCom payloads and manifest contract
-- `src/airflow_floe/manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.airflow.manifest.v1`)
+- `src/airflow_floe/manifest.py`: manifest loader/converter (`floe.plan.v1` -> `floe.manifest.v1`)
 - `src/airflow_floe/runtime.py`: shared runtime helpers (manifest context, run event parsing, summary loading)
 - `src/airflow_floe/hooks.py`: reusable manifest hook (`FloeManifestHook`)
 - `src/airflow_floe/operators.py`: reusable run hook/operator (`FloeRunHook`, `FloeRunOperator`)
@@ -41,7 +41,6 @@ export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manif
 ```bash
 floe manifest generate \
   -c orchestrators/airflow-floe/example/config.yml \
-  --target airflow \
   --output orchestrators/airflow-floe/example/manifest.airflow.json
 ```
 

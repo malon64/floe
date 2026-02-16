@@ -114,7 +114,7 @@ On run completion, operator enriches outlet events with per-entity metrics using
 
 ## 7. Validate payload support
 
-`floe.plan.v1` loader remains available as compatibility path.
+`floe.plan.v1` loader remains available as a legacy compatibility path.
 
 When converting validate payload to `floe.manifest.v1`, connector injects default:
 
@@ -136,7 +136,7 @@ Task fails when:
 ## 9. Connector modules
 
 - `src/airflow_floe/manifest.py`
-  - manifest models + loaders (`floe.manifest.v1`, `floe.plan.v1` compatibility)
+  - manifest models + loaders (`floe.manifest.v1`, legacy `floe.plan.v1` compatibility)
 - `src/airflow_floe/runtime.py`
   - context build, URI/path handling, run summary loading
 - `src/airflow_floe/operators.py`

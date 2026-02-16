@@ -2,7 +2,7 @@
 
 This module supports two input schemas:
 - floe.manifest.v1 (native manifest)
-- floe.plan.v1 (output of `floe validate --output json`, converted on load)
+- floe.plan.v1 (legacy payload, converted on load for backward compatibility)
 """
 
 from __future__ import annotations

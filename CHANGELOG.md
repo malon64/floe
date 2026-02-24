@@ -2,6 +2,12 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.6
+
+- Added local Iceberg accepted sink MVP (`sink.accepted.format: iceberg`) with filesystem table layout and append/overwrite snapshot behavior.
+- Added cloud source glob pattern support (e.g. `s3://.../sales_*.csv`) with prefix-derived listing + glob filtering.
+- Added `floe add-entity` CLI command to infer a schema from an input file and append an entity definition to a Floe config.
+
 ## v0.2.5
 
 - Added `floe manifest generate` as the common manifest surface for orchestrators (`floe.manifest.v1`).

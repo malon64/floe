@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
+    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int32Array, Int64Array,
+    StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
 };
 use arrow::record_batch::RecordBatch;
 use iceberg::arrow::schema_to_arrow_schema;
@@ -361,7 +361,9 @@ fn resolve_output_columns<'a>(
         for column in df.get_columns() {
             let series = column.as_materialized_series();
             let name = series.name().to_string();
-            let nullable = series.null_count() > 0;
+            // Keep inferred schemas stable across runs when no explicit schema is provided.
+            // Batch-dependent null distributions should not flip required/optional.
+            let nullable = true;
             columns.push((name, nullable, series));
         }
         return Ok(columns);
@@ -419,8 +421,14 @@ fn series_to_arrow_array(
     let array: ArrayRef = match series.dtype() {
         DataType::String => Arc::new(StringArray::from_iter(series.str()?)),
         DataType::Boolean => Arc::new(BooleanArray::from_iter(series.bool()?)),
-        DataType::Int8 => Arc::new(Int8Array::from_iter(series.i8()?)),
-        DataType::Int16 => Arc::new(Int16Array::from_iter(series.i16()?)),
+        DataType::Int8 => {
+            let values = series.i8()?;
+            Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
+        }
+        DataType::Int16 => {
+            let values = series.i16()?;
+            Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
+        }
         DataType::Int32 => Arc::new(Int32Array::from_iter(series.i32()?)),
         DataType::Int64 => Arc::new(Int64Array::from_iter(series.i64()?)),
         DataType::Float32 => Arc::new(Float32Array::from_iter(series.f32()?)),

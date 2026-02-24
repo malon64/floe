@@ -131,6 +131,56 @@ fn write_iceberg_table_empty_dataframe_creates_table_without_snapshot() -> FloeR
     Ok(())
 }
 
+#[test]
+fn write_iceberg_table_supports_i8_i16_by_upcasting_to_iceberg_int() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(&table_path, config::WriteMode::Overwrite, Vec::new(), None);
+
+    let mut df = df!(
+        "tiny" => &[1_i8, 2_i8, 3_i8],
+        "small" => &[10_i16, 20_i16, 30_i16]
+    )?;
+    let out = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)?;
+    assert_eq!(out.parts_written, 1);
+    assert!(out.snapshot_id.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn write_iceberg_table_append_without_schema_keeps_nullability_stable() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(&table_path, config::WriteMode::Append, Vec::new(), None);
+
+    let mut df_first = df!(
+        "id" => &[1_i64, 2_i64],
+        "name" => &["alice", "bob"]
+    )?;
+    write_iceberg_table(&mut df_first, &target, &entity, config::WriteMode::Append)?;
+
+    let mut df_second = df!(
+        "id" => &[3_i64, 4_i64],
+        "name" => &[Some("charlie"), None]
+    )?;
+    let out = write_iceberg_table(&mut df_second, &target, &entity, config::WriteMode::Append)?;
+    assert_eq!(out.parts_written, 1);
+    assert!(out.snapshot_id.is_some());
+
+    let mut ids = scan_i64_column(&table_path, "id")?;
+    ids.sort_unstable();
+    assert_eq!(ids, vec![1, 2, 3, 4]);
+
+    Ok(())
+}
+
 fn empty_root_config() -> config::RootConfig {
     config::RootConfig {
         version: "0.1".to_string(),

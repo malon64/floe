@@ -299,8 +299,49 @@ fn build_iceberg_write_context(
                 }),
             }
         }
-        Target::Adls { .. } | Target::Gcs { .. } => Err(Box::new(RunError(format!(
-            "iceberg sink currently supports local or s3 storage only for entity {}",
+        Target::Gcs {
+            storage,
+            uri,
+            bucket,
+            base_key,
+        } => {
+            let metadata_location = if matches!(mode, config::WriteMode::Append) {
+                match remote.as_mut() {
+                    Some(ctx) => {
+                        let ctx = &mut **ctx;
+                        let client = ctx.cloud.client_for(ctx.resolver, storage, entity)?;
+                        latest_gcs_metadata_location(client, base_key)?
+                    }
+                    None => {
+                        let mut client = io::storage::gcs::GcsClient::new(bucket.clone())?;
+                        latest_gcs_metadata_location(&mut client, base_key)?
+                    }
+                }
+            } else {
+                None
+            };
+
+            match remote.as_mut() {
+                Some(ctx) => {
+                    let ctx = &mut **ctx;
+                    let store = iceberg_store_config(target, ctx.resolver, entity)?;
+                    Ok(IcebergWriteContext {
+                        table_root_uri: store.warehouse_location,
+                        catalog_name: "floe_iceberg",
+                        catalog_props: store.file_io_props,
+                        metadata_location,
+                    })
+                }
+                None => Ok(IcebergWriteContext {
+                    table_root_uri: uri.clone(),
+                    catalog_name: "floe_iceberg",
+                    catalog_props: HashMap::new(),
+                    metadata_location,
+                }),
+            }
+        }
+        Target::Adls { .. } => Err(Box::new(RunError(format!(
+            "iceberg sink currently supports local, s3, or gcs storage only for entity {}",
             entity.name
         )))),
     }
@@ -626,6 +667,19 @@ fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String
 }
 
 fn latest_s3_metadata_location(
+    client: &mut dyn io::storage::StorageClient,
+    base_key: &str,
+) -> FloeResult<Option<String>> {
+    let metadata_prefix = if base_key.trim_matches('/').is_empty() {
+        "metadata/".to_string()
+    } else {
+        format!("{}/metadata/", base_key.trim_matches('/'))
+    };
+    let listed = client.list(&metadata_prefix)?;
+    latest_metadata_location_from_objects(listed)
+}
+
+fn latest_gcs_metadata_location(
     client: &mut dyn io::storage::StorageClient,
     base_key: &str,
 ) -> FloeResult<Option<String>> {

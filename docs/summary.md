@@ -31,7 +31,7 @@ important references so you can quickly find the right guide.
 - Parquet/Delta sink details:
   - Delta sink: [docs/sinks/delta.md](sinks/delta.md)
   - Sink options (parquet settings): [docs/sinks/options.md](sinks/options.md)
-  - Iceberg (filesystem catalog on local/S3): [docs/sinks/iceberg.md](sinks/iceberg.md)
+  - Iceberg (filesystem catalog on local/S3/GCS): [docs/sinks/iceberg.md](sinks/iceberg.md)
 
 ## Benchmarking & development
 

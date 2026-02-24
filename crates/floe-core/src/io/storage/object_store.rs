@@ -121,8 +121,12 @@ pub fn iceberg_store_config(
                 file_io_props,
             })
         }
-        Target::Adls { .. } | Target::Gcs { .. } => Err(Box::new(ConfigError(format!(
-            "entity.name={} iceberg sink is only supported on local or s3 storage for now",
+        Target::Gcs { uri, .. } => Ok(IcebergStoreConfig {
+            warehouse_location: uri.to_string(),
+            file_io_props: HashMap::new(),
+        }),
+        Target::Adls { .. } => Err(Box::new(ConfigError(format!(
+            "entity.name={} iceberg sink is only supported on local, s3, or gcs storage for now",
             entity.name
         )))),
     }

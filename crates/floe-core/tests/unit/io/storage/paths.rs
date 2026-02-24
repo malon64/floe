@@ -149,3 +149,14 @@ fn archive_paths_for_run_include_collision_safe_suffix_and_preserve_entity() {
     assert!(key.starts_with("archive/orders/input__run-2026_02_24_run__src-"));
     assert!(key.ends_with(".csv"));
 }
+
+#[test]
+fn archive_filename_for_run_bounds_long_filename_component_length() {
+    let long_stem = "a".repeat(300);
+    let filename = format!("{long_stem}.csv");
+    let archived = archive_filename_for_run(&filename, "run-1", "local:///tmp/input.csv");
+
+    assert!(archived.as_bytes().len() <= 255);
+    assert!(archived.contains("__run-run-1__src-"));
+    assert!(archived.ends_with(".csv"));
+}

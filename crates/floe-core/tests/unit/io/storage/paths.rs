@@ -156,7 +156,7 @@ fn archive_filename_for_run_bounds_long_filename_component_length() {
     let filename = format!("{long_stem}.csv");
     let archived = archive_filename_for_run(&filename, "run-1", "local:///tmp/input.csv");
 
-    assert!(archived.as_bytes().len() <= 255);
+    assert!(archived.len() <= 255);
     assert!(archived.contains("__run-run-1__src-"));
     assert!(archived.ends_with(".csv"));
 }

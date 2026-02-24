@@ -1,9 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use floe_core::config::WriteMode;
 use floe_core::load_config;
+
+static TEMP_CONFIG_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn write_temp_config(contents: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -11,7 +14,8 @@ fn write_temp_config(contents: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    path.push(format!("floe-config-{nanos}.yml"));
+    let seq = TEMP_CONFIG_SEQ.fetch_add(1, Ordering::Relaxed);
+    path.push(format!("floe-config-{nanos}-{seq}.yml"));
     fs::write(&path, contents).expect("write temp config");
     path
 }

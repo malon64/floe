@@ -1,0 +1,49 @@
+version: "0.1"
+
+metadata:
+  project: "floe"
+  description: "Example config for local Iceberg accepted sink"
+
+report:
+  path: "./report_iceberg"
+
+entities:
+  - name: "customer_iceberg"
+    source:
+      format: "csv"
+      path: "./in/customer/customers_valid.csv"
+      options:
+        header: true
+        separator: ","
+      cast_mode: "strict"
+
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "./out/accepted/customer_iceberg"
+      rejected:
+        format: "csv"
+        path: "./out/rejected/customer_iceberg"
+
+    policy:
+      severity: "reject"
+
+    schema:
+      mismatch:
+        missing_columns: "reject_file"
+        extra_columns: "ignore"
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+          unique: true
+        - name: "email"
+          type: "string"
+          nullable: true
+        - name: "country_code"
+          type: "string"
+          nullable: true

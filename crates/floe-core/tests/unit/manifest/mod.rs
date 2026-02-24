@@ -60,3 +60,55 @@ fn manifest_id_is_stable_for_same_config() {
     assert_eq!(first_id.len(), 21);
     assert_eq!(first_id, second_id);
 }
+
+#[test]
+fn manifest_local_uris_are_normalized() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("manifest.yml");
+
+    let yaml = r#"version: "0.1"
+report:
+  path: "./report/../report_out/./base"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "./data/../input/./customer.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./out/../out_norm/./accepted/customer"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("config path utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[]).expect("build common manifest");
+    let value: Value = serde_json::from_str(&payload).expect("manifest json");
+
+    let cfg_base = std::fs::canonicalize(&cfg_dir).expect("canonicalize cfg dir");
+    assert_eq!(
+        value["report_base_uri"],
+        format!("local://{}/report_out/base", cfg_base.display())
+    );
+    let entity = &value["entities"][0];
+    assert_eq!(
+        entity["source"]["uri"],
+        format!("local://{}/input/customer.csv", cfg_base.display())
+    );
+    assert_eq!(
+        entity["accepted_sink_uri"],
+        format!("local://{}/out_norm/accepted/customer", cfg_base.display())
+    );
+}

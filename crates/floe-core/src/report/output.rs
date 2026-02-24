@@ -109,7 +109,8 @@ fn write_report(
 
     match target {
         Target::Local { base_path, .. } => {
-            let output_path = paths::resolve_output_dir_path(base_path, relative);
+            let output_path =
+                paths::normalize_local_path(&paths::resolve_output_dir_path(base_path, relative));
             write_text_file(&output_path, &content)?;
             Ok(output_path.display().to_string())
         }
@@ -130,15 +131,16 @@ fn write_report(
 }
 
 fn write_text_file(path: &Path, content: &str) -> FloeResult<()> {
+    let path = crate::io::storage::paths::normalize_local_path(path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp_path = temp_path(path);
+    let tmp_path = temp_path(&path);
     let mut file = std::fs::File::create(&tmp_path)?;
     use std::io::Write;
     file.write_all(content.as_bytes())?;
     file.sync_all()?;
-    std::fs::rename(&tmp_path, path)?;
+    std::fs::rename(&tmp_path, &path)?;
     Ok(())
 }
 

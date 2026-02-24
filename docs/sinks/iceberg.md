@@ -1,13 +1,14 @@
 # Iceberg sink (accepted output)
 
-Floe writes Iceberg tables for `sink.accepted.format: iceberg` using a local
-filesystem catalog layout (table root with `metadata/` and `data/`).
+Floe writes Iceberg tables for `sink.accepted.format: iceberg` using filesystem
+catalog layout semantics (table root with `metadata/` and `data/`) on local
+storage and S3.
 
 ## Storage catalog model
 
 - Table identity: `sink.accepted.path` (table root directory).
 - Metadata lives under `<path>/metadata/` (storage catalog layout).
-- Local filesystem only in v0.2.
+- Supported storage in this phase: local filesystem and S3 (filesystem catalog semantics).
 - No external catalog integration in v0.2.
 
 ## Example config
@@ -30,22 +31,34 @@ entities:
           type: "string"
 ```
 
-## Supported scope (v0.2 local MVP)
+## Supported scope (current)
 
 - Accepted sink only (`sink.accepted.format: iceberg`)
-- Local storage only (`sink.accepted.storage` must resolve to local)
+- Local or S3 storage (`sink.accepted.storage` must resolve to `local` or `s3`)
 - `sink.write_mode`: `overwrite` and `append`
 - Scalar column types only (for example: string, bool, signed ints, floats, date/time/datetime)
 - Append creates a new Iceberg snapshot/metadata version
 - Overwrite replaces logical table contents by recreating table metadata at the same root (no cleanup/GC)
+- S3 writes use direct Iceberg/object_store `FileIO` (filesystem catalog layout, no Glue)
 - Run report includes sink format, table root URI, write mode, files written, and snapshot id (when present)
 
 ## Limitations / non-goals (v0.2)
 
 - No schema evolution
 - No merge/upsert
+- No external catalog integration (AWS Glue is follow-up work)
 - No cleanup/garbage collection of orphaned files/metadata
-- No cloud/object-store catalogs yet (S3/GCS/Glue follow-ups)
+- No GCS/ADLS Iceberg sink yet (follow-up work)
+
+## Manual S3 integration test
+
+- A gated test exists in `crates/floe-core/tests/integration/iceberg_s3_run.rs`.
+- It is skipped by default. To run it:
+  - set AWS credentials in your environment
+  - set `FLOE_RUN_MANUAL_S3_ICEBERG_TEST=1`
+  - optionally set `FLOE_TEST_S3_BUCKET` (default: `floe-test`)
+  - optionally set `FLOE_TEST_S3_REGION` (falls back to `AWS_REGION`, then `us-east-1`)
+  - optionally set `FLOE_TEST_S3_PREFIX` for a custom cleanup prefix
 
 ## Empty accepted dataset behavior
 

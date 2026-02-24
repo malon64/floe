@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use iceberg::io::{CLIENT_REGION, S3_REGION};
 use url::Url;
 
 use crate::{config, ConfigError, FloeResult};
@@ -9,6 +10,12 @@ use super::Target;
 pub struct DeltaStoreConfig {
     pub table_url: Url,
     pub storage_options: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+pub struct IcebergStoreConfig {
+    pub warehouse_location: String,
+    pub file_io_props: HashMap<String, String>,
 }
 
 pub fn delta_store_config(
@@ -88,5 +95,35 @@ pub fn delta_store_config(
                 storage_options: HashMap::new(),
             })
         }
+    }
+}
+
+pub fn iceberg_store_config(
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<IcebergStoreConfig> {
+    match target {
+        Target::Local { base_path, .. } => Ok(IcebergStoreConfig {
+            warehouse_location: base_path.to_string(),
+            file_io_props: HashMap::new(),
+        }),
+        Target::S3 { storage, uri, .. } => {
+            let mut file_io_props = HashMap::new();
+            if let Some(definition) = resolver.definition(storage) {
+                if let Some(region) = definition.region {
+                    file_io_props.insert(S3_REGION.to_string(), region.clone());
+                    file_io_props.insert(CLIENT_REGION.to_string(), region);
+                }
+            }
+            Ok(IcebergStoreConfig {
+                warehouse_location: uri.to_string(),
+                file_io_props,
+            })
+        }
+        Target::Adls { .. } | Target::Gcs { .. } => Err(Box::new(ConfigError(format!(
+            "entity.name={} iceberg sink is only supported on local or s3 storage for now",
+            entity.name
+        )))),
     }
 }

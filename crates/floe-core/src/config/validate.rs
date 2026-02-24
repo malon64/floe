@@ -200,9 +200,9 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
     }
     if entity.sink.accepted.format == "iceberg" {
         if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-            if storage_type != "local" {
+            if storage_type != "local" && storage_type != "s3" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format=iceberg is only supported on local storage for now (got {})",
+                    "entity.name={} sink.accepted.format=iceberg is only supported on local or s3 storage for now (got {})",
                     entity.name, storage_type
                 ))));
             }

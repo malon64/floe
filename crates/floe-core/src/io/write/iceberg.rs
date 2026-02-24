@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
-use crate::io::storage::Target;
+use crate::io::storage::{object_store::iceberg_store_config, ObjectRef, Target};
 use crate::{config, io, FloeResult};
 
 struct IcebergAcceptedAdapter;
@@ -53,6 +53,18 @@ struct LocalIcebergWriteResult {
     file_paths: Vec<String>,
 }
 
+struct IcebergRemoteContext<'a> {
+    cloud: &'a mut io::storage::CloudClient,
+    resolver: &'a config::StorageResolver,
+}
+
+struct IcebergWriteContext {
+    table_root_uri: String,
+    catalog_name: &'static str,
+    catalog_props: HashMap<String, String>,
+    metadata_location: Option<String>,
+}
+
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
     fn write_accepted(
         &self,
@@ -61,11 +73,17 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
         mode: config::WriteMode,
         _output_stem: &str,
         _temp_dir: Option<&Path>,
-        _cloud: &mut io::storage::CloudClient,
-        _resolver: &config::StorageResolver,
+        cloud: &mut io::storage::CloudClient,
+        resolver: &config::StorageResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        write_iceberg_table(df, target, entity, mode)
+        write_iceberg_table_with_remote_context(
+            df,
+            target,
+            entity,
+            mode,
+            Some(IcebergRemoteContext { cloud, resolver }),
+        )
     }
 }
 
@@ -75,17 +93,17 @@ pub fn write_iceberg_table(
     entity: &config::EntityConfig,
     mode: config::WriteMode,
 ) -> FloeResult<AcceptedWriteOutput> {
-    let (table_root, _table_uri) = match target {
-        Target::Local { base_path, uri, .. } => (PathBuf::from(base_path), uri.as_str()),
-        _ => {
-            return Err(Box::new(RunError(format!(
-                "iceberg sink currently supports local storage only for entity {}",
-                entity.name
-            ))))
-        }
-    };
+    write_iceberg_table_with_remote_context(df, target, entity, mode, None)
+}
 
-    fs::create_dir_all(&table_root)?;
+fn write_iceberg_table_with_remote_context(
+    df: &mut DataFrame,
+    target: &Target,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+    mut remote: Option<IcebergRemoteContext<'_>>,
+) -> FloeResult<AcceptedWriteOutput> {
+    let write_ctx = build_iceberg_write_context(target, entity, mode, remote.as_mut())?;
     let prepared = prepare_iceberg_write(df, entity)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -93,12 +111,7 @@ pub fn write_iceberg_table(
         .build()
         .map_err(|err| Box::new(RunError(format!("iceberg runtime init failed: {err}"))))?;
 
-    let result = runtime.block_on(write_iceberg_table_async(
-        &table_root,
-        prepared,
-        entity,
-        mode,
-    ))?;
+    let result = runtime.block_on(write_iceberg_table_async(write_ctx, prepared, entity, mode))?;
     Ok(AcceptedWriteOutput {
         parts_written: result.files_written,
         part_files: result.file_paths,
@@ -108,19 +121,21 @@ pub fn write_iceberg_table(
 }
 
 async fn write_iceberg_table_async(
-    table_root: &Path,
+    write_ctx: IcebergWriteContext,
     prepared: PreparedIcebergWrite,
     entity: &config::EntityConfig,
     mode: config::WriteMode,
 ) -> FloeResult<LocalIcebergWriteResult> {
-    let table_root_str = table_root.display().to_string();
-    let metadata_location = latest_metadata_location(table_root)?;
+    let IcebergWriteContext {
+        table_root_uri,
+        catalog_name,
+        mut catalog_props,
+        metadata_location,
+    } = write_ctx;
+    catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
     let catalog = MemoryCatalogBuilder::default()
-        .load(
-            "floe_local",
-            HashMap::from([(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_str.clone())]),
-        )
+        .load(catalog_name, catalog_props)
         .await
         .map_err(map_iceberg_err("iceberg catalog init failed"))?;
     let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
@@ -154,7 +169,7 @@ async fn write_iceberg_table_async(
                     &catalog,
                     &namespace,
                     &table_ident,
-                    table_root_str.clone(),
+                    table_root_uri.clone(),
                     &prepared.iceberg_schema,
                 )
                 .await?
@@ -171,7 +186,7 @@ async fn write_iceberg_table_async(
                 &catalog,
                 &namespace,
                 &table_ident,
-                table_root_str.clone(),
+                table_root_uri.clone(),
                 &prepared.iceberg_schema,
             )
             .await?
@@ -223,6 +238,72 @@ async fn write_iceberg_table_async(
         metadata_version,
         file_paths,
     })
+}
+
+fn build_iceberg_write_context(
+    target: &Target,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+    mut remote: Option<&mut IcebergRemoteContext<'_>>,
+) -> FloeResult<IcebergWriteContext> {
+    match target {
+        Target::Local { base_path, .. } => {
+            let table_root = PathBuf::from(base_path);
+            fs::create_dir_all(&table_root)?;
+            let metadata_location = latest_local_metadata_location(&table_root)?;
+            Ok(IcebergWriteContext {
+                table_root_uri: base_path.to_string(),
+                catalog_name: "floe_iceberg",
+                catalog_props: HashMap::new(),
+                metadata_location,
+            })
+        }
+        Target::S3 {
+            storage,
+            uri,
+            bucket,
+            base_key,
+        } => {
+            let metadata_location = if matches!(mode, config::WriteMode::Append) {
+                match remote.as_mut() {
+                    Some(ctx) => {
+                        let ctx = &mut **ctx;
+                        let client = ctx.cloud.client_for(ctx.resolver, storage, entity)?;
+                        latest_s3_metadata_location(client, base_key)?
+                    }
+                    None => {
+                        let mut client = io::storage::s3::S3Client::new(bucket.clone(), None)?;
+                        latest_s3_metadata_location(&mut client, base_key)?
+                    }
+                }
+            } else {
+                None
+            };
+
+            match remote.as_mut() {
+                Some(ctx) => {
+                    let ctx = &mut **ctx;
+                    let store = iceberg_store_config(target, ctx.resolver, entity)?;
+                    Ok(IcebergWriteContext {
+                        table_root_uri: store.warehouse_location,
+                        catalog_name: "floe_iceberg",
+                        catalog_props: store.file_io_props,
+                        metadata_location,
+                    })
+                }
+                None => Ok(IcebergWriteContext {
+                    table_root_uri: uri.clone(),
+                    catalog_name: "floe_iceberg",
+                    catalog_props: HashMap::new(),
+                    metadata_location,
+                }),
+            }
+        }
+        Target::Adls { .. } | Target::Gcs { .. } => Err(Box::new(RunError(format!(
+            "iceberg sink currently supports local or s3 storage only for entity {}",
+            entity.name
+        )))),
+    }
 }
 
 async fn ensure_namespace(
@@ -508,7 +589,7 @@ fn describe_field(field: &Arc<iceberg::spec::NestedField>) -> String {
     format!("{}:{}:{required}", field.name, field.field_type)
 }
 
-fn latest_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
+fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
     let metadata_dir = table_root.join("metadata");
     if !metadata_dir.exists() {
         return Ok(None);
@@ -542,6 +623,47 @@ fn latest_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
     }
 
     Ok(best.map(|(_, path)| path.display().to_string()))
+}
+
+fn latest_s3_metadata_location(
+    client: &mut dyn io::storage::StorageClient,
+    base_key: &str,
+) -> FloeResult<Option<String>> {
+    let metadata_prefix = if base_key.trim_matches('/').is_empty() {
+        "metadata/".to_string()
+    } else {
+        format!("{}/metadata/", base_key.trim_matches('/'))
+    };
+    let listed = client.list(&metadata_prefix)?;
+    latest_metadata_location_from_objects(listed)
+}
+
+fn latest_metadata_location_from_objects(objects: Vec<ObjectRef>) -> FloeResult<Option<String>> {
+    let mut best: Option<(i64, String, String)> = None;
+    for object in objects {
+        let file_name = object
+            .key
+            .rsplit('/')
+            .next()
+            .unwrap_or(object.key.as_str())
+            .to_string();
+        if !file_name.ends_with(".metadata.json") {
+            continue;
+        }
+        let Some(version) = parse_metadata_version_from_filename(&file_name) else {
+            continue;
+        };
+        let replace = match &best {
+            None => true,
+            Some((best_version, best_key, _)) => {
+                version > *best_version || (version == *best_version && object.key > *best_key)
+            }
+        };
+        if replace {
+            best = Some((version, object.key.clone(), object.uri.clone()));
+        }
+    }
+    Ok(best.map(|(_, _, uri)| uri))
 }
 
 fn parse_metadata_version_from_location(location: &str) -> Option<i64> {

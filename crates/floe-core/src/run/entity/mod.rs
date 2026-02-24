@@ -512,6 +512,7 @@ pub(super) fn run_entity(
             archived_path = io::storage::ops::archive_input(
                 runtime.storage(),
                 &context.storage_resolver,
+                &context.run_id,
                 entity,
                 archive_target.as_ref(),
                 &input_file,

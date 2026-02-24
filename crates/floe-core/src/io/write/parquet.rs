@@ -57,6 +57,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
+        _catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
         let mut ctx = strategy::WriteContext {
@@ -124,6 +125,11 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             part_files,
             table_version: None,
             snapshot_id: None,
+            table_root_uri: None,
+            iceberg_catalog_name: None,
+            iceberg_database: None,
+            iceberg_namespace: None,
+            iceberg_table: None,
         })
     }
 }

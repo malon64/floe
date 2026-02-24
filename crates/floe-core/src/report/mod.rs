@@ -143,6 +143,18 @@ pub struct AcceptedOutputSummary {
     pub snapshot_id: Option<i64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub iceberg_catalog_name: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iceberg_database: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iceberg_namespace: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iceberg_table: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_bytes_written: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]

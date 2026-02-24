@@ -13,6 +13,7 @@ pub struct RootConfig {
     pub version: String,
     pub metadata: Option<ProjectMetadata>,
     pub storages: Option<StoragesConfig>,
+    pub catalogs: Option<CatalogsConfig>,
     pub env: Option<EnvConfig>,
     pub domains: Vec<DomainConfig>,
     pub report: Option<ReportConfig>,
@@ -213,6 +214,7 @@ pub struct SinkTarget {
     pub path: String,
     pub storage: Option<String>,
     pub options: Option<SinkOptions>,
+    pub iceberg: Option<IcebergSinkTargetConfig>,
     pub partition_by: Option<Vec<String>>,
     pub partition_spec: Option<Vec<IcebergPartitionFieldConfig>>,
     pub write_mode: WriteMode,
@@ -232,6 +234,14 @@ pub struct IcebergPartitionFieldConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct IcebergSinkTargetConfig {
+    pub catalog: Option<String>,
+    pub namespace: Option<String>,
+    pub table: Option<String>,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct StoragesConfig {
     pub default: Option<String>,
     pub definitions: Vec<StorageDefinition>,
@@ -246,6 +256,22 @@ pub struct StorageDefinition {
     pub account: Option<String>,
     pub container: Option<String>,
     pub prefix: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogsConfig {
+    pub default: Option<String>,
+    pub definitions: Vec<CatalogDefinition>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogDefinition {
+    pub name: String,
+    pub catalog_type: String,
+    pub region: Option<String>,
+    pub database: Option<String>,
+    pub warehouse_storage: Option<String>,
+    pub warehouse_prefix: Option<String>,
 }
 
 #[derive(Debug)]

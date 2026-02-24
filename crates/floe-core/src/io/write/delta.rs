@@ -86,6 +86,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
+        _catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
         let version = write_delta_table(df, target, resolver, entity, mode)?;
@@ -94,6 +95,11 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             part_files: Vec::new(),
             table_version: Some(version),
             snapshot_id: None,
+            table_root_uri: None,
+            iceberg_catalog_name: None,
+            iceberg_database: None,
+            iceberg_namespace: None,
+            iceberg_table: None,
         })
     }
 }

@@ -39,6 +39,11 @@ pub struct AcceptedWriteOutput {
     pub part_files: Vec<String>,
     pub table_version: Option<i64>,
     pub snapshot_id: Option<i64>,
+    pub table_root_uri: Option<String>,
+    pub iceberg_catalog_name: Option<String>,
+    pub iceberg_database: Option<String>,
+    pub iceberg_namespace: Option<String>,
+    pub iceberg_table: Option<String>,
 }
 
 pub trait InputAdapter: Send + Sync {
@@ -97,6 +102,7 @@ pub trait AcceptedSinkAdapter: Send + Sync {
         temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
+        catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput>;
 }

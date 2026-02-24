@@ -9,10 +9,11 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::config::{
-    ArchiveTarget, ColumnConfig, DomainConfig, EntityConfig, EntityMetadata, EnvConfig,
-    IcebergPartitionFieldConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata,
-    ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkOptions,
-    SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig, WriteMode,
+    ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
+    EntityMetadata, EnvConfig, IcebergPartitionFieldConfig, IcebergSinkTargetConfig,
+    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
+    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
+    StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -42,6 +43,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
             "metadata",
             "storages",
             "filesystems",
+            "catalogs",
             "env",
             "domains",
             "report",
@@ -68,6 +70,10 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
 
     let env = match hash_get(root, "env") {
         Some(value) => Some(parse_env(value)?),
+        None => None,
+    };
+    let catalogs = match hash_get(root, "catalogs") {
+        Some(value) => Some(parse_catalogs(value)?),
         None => None,
     };
 
@@ -102,6 +108,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         version,
         metadata,
         storages,
+        catalogs,
         env,
         domains,
         report,
@@ -342,7 +349,7 @@ fn parse_sink_target(
     let hash = yaml_hash(value, ctx)?;
     let mut allowed = vec!["format", "path", "storage", "filesystem"];
     if allow_options {
-        allowed.extend(["options", "partition_by", "partition_spec"]);
+        allowed.extend(["options", "iceberg", "partition_by", "partition_spec"]);
     }
     validate_known_keys(hash, ctx, &allowed)?;
     let storage = opt_string(hash, "storage", ctx)?;
@@ -365,6 +372,17 @@ fn parse_sink_target(
     } else {
         None
     };
+    let iceberg = if allow_options {
+        match hash_get(hash, "iceberg") {
+            Some(value) => Some(parse_sink_iceberg_options(
+                value,
+                &format!("{ctx}.iceberg"),
+            )?),
+            None => None,
+        }
+    } else {
+        None
+    };
     let partition_spec = if allow_options {
         match hash_get(hash, "partition_spec") {
             Some(value) => Some(parse_iceberg_partition_spec(
@@ -381,6 +399,7 @@ fn parse_sink_target(
         path: get_string(hash, "path", ctx)?,
         storage: storage.or(filesystem),
         options,
+        iceberg,
         partition_by,
         partition_spec,
         write_mode,
@@ -440,6 +459,17 @@ fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {
     })
 }
 
+fn parse_sink_iceberg_options(value: &Yaml, ctx: &str) -> FloeResult<IcebergSinkTargetConfig> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["catalog", "namespace", "table", "location"])?;
+    Ok(IcebergSinkTargetConfig {
+        catalog: opt_string(hash, "catalog", ctx)?,
+        namespace: opt_string(hash, "namespace", ctx)?,
+        table: opt_string(hash, "table", ctx)?,
+        location: opt_string(hash, "location", ctx)?,
+    })
+}
+
 fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
     let hash = yaml_hash(value, "storages")?;
     validate_known_keys(hash, "storages", &["default", "definitions"])?;
@@ -487,6 +517,54 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
         account: opt_string(hash, "account", "storages.definitions")?,
         container: opt_string(hash, "container", "storages.definitions")?,
         prefix: opt_string(hash, "prefix", "storages.definitions")?,
+    })
+}
+
+fn parse_catalogs(value: &Yaml) -> FloeResult<CatalogsConfig> {
+    let hash = yaml_hash(value, "catalogs")?;
+    validate_known_keys(hash, "catalogs", &["default", "definitions"])?;
+    let definitions_yaml = match hash_get(hash, "definitions") {
+        Some(value) => yaml_array(value, "catalogs.definitions")?,
+        None => {
+            return Err(Box::new(ConfigError(
+                "missing required field catalogs.definitions".to_string(),
+            )))
+        }
+    };
+    let mut definitions = Vec::with_capacity(definitions_yaml.len());
+    for (index, item) in definitions_yaml.iter().enumerate() {
+        let definition = parse_catalog_definition(item).map_err(|err| {
+            Box::new(ConfigError(format!("catalogs.definitions[{index}]: {err}")))
+        })?;
+        definitions.push(definition);
+    }
+    Ok(CatalogsConfig {
+        default: opt_string(hash, "default", "catalogs")?,
+        definitions,
+    })
+}
+
+fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
+    let hash = yaml_hash(value, "catalogs.definitions")?;
+    validate_known_keys(
+        hash,
+        "catalogs.definitions",
+        &[
+            "name",
+            "type",
+            "region",
+            "database",
+            "warehouse_storage",
+            "warehouse_prefix",
+        ],
+    )?;
+    Ok(CatalogDefinition {
+        name: get_string(hash, "name", "catalogs.definitions")?,
+        catalog_type: get_string(hash, "type", "catalogs.definitions")?,
+        region: opt_string(hash, "region", "catalogs.definitions")?,
+        database: opt_string(hash, "database", "catalogs.definitions")?,
+        warehouse_storage: opt_string(hash, "warehouse_storage", "catalogs.definitions")?,
+        warehouse_prefix: opt_string(hash, "warehouse_prefix", "catalogs.definitions")?,
     })
 }
 

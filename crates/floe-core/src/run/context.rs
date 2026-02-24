@@ -9,6 +9,7 @@ pub struct RunContext {
     pub config_path: PathBuf,
     pub config_dir: PathBuf,
     pub storage_resolver: config::StorageResolver,
+    pub catalog_resolver: config::CatalogResolver,
     pub report_base_path: Option<String>,
     pub report_target: Option<Target>,
     pub run_id: String,
@@ -24,6 +25,7 @@ impl RunContext {
     ) -> FloeResult<Self> {
         let config = config::parse_config(config_path)?;
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
+        let catalog_resolver = config::CatalogResolver::new(&config)?;
         let config_dir =
             crate::io::storage::paths::normalize_local_path(storage_resolver.config_dir());
         let config_path = crate::io::storage::paths::normalize_local_path(config_path);
@@ -51,6 +53,7 @@ impl RunContext {
             config_path,
             config_dir,
             storage_resolver,
+            catalog_resolver,
             report_base_path,
             report_target,
             run_id,

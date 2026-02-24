@@ -76,6 +76,18 @@ entities:
 - `storages` (optional)
   - Defines named storage clients for `source.storage` and `sink.*.storage`.
   - If omitted, `local` is assumed.
+- `catalogs` (optional)
+  - Defines named external catalogs for Iceberg sinks.
+  - Current supported type: `glue` (AWS Glue Data Catalog, S3-backed tables).
+  - Keys:
+    - `default` (optional): default catalog name used by `sink.accepted.iceberg.catalog` when omitted.
+    - `definitions` (required): array of catalog definitions.
+      - `name` (required)
+      - `type` (required): `glue`
+      - `region` (required for `glue`)
+      - `database` (required for `glue`)
+      - `warehouse_storage` (optional, `glue`): storage name (must resolve to S3)
+      - `warehouse_prefix` (optional, `glue`): prefix used for deterministic table locations
 - `env` (optional)
   - Enables variable templating for string fields using `{{var}}` syntax.
   - `env.file` (optional) loads variables from a YAML file (path relative to the
@@ -198,6 +210,21 @@ is available for templating within that entity.
       - `transform` (optional, default `identity`): `identity`, `year`, `month`, `day`, `hour`
     - `floe validate` checks column existence and supported transforms.
     - Execution wiring is pending follow-up work.
+  - `iceberg` (optional, `sink.accepted.format: iceberg`)
+    - Enables Iceberg catalog-specific options.
+    - `catalog` (optional)
+      - Catalog name from `catalogs.definitions`.
+      - If omitted, `catalogs.default` is used when set.
+      - When set (or defaulted), current implementation uses AWS Glue catalog semantics and requires S3 storage.
+    - `namespace` (optional)
+      - Iceberg namespace identifier reported with the run.
+      - Defaults to `entity.domain` when present, otherwise the catalog `database`.
+    - `table` (optional)
+      - Logical table name for the catalog registration.
+      - Defaults to `entity.name` (sanitized/lowercased for Glue compatibility).
+    - `location` (optional)
+      - Overrides the Iceberg table root location.
+      - Resolved via `warehouse_storage` when defined, otherwise via the sink storage.
   - Compaction/optimization remains external to Floe (for Parquet/Delta/Iceberg datasets).
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).

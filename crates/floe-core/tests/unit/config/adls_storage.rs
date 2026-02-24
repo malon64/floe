@@ -7,6 +7,7 @@ fn base_root() -> config::RootConfig {
         version: "0.1".to_string(),
         metadata: None,
         storages: None,
+        catalogs: None,
         env: None,
         domains: Vec::new(),
         report: None,

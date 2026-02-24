@@ -132,6 +132,39 @@ fn write_iceberg_table_empty_dataframe_creates_table_without_snapshot() -> FloeR
 }
 
 #[test]
+fn write_iceberg_table_public_helper_rejects_catalog_mode_without_runtime_context() -> FloeResult<()>
+{
+    let mut df = df!(
+        "id" => &[1i64],
+        "name" => &["alice"]
+    )?;
+    let mut entity = build_entity(
+        Path::new("/tmp/unused"),
+        config::WriteMode::Append,
+        Vec::new(),
+        None,
+    );
+    entity.sink.accepted.storage = Some("s3_out".to_string());
+    entity.sink.accepted.iceberg = Some(config::IcebergSinkTargetConfig {
+        catalog: Some("glue_main".to_string()),
+        namespace: None,
+        table: None,
+        location: None,
+    });
+    let target = Target::S3 {
+        storage: "s3_out".to_string(),
+        uri: "s3://bucket/accepted/orders".to_string(),
+        bucket: "bucket".to_string(),
+        base_key: "accepted/orders".to_string(),
+    };
+
+    let err = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Append)
+        .expect_err("catalog mode should require runtime context");
+    assert!(err.to_string().contains("runtime catalog context"));
+    Ok(())
+}
+
+#[test]
 fn write_iceberg_table_supports_i8_i16_by_upcasting_to_iceberg_int() -> FloeResult<()> {
     let temp_dir = tempfile::TempDir::new()?;
     let table_path = temp_dir.path().join("iceberg_table");
@@ -186,6 +219,7 @@ fn empty_root_config() -> config::RootConfig {
         version: "0.1".to_string(),
         metadata: None,
         storages: None,
+        catalogs: None,
         env: None,
         domains: Vec::new(),
         report: None,
@@ -230,6 +264,7 @@ fn build_entity(
                 path: table_path.display().to_string(),
                 storage: None,
                 options: None,
+                iceberg: None,
                 write_mode,
                 partition_by: None,
                 partition_spec: None,

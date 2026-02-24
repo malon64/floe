@@ -13,6 +13,7 @@ pub struct AcceptedWriteRequest<'a> {
     pub temp_dir: Option<&'a Path>,
     pub cloud: &'a mut io::storage::CloudClient,
     pub resolver: &'a config::StorageResolver,
+    pub catalogs: &'a config::CatalogResolver,
     pub entity: &'a config::EntityConfig,
     pub mode: config::WriteMode,
 }
@@ -41,6 +42,7 @@ impl AcceptedWriter for AdapterAcceptedWriter<'_> {
             request.temp_dir,
             request.cloud,
             request.resolver,
+            request.catalogs,
             request.entity,
         )
     }

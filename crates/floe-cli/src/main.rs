@@ -75,9 +75,12 @@ const ADD_ENTITY_LONG_ABOUT: &str = concat!(
     "v0.3 scope:\n",
     "  - Supports csv, json, parquet input inference\n",
     "  - JSON inference uses top-level keys only (nested values are inferred as string)\n",
+    "  - Creates a minimal config when -c points to a missing file\n",
+    "  - Infers --format from file extension when omitted (.csv, .json, .parquet)\n",
+    "  - Infers --name from the input filename stem when omitted\n",
     "\n",
     "Example:\n",
-    "  floe add-entity -c config.yml --input ./in/customers.csv --format csv --name customers\n",
+    "  floe add-entity -c config.yml --input ./in/customers.csv\n",
 );
 
 mod logging;
@@ -156,8 +159,12 @@ enum Command {
         config: String,
         #[arg(long, help = "Input file path or file:// URI to infer schema from")]
         input: String,
-        #[arg(long, value_enum, help = "Input format (csv|json|parquet)")]
-        format: AddEntityFormat,
+        #[arg(
+            long,
+            value_enum,
+            help = "Input format (csv|json|parquet). If omitted, infer from file extension"
+        )]
+        format: Option<AddEntityFormat>,
         #[arg(long, help = "Entity name (defaults to input file stem)")]
         name: Option<String>,
         #[arg(long, help = "Optional entity domain to set")]
@@ -394,7 +401,7 @@ fn main() -> FloeResult<()> {
                 config_path,
                 output_path,
                 input,
-                format: format.as_str().to_string(),
+                format: format.as_ref().map(|value| value.as_str().to_string()),
                 name,
                 domain,
                 dry_run,

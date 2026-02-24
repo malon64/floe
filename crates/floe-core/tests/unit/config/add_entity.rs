@@ -1,11 +1,26 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use floe_core::{add_entity_to_config, load_config, validate, AddEntityOptions, ValidateOptions};
+use polars::prelude::{DataFrame, NamedFrom, ParquetWriter, Series};
 use tempfile::tempdir;
 use url::Url;
 
 fn write_file(path: &std::path::Path, contents: &str) {
     fs::write(path, contents).expect("write test file");
+}
+
+fn write_parquet(path: &Path) -> PathBuf {
+    let mut df = DataFrame::new(vec![
+        Series::new("employee_id".into(), vec![1_i64, 2_i64]).into(),
+        Series::new("active".into(), vec![true, false]).into(),
+    ])
+    .expect("dataframe");
+    let file = fs::File::create(path).expect("create parquet");
+    ParquetWriter::new(file)
+        .finish(&mut df)
+        .expect("write parquet");
+    path.to_path_buf()
 }
 
 fn base_config_yaml() -> &'static str {
@@ -34,7 +49,7 @@ fn add_entity_infers_csv_and_appends_defaults() {
         config_path: config_path.clone(),
         output_path: None,
         input: input_path.display().to_string(),
-        format: "csv".to_string(),
+        format: Some("csv".to_string()),
         name: Some("customers".to_string()),
         domain: Some("sales".to_string()),
         dry_run: false,
@@ -105,7 +120,7 @@ fn add_entity_infers_json_top_level_keys_only() {
         config_path: config_path.clone(),
         output_path: None,
         input: input_path.display().to_string(),
-        format: "json".to_string(),
+        format: Some("json".to_string()),
         name: None,
         domain: None,
         dry_run: false,
@@ -173,7 +188,7 @@ fn add_entity_normalizes_file_uri_before_persisting_source_path() {
         config_path: config_path.clone(),
         output_path: None,
         input: input_uri,
-        format: "csv".to_string(),
+        format: Some("csv".to_string()),
         name: Some("customers".to_string()),
         domain: None,
         dry_run: false,
@@ -184,4 +199,170 @@ fn add_entity_normalizes_file_uri_before_persisting_source_path() {
     let entity = config.entities.first().expect("entity");
     assert_eq!(entity.source.path, input_path.display().to_string());
     assert!(!entity.source.path.starts_with("file://"));
+}
+
+#[test]
+fn add_entity_bootstraps_missing_config_file() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("new.yml");
+    let input_path = dir.path().join("orders.csv");
+
+    write_file(&input_path, "id,total\n1,10.1\n");
+    assert!(!config_path.exists());
+
+    let outcome = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("bootstrap config and add entity");
+
+    assert!(config_path.exists());
+    assert_eq!(outcome.entity_name, "orders");
+    assert_eq!(outcome.format, "csv");
+    validate(&config_path, ValidateOptions::default()).expect("validate bootstrapped config");
+}
+
+#[test]
+fn add_entity_infers_name_from_file_uri_stem_by_default() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("order_events.json");
+    write_file(&config_path, "version: \"0.2\"\nentities: []\n");
+    write_file(&input_path, "[{\"id\":1}]");
+
+    let input_uri = Url::from_file_path(&input_path)
+        .expect("file url")
+        .to_string();
+    let outcome = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_uri,
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("add entity");
+
+    assert_eq!(outcome.entity_name, "order_events");
+    let config = load_config(&config_path).expect("load config");
+    assert_eq!(config.entities[0].name, "order_events");
+}
+
+#[test]
+fn add_entity_infers_format_from_extension_csv_json_and_parquet() {
+    let dir = tempdir().expect("tempdir");
+
+    let csv_config = dir.path().join("csv.yml");
+    let csv_input = dir.path().join("orders.csv");
+    write_file(&csv_input, "id\n1\n");
+    add_entity_to_config(AddEntityOptions {
+        config_path: csv_config.clone(),
+        output_path: None,
+        input: csv_input.display().to_string(),
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("csv inferred");
+    assert_eq!(
+        load_config(&csv_config).expect("csv cfg").entities[0]
+            .source
+            .format,
+        "csv"
+    );
+
+    let json_config = dir.path().join("json.yml");
+    let json_input = dir.path().join("events.json");
+    write_file(&json_input, "[{\"id\":1}]");
+    add_entity_to_config(AddEntityOptions {
+        config_path: json_config.clone(),
+        output_path: None,
+        input: json_input.display().to_string(),
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("json inferred");
+    assert_eq!(
+        load_config(&json_config).expect("json cfg").entities[0]
+            .source
+            .format,
+        "json"
+    );
+
+    let parquet_config = dir.path().join("parquet.yml");
+    let parquet_input = write_parquet(&dir.path().join("employees.parquet"));
+    add_entity_to_config(AddEntityOptions {
+        config_path: parquet_config.clone(),
+        output_path: None,
+        input: parquet_input.display().to_string(),
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("parquet inferred");
+    assert_eq!(
+        load_config(&parquet_config).expect("parquet cfg").entities[0]
+            .source
+            .format,
+        "parquet"
+    );
+}
+
+#[test]
+fn add_entity_explicit_name_and_format_override_inferred_values() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("strange_name.data");
+
+    write_file(&input_path, "id,name\n1,Alice\n");
+
+    let outcome = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: Some("csv".to_string()),
+        name: Some("customers_override".to_string()),
+        domain: None,
+        dry_run: false,
+    })
+    .expect("add entity");
+
+    assert_eq!(outcome.entity_name, "customers_override");
+    assert_eq!(outcome.format, "csv");
+    let config = load_config(&config_path).expect("load config");
+    let entity = &config.entities[0];
+    assert_eq!(entity.name, "customers_override");
+    assert_eq!(entity.source.format, "csv");
+}
+
+#[test]
+fn add_entity_unknown_extension_requires_explicit_format() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("payload.unknown");
+
+    write_file(&input_path, "some,data\n");
+
+    let err = add_entity_to_config(AddEntityOptions {
+        config_path,
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: None,
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect_err("unknown extension should require --format");
+
+    assert!(err.to_string().contains("use --format"));
 }

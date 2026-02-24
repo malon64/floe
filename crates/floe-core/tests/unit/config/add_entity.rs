@@ -1,0 +1,156 @@
+use std::fs;
+
+use floe_core::{add_entity_to_config, load_config, validate, AddEntityOptions, ValidateOptions};
+use tempfile::tempdir;
+
+fn write_file(path: &std::path::Path, contents: &str) {
+    fs::write(path, contents).expect("write test file");
+}
+
+fn base_config_yaml() -> &'static str {
+    r#"
+version: "0.2"
+domains:
+  - name: "sales"
+    incoming_dir: "./in/sales"
+entities: []
+"#
+}
+
+#[test]
+fn add_entity_infers_csv_and_appends_defaults() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("customers.csv");
+
+    write_file(&config_path, base_config_yaml());
+    write_file(
+        &input_path,
+        "id,name,active\n1,Alice,true\n2,Bob,false\n3,,true\n",
+    );
+
+    let outcome = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: "csv".to_string(),
+        name: Some("customers".to_string()),
+        domain: Some("sales".to_string()),
+        dry_run: false,
+    })
+    .expect("add entity");
+
+    assert_eq!(outcome.entity_name, "customers");
+    assert_eq!(outcome.column_count, 3);
+    assert!(!outcome.dry_run);
+
+    validate(&config_path, ValidateOptions::default()).expect("validate updated config");
+    let config = load_config(&config_path).expect("load updated config");
+    let entity = config.entities.first().expect("entity");
+
+    assert_eq!(entity.name, "customers");
+    assert_eq!(entity.domain.as_deref(), Some("sales"));
+    assert_eq!(entity.source.format, "csv");
+    assert_eq!(entity.source.path, input_path.display().to_string());
+    let source_options = entity.source.options.as_ref().expect("source options");
+    assert_eq!(source_options.separator.as_deref(), Some(","));
+
+    assert_eq!(entity.sink.accepted.format, "parquet");
+    assert_eq!(entity.sink.accepted.path, "out/accepted/customers/");
+    assert_eq!(
+        entity.sink.rejected.as_ref().expect("rejected").path,
+        "out/rejected/customers/"
+    );
+    assert_eq!(entity.policy.severity, "reject");
+    let mismatch = entity.schema.mismatch.as_ref().expect("mismatch");
+    assert_eq!(mismatch.missing_columns.as_deref(), Some("reject_file"));
+    assert_eq!(mismatch.extra_columns.as_deref(), Some("ignore"));
+
+    let id_col = entity
+        .schema
+        .columns
+        .iter()
+        .find(|column| column.name == "id")
+        .expect("id column");
+    assert_eq!(id_col.source.as_deref(), Some("id"));
+    assert_eq!(id_col.column_type, "number");
+
+    let active_col = entity
+        .schema
+        .columns
+        .iter()
+        .find(|column| column.name == "active")
+        .expect("active column");
+    assert_eq!(active_col.source.as_deref(), Some("active"));
+    assert_eq!(active_col.column_type, "boolean");
+}
+
+#[test]
+fn add_entity_infers_json_top_level_keys_only() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("orders.json");
+
+    write_file(&config_path, base_config_yaml());
+    write_file(
+        &input_path,
+        r#"[
+  {"id": 1, "meta": {"source": "api"}, "tags": ["new"], "created_at": "2026-01-01T10:00:00Z"},
+  {"id": 2, "meta": null, "tags": ["vip"], "created_at": "2026-01-02T10:00:00Z"}
+]"#,
+    );
+
+    let outcome = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: "json".to_string(),
+        name: None,
+        domain: None,
+        dry_run: false,
+    })
+    .expect("add entity");
+
+    assert_eq!(outcome.entity_name, "orders");
+    assert!(outcome
+        .notes
+        .iter()
+        .any(|note| note.contains("nested JSON values inferred as string")));
+
+    validate(&config_path, ValidateOptions::default()).expect("validate updated config");
+    let config = load_config(&config_path).expect("load updated config");
+    let entity = config.entities.first().expect("entity");
+
+    assert_eq!(entity.name, "orders");
+    assert_eq!(entity.source.format, "json");
+    let source_options = entity.source.options.as_ref().expect("source options");
+    assert_eq!(source_options.json_mode.as_deref(), Some("array"));
+
+    let created_at = entity
+        .schema
+        .columns
+        .iter()
+        .find(|column| column.name == "created_at")
+        .expect("created_at column");
+    assert_eq!(created_at.source.as_deref(), Some("created_at"));
+    assert_eq!(created_at.column_type, "datetime");
+
+    let meta = entity
+        .schema
+        .columns
+        .iter()
+        .find(|column| column.name == "meta")
+        .expect("meta column");
+    assert_eq!(meta.source.as_deref(), Some("meta"));
+    assert_eq!(meta.column_type, "string");
+    assert_eq!(meta.nullable, Some(true));
+
+    let tags = entity
+        .schema
+        .columns
+        .iter()
+        .find(|column| column.name == "tags")
+        .expect("tags column");
+    assert_eq!(tags.source.as_deref(), Some("tags"));
+    assert_eq!(tags.column_type, "string");
+}

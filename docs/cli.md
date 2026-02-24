@@ -18,6 +18,13 @@
   - Validate config and generate a common orchestrator manifest JSON (`schema=floe.manifest.v1`).
   - `--output -` writes manifest JSON to stdout.
 
+- `floe add-entity -c <config> --input <path|file://...> --format csv|json|parquet [--name <entity>] [--domain <domain>]`
+  - Infer a schema from an input file and append a new entity to `entities[]`.
+  - Generates defaults for `sink`, `policy`, and `schema.mismatch`.
+  - JSON inference is v0.3 bootstrap-focused: top-level keys only; nested objects/arrays are inferred as `string`.
+  - `--dry-run` prints the updated YAML without writing.
+  - `--output <new.yml>` writes the updated config to a new file instead of overwriting `-c`.
+
 ### Dry-run behavior
 
 - Dry-run resolves input files/objects using the same planning path as real runs.
@@ -40,6 +47,8 @@
   - `floe manifest generate -c example/config.yml --output orchestrators/airflow-floe/example/manifest.airflow.json`
 - Print common manifest to stdout:
   - `floe manifest generate -c example/config.yml --output -`
+- Add an entity from a CSV file:
+  - `floe add-entity -c example/config.yml --input ./in/customers.csv --format csv --name customers`
 - Report output:
   - `example/report/run_<run_id>/run.summary.json`
   - `example/report/run_<run_id>/customer/run.json`

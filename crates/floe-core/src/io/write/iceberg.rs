@@ -103,7 +103,7 @@ fn write_iceberg_table_with_remote_context(
     mode: config::WriteMode,
     mut remote: Option<IcebergRemoteContext<'_>>,
 ) -> FloeResult<AcceptedWriteOutput> {
-    let write_ctx = build_iceberg_write_context(target, entity, remote.as_mut())?;
+    let write_ctx = build_iceberg_write_context(target, entity, mode, remote.as_mut())?;
     let prepared = prepare_iceberg_write(df, entity)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -243,7 +243,8 @@ async fn write_iceberg_table_async(
 fn build_iceberg_write_context(
     target: &Target,
     entity: &config::EntityConfig,
-    remote: Option<&mut IcebergRemoteContext<'_>>,
+    mode: config::WriteMode,
+    mut remote: Option<&mut IcebergRemoteContext<'_>>,
 ) -> FloeResult<IcebergWriteContext> {
     match target {
         Target::Local { base_path, .. } => {
@@ -258,23 +259,43 @@ fn build_iceberg_write_context(
             })
         }
         Target::S3 {
-            storage, base_key, ..
+            storage,
+            uri,
+            bucket,
+            base_key,
         } => {
-            let Some(ctx) = remote else {
-                return Err(Box::new(RunError(format!(
-                    "iceberg s3 writes require runtime storage context for entity {}",
-                    entity.name
-                ))));
+            let metadata_location = if matches!(mode, config::WriteMode::Append) {
+                match remote.as_deref_mut() {
+                    Some(ctx) => {
+                        let client = ctx.cloud.client_for(ctx.resolver, storage, entity)?;
+                        latest_s3_metadata_location(client, base_key)?
+                    }
+                    None => {
+                        let mut client = io::storage::s3::S3Client::new(bucket.clone(), None)?;
+                        latest_s3_metadata_location(&mut client, base_key)?
+                    }
+                }
+            } else {
+                None
             };
-            let store = iceberg_store_config(target, ctx.resolver, entity)?;
-            let client = ctx.cloud.client_for(ctx.resolver, storage, entity)?;
-            let metadata_location = latest_s3_metadata_location(client, base_key)?;
-            Ok(IcebergWriteContext {
-                table_root_uri: store.warehouse_location,
-                catalog_name: "floe_iceberg",
-                catalog_props: store.file_io_props,
-                metadata_location,
-            })
+
+            match remote.as_deref_mut() {
+                Some(ctx) => {
+                    let store = iceberg_store_config(target, ctx.resolver, entity)?;
+                    Ok(IcebergWriteContext {
+                        table_root_uri: store.warehouse_location,
+                        catalog_name: "floe_iceberg",
+                        catalog_props: store.file_io_props,
+                        metadata_location,
+                    })
+                }
+                None => Ok(IcebergWriteContext {
+                    table_root_uri: uri.clone(),
+                    catalog_name: "floe_iceberg",
+                    catalog_props: HashMap::new(),
+                    metadata_location,
+                }),
+            }
         }
         Target::Adls { .. } | Target::Gcs { .. } => Err(Box::new(RunError(format!(
             "iceberg sink currently supports local or s3 storage only for entity {}",

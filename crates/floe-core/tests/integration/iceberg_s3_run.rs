@@ -190,7 +190,6 @@ fn manual_s3_iceberg_append_and_overwrite_write_layout_and_cleanup() {
         Some("overwrite")
     );
     assert!(report3.accepted_output.snapshot_id.is_some());
-    assert!(report3.accepted_output.table_version > report2.accepted_output.table_version);
 
     let objects = s3.list(&table_prefix).expect("list table objects");
     assert!(objects.iter().any(|obj| obj.key.contains("/metadata/")));

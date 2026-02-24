@@ -220,6 +220,7 @@ fn infer_entity_from_input(
     }
 
     let local_input_path = resolve_local_input_path(input)?;
+    let persisted_input_path = normalize_persisted_input_path(input, &local_input_path);
     let (source_options, columns, notes) = match format {
         "csv" => infer_csv_columns(&local_input_path)?,
         "json" => infer_json_columns(&local_input_path)?,
@@ -241,7 +242,7 @@ fn infer_entity_from_input(
     Ok(InferredEntity {
         name: entity_name,
         format: format.to_string(),
-        input: input.to_string(),
+        input: persisted_input_path,
         domain: domain.map(ToString::to_string),
         source_options,
         columns,
@@ -771,6 +772,15 @@ fn resolve_local_input_path(input: &str) -> FloeResult<PathBuf> {
         ))));
     }
     Ok(absolute)
+}
+
+fn normalize_persisted_input_path(input: &str, local_input_path: &Path) -> String {
+    if let Some((scheme, _)) = input.split_once("://") {
+        if scheme.eq_ignore_ascii_case("file") {
+            return local_input_path.display().to_string();
+        }
+    }
+    input.to_string()
 }
 
 fn derive_entity_name(input: &str) -> FloeResult<String> {

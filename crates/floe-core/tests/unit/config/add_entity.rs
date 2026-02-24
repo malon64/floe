@@ -2,6 +2,7 @@ use std::fs;
 
 use floe_core::{add_entity_to_config, load_config, validate, AddEntityOptions, ValidateOptions};
 use tempfile::tempdir;
+use url::Url;
 
 fn write_file(path: &std::path::Path, contents: &str) {
     fs::write(path, contents).expect("write test file");
@@ -153,4 +154,34 @@ fn add_entity_infers_json_top_level_keys_only() {
         .expect("tags column");
     assert_eq!(tags.source.as_deref(), Some("tags"));
     assert_eq!(tags.column_type, "string");
+}
+
+#[test]
+fn add_entity_normalizes_file_uri_before_persisting_source_path() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("customers.csv");
+
+    write_file(&config_path, base_config_yaml());
+    write_file(&input_path, "id,name\n1,Alice\n");
+
+    let input_uri = Url::from_file_path(&input_path)
+        .expect("file url")
+        .to_string();
+
+    add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_uri,
+        format: "csv".to_string(),
+        name: Some("customers".to_string()),
+        domain: None,
+        dry_run: false,
+    })
+    .expect("add entity");
+
+    let config = load_config(&config_path).expect("load updated config");
+    let entity = config.entities.first().expect("entity");
+    assert_eq!(entity.source.path, input_path.display().to_string());
+    assert!(!entity.source.path.starts_with("file://"));
 }

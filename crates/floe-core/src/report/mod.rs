@@ -122,7 +122,15 @@ pub struct SinkEcho {
 #[serde(rename_all = "snake_case")]
 pub struct AcceptedOutputSummary {
     pub path: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table_root_uri: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_mode: Option<String>,
     pub accepted_rows: u64,
+    #[serde(default)]
+    pub files_written: u64,
     pub parts_written: u64,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -130,6 +138,9 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub table_version: Option<i64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

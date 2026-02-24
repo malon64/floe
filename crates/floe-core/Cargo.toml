@@ -37,6 +37,7 @@ azure_storage_blobs = "0.20"
 futures = "0.3"
 uuid = "1"
 arrow = "57"
+iceberg = "0.8.0"
 df-interchange = { version = "0.3.2", features = ["arrow_57", "polars_0_52"] }
 orc-rust = "0.7.1"
 

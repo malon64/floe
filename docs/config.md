@@ -174,8 +174,8 @@ is available for templating within that entity.
   - `append`: add new dataset parts without deleting existing ones.
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
-  - `format`: `parquet` or `delta` (local + cloud). `iceberg` is recognized but not
-    implemented yet.
+  - `format`: `parquet`, `delta`, or `iceberg`.
+    - `iceberg` (v0.2): local storage only; append/overwrite supported; no schema evolution.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)

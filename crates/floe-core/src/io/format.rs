@@ -38,6 +38,7 @@ pub struct AcceptedWriteOutput {
     pub parts_written: u64,
     pub part_files: Vec<String>,
     pub table_version: Option<i64>,
+    pub snapshot_id: Option<i64>,
 }
 
 pub trait InputAdapter: Send + Sync {

@@ -93,6 +93,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             parts_written: 1,
             part_files: Vec::new(),
             table_version: Some(version),
+            snapshot_id: None,
         })
     }
 }

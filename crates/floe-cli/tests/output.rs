@@ -46,10 +46,14 @@ fn sample_outcome() -> RunOutcome {
         },
         accepted_output: report::AcceptedOutputSummary {
             path: "/tmp/out/accepted".to_string(),
+            table_root_uri: Some("/tmp/out/accepted".to_string()),
+            write_mode: Some("overwrite".to_string()),
             accepted_rows: 8,
+            files_written: 1,
             parts_written: 1,
             part_files: vec!["part-00000.parquet".to_string()],
             table_version: None,
+            snapshot_id: None,
         },
         results: report::ResultsTotals {
             files_total: 1,

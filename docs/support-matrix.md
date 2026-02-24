@@ -36,12 +36,14 @@ Notes:
 |---|---|---|---|---|---|
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
+| Accepted: Iceberg | ✅ | ❌ | ❌ | ❌ | Local filesystem catalog MVP (`metadata/`, `data/`), append/overwrite, no schema evolution/GC |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
 
 Notes:
 - Parquet outputs to cloud are written locally then uploaded.
 - Delta outputs to cloud are **direct** via object_store (no temp upload).
+- Iceberg outputs are local-only in v0.2 (cloud catalogs are follow-up work).
 - `sink.write_mode` applies to accepted and rejected outputs (`overwrite` or `append`).
 
 ## Cloud storage behavior

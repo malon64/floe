@@ -159,12 +159,6 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
 
 fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
     format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
-    if entity.sink.accepted.format == "iceberg" {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.format=iceberg is not supported yet (storage catalog writer not implemented)",
-            entity.name
-        ))));
-    }
     format::validate_sink_options(
         &entity.name,
         entity.sink.accepted.format.as_str(),
@@ -199,6 +193,16 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
             {
                 return Err(Box::new(ConfigError(format!(
                     "entity.name={} sink.accepted.format=delta is only supported on local, s3, adls, or gcs storage (got {})",
+                    entity.name, storage_type
+                ))));
+            }
+        }
+    }
+    if entity.sink.accepted.format == "iceberg" {
+        if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+            if storage_type != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.format=iceberg is only supported on local storage for now (got {})",
                     entity.name, storage_type
                 ))));
             }

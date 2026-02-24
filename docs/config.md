@@ -175,7 +175,7 @@ is available for templating within that entity.
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet`, `delta`, or `iceberg`.
-    - `iceberg` (v0.2+): local or S3 filesystem-catalog sink; append/overwrite supported; no schema evolution.
+    - `iceberg` (v0.2+): local, S3, or GCS filesystem-catalog sink; append/overwrite supported; no schema evolution.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)

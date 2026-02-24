@@ -337,7 +337,7 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
 }
 
 #[test]
-fn iceberg_store_config_rejects_non_local_non_s3_targets() -> FloeResult<()> {
+fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
     let config = config::RootConfig {
         version: "0.1".to_string(),
         metadata: None,
@@ -397,8 +397,76 @@ fn iceberg_store_config_rejects_non_local_non_s3_targets() -> FloeResult<()> {
         },
     };
 
-    let err = iceberg_store_config(&target, &resolver, &entity).expect_err("gcs unsupported");
-    assert!(err.to_string().contains("local or s3"));
+    let store = iceberg_store_config(&target, &resolver, &entity)?;
+    assert_eq!(
+        store.warehouse_location,
+        "gs://my-bucket/data/iceberg/orders"
+    );
+    assert!(store.file_io_props.is_empty());
+    Ok(())
+}
+
+#[test]
+fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
+    let config = config::RootConfig {
+        version: "0.1".to_string(),
+        metadata: None,
+        storages: Some(config::StoragesConfig {
+            default: Some("adls_raw".to_string()),
+            definitions: vec![config::StorageDefinition {
+                name: "adls_raw".to_string(),
+                fs_type: "adls".to_string(),
+                bucket: None,
+                region: None,
+                account: Some("account".to_string()),
+                container: Some("container".to_string()),
+                prefix: Some("data".to_string()),
+            }],
+        }),
+        env: None,
+        domains: Vec::new(),
+        report: None,
+        entities: Vec::new(),
+    };
+    let resolver =
+        config::StorageResolver::from_path(&config, std::path::Path::new("./config.yml"))?;
+    let resolved = resolver.resolve_path("orders", "sink.accepted.path", None, "iceberg/orders")?;
+    let target = Target::from_resolved(&resolved)?;
+    let entity = config::EntityConfig {
+        name: "orders".to_string(),
+        metadata: None,
+        domain: None,
+        source: config::SourceConfig {
+            format: "csv".to_string(),
+            path: "in".to_string(),
+            storage: None,
+            options: None,
+            cast_mode: None,
+        },
+        sink: config::SinkConfig {
+            write_mode: config::WriteMode::Overwrite,
+            accepted: config::SinkTarget {
+                format: "iceberg".to_string(),
+                path: "iceberg/orders".to_string(),
+                storage: None,
+                options: None,
+                write_mode: config::WriteMode::Overwrite,
+            },
+            rejected: None,
+            archive: None,
+        },
+        policy: config::PolicyConfig {
+            severity: "warn".to_string(),
+        },
+        schema: config::SchemaConfig {
+            normalize_columns: None,
+            mismatch: None,
+            columns: Vec::new(),
+        },
+    };
+
+    let err = iceberg_store_config(&target, &resolver, &entity).expect_err("adls unsupported");
+    assert!(err.to_string().contains("local, s3, or gcs"));
     Ok(())
 }
 

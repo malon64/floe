@@ -2,13 +2,13 @@
 
 Floe writes Iceberg tables for `sink.accepted.format: iceberg` using filesystem
 catalog layout semantics (table root with `metadata/` and `data/`) on local
-storage and S3.
+storage, S3, and GCS.
 
 ## Storage catalog model
 
 - Table identity: `sink.accepted.path` (table root directory).
 - Metadata lives under `<path>/metadata/` (storage catalog layout).
-- Supported storage in this phase: local filesystem and S3 (filesystem catalog semantics).
+- Supported storage in this phase: local filesystem, S3, and GCS (filesystem catalog semantics).
 - No external catalog integration in v0.2.
 
 ## Example config
@@ -57,12 +57,12 @@ Current validation scope:
 ## Supported scope (current)
 
 - Accepted sink only (`sink.accepted.format: iceberg`)
-- Local or S3 storage (`sink.accepted.storage` must resolve to `local` or `s3`)
+- Local, S3, or GCS storage (`sink.accepted.storage` must resolve to `local`, `s3`, or `gcs`)
 - `sink.write_mode`: `overwrite` and `append`
 - Scalar column types only (for example: string, bool, signed ints, floats, date/time/datetime)
 - Append creates a new Iceberg snapshot/metadata version
 - Overwrite replaces logical table contents by recreating table metadata at the same root (no cleanup/GC)
-- S3 writes use direct Iceberg/object_store `FileIO` (filesystem catalog layout, no Glue)
+- S3/GCS writes use direct Iceberg/object_store `FileIO` (filesystem catalog layout, no Glue)
 - Run report includes sink format, table root URI, write mode, files written, and snapshot id (when present)
 
 ## Limitations / non-goals (v0.2)
@@ -71,7 +71,7 @@ Current validation scope:
 - No merge/upsert
 - No external catalog integration (AWS Glue is follow-up work)
 - No cleanup/garbage collection of orphaned files/metadata
-- No GCS/ADLS Iceberg sink yet (follow-up work)
+- No ADLS Iceberg sink yet (follow-up work)
 
 ## Manual S3 integration test
 
@@ -82,6 +82,15 @@ Current validation scope:
   - optionally set `FLOE_TEST_S3_BUCKET` (default: `floe-test`)
   - optionally set `FLOE_TEST_S3_REGION` (falls back to `AWS_REGION`, then `us-east-1`)
   - optionally set `FLOE_TEST_S3_PREFIX` for a custom cleanup prefix
+
+## Manual GCS integration test
+
+- A gated test exists in `crates/floe-core/tests/integration/iceberg_gcs_run.rs`.
+- It is skipped by default. To run it:
+  - set Google Cloud credentials for ADC (Application Default Credentials)
+  - set `FLOE_RUN_MANUAL_GCS_ICEBERG_TEST=1`
+  - optionally set `FLOE_TEST_GCS_BUCKET` (default: `floe-test`)
+  - optionally set `FLOE_TEST_GCS_PREFIX` for a custom cleanup prefix
 
 ## Empty accepted dataset behavior
 

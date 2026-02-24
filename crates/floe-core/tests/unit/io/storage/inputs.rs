@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use floe_core::io::storage::inputs::{resolve_inputs, ResolveInputsMode};
 use floe_core::io::storage::{ObjectRef, StorageClient, Target};
@@ -72,19 +73,35 @@ impl StorageClient for MockStorageClient {
 
 struct ListOnlyStorageClient {
     keys: Vec<String>,
+    list_prefixes: Arc<Mutex<Vec<String>>>,
 }
 
 impl ListOnlyStorageClient {
     fn new(keys: Vec<String>) -> Self {
-        Self { keys }
+        Self {
+            keys,
+            list_prefixes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn list_prefixes(&self) -> Vec<String> {
+        self.list_prefixes
+            .lock()
+            .expect("list prefixes lock")
+            .clone()
     }
 }
 
 impl StorageClient for ListOnlyStorageClient {
-    fn list(&self, _prefix: &str) -> FloeResult<Vec<ObjectRef>> {
+    fn list(&self, prefix: &str) -> FloeResult<Vec<ObjectRef>> {
+        self.list_prefixes
+            .lock()
+            .expect("list prefixes lock")
+            .push(prefix.to_string());
         Ok(self
             .keys
             .iter()
+            .filter(|key| prefix.is_empty() || key.starts_with(prefix))
             .map(|key| ObjectRef {
                 uri: format!("s3://bucket/{key}"),
                 key: key.clone(),
@@ -254,6 +271,200 @@ fn resolve_inputs_s3_filters_and_downloads() -> FloeResult<()> {
     for input in resolved.files {
         assert!(input.source_local_path.exists());
     }
+    Ok(())
+}
+
+fn s3_target(base_key: &str) -> Target {
+    let uri = if base_key.is_empty() {
+        "s3://bucket".to_string()
+    } else {
+        format!("s3://bucket/{base_key}")
+    };
+    Target::S3 {
+        storage: "s3_raw".to_string(),
+        uri,
+        bucket: "bucket".to_string(),
+        base_key: base_key.to_string(),
+    }
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_glob_suffix_filters_and_uses_derived_prefix() -> FloeResult<()> {
+    let keys = vec![
+        "data/sales_2024.json".to_string(),
+        "data/sales_q1.csv".to_string(),
+        "data/sales_2024.csv".to_string(),
+        "data/inventory_2024.csv".to_string(),
+    ];
+    let client = ListOnlyStorageClient::new(keys);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("data/sales_*.csv");
+
+    let resolved = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )?;
+
+    assert_eq!(client.list_prefixes(), vec!["data/sales_".to_string()]);
+    assert_eq!(resolved.files.len(), 0);
+    assert_eq!(
+        resolved.listed,
+        vec![
+            "s3://bucket/data/sales_2024.csv".to_string(),
+            "s3://bucket/data/sales_q1.csv".to_string(),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_glob_nested_segment_wildcard() -> FloeResult<()> {
+    let keys = vec![
+        "data/us/sales.csv".to_string(),
+        "data/eu/sales.csv".to_string(),
+        "data/us/archive/sales.csv".to_string(),
+        "data/sales.csv".to_string(),
+    ];
+    let client = ListOnlyStorageClient::new(keys);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("data/*/sales.csv");
+
+    let resolved = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )?;
+
+    assert_eq!(client.list_prefixes(), vec!["data/".to_string()]);
+    assert_eq!(
+        resolved.listed,
+        vec![
+            "s3://bucket/data/eu/sales.csv".to_string(),
+            "s3://bucket/data/us/sales.csv".to_string(),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_glob_rejects_missing_prefix() {
+    let client = ListOnlyStorageClient::new(vec!["data/a.csv".to_string()]);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("*.csv");
+
+    let err = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )
+    .expect_err("glob without literal prefix should error");
+
+    let msg = err.to_string();
+    assert!(msg.contains("invalid cloud source path"));
+    assert!(msg.contains("non-empty literal prefix"));
+    assert!(client.list_prefixes().is_empty());
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_glob_rejects_invalid_pattern() {
+    let client = ListOnlyStorageClient::new(vec!["data/a.csv".to_string()]);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("data/*.[");
+
+    let err = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )
+    .expect_err("invalid glob should error");
+
+    let msg = err.to_string();
+    assert!(msg.contains("invalid cloud source path"));
+    assert!(msg.contains("invalid cloud glob pattern"));
+    assert!(client.list_prefixes().is_empty());
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_literal_brackets_are_treated_as_literal_path() -> FloeResult<()> {
+    let keys = vec![
+        "data/report[2024].csv".to_string(),
+        "data/report22024.csv".to_string(),
+    ];
+    let client = ListOnlyStorageClient::new(keys);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("data/report[2024].csv");
+
+    let resolved = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )?;
+
+    assert_eq!(
+        client.list_prefixes(),
+        vec!["data/report[2024].csv".to_string()]
+    );
+    assert_eq!(resolved.listed, vec!["s3://bucket/data/report[2024].csv"]);
+    Ok(())
+}
+
+#[test]
+fn resolve_inputs_s3_cloud_glob_results_stably_sorted() -> FloeResult<()> {
+    let keys = vec![
+        "root/b.csv".to_string(),
+        "root/a.csv".to_string(),
+        "root/c.csv".to_string(),
+    ];
+    let client = ListOnlyStorageClient::new(keys);
+    let adapter = MockAdapter;
+    let entity = mock_entity("orders");
+    let target = s3_target("root/*.csv");
+
+    let resolved = resolve_inputs(
+        Path::new("."),
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::ListOnly,
+        None,
+        Some(&client),
+    )?;
+
+    assert_eq!(client.list_prefixes(), vec!["root/".to_string()]);
+    assert_eq!(
+        resolved.listed,
+        vec![
+            "s3://bucket/root/a.csv".to_string(),
+            "s3://bucket/root/b.csv".to_string(),
+            "s3://bucket/root/c.csv".to_string(),
+        ]
+    );
     Ok(())
 }
 

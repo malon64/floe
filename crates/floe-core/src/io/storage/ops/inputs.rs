@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use glob::{MatchOptions, Pattern};
+
 use crate::io::storage::{planner, Target};
 use crate::{config, io, report, FloeResult};
 
@@ -158,23 +160,30 @@ fn require_storage_client<'a>(
 
 fn list_cloud_objects(
     client: &dyn crate::io::storage::StorageClient,
-    prefix: &str,
+    source_path: &str,
     adapter: &dyn io::format::InputAdapter,
     entity: &config::EntityConfig,
     storage: &str,
     location: &str,
 ) -> FloeResult<Vec<io::storage::planner::ObjectRef>> {
+    let source_match = CloudSourceMatch::new(source_path).map_err(|err| {
+        Box::new(crate::errors::RunError(format!(
+            "entity.name={} source.storage={} invalid cloud source path ({}, path={}): {}",
+            entity.name, storage, location, source_path, err
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
     let suffixes = adapter.suffixes()?;
-    let list_refs = client.list(prefix)?;
-    let filtered = planner::filter_by_suffixes(list_refs, &suffixes);
-    let filtered = planner::stable_sort_refs(filtered);
+    let list_refs = client.list(source_match.list_prefix())?;
+    let filtered = filter_cloud_list_refs(list_refs, &source_match, &suffixes);
     if filtered.is_empty() {
+        let match_desc = source_match.match_description();
         return Err(Box::new(crate::errors::RunError(format!(
-            "entity.name={} source.storage={} no input objects matched ({}, prefix={}, suffixes={})",
+            "entity.name={} source.storage={} no input objects matched ({}, prefix={}, {}, suffixes={})",
             entity.name,
             storage,
             location,
-            prefix,
+            source_match.list_prefix(),
+            match_desc,
             suffixes.join(",")
         ))));
     }
@@ -248,4 +257,112 @@ fn build_local_listing(
                 .unwrap_or_else(|| path.display().to_string())
         })
         .collect()
+}
+
+#[derive(Debug)]
+struct CloudSourceMatch {
+    list_prefix: String,
+    glob_pattern: Option<String>,
+    matcher: Option<Pattern>,
+}
+
+impl CloudSourceMatch {
+    fn new(source_path: &str) -> FloeResult<Self> {
+        if !contains_glob_metachar(source_path) {
+            return Ok(Self {
+                list_prefix: source_path.to_string(),
+                glob_pattern: None,
+                matcher: None,
+            });
+        }
+
+        let list_prefix = prefix_before_first_glob(source_path);
+        if list_prefix.trim_matches('/').is_empty() {
+            return Err(Box::new(crate::errors::RunError(
+                "glob patterns for cloud sources must include a non-empty literal prefix before the first wildcard"
+                    .to_string(),
+            )));
+        }
+
+        let matcher = Pattern::new(source_path).map_err(|err| {
+            Box::new(crate::errors::RunError(format!(
+                "invalid cloud glob pattern {:?}: {err}",
+                source_path
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        Ok(Self {
+            list_prefix: list_prefix.to_string(),
+            glob_pattern: Some(source_path.to_string()),
+            matcher: Some(matcher),
+        })
+    }
+
+    fn list_prefix(&self) -> &str {
+        self.list_prefix.as_str()
+    }
+
+    fn matches_key(&self, key: &str) -> bool {
+        match &self.matcher {
+            Some(matcher) => matcher.matches_with(key, cloud_glob_match_options()),
+            None => true,
+        }
+    }
+
+    fn match_description(&self) -> String {
+        match &self.glob_pattern {
+            Some(pattern) => format!("glob={pattern}"),
+            None => "glob=<none>".to_string(),
+        }
+    }
+}
+
+fn filter_cloud_list_refs(
+    list_refs: Vec<io::storage::planner::ObjectRef>,
+    source_match: &CloudSourceMatch,
+    suffixes: &[String],
+) -> Vec<io::storage::planner::ObjectRef> {
+    let filtered = list_refs
+        .into_iter()
+        .filter(|obj| source_match.matches_key(&obj.key))
+        .collect::<Vec<_>>();
+    let filtered = planner::filter_by_suffixes(filtered, suffixes);
+    planner::stable_sort_refs(filtered)
+}
+
+fn contains_glob_metachar(value: &str) -> bool {
+    first_glob_metachar_index(value).is_some()
+}
+
+fn prefix_before_first_glob(value: &str) -> &str {
+    match first_glob_metachar_index(value) {
+        Some(index) => &value[..index],
+        None => value,
+    }
+}
+
+fn first_glob_metachar_index(value: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (idx, ch) in value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if matches!(ch, '*' | '?') {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+fn cloud_glob_match_options() -> MatchOptions {
+    MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: true,
+        require_literal_leading_dot: false,
+    }
 }

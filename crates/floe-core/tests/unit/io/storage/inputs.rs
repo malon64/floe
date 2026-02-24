@@ -471,6 +471,48 @@ fn resolve_inputs_s3_cloud_glob_results_stably_sorted() -> FloeResult<()> {
 }
 
 #[test]
+fn resolve_inputs_local_normalizes_resolved_file_paths() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let config_dir = temp_dir.path().join("cfg");
+    let input_dir = temp_dir.path().join("in");
+    std::fs::create_dir_all(&config_dir)?;
+    std::fs::create_dir_all(&input_dir)?;
+    let input_file = input_dir.join("data.csv");
+    std::fs::write(&input_file, "id,name\n1,alice\n")?;
+
+    let adapter = MockAdapter;
+    let mut entity = mock_entity("orders");
+    entity.source.path = "../in/./data.csv".to_string();
+    let target = Target::Local {
+        storage: "local".to_string(),
+        uri: "local://unused".to_string(),
+        base_path: ".".to_string(),
+    };
+
+    let resolved = resolve_inputs(
+        &config_dir,
+        &entity,
+        &adapter,
+        &target,
+        ResolveInputsMode::Download,
+        None,
+        None,
+    )?;
+
+    assert_eq!(resolved.files.len(), 1);
+    let normalized = temp_dir.path().join("in/data.csv");
+    assert_eq!(resolved.files[0].source_local_path, normalized);
+    assert_eq!(
+        resolved.files[0].source_uri,
+        normalized.display().to_string()
+    );
+    assert_eq!(resolved.listed, vec![normalized.display().to_string()]);
+    assert!(!resolved.files[0].source_uri.contains("/./"));
+    assert!(!resolved.files[0].source_uri.contains("/../"));
+    Ok(())
+}
+
+#[test]
 fn resolve_inputs_s3_filters_parquet_objects() -> FloeResult<()> {
     let temp_dir = tempfile::TempDir::new()?;
     let keys = vec![

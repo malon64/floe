@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 const MAX_FILENAME_COMPONENT_BYTES: usize = 255;
 const MAX_ARCHIVE_RUN_COMPONENT_BYTES: usize = 48;
@@ -46,6 +46,40 @@ pub fn resolve_sibling_path(base_path: &str, filename: &str) -> PathBuf {
         base
     };
     dir.join(filename)
+}
+
+pub fn normalize_local_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let can_pop = normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|tail| matches!(tail, Component::Normal(_)));
+                if can_pop {
+                    normalized.pop();
+                } else if !path.is_absolute() {
+                    normalized.push("..");
+                }
+            }
+            Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        if path.is_absolute() {
+            PathBuf::from(std::path::MAIN_SEPARATOR.to_string())
+        } else {
+            PathBuf::from(".")
+        }
+    } else {
+        normalized
+    }
 }
 
 pub fn resolve_output_key(base_key: &str, filename: &str) -> String {

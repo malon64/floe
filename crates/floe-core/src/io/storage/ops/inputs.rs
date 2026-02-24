@@ -222,6 +222,7 @@ fn build_local_inputs(
     files
         .iter()
         .map(|path| {
+            let normalized_path = crate::io::storage::paths::normalize_local_path(path);
             let source_name = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -233,11 +234,15 @@ fn build_local_inputs(
                 .unwrap_or(entity.name.as_str())
                 .to_string();
             let uri = storage_client
-                .and_then(|client| client.resolve_uri(&path.display().to_string()).ok())
-                .unwrap_or_else(|| path.display().to_string());
+                .and_then(|client| {
+                    client
+                        .resolve_uri(&normalized_path.display().to_string())
+                        .ok()
+                })
+                .unwrap_or_else(|| normalized_path.display().to_string());
             io::format::InputFile {
                 source_uri: uri,
-                source_local_path: path.clone(),
+                source_local_path: normalized_path,
                 source_name,
                 source_stem,
             }
@@ -252,9 +257,14 @@ fn build_local_listing(
     files
         .iter()
         .map(|path| {
+            let normalized_path = crate::io::storage::paths::normalize_local_path(path);
             storage_client
-                .and_then(|client| client.resolve_uri(&path.display().to_string()).ok())
-                .unwrap_or_else(|| path.display().to_string())
+                .and_then(|client| {
+                    client
+                        .resolve_uri(&normalized_path.display().to_string())
+                        .ok()
+                })
+                .unwrap_or_else(|| normalized_path.display().to_string())
         })
         .collect()
 }

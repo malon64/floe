@@ -24,7 +24,9 @@ impl RunContext {
     ) -> FloeResult<Self> {
         let config = config::parse_config(config_path)?;
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
-        let config_dir = storage_resolver.config_dir().to_path_buf();
+        let config_dir =
+            crate::io::storage::paths::normalize_local_path(storage_resolver.config_dir());
+        let config_path = crate::io::storage::paths::normalize_local_path(config_path);
         let (report_target, report_base_path) = match config.report.as_ref() {
             Some(report) => {
                 let resolved = storage_resolver
@@ -46,7 +48,7 @@ impl RunContext {
 
         Ok(Self {
             config,
-            config_path: config_path.to_path_buf(),
+            config_path,
             config_dir,
             storage_resolver,
             report_base_path,

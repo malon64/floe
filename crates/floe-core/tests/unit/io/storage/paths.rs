@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use floe_core::io::storage::paths::{
     archive_filename_for_run, archive_relative_path, archive_relative_path_for_run,
-    build_output_filename, build_part_stem, resolve_archive_key, resolve_archive_key_for_run,
-    resolve_archive_path, resolve_archive_path_for_run, resolve_output_dir_key,
-    resolve_output_dir_path, resolve_output_key, resolve_sibling_key,
+    build_output_filename, build_part_stem, normalize_local_path, resolve_archive_key,
+    resolve_archive_key_for_run, resolve_archive_path, resolve_archive_path_for_run,
+    resolve_output_dir_key, resolve_output_dir_path, resolve_output_key, resolve_sibling_key,
 };
 
 #[test]
@@ -20,6 +20,18 @@ fn build_output_filename_includes_extension() {
 fn build_part_stem_zero_pads() {
     assert_eq!(build_part_stem(0), "part-00000");
     assert_eq!(build_part_stem(12), "part-00012");
+}
+
+#[test]
+fn normalize_local_path_removes_dot_segments_lexically() {
+    assert_eq!(
+        normalize_local_path(std::path::Path::new("/tmp/floe/./in/../out/file.csv")),
+        PathBuf::from("/tmp/floe/out/file.csv")
+    );
+    assert_eq!(
+        normalize_local_path(std::path::Path::new("a/./b/../c")),
+        PathBuf::from("a/c")
+    );
 }
 
 #[test]

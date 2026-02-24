@@ -106,3 +106,49 @@ fn report_uri_normalizes_prefix_and_path() {
         "abfs://container@acct.dfs.core.windows.net/lakehouse/report/"
     );
 }
+
+#[test]
+fn local_report_paths_and_uris_are_normalized() {
+    let config = RootConfig {
+        version: "0.1".to_string(),
+        metadata: None,
+        storages: Some(StoragesConfig {
+            default: Some("local".to_string()),
+            definitions: vec![StorageDefinition {
+                name: "local".to_string(),
+                fs_type: "local".to_string(),
+                bucket: None,
+                region: None,
+                account: None,
+                container: None,
+                prefix: None,
+            }],
+        }),
+        env: None,
+        domains: Vec::new(),
+        report: Some(ReportConfig {
+            path: "./reports/../reports_out/./base".to_string(),
+            formatter: None,
+            storage: None,
+        }),
+        entities: Vec::new(),
+    };
+    let resolver = resolver_for(&config);
+    let resolved = resolver
+        .resolve_report_path(None, "./reports/../reports_out/./base")
+        .expect("resolve report path");
+    assert_eq!(
+        resolved.local_path.as_ref().expect("local path"),
+        &PathBuf::from("/tmp/reports_out/base")
+    );
+    assert_eq!(resolved.uri, "local:///tmp/reports_out/base");
+
+    let target = Target::from_resolved(&resolved).expect("target");
+    let report_file = target.join_relative(&ReportWriter::report_relative_path("run1", "orders"));
+    assert_eq!(
+        report_file,
+        "/tmp/reports_out/base/run_run1/orders/run.json"
+    );
+    assert!(!report_file.contains("/./"));
+    assert!(!report_file.contains("/../"));
+}

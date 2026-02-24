@@ -404,15 +404,17 @@ impl StorageResolver {
 
 pub fn resolve_local_path(config_dir: &Path, raw_path: &str) -> PathBuf {
     let path = Path::new(raw_path);
-    if path.is_absolute() {
+    let resolved = if path.is_absolute() {
         path.to_path_buf()
     } else {
         config_dir.join(path)
-    }
+    };
+    crate::io::storage::paths::normalize_local_path(&resolved)
 }
 
 fn local_uri(path: &Path) -> String {
-    format!("local://{}", path.display())
+    let normalized = crate::io::storage::paths::normalize_local_path(path);
+    format!("local://{}", normalized.display())
 }
 
 fn resolve_s3_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {

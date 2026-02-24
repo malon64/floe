@@ -86,12 +86,13 @@ impl StorageClient for LocalClient {
 
     fn resolve_uri(&self, path: &str) -> FloeResult<String> {
         let path = Path::new(path);
-        if path.is_absolute() {
-            Ok(format!("local://{}", path.display()))
+        let normalized = if path.is_absolute() {
+            crate::io::storage::paths::normalize_local_path(path)
         } else {
             let abs = std::env::current_dir()?.join(path);
-            Ok(format!("local://{}", abs.display()))
-        }
+            crate::io::storage::paths::normalize_local_path(&abs)
+        };
+        Ok(format!("local://{}", normalized.display()))
     }
 
     fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()> {
@@ -263,7 +264,7 @@ fn collect_glob_files(pattern: &str) -> FloeResult<Vec<PathBuf>> {
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
         if path.is_file() {
-            files.push(path);
+            files.push(crate::io::storage::paths::normalize_local_path(&path));
         }
     }
     files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));

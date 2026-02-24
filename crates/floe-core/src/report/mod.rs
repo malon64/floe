@@ -416,19 +416,26 @@ impl ReportWriter {
     }
 
     pub fn entity_report_dir(report_dir: &Path, run_id: &str, entity_name: &str) -> PathBuf {
-        report_dir
-            .join(Self::run_dir_name(run_id))
-            .join(entity_name)
+        crate::io::storage::paths::normalize_local_path(
+            &report_dir
+                .join(Self::run_dir_name(run_id))
+                .join(entity_name),
+        )
     }
 
     pub fn report_path(report_dir: &Path, run_id: &str, entity_name: &str) -> PathBuf {
-        Self::entity_report_dir(report_dir, run_id, entity_name).join(Self::report_file_name())
+        crate::io::storage::paths::normalize_local_path(
+            &Self::entity_report_dir(report_dir, run_id, entity_name)
+                .join(Self::report_file_name()),
+        )
     }
 
     pub fn summary_path(report_dir: &Path, run_id: &str) -> PathBuf {
-        report_dir
-            .join(Self::run_dir_name(run_id))
-            .join(Self::summary_file_name())
+        crate::io::storage::paths::normalize_local_path(
+            &report_dir
+                .join(Self::run_dir_name(run_id))
+                .join(Self::summary_file_name()),
+        )
     }
 
     pub fn write_report(
@@ -461,6 +468,7 @@ impl ReportWriter {
         report: &RunSummaryReport,
     ) -> Result<PathBuf, ReportError> {
         let run_dir = report_dir.join(Self::run_dir_name(run_id));
+        let run_dir = crate::io::storage::paths::normalize_local_path(&run_dir);
         std::fs::create_dir_all(&run_dir)?;
         let report_path = Self::summary_path(report_dir, run_id);
         let tmp_path = run_dir.join(format!(

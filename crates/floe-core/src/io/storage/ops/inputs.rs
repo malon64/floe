@@ -352,7 +352,7 @@ fn first_glob_metachar_index(value: &str) -> Option<usize> {
             escaped = true;
             continue;
         }
-        if matches!(ch, '*' | '?' | '[') {
+        if matches!(ch, '*' | '?') {
             return Some(idx);
         }
     }
@@ -423,9 +423,24 @@ mod tests {
 
     #[test]
     fn cloud_glob_rejects_invalid_patterns() {
-        let err = CloudSourceMatch::new("data/[sales.csv").expect_err("invalid glob");
+        let err = CloudSourceMatch::new("data/*.[").expect_err("invalid glob");
         let msg = err.to_string();
         assert!(msg.contains("invalid cloud glob pattern"));
+    }
+
+    #[test]
+    fn cloud_path_with_literal_brackets_is_not_treated_as_glob() {
+        let source_match = CloudSourceMatch::new("data/report[2024].csv").expect("literal path");
+        assert_eq!(source_match.list_prefix(), "data/report[2024].csv");
+        assert_eq!(source_match.match_description(), "glob=<none>");
+
+        let refs = vec![object(
+            "s3://bucket/data/report[2024].csv",
+            "data/report[2024].csv",
+        )];
+        let filtered = filter_cloud_list_refs(refs, &source_match, &[".csv".to_string()]);
+        let keys = filtered.into_iter().map(|obj| obj.key).collect::<Vec<_>>();
+        assert_eq!(keys, vec!["data/report[2024].csv"]);
     }
 
     #[test]

@@ -22,6 +22,23 @@ Semantics:
   - `append`: add new files via a new Delta transaction (history preserved).
 - Local, S3, ADLS, and GCS storage are supported for delta output.
 
+## Partition config (Phase A scaffolding)
+
+Delta accepted sinks can now declare identity partition columns in config:
+
+```yaml
+sink:
+  accepted:
+    format: delta
+    path: /data/out/orders_delta
+    partition_by: ["order_date", "country"]
+```
+
+Current status:
+- `floe validate` checks that partition columns exist in `schema.columns`.
+- Execution wiring for partitioned Delta writes is pending follow-up PRs.
+- Compaction/optimization remains external to Floe.
+
 S3 notes:
 - Delta writes go directly through the object_store backend (no temp download/upload).
 - Credentials come from the standard AWS environment/provider chain.

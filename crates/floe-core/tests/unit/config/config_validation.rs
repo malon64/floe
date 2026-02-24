@@ -212,6 +212,162 @@ fn xml_source_invalid_selector_errors() {
 }
 
 #[test]
+fn delta_partition_by_validates_schema_columns() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        partition_by: ["order_date", "country"]
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "order_date"
+          type: "date"
+        - name: "country"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config(entity));
+}
+
+#[test]
+fn delta_partition_by_unknown_column_errors() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        partition_by: ["missing_col"]
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=orders",
+            "sink.accepted.partition_by[0]=missing_col",
+            "unknown schema column",
+        ],
+    );
+}
+
+#[test]
+fn iceberg_partition_spec_validates_supported_transform_subset() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out_iceberg"
+        partition_spec:
+          - column: "order_date"
+            transform: "day"
+          - column: "country"
+            transform: "identity"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_date"
+          type: "date"
+        - name: "country"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config(entity));
+}
+
+#[test]
+fn iceberg_partition_spec_unsupported_transform_errors() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out_iceberg"
+        partition_spec:
+          - column: "order_date"
+            transform: "bucket[16]"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_date"
+          type: "date"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=orders",
+            "partition_spec[0].transform=bucket[16]",
+            "unsupported",
+        ],
+    );
+}
+
+#[test]
+fn accepted_partition_by_and_partition_spec_are_mutually_exclusive() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out_iceberg"
+        partition_by: ["country"]
+        partition_spec:
+          - column: "country"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "country"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=orders",
+            "partition_by",
+            "partition_spec",
+            "mutually exclusive",
+        ],
+    );
+}
+
+#[test]
 fn fixed_width_requires_column_widths() {
     let entity = r#"  - name: "customer"
     source:

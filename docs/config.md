@@ -187,6 +187,18 @@ is available for templating within that entity.
     - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
     - `row_group_size`: positive integer (rows per row group)
     - `max_size_per_file`: positive integer bytes (default: 256MB; split accepted parquet into parts)
+  - `partition_by` (optional, `sink.accepted.format: delta`)
+    - Identity partition columns (array of schema column names).
+    - `floe validate` checks the columns exist in `schema.columns`.
+    - Execution wiring is pending follow-up work.
+  - `partition_spec` (optional, `sink.accepted.format: iceberg`)
+    - Array of partition spec entries.
+    - Each entry supports:
+      - `column` (required): schema column name
+      - `transform` (optional, default `identity`): `identity`, `year`, `month`, `day`, `hour`
+    - `floe validate` checks column existence and supported transforms.
+    - Execution wiring is pending follow-up work.
+  - Compaction/optimization remains external to Floe (for Parquet/Delta/Iceberg datasets).
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.

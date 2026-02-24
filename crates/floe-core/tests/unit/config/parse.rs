@@ -161,3 +161,94 @@ entities:
     assert_eq!(column.source.as_deref(), Some("user.names[0]"));
     assert_eq!(column.source_or_name(), "user.names[0]");
 }
+
+#[test]
+fn parse_config_supports_sink_partitioning_and_file_size_knobs() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "events_delta"
+    source:
+      format: "csv"
+      path: "/tmp/input.csv"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        partition_by: ["event_date", "country"]
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "event_date"
+          type: "date"
+        - name: "country"
+          type: "string"
+  - name: "events_iceberg"
+    source:
+      format: "csv"
+      path: "/tmp/input.csv"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out_iceberg"
+        options:
+          max_size_per_file: 268435456
+        partition_spec:
+          - column: "event_date"
+            transform: "day"
+          - column: "country"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "event_date"
+          type: "date"
+        - name: "country"
+          type: "string"
+"#;
+
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    let delta = &config.entities[0];
+    assert_eq!(
+        delta
+            .sink
+            .accepted
+            .partition_by
+            .as_ref()
+            .expect("partition_by"),
+        &vec!["event_date".to_string(), "country".to_string()]
+    );
+    assert!(delta.sink.accepted.partition_spec.is_none());
+
+    let iceberg = &config.entities[1];
+    assert_eq!(
+        iceberg
+            .sink
+            .accepted
+            .options
+            .as_ref()
+            .expect("options")
+            .max_size_per_file,
+        Some(268435456)
+    );
+    let spec = iceberg
+        .sink
+        .accepted
+        .partition_spec
+        .as_ref()
+        .expect("partition_spec");
+    assert_eq!(spec.len(), 2);
+    assert_eq!(spec[0].column, "event_date");
+    assert_eq!(spec[0].transform, "day");
+    assert_eq!(spec[1].column, "country");
+    assert_eq!(spec[1].transform, "identity");
+}

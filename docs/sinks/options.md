@@ -9,6 +9,12 @@ but emit a warning and record it in the run report.
 - `row_group_size`: positive integer (rows per row group)
 - `max_size_per_file`: positive integer bytes (default: 256MB; split accepted parquet into parts)
 
+Notes:
+
+- This controls write-time file splitting for the Parquet accepted sink only.
+- Table compaction/optimization (Delta/Iceberg/Parquet datasets) is still an
+  external operation in the current Floe releases.
+
 Example:
 
 ```yaml

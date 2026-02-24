@@ -1,5 +1,6 @@
 use std::path::Path;
 
+mod add_entity;
 pub mod checks;
 pub mod config;
 pub mod errors;
@@ -10,6 +11,7 @@ pub mod run;
 pub mod runtime;
 pub mod warnings;
 
+pub use add_entity::{add_entity_to_config, AddEntityOptions, AddEntityOutcome};
 pub use checks as check;
 pub use config::{resolve_config_location, ConfigLocation};
 pub use errors::ConfigError;

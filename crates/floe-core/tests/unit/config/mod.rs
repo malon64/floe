@@ -1,3 +1,4 @@
+pub mod add_entity;
 pub mod adls_storage;
 pub mod adls_validation;
 pub mod config_validation;

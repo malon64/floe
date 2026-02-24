@@ -1,7 +1,7 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    build_common_manifest_json, load_config, resolve_config_location, run_with_base,
-    validate_with_base, FloeResult, RunOptions, ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, load_config, resolve_config_location,
+    run_with_base, validate_with_base, AddEntityOptions, FloeResult, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -67,6 +67,17 @@ const MANIFEST_LONG_ABOUT: &str = concat!(
     "Examples:\n",
     "  floe manifest generate -c example/config.yml --output manifest.common.json\n",
     "  floe manifest generate -c example/config.yml --output -\n",
+);
+
+const ADD_ENTITY_LONG_ABOUT: &str = concat!(
+    "Infer schema from an input file and append a new entity to an existing Floe YAML config.\n",
+    "\n",
+    "v0.3 scope:\n",
+    "  - Supports csv, json, parquet input inference\n",
+    "  - JSON inference uses top-level keys only (nested values are inferred as string)\n",
+    "\n",
+    "Example:\n",
+    "  floe add-entity -c config.yml --input ./in/customers.csv --format csv --name customers\n",
 );
 
 mod logging;
@@ -136,6 +147,29 @@ enum Command {
         #[command(subcommand)]
         command: ManifestCommand,
     },
+    #[command(
+        about = "Infer an entity schema from an input file and append it to a config",
+        long_about = ADD_ENTITY_LONG_ABOUT
+    )]
+    AddEntity {
+        #[arg(short, long, help = "Path to the Floe config file to update")]
+        config: String,
+        #[arg(long, help = "Input file path or file:// URI to infer schema from")]
+        input: String,
+        #[arg(long, value_enum, help = "Input format (csv|json|parquet)")]
+        format: AddEntityFormat,
+        #[arg(long, help = "Entity name (defaults to input file stem)")]
+        name: Option<String>,
+        #[arg(long, help = "Optional entity domain to set")]
+        domain: Option<String>,
+        #[arg(
+            long,
+            help = "Write updated config to a new path instead of overwriting -c"
+        )]
+        output: Option<String>,
+        #[arg(long, help = "Print the updated YAML without writing the file")]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -153,6 +187,23 @@ enum ManifestCommand {
         )]
         entities: Vec<String>,
     },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum AddEntityFormat {
+    Csv,
+    Json,
+    Parquet,
+}
+
+impl AddEntityFormat {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Csv => "csv",
+            Self::Json => "json",
+            Self::Parquet => "parquet",
+        }
+    }
 }
 
 fn main() -> FloeResult<()> {
@@ -328,5 +379,59 @@ fn main() -> FloeResult<()> {
                 Ok(())
             }
         },
+        Command::AddEntity {
+            config,
+            input,
+            format,
+            name,
+            domain,
+            output,
+            dry_run,
+        } => {
+            let config_path = std::path::PathBuf::from(&config);
+            let output_path = output.as_ref().map(std::path::PathBuf::from);
+            let outcome = match add_entity_to_config(AddEntityOptions {
+                config_path,
+                output_path,
+                input,
+                format: format.as_str().to_string(),
+                name,
+                domain,
+                dry_run,
+            }) {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+            };
+
+            let mut out = std::io::stdout().lock();
+            if let Some(yaml) = outcome.rendered_yaml.as_ref() {
+                let _ = writeln!(
+                    out,
+                    "# add-entity dry run (no file written)\n# entity: {}",
+                    outcome.entity_name
+                );
+                for note in &outcome.notes {
+                    let _ = writeln!(out, "# note: {note}");
+                }
+                let _ = writeln!(out, "{yaml}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "Entity added: {} (format={}, columns={})",
+                    outcome.entity_name, outcome.format, outcome.column_count
+                );
+                let _ = writeln!(out, "Config written: {}", outcome.output_path.display());
+                for note in &outcome.notes {
+                    let _ = writeln!(out, "Note: {note}");
+                }
+            }
+            let _ = out.flush();
+            Ok(())
+        }
     }
 }

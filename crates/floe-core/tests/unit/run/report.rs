@@ -55,6 +55,9 @@ fn sample_report() -> RunReport {
             part_files: vec!["part-00000.parquet".to_string()],
             table_version: None,
             snapshot_id: None,
+            total_bytes_written: None,
+            avg_file_size_mb: None,
+            small_files_count: None,
         },
         results: ResultsTotals {
             files_total: 1,

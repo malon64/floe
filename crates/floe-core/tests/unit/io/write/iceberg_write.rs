@@ -231,6 +231,8 @@ fn build_entity(
                 storage: None,
                 options: None,
                 write_mode,
+                partition_by: None,
+                partition_spec: None,
             },
             rejected: None,
             archive: None,

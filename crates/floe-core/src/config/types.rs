@@ -213,6 +213,8 @@ pub struct SinkTarget {
     pub path: String,
     pub storage: Option<String>,
     pub options: Option<SinkOptions>,
+    pub partition_by: Option<Vec<String>>,
+    pub partition_spec: Option<Vec<IcebergPartitionFieldConfig>>,
     pub write_mode: WriteMode,
 }
 
@@ -221,6 +223,12 @@ pub struct SinkOptions {
     pub compression: Option<String>,
     pub row_group_size: Option<u64>,
     pub max_size_per_file: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IcebergPartitionFieldConfig {
+    pub column: String,
+    pub transform: String,
 }
 
 #[derive(Debug, Clone)]

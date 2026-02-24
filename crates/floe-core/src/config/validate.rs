@@ -13,6 +13,7 @@ const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
+const ALLOWED_ICEBERG_PARTITION_TRANSFORMS: &[&str] = &["identity", "year", "month", "day", "hour"];
 const MAX_JSON_COLUMNS: usize = 1024;
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
@@ -211,6 +212,8 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
 
     let _ = storages.definition_type(&accepted_storage);
 
+    validate_sink_partitioning(entity)?;
+
     if let Some(rejected) = &entity.sink.rejected {
         let rejected_storage =
             storages.resolve_name(entity, "sink.rejected.storage", rejected.storage.as_deref())?;
@@ -228,6 +231,109 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
             }
         }
         storages.validate_reference(entity, "sink.archive.storage", archive_storage)?;
+    }
+
+    Ok(())
+}
+
+fn validate_sink_partitioning(entity: &EntityConfig) -> FloeResult<()> {
+    let schema_columns = entity
+        .schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let accepted = &entity.sink.accepted;
+
+    if accepted.partition_by.is_some() && accepted.partition_spec.is_some() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.partition_by and sink.accepted.partition_spec are mutually exclusive",
+            entity.name
+        ))));
+    }
+
+    if let Some(partition_by) = &accepted.partition_by {
+        if accepted.format != "delta" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.partition_by is only supported for sink.accepted.format=delta",
+                entity.name
+            ))));
+        }
+        if partition_by.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.partition_by must not be empty",
+                entity.name
+            ))));
+        }
+        let mut seen = HashSet::new();
+        for (index, column) in partition_by.iter().enumerate() {
+            let value = column.trim();
+            if value.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_by[{}] must not be empty",
+                    entity.name, index
+                ))));
+            }
+            if !seen.insert(value.to_string()) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_by has duplicate column {}",
+                    entity.name, value
+                ))));
+            }
+            if !schema_columns.contains(value) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_by[{}]={} references unknown schema column",
+                    entity.name, index, value
+                ))));
+            }
+        }
+    }
+
+    if let Some(partition_spec) = &accepted.partition_spec {
+        if accepted.format != "iceberg" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.partition_spec is only supported for sink.accepted.format=iceberg",
+                entity.name
+            ))));
+        }
+        if partition_spec.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.partition_spec must not be empty",
+                entity.name
+            ))));
+        }
+        let mut seen = HashSet::new();
+        for (index, field) in partition_spec.iter().enumerate() {
+            let column = field.column.trim();
+            if column.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_spec[{}].column must not be empty",
+                    entity.name, index
+                ))));
+            }
+            if !schema_columns.contains(column) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_spec[{}].column={} references unknown schema column",
+                    entity.name, index, column
+                ))));
+            }
+            let transform = field.transform.trim().to_ascii_lowercase();
+            if !ALLOWED_ICEBERG_PARTITION_TRANSFORMS.contains(&transform.as_str()) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_spec[{}].transform={} is unsupported (allowed: {})",
+                    entity.name,
+                    index,
+                    field.transform,
+                    ALLOWED_ICEBERG_PARTITION_TRANSFORMS.join(", ")
+                ))));
+            }
+            if !seen.insert((column.to_string(), transform.clone())) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.partition_spec has duplicate entry ({}, {})",
+                    entity.name, column, transform
+                ))));
+            }
+        }
     }
 
     Ok(())

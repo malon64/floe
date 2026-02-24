@@ -10,9 +10,9 @@ use crate::config::yaml_decode::{
 };
 use crate::config::{
     ArchiveTarget, ColumnConfig, DomainConfig, EntityConfig, EntityMetadata, EnvConfig,
-    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
-    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
-    StorageDefinition, StoragesConfig, WriteMode,
+    IcebergPartitionFieldConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata,
+    ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig, SinkOptions,
+    SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -342,7 +342,7 @@ fn parse_sink_target(
     let hash = yaml_hash(value, ctx)?;
     let mut allowed = vec!["format", "path", "storage", "filesystem"];
     if allow_options {
-        allowed.push("options");
+        allowed.extend(["options", "partition_by", "partition_spec"]);
     }
     validate_known_keys(hash, ctx, &allowed)?;
     let storage = opt_string(hash, "storage", ctx)?;
@@ -360,11 +360,29 @@ fn parse_sink_target(
     } else {
         None
     };
+    let partition_by = if allow_options {
+        opt_vec_string(hash, "partition_by", ctx)?
+    } else {
+        None
+    };
+    let partition_spec = if allow_options {
+        match hash_get(hash, "partition_spec") {
+            Some(value) => Some(parse_iceberg_partition_spec(
+                value,
+                &format!("{ctx}.partition_spec"),
+            )?),
+            None => None,
+        }
+    } else {
+        None
+    };
     Ok(SinkTarget {
         format: get_string(hash, "format", ctx)?,
         path: get_string(hash, "path", ctx)?,
         storage: storage.or(filesystem),
         options,
+        partition_by,
+        partition_spec,
         write_mode,
     })
 }
@@ -391,6 +409,24 @@ fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
         row_group_size: opt_u64(hash, "row_group_size", ctx)?,
         max_size_per_file: opt_u64(hash, "max_size_per_file", ctx)?,
     })
+}
+
+fn parse_iceberg_partition_spec(
+    value: &Yaml,
+    ctx: &str,
+) -> FloeResult<Vec<IcebergPartitionFieldConfig>> {
+    let items = yaml_array(value, ctx)?;
+    let mut fields = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let item_ctx = format!("{ctx}[{index}]");
+        let hash = yaml_hash(item, &item_ctx)?;
+        validate_known_keys(hash, &item_ctx, &["column", "transform"])?;
+        let column = get_string(hash, "column", &item_ctx)?;
+        let transform =
+            opt_string(hash, "transform", &item_ctx)?.unwrap_or_else(|| "identity".to_string());
+        fields.push(IcebergPartitionFieldConfig { column, transform });
+    }
+    Ok(fields)
 }
 
 fn parse_report_config(value: &Yaml) -> FloeResult<ReportConfig> {

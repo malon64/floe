@@ -141,6 +141,15 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot_id: Option<i64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_bytes_written: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_file_size_mb: Option<f64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub small_files_count: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -265,8 +265,9 @@ fn build_iceberg_write_context(
             base_key,
         } => {
             let metadata_location = if matches!(mode, config::WriteMode::Append) {
-                match remote.as_deref_mut() {
+                match remote.as_mut() {
                     Some(ctx) => {
+                        let ctx = &mut **ctx;
                         let client = ctx.cloud.client_for(ctx.resolver, storage, entity)?;
                         latest_s3_metadata_location(client, base_key)?
                     }
@@ -279,8 +280,9 @@ fn build_iceberg_write_context(
                 None
             };
 
-            match remote.as_deref_mut() {
+            match remote.as_mut() {
                 Some(ctx) => {
+                    let ctx = &mut **ctx;
                     let store = iceberg_store_config(target, ctx.resolver, entity)?;
                     Ok(IcebergWriteContext {
                         table_root_uri: store.warehouse_location,

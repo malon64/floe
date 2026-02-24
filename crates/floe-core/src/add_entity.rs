@@ -15,13 +15,14 @@ use crate::errors::IoError;
 use crate::{ConfigError, FloeResult, ValidateOptions};
 
 const DEFAULT_SAMPLE_ROWS: usize = 200;
+const MINIMAL_CONFIG_YAML: &str = "version: \"0.2\"\nentities: []\n";
 
 #[derive(Debug, Clone)]
 pub struct AddEntityOptions {
     pub config_path: PathBuf,
     pub output_path: Option<PathBuf>,
     pub input: String,
-    pub format: String,
+    pub format: Option<String>,
     pub name: Option<String>,
     pub domain: Option<String>,
     pub dry_run: bool,
@@ -150,7 +151,7 @@ struct JsonColumnStats {
 pub fn add_entity_to_config(options: AddEntityOptions) -> FloeResult<AddEntityOutcome> {
     let inferred = infer_entity_from_input(
         &options.input,
-        options.format.as_str(),
+        options.format.as_deref(),
         options.name.as_deref(),
         options.domain.as_deref(),
     )?;
@@ -159,12 +160,7 @@ pub fn add_entity_to_config(options: AddEntityOptions) -> FloeResult<AddEntityOu
         .output_path
         .clone()
         .unwrap_or_else(|| options.config_path.clone());
-    let config_text = fs::read_to_string(&options.config_path).map_err(|err| {
-        Box::new(IoError(format!(
-            "failed to read config at {}: {err}",
-            options.config_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let config_text = load_or_initialize_config_text(&options.config_path)?;
 
     let updated_yaml = append_entity_yaml(&config_text, &inferred)?;
     if !options.dry_run {
@@ -205,7 +201,7 @@ pub fn add_entity_to_config(options: AddEntityOptions) -> FloeResult<AddEntityOu
 
 fn infer_entity_from_input(
     input: &str,
-    format: &str,
+    format_override: Option<&str>,
     name_override: Option<&str>,
     domain: Option<&str>,
 ) -> FloeResult<InferredEntity> {
@@ -220,8 +216,9 @@ fn infer_entity_from_input(
     }
 
     let local_input_path = resolve_local_input_path(input)?;
+    let format = resolve_add_entity_format(format_override, input, &local_input_path)?;
     let persisted_input_path = normalize_persisted_input_path(input, &local_input_path);
-    let (source_options, columns, notes) = match format {
+    let (source_options, columns, notes) = match format.as_str() {
         "csv" => infer_csv_columns(&local_input_path)?,
         "json" => infer_json_columns(&local_input_path)?,
         "parquet" => infer_parquet_columns(&local_input_path)?,
@@ -241,13 +238,53 @@ fn infer_entity_from_input(
 
     Ok(InferredEntity {
         name: entity_name,
-        format: format.to_string(),
+        format,
         input: persisted_input_path,
         domain: domain.map(ToString::to_string),
         source_options,
         columns,
         notes,
     })
+}
+
+fn load_or_initialize_config_text(config_path: &Path) -> FloeResult<String> {
+    match fs::read_to_string(config_path) {
+        Ok(text) => Ok(text),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Ok(MINIMAL_CONFIG_YAML.to_string())
+        }
+        Err(err) => Err(Box::new(IoError(format!(
+            "failed to read config at {}: {err}",
+            config_path.display()
+        )))),
+    }
+}
+
+fn resolve_add_entity_format(
+    format_override: Option<&str>,
+    input: &str,
+    local_input_path: &Path,
+) -> FloeResult<String> {
+    if let Some(format) = format_override {
+        return Ok(format.to_string());
+    }
+
+    infer_format_from_extension(local_input_path).ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "could not infer add-entity format from input {} (supported extensions: .csv, .json, .parquet); use --format",
+            input
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
+}
+
+fn infer_format_from_extension(path: &Path) -> Option<String> {
+    let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    match ext.as_str() {
+        "csv" => Some("csv".to_string()),
+        "json" => Some("json".to_string()),
+        "parquet" => Some("parquet".to_string()),
+        _ => None,
+    }
 }
 
 fn infer_csv_columns(

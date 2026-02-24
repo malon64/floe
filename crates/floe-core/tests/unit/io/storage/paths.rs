@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
 use floe_core::io::storage::paths::{
-    archive_relative_path, build_output_filename, build_part_stem, resolve_archive_key,
-    resolve_archive_path, resolve_output_dir_key, resolve_output_dir_path, resolve_output_key,
-    resolve_sibling_key,
+    archive_filename_for_run, archive_relative_path, archive_relative_path_for_run,
+    build_output_filename, build_part_stem, resolve_archive_key, resolve_archive_key_for_run,
+    resolve_archive_path, resolve_archive_path_for_run, resolve_output_dir_key,
+    resolve_output_dir_path, resolve_output_key, resolve_sibling_key,
 };
 
 #[test]
@@ -101,4 +102,50 @@ fn resolve_archive_paths_use_directory_semantics() {
         resolve_archive_key("archive", "orders", "input.csv"),
         "archive/orders/input.csv"
     );
+}
+
+#[test]
+fn archive_filename_for_run_avoids_collisions_across_runs_and_sources() {
+    let name_a = archive_filename_for_run("input.csv", "run-1", "local:///src/a/input.csv");
+    let name_b = archive_filename_for_run("input.csv", "run-2", "local:///src/a/input.csv");
+    let name_c = archive_filename_for_run("input.csv", "run-1", "local:///src/b/input.csv");
+
+    assert_ne!(name_a, name_b);
+    assert_ne!(name_a, name_c);
+    assert!(name_a.starts_with("input__run-run-1__src-"));
+    assert!(name_a.ends_with(".csv"));
+}
+
+#[test]
+fn archive_paths_for_run_include_collision_safe_suffix_and_preserve_entity() {
+    let relative = archive_relative_path_for_run(
+        "orders",
+        "nested/input.csv",
+        "2026/02/24 run",
+        "s3://bucket/data/nested/input.csv",
+    );
+    assert!(relative.starts_with("orders/input__run-2026_02_24_run__src-"));
+    assert!(relative.ends_with(".csv"));
+
+    let path = resolve_archive_path_for_run(
+        "archive",
+        "orders",
+        "nested/input.csv",
+        "2026/02/24 run",
+        "s3://bucket/data/nested/input.csv",
+    );
+    assert_eq!(
+        path.parent().map(|p| p.to_path_buf()),
+        Some(PathBuf::from("archive/orders"))
+    );
+
+    let key = resolve_archive_key_for_run(
+        "archive",
+        "orders",
+        "nested/input.csv",
+        "2026/02/24 run",
+        "s3://bucket/data/nested/input.csv",
+    );
+    assert!(key.starts_with("archive/orders/input__run-2026_02_24_run__src-"));
+    assert!(key.ends_with(".csv"));
 }

@@ -189,6 +189,7 @@ pub(super) fn run_precheck(
             let archived_path = io::storage::ops::archive_input(
                 cloud,
                 &context.storage_resolver,
+                &context.run_id,
                 entity,
                 archive_target,
                 &input_file,

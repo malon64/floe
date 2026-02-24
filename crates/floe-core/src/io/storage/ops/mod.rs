@@ -30,9 +30,10 @@ pub fn resolve_inputs(
 pub fn archive_input(
     cloud: &mut CloudClient,
     resolver: &config::StorageResolver,
+    run_id: &str,
     entity: &config::EntityConfig,
     archive_target: Option<&Target>,
     input_file: &io::format::InputFile,
 ) -> FloeResult<Option<String>> {
-    archive::archive_input_file(cloud, resolver, entity, archive_target, input_file)
+    archive::archive_input_file(cloud, resolver, run_id, entity, archive_target, input_file)
 }

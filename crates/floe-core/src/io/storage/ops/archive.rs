@@ -6,6 +6,7 @@ use crate::io::storage::{paths, CloudClient, Target};
 pub fn archive_input_file(
     cloud: &mut CloudClient,
     resolver: &config::StorageResolver,
+    run_id: &str,
     entity: &config::EntityConfig,
     archive_target: Option<&Target>,
     input_file: &io::format::InputFile,
@@ -14,7 +15,12 @@ pub fn archive_input_file(
         Some(target) => target,
         None => return Ok(None),
     };
-    let relative = paths::archive_relative_path(&entity.name, input_file.source_name.as_str());
+    let relative = paths::archive_relative_path_for_run(
+        &entity.name,
+        input_file.source_name.as_str(),
+        run_id,
+        &input_file.source_uri,
+    );
     let dest_uri = target.join_relative(&relative);
     let client = cloud.client_for(resolver, target.storage(), entity)?;
     client.copy_object(&input_file.source_uri, &dest_uri)?;

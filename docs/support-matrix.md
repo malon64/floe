@@ -1,8 +1,8 @@
 # Floe v0.2 Support Matrix
 
 This matrix reflects **current behavior** in the codebase (not aspirational).
-Cloud storage uses temp download/upload for file IO, while Delta uses direct
-object_store transactions.
+Cloud storage uses temp download/upload for file IO, except Delta and S3 Iceberg
+accepted sinks which use direct object_store-backed transactions/writes.
 
 ## Inputs
 
@@ -36,14 +36,15 @@ Notes:
 |---|---|---|---|---|---|
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
-| Accepted: Iceberg | ✅ | ❌ | ❌ | ❌ | Local filesystem catalog MVP (`metadata/`, `data/`), append/overwrite, no schema evolution/GC |
+| Accepted: Iceberg | ✅ | ✅ (filesystem catalog over object_store) | ❌ | ❌ | `metadata/` + `data/`; append/overwrite; single-writer; no schema evolution/GC |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
 
 Notes:
 - Parquet outputs to cloud are written locally then uploaded.
 - Delta outputs to cloud are **direct** via object_store (no temp upload).
-- Iceberg outputs are local-only in v0.2 (cloud catalogs are follow-up work).
+- Iceberg on S3 uses filesystem-catalog semantics (no Glue catalog yet).
+- Iceberg cloud support is currently S3 only (GCS/ADLS are follow-up work).
 - `sink.write_mode` applies to accepted and rejected outputs (`overwrite` or `append`).
 
 ## Cloud storage behavior

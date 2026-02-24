@@ -471,7 +471,7 @@ fn rejected_format_errors() {
 }
 
 #[test]
-fn iceberg_accepted_format_errors() {
+fn iceberg_accepted_format_is_valid() {
     let entity = r#"  - name: "customer"
     source:
       format: "csv"
@@ -488,14 +488,7 @@ fn iceberg_accepted_format_errors() {
           type: "string"
 "#;
     let yaml = base_config(entity);
-    assert_validation_error(
-        &yaml,
-        &[
-            "entity.name=customer",
-            "sink.accepted.format=iceberg",
-            "not supported yet",
-        ],
-    );
+    assert_validation_ok(&yaml);
 }
 
 #[test]
@@ -959,4 +952,65 @@ entities:
           type: "string"
 "#;
     assert_validation_error(yaml, &["sink.write_mode", "merge", "overwrite", "append"]);
+}
+
+#[test]
+fn iceberg_accepted_sink_is_valid_on_local_storage() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out/customer_iceberg"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_ok(&yaml);
+}
+
+#[test]
+fn iceberg_accepted_sink_rejects_non_local_storage() {
+    let storages = r#"  default: "local_fs"
+  definitions:
+    - name: "local_fs"
+      type: "local"
+    - name: "s3_out"
+      type: "s3"
+      bucket: "demo-bucket"
+      region: "us-east-1"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      storage: "local_fs"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "customer_iceberg"
+        storage: "s3_out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = config_with_storages(storages, entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.format=iceberg",
+            "local storage",
+            "s3",
+        ],
+    );
 }

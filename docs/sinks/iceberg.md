@@ -1,13 +1,13 @@
 # Iceberg sink (accepted output)
 
-Floe recognizes `sink.accepted.format: iceberg`, but it does not yet write
-Iceberg tables. The CLI fails fast with a clear error so configs remain
-forward-compatible.
+Floe writes Iceberg tables for `sink.accepted.format: iceberg` using a local
+filesystem catalog layout (table root with `metadata/` and `data/`).
 
 ## Storage catalog model
 
 - Table identity: `sink.accepted.path` (table root directory).
 - Metadata lives under `<path>/metadata/` (storage catalog layout).
+- Local filesystem only in v0.2.
 - No external catalog integration in v0.2.
 
 ## Example config
@@ -30,12 +30,25 @@ entities:
           type: "string"
 ```
 
-## Limitations (v0.2)
+## Supported scope (v0.2 local MVP)
 
-- Writer not implemented; `floe validate` and `floe run` return a clear error.
-- Only local storage catalog is planned; cloud catalogs are not supported yet.
+- Accepted sink only (`sink.accepted.format: iceberg`)
+- Local storage only (`sink.accepted.storage` must resolve to local)
+- `sink.write_mode`: `overwrite` and `append`
+- Scalar column types only (for example: string, bool, signed ints, floats, date/time/datetime)
+- Append creates a new Iceberg snapshot/metadata version
+- Overwrite replaces logical table contents by recreating table metadata at the same root (no cleanup/GC)
+- Run report includes sink format, table root URI, write mode, files written, and snapshot id (when present)
 
-## Next steps
+## Limitations / non-goals (v0.2)
 
-- Implement a storage catalog writer (metadata + data files).
-- Map Floe schema types to Iceberg types and handle overwrite semantics.
+- No schema evolution
+- No merge/upsert
+- No cleanup/garbage collection of orphaned files/metadata
+- No cloud/object-store catalogs yet (S3/GCS/Glue follow-ups)
+
+## Empty accepted dataset behavior
+
+- Overwrite/create with an empty accepted dataframe creates the table metadata layout
+  (no data files, no snapshot yet).
+- Append with an empty accepted dataframe is a no-op for table contents.

@@ -123,6 +123,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             parts_written,
             part_files,
             table_version: None,
+            snapshot_id: None,
         })
     }
 }

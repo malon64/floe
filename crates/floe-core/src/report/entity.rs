@@ -15,9 +15,11 @@ pub(crate) struct RunReportContext<'a> {
     pub totals: report::ResultsTotals,
     pub file_reports: Vec<report::FileReport>,
     pub severity: report::Severity,
+    pub accepted_write_mode: config::WriteMode,
     pub accepted_parts_written: u64,
     pub accepted_part_files: Vec<String>,
     pub accepted_table_version: Option<i64>,
+    pub accepted_snapshot_id: Option<i64>,
 }
 
 pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
@@ -73,10 +75,14 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
         },
         accepted_output: report::AcceptedOutputSummary {
             path: ctx.resolved_targets.accepted.target_uri().to_string(),
+            table_root_uri: Some(ctx.resolved_targets.accepted.target_uri().to_string()),
+            write_mode: Some(ctx.accepted_write_mode.as_str().to_string()),
             accepted_rows: ctx.totals.accepted_total,
+            files_written: ctx.accepted_parts_written,
             parts_written: ctx.accepted_parts_written,
             part_files: ctx.accepted_part_files,
             table_version: ctx.accepted_table_version,
+            snapshot_id: ctx.accepted_snapshot_id,
         },
         results: ctx.totals,
         files: ctx.file_reports,

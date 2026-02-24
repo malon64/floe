@@ -609,6 +609,7 @@ pub(super) fn run_entity(
     let mut accepted_parts_written = 0;
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
+    let mut accepted_snapshot_id = None;
     // Phase C: write accepted output once per entity.
     if !accepted_accum.is_empty() {
         let mut accepted_df = accepted_accum
@@ -636,6 +637,7 @@ pub(super) fn run_entity(
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;
         accepted_table_version = accepted_output.table_version;
+        accepted_snapshot_id = accepted_output.snapshot_id;
     }
     if accepted_parts_written > 0 {
         for file_report in &mut file_reports {
@@ -654,9 +656,11 @@ pub(super) fn run_entity(
         totals,
         file_reports,
         severity,
+        accepted_write_mode: write_mode,
         accepted_parts_written,
         accepted_part_files,
         accepted_table_version,
+        accepted_snapshot_id,
     });
 
     if let Some(report_target) = &context.report_target {

@@ -194,15 +194,16 @@ is available for templating within that entity.
     - Name of the storage client to use for this sink target.
     - Defaults to `storages.default` when defined, otherwise `local`.
   - `options` (optional)
-    - Parquet-only sink options. When provided for other formats, Floe logs a
-      warning and records it in the run report.
+    - Sink tuning options (format support varies).
     - `compression`: `snappy`, `gzip`, `zstd`, `uncompressed`
     - `row_group_size`: positive integer (rows per row group)
-    - `max_size_per_file`: positive integer bytes (default: 256MB; split accepted parquet into parts)
+    - `max_size_per_file`: positive integer bytes (default: 256MB)
+      - Parquet: split accepted parquet into parts at write time.
+      - Delta: mapped to the Delta writer target file size.
   - `partition_by` (optional, `sink.accepted.format: delta`)
     - Identity partition columns (array of schema column names).
     - `floe validate` checks the columns exist in `schema.columns`.
-    - Execution wiring is pending follow-up work.
+    - Runtime wiring is implemented for Delta accepted writes.
   - `partition_spec` (optional, `sink.accepted.format: iceberg`)
     - Array of partition spec entries.
     - Each entry supports:
@@ -225,6 +226,9 @@ is available for templating within that entity.
     - `location` (optional)
       - Overrides the Iceberg table root location.
       - Resolved via `warehouse_storage` when defined, otherwise via the sink storage.
+  - Accepted output reports may include file sizing metrics (`files_written`,
+    `total_bytes_written`, `avg_file_size_mb`, `small_files_count`) when collected by the writer.
+    - Currently populated for Parquet and local Delta writes.
   - Compaction/optimization remains external to Floe (for Parquet/Delta/Iceberg datasets).
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).

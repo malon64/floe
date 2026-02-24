@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use crate::checks::normalize;
 use crate::errors::RunError;
-use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput};
 use crate::io::storage::{object_store::iceberg_store_config, ObjectRef, Target};
 use crate::{config, io, FloeResult};
 
@@ -140,6 +140,7 @@ fn write_iceberg_table_with_remote_context(
 
     let result = runtime.block_on(write_iceberg_table_async(write_ctx, prepared, entity, mode))?;
     Ok(AcceptedWriteOutput {
+        files_written: result.files_written,
         parts_written: result.files_written,
         part_files: result.file_paths,
         table_version: result.metadata_version,
@@ -152,6 +153,11 @@ fn write_iceberg_table_with_remote_context(
         iceberg_database: result.iceberg_database,
         iceberg_namespace: result.iceberg_namespace,
         iceberg_table: result.iceberg_table,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: None,
+            avg_file_size_mb: None,
+            small_files_count: None,
+        },
     })
 }
 

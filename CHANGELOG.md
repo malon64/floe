@@ -2,6 +2,17 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.7
+
+- Added Iceberg S3 accepted sink support (filesystem catalog, no data catalog / Glue yet).
+- Improved `floe add-entity` bootstrap UX:
+  - create a new config when target `-c` file does not exist
+  - infer default entity name from input filename stem when `--name` is omitted
+  - infer default format from input file extension when `--format` is omitted.
+- Hardened archive mode safety:
+  - archive only resolved/processed inputs
+  - collision-safe archive behavior (no silent overwrite on repeated filenames).
+
 ## v0.2.6
 
 - Added local Iceberg accepted sink MVP (`sink.accepted.format: iceberg`) with filesystem table layout and append/overwrite snapshot behavior.

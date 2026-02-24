@@ -34,6 +34,27 @@ fn normalize_local_path_removes_dot_segments_lexically() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn normalize_local_path_preserves_symlink_sensitive_parent_segments() {
+    use std::os::unix::fs::symlink;
+
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let target_dir = root.join("target");
+    std::fs::create_dir_all(&target_dir).expect("target dir");
+    let link_dir = root.join("link");
+    symlink(&target_dir, &link_dir).expect("symlink dir");
+
+    let original = root.join("link/../data.csv");
+    let normalized = normalize_local_path(&original);
+    assert_eq!(normalized, original);
+    assert!(normalized
+        .display()
+        .to_string()
+        .contains("/link/../data.csv"));
+}
+
 #[test]
 fn resolve_output_key_respects_file_base() {
     assert_eq!(

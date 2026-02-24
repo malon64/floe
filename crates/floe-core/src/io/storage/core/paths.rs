@@ -61,9 +61,9 @@ pub fn normalize_local_path(path: &Path) -> PathBuf {
                     .components()
                     .next_back()
                     .is_some_and(|tail| matches!(tail, Component::Normal(_)));
-                if can_pop {
+                if can_pop && !last_component_is_symlink(&normalized) {
                     normalized.pop();
-                } else if !path.is_absolute() {
+                } else if !path.is_absolute() || !normalized_has_root_only(&normalized) {
                     normalized.push("..");
                 }
             }
@@ -80,6 +80,25 @@ pub fn normalize_local_path(path: &Path) -> PathBuf {
     } else {
         normalized
     }
+}
+
+fn normalized_has_root_only(path: &Path) -> bool {
+    let mut saw_root = false;
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) => {}
+            Component::RootDir => saw_root = true,
+            Component::CurDir => {}
+            Component::ParentDir | Component::Normal(_) => return false,
+        }
+    }
+    saw_root
+}
+
+fn last_component_is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 pub fn resolve_output_key(base_key: &str, filename: &str) -> String {

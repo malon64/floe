@@ -83,6 +83,42 @@ entities:
     assert_eq!(report.accepted_output.files_written, 1);
     assert_eq!(report.accepted_output.parts_written, 1);
     assert!(report.accepted_output.snapshot_id.is_some());
+    assert!(report.accepted_output.total_bytes_written.is_some());
+    assert!(report.accepted_output.avg_file_size_mb.is_some());
+    assert!(report.accepted_output.small_files_count.is_some());
+
+    let (data_file_count, data_total_bytes) =
+        collect_file_stats(&accepted_dir.join("data")).expect("collect iceberg data stats");
+    assert_eq!(report.accepted_output.files_written, data_file_count);
+    assert_eq!(
+        report.accepted_output.total_bytes_written,
+        Some(data_total_bytes)
+    );
+}
+
+fn collect_file_stats(dir: &Path) -> Result<(u64, u64), std::io::Error> {
+    if !dir.exists() {
+        return Ok((0, 0));
+    }
+    let mut files = 0_u64;
+    let mut total_bytes = 0_u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let metadata = entry.metadata()?;
+            if metadata.is_dir() {
+                stack.push(entry_path);
+                continue;
+            }
+            if metadata.is_file() {
+                files += 1;
+                total_bytes += metadata.len();
+            }
+        }
+    }
+    Ok((files, total_bytes))
 }
 
 #[test]

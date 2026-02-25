@@ -125,9 +125,46 @@ fn write_iceberg_table_empty_dataframe_creates_table_without_snapshot() -> FloeR
     let out = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)?;
     assert_eq!(out.parts_written, 0);
     assert!(out.snapshot_id.is_none());
+    assert_eq!(out.metrics.total_bytes_written, None);
+    assert_eq!(out.metrics.avg_file_size_mb, None);
+    assert_eq!(out.metrics.small_files_count, None);
     assert!(table_path.join("metadata").exists());
     assert!(!table_path.join("data").exists());
     assert_eq!(metadata_json_count(&table_path)?, 1);
+
+    Ok(())
+}
+
+#[test]
+fn write_iceberg_table_local_metrics_count_data_files_not_metadata() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let entity = build_entity(&table_path, config::WriteMode::Overwrite, Vec::new(), None);
+
+    let mut df = df!(
+        "id" => &[1i64, 2, 3, 4, 5],
+        "name" => &["a", "b", "c", "d", "e"]
+    )?;
+    let out = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)?;
+
+    let (data_file_count, data_total_bytes) = collect_file_stats(&table_path.join("data"))?;
+    let (_metadata_file_count, metadata_total_bytes) =
+        collect_file_stats(&table_path.join("metadata"))?;
+
+    assert_eq!(out.files_written, data_file_count);
+    assert_eq!(out.parts_written, data_file_count);
+    assert_eq!(out.metrics.total_bytes_written, Some(data_total_bytes));
+    assert!(out.metrics.avg_file_size_mb.is_some());
+    assert!(out.metrics.small_files_count.is_some());
+    assert!(metadata_total_bytes > 0);
+    assert!(data_total_bytes < data_total_bytes + metadata_total_bytes);
+    if let Some(avg_mb) = out.metrics.avg_file_size_mb {
+        let expected_avg_mb = data_total_bytes as f64 / data_file_count as f64 / (1024.0 * 1024.0);
+        assert!((avg_mb - expected_avg_mb).abs() < 1e-12);
+    }
 
     Ok(())
 }
@@ -594,4 +631,29 @@ fn map_iceberg_err(
     context: &'static str,
 ) -> impl FnOnce(iceberg::Error) -> Box<dyn std::error::Error + Send + Sync> {
     move |err| Box::new(floe_core::errors::RunError(format!("{context}: {err}")))
+}
+
+fn collect_file_stats(dir: &Path) -> FloeResult<(u64, u64)> {
+    if !dir.exists() {
+        return Ok((0, 0));
+    }
+    let mut files = 0_u64;
+    let mut total_bytes = 0_u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let metadata = entry.metadata()?;
+            if metadata.is_dir() {
+                stack.push(entry_path);
+                continue;
+            }
+            if metadata.is_file() {
+                files += 1;
+                total_bytes += metadata.len();
+            }
+        }
+    }
+    Ok((files, total_bytes))
 }

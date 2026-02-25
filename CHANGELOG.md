@@ -2,6 +2,15 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.2.8
+
+- Iceberg accepted sink:
+  - runtime execution of `sink.accepted.partition_spec` for supported transforms (`identity`, `year`, `month`, `day`, `hour`)
+  - write-time file sizing metrics in entity reports (`files_written`, `total_bytes_written`, `avg_file_size_mb`, `small_files_count`)
+- Delta accepted sink:
+  - exact remote commit-log write metrics (S3/GCS/ADLS) collected via object store commit entry parsing (best-effort fallback keeps metrics nullable)
+- `dagster-floe` connector package version bumped to `0.1.2` in the same release prep.
+
 ## v0.2.7
 
 - Added Iceberg S3 accepted sink support (filesystem catalog, no data catalog / Glue yet).

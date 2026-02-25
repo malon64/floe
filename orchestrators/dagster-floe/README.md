@@ -21,6 +21,7 @@ Current model:
 - Multi-manifest loading (`*.manifest.json`) with collision checks.
 - Local runner (`local_process`) support.
 - `execution.defaults.env` and `execution.defaults.workdir` support.
+- Floe quality outcomes exposed as Dagster native Asset Checks (`cast_error`, `not_null`, `unique`, `schema_mismatch`, `file_status`) from Floe reports.
 
 ## Install
 
@@ -75,7 +76,6 @@ The repository example includes two manifests by domain:
 - Kubernetes/ECS runner adapters.
 - Cloud summary loading (`s3://`, `gs://`, `abfs://`).
 - Single-process multi-entity fan-out execution mode.
-- Floe checks mapped to Dagster `AssetCheckResult`.
 
 ## Releasing
 

@@ -7,6 +7,7 @@ from urllib.parse import unquote, urlparse
 
 from dagster import Definitions, Failure, MaterializeResult, asset
 
+from .asset_checks import build_asset_check_results, build_asset_check_specs
 from .events import last_run_finished, parse_ndjson_events, parse_run_finished
 from .manifest import (
     DagsterManifest,
@@ -86,9 +87,19 @@ def _make_entity_asset(
     execution: ManifestExecution,
     runner_definition: ManifestRunnerDefinition,
 ):
-    @asset(name=asset_name, key_prefix=key_prefix, group_name=group_name)
-    def _asset(context) -> MaterializeResult:
-        run_id = getattr(context, "run_id", None)
+    asset_key = [*key_prefix, asset_name]
+
+    @asset(
+        name=asset_name,
+        key_prefix=key_prefix,
+        group_name=group_name,
+        check_specs=build_asset_check_specs(asset_key),
+    )
+    def _asset(context):
+        run = getattr(context, "run", None)
+        run_id = getattr(run, "run_id", None) if run is not None else None
+        if run_id is None:
+            run_id = getattr(context, "run_id", None)
         result = runner.run_floe_entity(
             config_uri=config_uri,
             run_id=run_id,
@@ -111,13 +122,18 @@ def _make_entity_asset(
 
         summary_uri = finished.summary_uri
         entity_stats: dict[str, Any] = {}
+        entity_report_json: dict[str, Any] | None = None
+        entity_report_uri: str | None = None
 
         if summary_uri:
             try:
                 summary_json = _load_summary_json(summary_uri, config_uri)
                 entity_stats = _extract_entity_stats(summary_json, entity_name)
+                entity_report_uri = _as_optional_str(entity_stats.get("entity_report_file"))
+                if entity_report_uri:
+                    entity_report_json = _load_entity_report_json(entity_report_uri, config_uri)
             except Exception as exc:  # noqa: BLE001
-                context.log.warning(f"failed to load run summary: {exc}")
+                context.log.warning(f"failed to load run summary/entity report: {exc}")
 
         metadata: dict[str, Any] = {
             "run_id": finished.run_id,
@@ -128,6 +144,20 @@ def _make_entity_asset(
             metadata["summary_uri"] = summary_uri
 
         metadata.update(entity_stats)
+        if entity_report_uri:
+            metadata["entity_report_uri"] = entity_report_uri
+
+        check_results = build_asset_check_results(
+            asset_key=asset_key,
+            entity_name=entity_name,
+            finished=finished,
+            entity_report=entity_report_json,
+            entity_stats=entity_stats,
+            summary_uri=summary_uri,
+            entity_report_uri=entity_report_uri,
+        )
+        for check_result in check_results:
+            yield check_result
 
         if result.exit_code != 0 or finished.exit_code != 0:
             raise Failure(
@@ -135,30 +165,42 @@ def _make_entity_asset(
                 metadata=metadata,
             )
 
-        return MaterializeResult(metadata=metadata)
+        yield MaterializeResult(metadata=metadata)
 
     return _asset
 
 
 def _load_summary_json(summary_uri: str, config_uri: str) -> dict[str, Any]:
-    if summary_uri.startswith("local://"):
-        raw_path = unquote(summary_uri[len("local://") :])
+    return _load_local_json_document(summary_uri, config_uri, label="summary")
+
+
+def _load_entity_report_json(entity_report_uri: str, config_uri: str) -> dict[str, Any]:
+    return _load_local_json_document(entity_report_uri, config_uri, label="entity report")
+
+
+def _load_local_json_document(ref: str, config_uri: str, *, label: str) -> dict[str, Any]:
+    path = _resolve_local_json_path(ref, config_uri)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} JSON must be an object")
+    return data
+
+
+def _resolve_local_json_path(ref: str, config_uri: str) -> Path:
+    if ref.startswith("local://"):
+        raw_path = unquote(ref[len("local://") :])
         path = Path(raw_path)
-    elif summary_uri.startswith("file://"):
-        parsed = urlparse(summary_uri)
+    elif ref.startswith("file://"):
+        parsed = urlparse(ref)
         path = Path(unquote(parsed.path))
-    elif "://" in summary_uri:
-        raise ValueError(f"unsupported non-local summary URI: {summary_uri}")
+    elif "://" in ref:
+        raise ValueError(f"unsupported non-local JSON URI: {ref}")
     else:
-        path = Path(summary_uri)
+        path = Path(ref)
 
     if not path.is_absolute() and "://" not in config_uri:
         path = (Path(config_uri).resolve().parent / path).resolve()
-
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("run.summary.json must be an object")
-    return data
+    return path
 
 
 def _extract_entity_stats(summary_json: dict[str, Any], entity_name: str) -> dict[str, Any]:
@@ -184,3 +226,11 @@ def _extract_entity_stats(summary_json: dict[str, Any], entity_name: str) -> dic
             "entity_report_file": item.get("report_file"),
         }
     return {}
+
+
+def _as_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)

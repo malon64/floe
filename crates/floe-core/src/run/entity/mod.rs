@@ -1,6 +1,8 @@
 use crate::errors::RunError;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use polars::prelude::DataFrame;
+use serde_json::json;
+use std::time::Instant;
 
 use super::file::required_columns;
 use super::output::{
@@ -34,6 +36,35 @@ pub(super) struct EntityRunResult {
     pub abort_run: bool,
 }
 
+#[derive(Debug, Default)]
+struct EntityPhaseTimings {
+    precheck_ms: u64,
+    read_parse_ms: u64,
+    checks_validation_ms: u64,
+    accept_reject_split_ms: u64,
+    write_rejected_ms: u64,
+    archive_ms: u64,
+    concat_accepted_ms: u64,
+    write_accepted_ms: u64,
+    report_write_ms: u64,
+}
+
+impl EntityPhaseTimings {
+    fn into_json(self) -> serde_json::Value {
+        json!({
+            "precheck": self.precheck_ms,
+            "read_parse": self.read_parse_ms,
+            "checks_validation": self.checks_validation_ms,
+            "accept_reject_split": self.accept_reject_split_ms,
+            "write_rejected": self.write_rejected_ms,
+            "archive_input": self.archive_ms,
+            "concat_accepted": self.concat_accepted_ms,
+            "write_accepted": self.write_accepted_ms,
+            "write_entity_report": self.report_write_ms,
+        })
+    }
+}
+
 // PrecheckedInput moved to precheck module
 
 pub(super) fn run_entity(
@@ -43,6 +74,9 @@ pub(super) fn run_entity(
     plan: super::EntityRunPlan<'_>,
 ) -> FloeResult<EntityRunResult> {
     let entity = plan.entity;
+    let perf_enabled = crate::run::perf::phase_timing_enabled();
+    let entity_start = perf_enabled.then(Instant::now);
+    let mut phase_timings = EntityPhaseTimings::default();
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
     let mut rejected_overwrite_used = false;
@@ -133,6 +167,7 @@ pub(super) fn run_entity(
     let sink_options_warning = sink_options_warning(entity);
     let mut sink_options_warned = false;
     // Phase A: per-file precheck (schema mismatch / early rejection).
+    let precheck_start = perf_enabled.then(Instant::now);
     let precheck = run_precheck(
         PrecheckContext {
             context,
@@ -150,10 +185,15 @@ pub(super) fn run_entity(
         },
         input_files,
     )?;
+    if let Some(start) = precheck_start {
+        phase_timings.precheck_ms += start.elapsed().as_millis() as u64;
+    }
     let mut abort_run = precheck.abort_run;
     let prechecked_inputs = precheck.prechecked;
 
     let mut accepted_accum: Vec<DataFrame> = Vec::new();
+    let mut accepted_accum_rows: u64 = 0;
+    let mut accepted_accum_frames: u64 = 0;
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
     unique_existing::seed_unique_tracker_for_append(
         &mut unique_tracker,
@@ -172,16 +212,22 @@ pub(super) fn run_entity(
     for prechecked in prechecked_inputs {
         let PrecheckedInput {
             input_file,
+            input_columns,
             mismatch,
             file_timer,
         } = prechecked;
-        let mut inputs = input_adapter.read_inputs(
+        let read_parse_start = perf_enabled.then(Instant::now);
+        let mut inputs = input_adapter.read_inputs_with_prechecked_columns(
             entity,
             std::slice::from_ref(&input_file),
             &read_columns,
             normalize_strategy.as_deref(),
             collect_raw,
+            Some(&input_columns),
         )?;
+        if let Some(start) = read_parse_start {
+            phase_timings.read_parse_ms += start.elapsed().as_millis() as u64;
+        }
         let input = inputs.pop().ok_or_else(|| {
             Box::new(RunError(format!(
                 "entity.name={} missing input data",
@@ -272,6 +318,7 @@ pub(super) fn run_entity(
             }
         };
 
+        let validation_start = perf_enabled.then(Instant::now);
         check::apply_mismatch_plan(&mismatch, &normalized_columns, raw_df.as_mut(), &mut df)?;
         let mismatch_report = mismatch.report;
         let mismatch_errors = mismatch.errors;
@@ -373,6 +420,12 @@ pub(super) fn run_entity(
             );
             append_sink_options_warning(&mut rules, message);
         }
+        if let Some(start) = validation_start {
+            phase_timings.checks_validation_ms += start.elapsed().as_millis() as u64;
+        }
+
+        let split_start = perf_enabled.then(Instant::now);
+        let mut write_rejected_ms_this_file = 0_u64;
 
         match entity.policy.severity.as_str() {
             "warn" => {
@@ -381,6 +434,7 @@ pub(super) fn run_entity(
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target.as_ref() {
+                        let write_start = perf_enabled.then(Instant::now);
                         let errors_path_value = write_error_report_output(
                             rejected_target,
                             source_stem,
@@ -390,6 +444,9 @@ pub(super) fn run_entity(
                             &context.storage_resolver,
                             entity,
                         )?;
+                        if let Some(start) = write_start {
+                            write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
+                        }
                         errors_path = Some(errors_path_value);
                     } else {
                         let message = format!(
@@ -445,6 +502,7 @@ pub(super) fn run_entity(
                     };
                     let rejected_adapter =
                         runtime.rejected_sink_adapter(rejected_config.format.as_str())?;
+                    let write_start = perf_enabled.then(Instant::now);
                     let rejected_path_value = write_rejected_output(RejectedOutputContext {
                         adapter: rejected_adapter,
                         target: rejected_target,
@@ -456,6 +514,9 @@ pub(super) fn run_entity(
                         entity,
                         mode: rejected_mode,
                     })?;
+                    if let Some(start) = write_start {
+                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
+                    }
                     rejected_path = Some(rejected_path_value);
                 } else {
                     let mut accepted_df = df;
@@ -472,6 +533,7 @@ pub(super) fn run_entity(
                             entity.name
                         )))
                     })?;
+                    let rejected_write_start = perf_enabled.then(Instant::now);
                     let rejected_path_value = write_rejected_raw_output(
                         rejected_target,
                         &input_file,
@@ -480,6 +542,10 @@ pub(super) fn run_entity(
                         &context.storage_resolver,
                         entity,
                     )?;
+                    if let Some(start) = rejected_write_start {
+                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
+                    }
+                    let error_write_start = perf_enabled.then(Instant::now);
                     let errors_path_value = write_error_report_output(
                         rejected_target,
                         source_stem,
@@ -489,6 +555,9 @@ pub(super) fn run_entity(
                         &context.storage_resolver,
                         entity,
                     )?;
+                    if let Some(start) = error_write_start {
+                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
+                    }
                     rejected_path = Some(rejected_path_value);
                     errors_path = Some(errors_path_value);
                 } else {
@@ -503,12 +572,21 @@ pub(super) fn run_entity(
                 ))))
             }
         }
+        if let Some(start) = split_start {
+            let split_elapsed_ms = start.elapsed().as_millis() as u64;
+            phase_timings.write_rejected_ms += write_rejected_ms_this_file;
+            phase_timings.accept_reject_split_ms +=
+                split_elapsed_ms.saturating_sub(write_rejected_ms_this_file);
+        }
 
         if let Some(accepted_df) = accepted_df_opt {
+            accepted_accum_rows += accepted_df.height() as u64;
+            accepted_accum_frames += 1;
             accepted_accum.push(accepted_df);
         }
 
         if archive_enabled {
+            let archive_start = perf_enabled.then(Instant::now);
             archived_path = io::storage::ops::archive_input(
                 runtime.storage(),
                 &context.storage_resolver,
@@ -517,6 +595,9 @@ pub(super) fn run_entity(
                 archive_target.as_ref(),
                 &input_file,
             )?;
+            if let Some(start) = archive_start {
+                phase_timings.archive_ms += start.elapsed().as_millis() as u64;
+            }
         }
 
         let (status, accepted_count, rejected_count, errors, warnings) =
@@ -622,6 +703,7 @@ pub(super) fn run_entity(
     let mut accepted_small_files_count = None;
     // Phase C: write accepted output once per entity.
     if !accepted_accum.is_empty() {
+        let concat_start = perf_enabled.then(Instant::now);
         let mut accepted_df = accepted_accum
             .pop()
             .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?;
@@ -630,9 +712,13 @@ pub(super) fn run_entity(
                 Box::new(RunError(format!("failed to concat accepted rows: {err}")))
             })?;
         }
+        if let Some(start) = concat_start {
+            phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
+        }
         let output_stem = io::storage::paths::build_part_stem(0);
         let accepted_adapter =
             runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;
+        let write_accepted_start = perf_enabled.then(Instant::now);
         let accepted_output = write_accepted_output(AcceptedOutputContext {
             adapter: accepted_adapter,
             target: &accepted_target,
@@ -645,6 +731,9 @@ pub(super) fn run_entity(
             entity,
             mode: write_mode,
         })?;
+        if let Some(start) = write_accepted_start {
+            phase_timings.write_accepted_ms += start.elapsed().as_millis() as u64;
+        }
         accepted_files_written = accepted_output.files_written;
         accepted_parts_written = accepted_output.parts_written;
         accepted_part_files = accepted_output.part_files;
@@ -664,6 +753,9 @@ pub(super) fn run_entity(
             file_report.output.accepted_path = Some(accepted_target_uri.clone());
         }
     }
+
+    let perf_files_total = totals.files_total;
+    let perf_rows_total = totals.rows_total;
 
     let run_report = build_run_report(RunReportContext {
         context,
@@ -693,6 +785,7 @@ pub(super) fn run_entity(
     });
 
     if let Some(report_target) = &context.report_target {
+        let report_write_start = perf_enabled.then(Instant::now);
         crate::report::output::write_entity_report(
             report_target,
             &context.run_id,
@@ -701,6 +794,27 @@ pub(super) fn run_entity(
             runtime.storage(),
             &context.storage_resolver,
         )?;
+        if let Some(start) = report_write_start {
+            phase_timings.report_write_ms += start.elapsed().as_millis() as u64;
+        }
+    }
+
+    if let Some(start) = entity_start {
+        crate::run::perf::emit_perf_log(
+            observer,
+            &context.run_id,
+            Some(&entity.name),
+            "perf_entity_phase_timings",
+            json!({
+                "entity": entity.name,
+                "elapsed_ms": start.elapsed().as_millis() as u64,
+                "files_total": perf_files_total,
+                "rows_total": perf_rows_total,
+                "accepted_rows_accumulated": accepted_accum_rows,
+                "accepted_frames_accumulated": accepted_accum_frames,
+                "phases_ms": phase_timings.into_json(),
+            }),
+        );
     }
 
     Ok(EntityRunResult {

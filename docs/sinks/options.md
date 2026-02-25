@@ -4,7 +4,9 @@ Floe supports `sink.accepted.options` for tuning accepted output writers.
 
 - Parquet applies `compression`, `row_group_size`, and `max_size_per_file`.
 - Delta currently applies `max_size_per_file` (mapped to the Delta writer target file size).
-- Other options on unsupported formats are ignored with a warning recorded in the run report.
+- Iceberg partitioning and metrics are supported, but this options block is not the
+  place to configure Iceberg maintenance/compaction behavior.
+- Other unsupported option keys/formats are ignored with a warning recorded in the run report.
 
 ## Parquet options
 
@@ -16,8 +18,8 @@ Notes:
 
 - For Parquet, this controls write-time file splitting.
 - For Delta, `max_size_per_file` maps to the Delta writer target file size.
-- Table compaction/optimization (Delta/Iceberg/Parquet datasets) is still an
-  external operation in the current Floe releases.
+- Table compaction/optimization/maintenance (Delta/Iceberg/Parquet datasets) is
+  intentionally external to Floe and should run in separate jobs/workflows.
 
 Example:
 

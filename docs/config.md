@@ -138,7 +138,7 @@ is available for templating within that entity.
     - `header`: `true`
     - `separator`: `";"` (or `"\t"` when `source.format` is `tsv`)
     - `encoding`: `"UTF8"`
-    - `null_values`: `[]`
+    - `null_values`: `[""]` (empty fields treated as null by default)
     - `recursive`: `false`
     - `glob`: (none; default is based on `source.format`)
     - `json_mode`: `"array"`
@@ -187,7 +187,7 @@ is available for templating within that entity.
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet`, `delta`, or `iceberg`.
-    - `iceberg` (v0.2+): local, S3, or GCS filesystem-catalog sink; append/overwrite supported; no schema evolution.
+    - `iceberg`: local/S3/GCS filesystem-catalog sink, with optional AWS Glue catalog registration for S3-backed tables; append/overwrite supported; no schema evolution.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)
@@ -210,7 +210,7 @@ is available for templating within that entity.
       - `column` (required): schema column name
       - `transform` (optional, default `identity`): `identity`, `year`, `month`, `day`, `hour`
     - `floe validate` checks column existence and supported transforms.
-    - Execution wiring is pending follow-up work.
+    - Runtime wiring is implemented for Iceberg accepted writes (table partition spec + partitioned file layout).
   - `iceberg` (optional, `sink.accepted.format: iceberg`)
     - Enables Iceberg catalog-specific options.
     - `catalog` (optional)
@@ -228,8 +228,14 @@ is available for templating within that entity.
       - Resolved via `warehouse_storage` when defined, otherwise via the sink storage.
   - Accepted output reports may include file sizing metrics (`files_written`,
     `total_bytes_written`, `avg_file_size_mb`, `small_files_count`) when collected by the writer.
-    - Currently populated for Parquet and local Delta writes.
-  - Compaction/optimization remains external to Floe (for Parquet/Delta/Iceberg datasets).
+    - Parquet: populated from written parquet files.
+    - Delta (local): populated from committed Delta log `add` actions.
+    - Delta (S3/GCS/ADLS): best-effort via object_store commit-log read; metrics remain nullable if collection fails after a successful write.
+    - Iceberg: populated from written Iceberg data files (metadata/manifests excluded from size totals).
+  - `table_version` / `snapshot_id` in reports are sink-format specific (for example Delta table version, Iceberg metadata version + snapshot ID).
+  - Compaction/optimization/maintenance remains external to Floe (for Parquet/Delta/Iceberg datasets).
+    - Examples: Delta optimize/vacuum, Iceberg compaction/maintenance jobs.
+  - Schema evolution is currently out of scope for accepted Delta/Iceberg sink workflows in Floe.
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.

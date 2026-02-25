@@ -48,9 +48,43 @@ Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 - `source`: Input format, path, options, cast mode, read plan, and resolved inputs.
 - `sink`: Accepted/rejected/archive paths and formats.
 - `policy`: Severity.
-- `accepted_output`: Entity-level accepted output summary (path, accepted_rows, parts_written).
+- `accepted_output`: Entity-level accepted output summary (path, row counts, write metadata, and file metrics).
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
+
+### `accepted_output` (entity report)
+
+`accepted_output` is the main place to inspect write-time sink metadata after a run.
+
+Common fields:
+- `path`: accepted sink target URI/path used for the run
+- `table_root_uri`: table/dataset root URI (defaults to `path` when not format-specific)
+- `write_mode`: resolved write mode (`overwrite` or `append`)
+- `accepted_rows`: total accepted rows written for the entity
+- `files_written`: number of accepted data files written (format-specific semantics)
+- `parts_written`: writer part count (may differ from `files_written`, especially for table formats)
+- `part_files`: capped list of output data-file basenames (when collected)
+
+Format-specific metadata:
+- `table_version`: version identifier when the sink exposes one
+  - Delta: Delta table version
+  - Iceberg: metadata version (parsed from metadata filename)
+- `snapshot_id`: Iceberg snapshot id (when a snapshot exists)
+- `iceberg_catalog_name`, `iceberg_database`, `iceberg_namespace`, `iceberg_table`:
+  present for Iceberg runs using Glue catalog registration
+
+Write-time file sizing metrics (optional):
+- `total_bytes_written`
+- `avg_file_size_mb`
+- `small_files_count`
+
+Notes:
+- Metrics are populated when the writer can collect them cheaply and reliably.
+- Delta metrics are derived from committed Delta log `add` actions for the committed version.
+- Remote Delta metrics are collected best-effort after the write; if collection fails,
+  the run still succeeds; `part_files` may be empty and size metrics remain `null`
+  (Delta `files_written` falls back to `0` when exact post-write commit metrics are unavailable).
+- Iceberg file sizing metrics count Iceberg data files only (not metadata/manifests).
 
 
 ## Status and exit code rules

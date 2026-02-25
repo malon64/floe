@@ -38,9 +38,16 @@ Current status:
 - `floe validate` checks that partition columns exist in `schema.columns`.
 - Partitioned Delta writes are runtime-wired for local/S3/ADLS/GCS accepted sinks.
 - `sink.accepted.options.max_size_per_file` is mapped to the Delta writer target file size when set.
-- Accepted output reports include file sizing metrics for local Delta writes (`files_written`,
-  `total_bytes_written`, `avg_file_size_mb`, `small_files_count`).
-- Remote Delta writes keep metrics fields nullable when exact file sizes are not collected cheaply.
+- Accepted output reports include file sizing metrics derived from committed Delta log `add` actions:
+  `files_written`, `total_bytes_written`, `avg_file_size_mb`, `small_files_count`.
+- Local and remote Delta targets (S3/GCS/ADLS) use the committed version file
+  `_delta_log/<version>.json` for metrics collection.
+- Remote metrics collection is best-effort after a successful write:
+  - if commit-log read/parse succeeds, metrics are exact for the committed version
+  - if commit-log read/parse fails, the write still succeeds and the report falls back to
+    `files_written=0`, `part_files=[]`, and nullable size metrics (no fake size values)
+- `files_written` counts `add` actions in the committed version file (not Delta log files).
+- `part_files` in the report is a capped list of data-file basenames from `add.path`.
 - Compaction/optimization remains external to Floe.
 
 S3 notes:
@@ -57,3 +64,7 @@ GCS notes:
 - Delta writes go directly through the object_store backend (no temp download/upload).
 - Authentication uses Application Default Credentials via
   `GOOGLE_APPLICATION_CREDENTIALS`.
+
+Operational note:
+- Floe writes data and reports write-time metrics. Table optimization/maintenance
+  (for example `OPTIMIZE`/compaction and `VACUUM`) should run as separate jobs.

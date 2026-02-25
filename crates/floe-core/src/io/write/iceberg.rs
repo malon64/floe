@@ -14,9 +14,11 @@ use aws_sdk_glue::types::{
     StorageDescriptor as GlueStorageDescriptor, TableInput as GlueTableInput,
 };
 use aws_sdk_glue::Client as GlueClient;
-use iceberg::arrow::schema_to_arrow_schema;
+use iceberg::arrow::{schema_to_arrow_schema, RecordBatchPartitionSplitter};
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
-use iceberg::spec::{DataFileFormat, NestedField, PrimitiveType, Schema, Type};
+use iceberg::spec::{
+    DataFileFormat, NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec,
+};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::writer::base_writer::data_file_writer::DataFileWriterBuilder;
 use iceberg::writer::file_writer::location_generator::{
@@ -24,6 +26,8 @@ use iceberg::writer::file_writer::location_generator::{
 };
 use iceberg::writer::file_writer::rolling_writer::RollingFileWriterBuilder;
 use iceberg::writer::file_writer::ParquetWriterBuilder;
+use iceberg::writer::partitioning::fanout_writer::FanoutWriter;
+use iceberg::writer::partitioning::PartitioningWriter;
 use iceberg::writer::{IcebergWriter, IcebergWriterBuilder};
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableCreation, TableIdent};
 use polars::prelude::{DataFrame, DataType, Series, TimeUnit};
@@ -48,6 +52,7 @@ pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
 #[derive(Debug)]
 struct PreparedIcebergWrite {
     iceberg_schema: Schema,
+    partition_spec: Option<UnboundPartitionSpec>,
     batch: RecordBatch,
 }
 
@@ -215,6 +220,12 @@ async fn write_iceberg_table_async(
             &prepared.iceberg_schema,
             entity,
         )?;
+        ensure_partition_spec_matches(
+            existing.metadata().default_partition_spec(),
+            prepared.partition_spec.as_ref(),
+            &prepared.iceberg_schema,
+            entity,
+        )?;
     }
 
     let table = match mode {
@@ -227,6 +238,7 @@ async fn write_iceberg_table_async(
                     &table_ident,
                     table_root_uri.clone(),
                     &prepared.iceberg_schema,
+                    prepared.partition_spec.clone(),
                 )
                 .await?
             }
@@ -244,6 +256,7 @@ async fn write_iceberg_table_async(
                 &table_ident,
                 table_root_uri.clone(),
                 &prepared.iceberg_schema,
+                prepared.partition_spec.clone(),
             )
             .await?
         }
@@ -489,12 +502,16 @@ async fn create_table(
     table_ident: &TableIdent,
     table_root: String,
     schema: &Schema,
+    partition_spec: Option<UnboundPartitionSpec>,
 ) -> FloeResult<iceberg::table::Table> {
-    let creation = TableCreation::builder()
+    let creation_builder = TableCreation::builder()
         .name(table_ident.name().to_string())
         .location(table_root)
-        .schema(schema.clone())
-        .build();
+        .schema(schema.clone());
+    let creation = match partition_spec {
+        Some(partition_spec) => creation_builder.partition_spec(partition_spec).build(),
+        None => creation_builder.build(),
+    };
     catalog
         .create_table(namespace, creation)
         .await
@@ -523,18 +540,42 @@ async fn write_data_files(
         file_name_generator,
     );
 
-    let mut writer = DataFileWriterBuilder::new(rolling_writer_builder)
-        .build(None)
-        .await
-        .map_err(map_iceberg_err("iceberg data writer build failed"))?;
-    writer
-        .write(batch)
-        .await
-        .map_err(map_iceberg_err("iceberg data write failed"))?;
-    writer
-        .close()
-        .await
-        .map_err(map_iceberg_err("iceberg data writer close failed"))
+    let data_file_writer_builder = DataFileWriterBuilder::new(rolling_writer_builder);
+    let partition_spec = table.metadata().default_partition_spec().clone();
+    if partition_spec.is_unpartitioned() {
+        let mut writer = data_file_writer_builder
+            .build(None)
+            .await
+            .map_err(map_iceberg_err("iceberg data writer build failed"))?;
+        writer
+            .write(batch)
+            .await
+            .map_err(map_iceberg_err("iceberg data write failed"))?;
+        return writer
+            .close()
+            .await
+            .map_err(map_iceberg_err("iceberg data writer close failed"));
+    }
+
+    let splitter = RecordBatchPartitionSplitter::try_new_with_computed_values(
+        table.metadata().current_schema().clone(),
+        partition_spec,
+    )
+    .map_err(map_iceberg_err("iceberg partition splitter init failed"))?;
+    let partitioned_batches = splitter
+        .split(&batch)
+        .map_err(map_iceberg_err("iceberg partition split failed"))?;
+
+    let mut writer = FanoutWriter::new(data_file_writer_builder);
+    for (partition_key, partition_batch) in partitioned_batches {
+        writer
+            .write(partition_key, partition_batch)
+            .await
+            .map_err(map_iceberg_err("iceberg partitioned data write failed"))?;
+    }
+    writer.close().await.map_err(map_iceberg_err(
+        "iceberg partitioned data writer close failed",
+    ))
 }
 
 fn prepare_iceberg_write(
@@ -577,6 +618,7 @@ fn prepare_iceberg_write(
         .with_fields(iceberg_fields)
         .build()
         .map_err(map_iceberg_err("iceberg schema build failed"))?;
+    let partition_spec = build_unbound_partition_spec(&iceberg_schema, entity)?;
     let arrow_schema = Arc::new(
         schema_to_arrow_schema(&iceberg_schema)
             .map_err(map_iceberg_err("iceberg arrow schema conversion failed"))?,
@@ -589,8 +631,66 @@ fn prepare_iceberg_write(
 
     Ok(PreparedIcebergWrite {
         iceberg_schema,
+        partition_spec,
         batch,
     })
+}
+
+fn build_unbound_partition_spec(
+    iceberg_schema: &Schema,
+    entity: &config::EntityConfig,
+) -> FloeResult<Option<UnboundPartitionSpec>> {
+    let Some(fields) = entity.sink.accepted.partition_spec.as_ref() else {
+        return Ok(None);
+    };
+
+    let mut builder = UnboundPartitionSpec::builder();
+    for field in fields {
+        let column = field.column.trim();
+        let schema_field = iceberg_schema.field_by_name(column).ok_or_else(|| {
+            Box::new(RunError(format!(
+                "entity.name={} iceberg partition_spec column {} was not found in runtime schema",
+                entity.name, column
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let normalized_transform = field.transform.trim().to_ascii_lowercase();
+        let transform = iceberg_partition_transform(&normalized_transform, &entity.name, column)?;
+        let partition_field_name = iceberg_partition_field_name(column, &normalized_transform);
+        builder = builder
+            .add_partition_field(schema_field.id, partition_field_name, transform)
+            .map_err(map_iceberg_err("iceberg partition spec build failed"))?;
+    }
+
+    Ok(Some(builder.build()))
+}
+
+fn iceberg_partition_transform(
+    transform: &str,
+    entity_name: &str,
+    column: &str,
+) -> FloeResult<Transform> {
+    let iceberg_transform = match transform {
+        "identity" => Transform::Identity,
+        "year" => Transform::Year,
+        "month" => Transform::Month,
+        "day" => Transform::Day,
+        "hour" => Transform::Hour,
+        _ => {
+            return Err(Box::new(RunError(format!(
+            "entity.name={} iceberg partition_spec column {} has unsupported runtime transform {}",
+            entity_name, column, transform
+        ))))
+        }
+    };
+    Ok(iceberg_transform)
+}
+
+fn iceberg_partition_field_name(column: &str, transform: &str) -> String {
+    if transform == "identity" {
+        column.to_string()
+    } else {
+        format!("{column}_{transform}")
+    }
 }
 
 fn resolve_output_columns<'a>(
@@ -740,6 +840,33 @@ fn ensure_schema_matches(
     Ok(())
 }
 
+fn ensure_partition_spec_matches(
+    existing: &iceberg::spec::PartitionSpec,
+    expected: Option<&UnboundPartitionSpec>,
+    expected_schema: &Schema,
+    entity: &config::EntityConfig,
+) -> FloeResult<()> {
+    let Some(expected_unbound) = expected else {
+        return Ok(());
+    };
+
+    let expected_bound = expected_unbound
+        .clone()
+        .bind(Arc::new(expected_schema.clone()))
+        .map_err(map_iceberg_err("iceberg partition spec bind failed"))?;
+
+    if !existing.is_compatible_with(&expected_bound) {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} iceberg partition spec evolution is not supported (existing={} incoming={})",
+            entity.name,
+            describe_partition_spec(existing),
+            describe_partition_spec(&expected_bound)
+        ))));
+    }
+
+    Ok(())
+}
+
 fn describe_field(field: &Arc<iceberg::spec::NestedField>) -> String {
     let required = if field.required {
         "required"
@@ -747,6 +874,18 @@ fn describe_field(field: &Arc<iceberg::spec::NestedField>) -> String {
         "optional"
     };
     format!("{}:{}:{required}", field.name, field.field_type)
+}
+
+fn describe_partition_spec(spec: &iceberg::spec::PartitionSpec) -> String {
+    if spec.fields().is_empty() {
+        return "unpartitioned".to_string();
+    }
+
+    spec.fields()
+        .iter()
+        .map(|field| format!("{}:{}:{:?}", field.source_id, field.name, field.transform))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {

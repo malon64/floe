@@ -80,10 +80,10 @@ entities:
           type: "string"
 ```
 
-## Partition spec config (Phase A scaffolding)
+## Partition spec config
 
-Iceberg accepted sinks can now declare a validated partition spec in config
-(execution wiring is pending):
+Iceberg accepted sinks can declare a partition spec in config, and Floe executes
+it at write time for Iceberg table creation/data file layout:
 
 ```yaml
 sink:
@@ -97,10 +97,10 @@ sink:
         transform: "identity"
 ```
 
-Current validation scope:
+Current scope:
 - partition columns must exist in `schema.columns`
-- supported transforms (parse/validation phase): `identity`, `year`, `month`, `day`, `hour`
-- execution wiring for Iceberg partitioned writes remains a follow-up PR
+- supported transforms: `identity`, `year`, `month`, `day`, `hour`
+- partition spec is applied to Iceberg table metadata and partitioned file writes
 - compaction/optimization remains external to Floe
 
 ## Supported scope (current)

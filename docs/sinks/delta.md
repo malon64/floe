@@ -22,7 +22,7 @@ Semantics:
   - `append`: add new files via a new Delta transaction (history preserved).
 - Local, S3, ADLS, and GCS storage are supported for delta output.
 
-## Partition config (Phase A scaffolding)
+## Partition config
 
 Delta accepted sinks can now declare identity partition columns in config:
 
@@ -36,7 +36,11 @@ sink:
 
 Current status:
 - `floe validate` checks that partition columns exist in `schema.columns`.
-- Execution wiring for partitioned Delta writes is pending follow-up PRs.
+- Partitioned Delta writes are runtime-wired for local/S3/ADLS/GCS accepted sinks.
+- `sink.accepted.options.max_size_per_file` is mapped to the Delta writer target file size when set.
+- Accepted output reports include file sizing metrics for local Delta writes (`files_written`,
+  `total_bytes_written`, `avg_file_size_mb`, `small_files_count`).
+- Remote Delta writes keep metrics fields nullable when exact file sizes are not collected cheaply.
 - Compaction/optimization remains external to Floe.
 
 S3 notes:

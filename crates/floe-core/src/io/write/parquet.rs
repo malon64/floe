@@ -7,15 +7,35 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
-use super::strategy;
+use super::{metrics, strategy};
 
 struct ParquetAcceptedAdapter;
 
 static PARQUET_ACCEPTED_ADAPTER: ParquetAcceptedAdapter = ParquetAcceptedAdapter;
 const DEFAULT_MAX_SIZE_PER_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParquetWriteRuntimeOptions {
+    pub max_size_per_file_bytes: u64,
+    pub small_file_threshold_bytes: u64,
+}
+
 pub(crate) fn parquet_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &PARQUET_ACCEPTED_ADAPTER
+}
+
+pub fn parquet_write_runtime_options(target: &config::SinkTarget) -> ParquetWriteRuntimeOptions {
+    let max_size_per_file_bytes = target
+        .options
+        .as_ref()
+        .and_then(|options| options.max_size_per_file)
+        .unwrap_or(DEFAULT_MAX_SIZE_PER_FILE_BYTES);
+    ParquetWriteRuntimeOptions {
+        max_size_per_file_bytes,
+        small_file_threshold_bytes: metrics::default_small_file_threshold_bytes(Some(
+            max_size_per_file_bytes,
+        )),
+    }
 }
 
 pub fn write_parquet_to_path(
@@ -69,11 +89,11 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
         let spec = strategy::accepted_parquet_spec();
         let mut part_allocator = strategy::strategy_for(mode).part_allocator(&mut ctx, spec)?;
         let options = entity.sink.accepted.options.as_ref();
-        let max_size_per_file = options
-            .and_then(|options| options.max_size_per_file)
-            .unwrap_or(DEFAULT_MAX_SIZE_PER_FILE_BYTES);
+        let runtime_options = parquet_write_runtime_options(&entity.sink.accepted);
+        let max_size_per_file = runtime_options.max_size_per_file_bytes;
         let mut parts_written = 0;
         let mut part_files = Vec::new();
+        let mut file_sizes = Vec::new();
         let total_rows = df.height();
         if total_rows > 0 {
             let estimated_size = df.estimated_size() as u64;
@@ -98,6 +118,10 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                     entity,
                     |path| write_parquet_to_path(&mut chunk, path, options),
                 )?;
+                if let Some(size) = stat_written_output_file_size(target, temp_dir, &part_filename)
+                {
+                    file_sizes.push(size);
+                }
                 if part_files.len() < 50 {
                     part_files.push(part_filename);
                 }
@@ -116,11 +140,20 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
                 entity,
                 |path| write_parquet_to_path(df, path, options),
             )?;
+            if let Some(size) = stat_written_output_file_size(target, temp_dir, &part_filename) {
+                file_sizes.push(size);
+            }
             parts_written = 1;
             part_files.push(part_filename);
         }
 
+        let metrics = metrics::summarize_written_file_sizes(
+            &file_sizes,
+            runtime_options.small_file_threshold_bytes,
+        );
+
         Ok(AcceptedWriteOutput {
+            files_written: parts_written,
             parts_written,
             part_files,
             table_version: None,
@@ -130,6 +163,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             iceberg_database: None,
             iceberg_namespace: None,
             iceberg_table: None,
+            metrics,
         })
     }
 }
@@ -144,4 +178,18 @@ fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {
             "unsupported parquet compression: {value}"
         )))),
     }
+}
+
+fn stat_written_output_file_size(
+    target: &Target,
+    temp_dir: Option<&Path>,
+    filename: &str,
+) -> Option<u64> {
+    let path = match target {
+        Target::Local { base_path, .. } => {
+            crate::io::storage::paths::resolve_output_dir_path(base_path, filename)
+        }
+        Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => temp_dir?.join(filename),
+    };
+    std::fs::metadata(path).ok().map(|meta| meta.len())
 }

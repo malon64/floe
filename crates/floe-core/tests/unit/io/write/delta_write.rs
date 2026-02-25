@@ -1,5 +1,5 @@
 use floe_core::io::storage::Target;
-use floe_core::io::write::delta::write_delta_table;
+use floe_core::io::write::delta::{delta_write_runtime_options, write_delta_table};
 use floe_core::{config, FloeResult};
 use polars::prelude::{df, ParquetReader, SerReader};
 use std::path::Path;
@@ -255,6 +255,65 @@ fn delta_write_uses_normalized_schema_names() -> FloeResult<()> {
         .collect::<Vec<_>>();
     assert!(field_names.contains(&"user_id".to_string()));
     assert!(field_names.contains(&"full_name".to_string()));
+
+    Ok(())
+}
+
+#[test]
+fn delta_runtime_options_map_partitioning_and_target_file_size() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let mut entity = build_entity(&table_path, config::WriteMode::Append, Vec::new(), None);
+    entity.sink.accepted.partition_by = Some(vec!["country".to_string(), "event_date".to_string()]);
+    entity.sink.accepted.options = Some(config::SinkOptions {
+        compression: None,
+        row_group_size: None,
+        max_size_per_file: Some(8 * 1024 * 1024),
+    });
+
+    let options = delta_write_runtime_options(&entity)?;
+    assert_eq!(
+        options.partition_by,
+        Some(vec!["country".to_string(), "event_date".to_string()])
+    );
+    assert_eq!(options.target_file_size_bytes, Some(8 * 1024 * 1024));
+    assert_eq!(options.small_file_threshold_bytes, 4 * 1024 * 1024);
+    Ok(())
+}
+
+#[test]
+fn write_delta_table_respects_partition_by_columns() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let mut entity = build_entity(&table_path, config::WriteMode::Append, Vec::new(), None);
+    entity.sink.accepted.partition_by = Some(vec!["country".to_string()]);
+
+    let mut df = df!(
+        "id" => &[1i64, 2, 3],
+        "country" => &["us", "ca", "us"]
+    )?;
+    write_delta_table(
+        &mut df,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    let partition_columns = table.snapshot()?.metadata().partition_columns().clone();
+    assert_eq!(partition_columns, vec!["country".to_string()]);
+
+    let entries = std::fs::read_dir(&table_path)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert!(entries.iter().any(|name| name == "country=us"));
+    assert!(entries.iter().any(|name| name == "country=ca"));
 
     Ok(())
 }

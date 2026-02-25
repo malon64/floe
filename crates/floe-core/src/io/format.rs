@@ -34,7 +34,15 @@ pub enum ReadInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct AcceptedWriteMetrics {
+    pub total_bytes_written: Option<u64>,
+    pub avg_file_size_mb: Option<f64>,
+    pub small_files_count: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
 pub struct AcceptedWriteOutput {
+    pub files_written: u64,
     pub parts_written: u64,
     pub part_files: Vec<String>,
     pub table_version: Option<i64>,
@@ -44,6 +52,7 @@ pub struct AcceptedWriteOutput {
     pub iceberg_database: Option<String>,
     pub iceberg_namespace: Option<String>,
     pub iceberg_table: Option<String>,
+    pub metrics: AcceptedWriteMetrics,
 }
 
 pub trait InputAdapter: Send + Sync {

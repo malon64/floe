@@ -1,5 +1,8 @@
 use floe_core::io::storage::Target;
-use floe_core::io::write::delta::{delta_write_runtime_options, write_delta_table};
+use floe_core::io::write::delta::{
+    delta_commit_metrics_from_log_bytes, delta_commit_metrics_from_log_bytes_best_effort,
+    delta_write_runtime_options, write_delta_table,
+};
 use floe_core::{config, FloeResult};
 use polars::prelude::{df, ParquetReader, SerReader};
 use std::path::Path;
@@ -316,6 +319,65 @@ fn write_delta_table_respects_partition_by_columns() -> FloeResult<()> {
     assert!(entries.iter().any(|name| name == "country=ca"));
 
     Ok(())
+}
+
+#[test]
+fn delta_commit_metrics_from_log_bytes_counts_add_actions_and_caps_part_files() -> FloeResult<()> {
+    let mut content = String::new();
+    for i in 0..55_u64 {
+        content.push_str(
+            format!(
+                "{{\"add\":{{\"path\":\"country=us/part-{i:05}.parquet\",\"size\":{}}}}}\n",
+                i + 10
+            )
+            .as_str(),
+        );
+    }
+    content.push_str("{\"commitInfo\":{\"operation\":\"WRITE\"}}\n");
+
+    let (files_written, part_files, metrics) =
+        delta_commit_metrics_from_log_bytes(content.as_bytes(), 32)?;
+
+    assert_eq!(files_written, 55);
+    assert_eq!(part_files.len(), 50);
+    assert_eq!(part_files[0], "part-00000.parquet");
+    assert_eq!(part_files[49], "part-00049.parquet");
+    assert_eq!(metrics.total_bytes_written, Some((10..65).sum()));
+    assert_eq!(metrics.small_files_count, Some(22));
+    assert!(metrics.avg_file_size_mb.is_some());
+    Ok(())
+}
+
+#[test]
+fn delta_commit_metrics_from_log_bytes_missing_size_keeps_file_count_but_nulls_metrics(
+) -> FloeResult<()> {
+    let content = r#"{"add":{"path":"part-00000.parquet","size":10}}
+{"add":{"path":"part-00001.parquet"}}
+"#;
+
+    let (files_written, part_files, metrics) =
+        delta_commit_metrics_from_log_bytes(content.as_bytes(), 16)?;
+
+    assert_eq!(files_written, 2);
+    assert_eq!(part_files, vec!["part-00000.parquet", "part-00001.parquet"]);
+    assert_eq!(metrics.total_bytes_written, None);
+    assert_eq!(metrics.avg_file_size_mb, None);
+    assert_eq!(metrics.small_files_count, None);
+    Ok(())
+}
+
+#[test]
+fn delta_commit_metrics_from_log_bytes_best_effort_falls_back_on_malformed_json() {
+    let malformed = b"{\"add\":{\"path\":\"part-00000.parquet\",\"size\":10}}\n{\"add\":\n";
+
+    let (files_written, part_files, metrics) =
+        delta_commit_metrics_from_log_bytes_best_effort(malformed, 16);
+
+    assert_eq!(files_written, 0);
+    assert!(part_files.is_empty());
+    assert_eq!(metrics.total_bytes_written, None);
+    assert_eq!(metrics.avg_file_size_mb, None);
+    assert_eq!(metrics.small_files_count, None);
 }
 
 fn empty_root_config() -> config::RootConfig {

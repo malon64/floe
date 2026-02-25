@@ -8,8 +8,9 @@ use floe_core::io::write::iceberg::write_iceberg_table;
 use floe_core::{config, FloeResult};
 use futures::TryStreamExt;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
+use iceberg::spec::Transform;
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
-use polars::prelude::{df, DataFrame, NamedFrom, Series};
+use polars::prelude::{df, DataFrame, DataType, NamedFrom, Series, TimeUnit};
 
 #[test]
 fn write_iceberg_table_append_creates_new_snapshot_and_metadata_version() -> FloeResult<()> {
@@ -214,6 +215,158 @@ fn write_iceberg_table_append_without_schema_keeps_nullability_stable() -> FloeR
     Ok(())
 }
 
+#[test]
+fn write_iceberg_table_applies_partition_spec_transforms_to_table_metadata_and_layout(
+) -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Overwrite,
+        vec![
+            column("id", "int"),
+            column("ts_year", "timestamp"),
+            column("ts_month", "timestamp"),
+            column("ts_day", "timestamp"),
+            column("ts_hour", "timestamp"),
+            column("name", "string"),
+        ],
+        None,
+    );
+    entity.sink.accepted.partition_spec = Some(vec![
+        config::IcebergPartitionFieldConfig {
+            column: "id".to_string(),
+            transform: "identity".to_string(),
+        },
+        config::IcebergPartitionFieldConfig {
+            column: "ts_year".to_string(),
+            transform: "year".to_string(),
+        },
+        config::IcebergPartitionFieldConfig {
+            column: "ts_month".to_string(),
+            transform: "month".to_string(),
+        },
+        config::IcebergPartitionFieldConfig {
+            column: "ts_day".to_string(),
+            transform: "day".to_string(),
+        },
+        config::IcebergPartitionFieldConfig {
+            column: "ts_hour".to_string(),
+            transform: "hour".to_string(),
+        },
+    ]);
+
+    let ts_raw = Series::new(
+        "ts".into(),
+        &[1_706_847_000_000_000_i64, 1_706_850_600_000_000_i64],
+    );
+    let ts = ts_raw.cast(&DataType::Datetime(TimeUnit::Microseconds, None))?;
+    let mut ts_year = ts.clone();
+    ts_year.rename("ts_year".into());
+    let mut ts_month = ts.clone();
+    ts_month.rename("ts_month".into());
+    let mut ts_day = ts.clone();
+    ts_day.rename("ts_day".into());
+    let mut ts_hour = ts.clone();
+    ts_hour.rename("ts_hour".into());
+    let mut df = DataFrame::new(vec![
+        Series::new("id".into(), &[1_i64, 2_i64]).into(),
+        ts_year.into(),
+        ts_month.into(),
+        ts_day.into(),
+        ts_hour.into(),
+        Series::new("name".into(), &["alice", "bob"]).into(),
+    ])?;
+
+    let out = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)?;
+    assert_eq!(out.parts_written, 2);
+    assert!(out.snapshot_id.is_some());
+
+    let runtime = test_runtime()?;
+    runtime.block_on(async {
+        let table = load_table(&table_path).await?;
+        let spec = table.metadata().default_partition_spec();
+        let fields = spec.fields();
+        assert_eq!(fields.len(), 5);
+        assert_eq!(fields[0].name, "id");
+        assert_eq!(fields[0].transform, Transform::Identity);
+        assert_eq!(fields[1].name, "ts_year_year");
+        assert_eq!(fields[1].transform, Transform::Year);
+        assert_eq!(fields[2].name, "ts_month_month");
+        assert_eq!(fields[2].transform, Transform::Month);
+        assert_eq!(fields[3].name, "ts_day_day");
+        assert_eq!(fields[3].transform, Transform::Day);
+        assert_eq!(fields[4].name, "ts_hour_hour");
+        assert_eq!(fields[4].transform, Transform::Hour);
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    })?;
+
+    let data_dirs = fs::read_dir(table_path.join("data"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert!(data_dirs.iter().any(|name| name.starts_with("id=")));
+
+    Ok(())
+}
+
+#[test]
+fn write_iceberg_table_rejects_unsupported_partition_transform_at_runtime() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Overwrite,
+        vec![column("id", "int")],
+        None,
+    );
+    entity.sink.accepted.partition_spec = Some(vec![config::IcebergPartitionFieldConfig {
+        column: "id".to_string(),
+        transform: "bucket[16]".to_string(),
+    }]);
+
+    let mut df = df!("id" => &[1_i64, 2_i64])?;
+    let err = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)
+        .expect_err("unsupported runtime transform should error");
+    let msg = err.to_string();
+    assert!(msg.contains("unsupported runtime transform"));
+    assert!(msg.contains("bucket[16]"));
+    Ok(())
+}
+
+#[test]
+fn write_iceberg_table_rejects_missing_partition_column_at_runtime() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("iceberg_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Overwrite,
+        vec![column("id", "int")],
+        None,
+    );
+    entity.sink.accepted.partition_spec = Some(vec![config::IcebergPartitionFieldConfig {
+        column: "missing".to_string(),
+        transform: "identity".to_string(),
+    }]);
+
+    let mut df = df!("id" => &[1_i64, 2_i64])?;
+    let err = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)
+        .expect_err("missing runtime partition column should error");
+    let msg = err.to_string();
+    assert!(msg.contains("partition_spec column missing"));
+    assert!(msg.contains("runtime schema"));
+    Ok(())
+}
+
 fn empty_root_config() -> config::RootConfig {
     config::RootConfig {
         version: "0.1".to_string(),
@@ -280,6 +433,18 @@ fn build_entity(
             mismatch: None,
             columns,
         },
+    }
+}
+
+fn column(name: &str, column_type: &str) -> config::ColumnConfig {
+    config::ColumnConfig {
+        name: name.to_string(),
+        source: None,
+        column_type: column_type.to_string(),
+        nullable: Some(true),
+        unique: None,
+        width: None,
+        trim: None,
     }
 }
 

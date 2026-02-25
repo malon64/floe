@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 
@@ -36,6 +36,7 @@ impl std::error::Error for JsonReadError {}
 struct SelectorPlan {
     source: String,
     tokens: Vec<SelectorToken>,
+    top_level_key: Option<String>,
 }
 
 fn build_selector_plan(
@@ -55,27 +56,66 @@ fn build_selector_plan(
             rule: "json_selector_invalid".to_string(),
             message: format!("invalid selector {}: {}", source, err.message),
         })?;
-        plans.push(SelectorPlan { source, tokens });
+        let top_level_key = match tokens.as_slice() {
+            [SelectorToken::Field(name)] => Some(name.clone()),
+            _ => None,
+        };
+        plans.push(SelectorPlan {
+            source,
+            tokens,
+            top_level_key,
+        });
     }
     Ok(plans)
 }
 
-fn extract_row(
+fn evaluate_selector_plan(
+    value: &Value,
+    plan: &SelectorPlan,
+) -> Result<SelectorValue, JsonReadError> {
+    if let Some(key) = plan.top_level_key.as_deref() {
+        let Some(object) = value.as_object() else {
+            return Ok(SelectorValue::Null);
+        };
+        let Some(current) = object.get(key) else {
+            return Ok(SelectorValue::Null);
+        };
+        if current.is_null() {
+            return Ok(SelectorValue::Null);
+        }
+        if current.is_object() || current.is_array() {
+            return Ok(SelectorValue::NonScalar(current.clone()));
+        }
+        return match current {
+            Value::String(value) => Ok(SelectorValue::Scalar(value.clone())),
+            Value::Bool(value) => Ok(SelectorValue::Scalar(value.to_string())),
+            Value::Number(value) => Ok(SelectorValue::Scalar(value.to_string())),
+            Value::Null => Ok(SelectorValue::Null),
+            Value::Object(_) | Value::Array(_) => Ok(SelectorValue::NonScalar(current.clone())),
+        };
+    }
+
+    evaluate_selector(value, &plan.tokens).map_err(|err| JsonReadError {
+        rule: "json_selector_invalid".to_string(),
+        message: format!("invalid selector {}: {}", plan.source, err.message),
+    })
+}
+
+fn append_extracted_row_into(
     value: &Value,
     plans: &[SelectorPlan],
     cast_mode: &str,
-    location: &str,
-) -> Result<BTreeMap<String, Option<String>>, JsonReadError> {
-    let mut row = BTreeMap::new();
-    for plan in plans {
-        let selected = evaluate_selector(value, &plan.tokens).map_err(|err| JsonReadError {
-            rule: "json_selector_invalid".to_string(),
-            message: format!("invalid selector {}: {}", plan.source, err.message),
-        })?;
+    location_kind: &'static str,
+    location_index: usize,
+    output_columns: &mut [Vec<Option<String>>],
+) -> Result<(), JsonReadError> {
+    for (output, plan) in output_columns.iter_mut().zip(plans) {
+        let selected = evaluate_selector_plan(value, plan)?;
         let cell = match selected {
             SelectorValue::Null => None,
             SelectorValue::Scalar(value) => Some(value),
             SelectorValue::NonScalar(value) => {
+                let location = format!("{location_kind} {location_index}");
                 if cast_mode == "coerce" {
                     Some(compact_json(&value).map_err(|err| JsonReadError {
                         rule: "json_selector_non_scalar".to_string(),
@@ -95,9 +135,9 @@ fn extract_row(
                 }
             }
         };
-        row.insert(plan.source.clone(), cell);
+        output.push(cell);
     }
-    Ok(row)
+    Ok(())
 }
 
 fn read_ndjson_file(
@@ -111,7 +151,7 @@ fn read_ndjson_file(
     })?;
 
     let plans = build_selector_plan(columns)?;
-    let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::new();
+    let mut column_values: Vec<Vec<Option<String>>> = vec![Vec::new(); plans.len()];
     for (idx, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -128,16 +168,17 @@ fn read_ndjson_file(
             });
         }
 
-        let row = extract_row(&value, &plans, cast_mode, &format!("line {}", idx + 1))?;
-        rows.push(row);
+        append_extracted_row_into(
+            &value,
+            &plans,
+            cast_mode,
+            "line",
+            idx + 1,
+            &mut column_values,
+        )?;
     }
 
-    let columns = plans
-        .iter()
-        .map(|plan| plan.source.clone())
-        .collect::<Vec<_>>();
-
-    build_dataframe(&columns, &rows)
+    build_dataframe(&plans, column_values)
 }
 
 fn read_ndjson_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {
@@ -205,7 +246,9 @@ fn read_json_array_file(
     })?;
 
     let plans = build_selector_plan(columns)?;
-    let mut rows: Vec<BTreeMap<String, Option<String>>> = Vec::with_capacity(array.len());
+    let mut column_values: Vec<Vec<Option<String>>> = (0..plans.len())
+        .map(|_| Vec::with_capacity(array.len()))
+        .collect();
 
     for (idx, value) in array.iter().enumerate() {
         if !value.is_object() {
@@ -214,16 +257,10 @@ fn read_json_array_file(
                 message: format!("expected json object at index {}", idx),
             });
         }
-        let row = extract_row(value, &plans, cast_mode, &format!("index {}", idx))?;
-        rows.push(row);
+        append_extracted_row_into(value, &plans, cast_mode, "index", idx, &mut column_values)?;
     }
 
-    let columns = plans
-        .iter()
-        .map(|plan| plan.source.clone())
-        .collect::<Vec<_>>();
-
-    build_dataframe(&columns, &rows)
+    build_dataframe(&plans, column_values)
 }
 
 fn read_json_array_columns(input_path: &Path) -> Result<Vec<String>, JsonReadError> {
@@ -255,16 +292,12 @@ fn read_json_array_columns(input_path: &Path) -> Result<Vec<String>, JsonReadErr
 }
 
 fn build_dataframe(
-    columns: &[String],
-    rows: &[BTreeMap<String, Option<String>>],
+    plans: &[SelectorPlan],
+    column_values: Vec<Vec<Option<String>>>,
 ) -> Result<DataFrame, JsonReadError> {
-    let mut series = Vec::with_capacity(columns.len());
-    for name in columns {
-        let mut values = Vec::with_capacity(rows.len());
-        for row in rows {
-            values.push(row.get(name).cloned().unwrap_or(None));
-        }
-        series.push(Series::new(name.as_str().into(), values).into());
+    let mut series = Vec::with_capacity(plans.len());
+    for (plan, values) in plans.iter().zip(column_values.into_iter()) {
+        series.push(Series::new(plan.source.as_str().into(), values).into());
     }
 
     DataFrame::new(series).map_err(|err| JsonReadError {

@@ -97,6 +97,60 @@ entities:
 }
 
 #[test]
+fn ndjson_top_level_selector_with_surrounding_whitespace_is_trimmed() {
+    let root = temp_dir("floe-ndjson-selector-trim");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_ndjson(&input_dir, "input.json", "{\"user_id\":\"42\"}\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "json"
+      path: "{input_dir}"
+      options:
+        json_mode: "ndjson"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      columns:
+        - name: "user_id"
+          source: " user_id "
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let file = &outcome.entity_outcomes[0].report.files[0];
+    assert_eq!(file.status, FileStatus::Success);
+
+    let output_path = accepted_dir.join("part-00000.parquet");
+    let file = std::fs::File::open(&output_path).expect("open output parquet");
+    let df = ParquetReader::new(file)
+        .finish()
+        .expect("read output parquet");
+    let user_id_col = df.column("user_id").expect("missing user_id column");
+    assert_eq!(user_id_col.null_count(), 0);
+}
+
+#[test]
 fn ndjson_extra_columns_ignore() {
     let root = temp_dir("floe-ndjson-extra");
     let input_dir = root.join("in");

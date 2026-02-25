@@ -39,6 +39,8 @@ use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWrite
 use crate::io::storage::{object_store::iceberg_store_config, ObjectRef, Target};
 use crate::{config, io, FloeResult};
 
+use super::metrics;
+
 struct IcebergAcceptedAdapter;
 
 static ICEBERG_ACCEPTED_ADAPTER: IcebergAcceptedAdapter = IcebergAcceptedAdapter;
@@ -62,6 +64,7 @@ struct IcebergWriteResult {
     snapshot_id: Option<i64>,
     metadata_version: Option<i64>,
     file_paths: Vec<String>,
+    metrics: AcceptedWriteMetrics,
     table_root_uri: String,
     iceberg_catalog_name: Option<String>,
     iceberg_database: Option<String>,
@@ -137,13 +140,20 @@ fn write_iceberg_table_with_remote_context(
 ) -> FloeResult<AcceptedWriteOutput> {
     let write_ctx = build_iceberg_write_context(target, entity, mode, remote.as_mut())?;
     let prepared = prepare_iceberg_write(df, entity)?;
+    let small_file_threshold_bytes = iceberg_small_file_threshold_bytes(entity);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("iceberg runtime init failed: {err}"))))?;
 
-    let result = runtime.block_on(write_iceberg_table_async(write_ctx, prepared, entity, mode))?;
+    let result = runtime.block_on(write_iceberg_table_async(
+        write_ctx,
+        prepared,
+        entity,
+        mode,
+        small_file_threshold_bytes,
+    ))?;
     Ok(AcceptedWriteOutput {
         files_written: result.files_written,
         parts_written: result.files_written,
@@ -158,11 +168,7 @@ fn write_iceberg_table_with_remote_context(
         iceberg_database: result.iceberg_database,
         iceberg_namespace: result.iceberg_namespace,
         iceberg_table: result.iceberg_table,
-        metrics: AcceptedWriteMetrics {
-            total_bytes_written: None,
-            avg_file_size_mb: None,
-            small_files_count: None,
-        },
+        metrics: result.metrics,
     })
 }
 
@@ -171,6 +177,7 @@ async fn write_iceberg_table_async(
     prepared: PreparedIcebergWrite,
     entity: &config::EntityConfig,
     mode: config::WriteMode,
+    small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
     let IcebergWriteContext {
         table_root_uri,
@@ -263,12 +270,19 @@ async fn write_iceberg_table_async(
     };
 
     let mut file_paths = Vec::new();
+    let mut file_sizes = Vec::new();
     let mut files_written = 0_u64;
     let mut table_after_write = table;
 
     if prepared.batch.num_rows() > 0 {
         let data_files = write_data_files(&table_after_write, prepared.batch).await?;
         files_written = data_files.len() as u64;
+        // Iceberg returns DataFile entries for data files only, so these sizes exclude
+        // metadata/manifests and match the accepted-output metrics semantics.
+        file_sizes = data_files
+            .iter()
+            .map(iceberg::spec::DataFile::file_size_in_bytes)
+            .collect();
         file_paths = data_files
             .iter()
             .map(|file| {
@@ -320,18 +334,31 @@ async fn write_iceberg_table_async(
         )
         .await?;
     }
+    let metrics = metrics::summarize_written_file_sizes(&file_sizes, small_file_threshold_bytes);
 
     Ok(IcebergWriteResult {
         files_written,
         snapshot_id,
         metadata_version,
         file_paths,
+        metrics,
         table_root_uri,
         iceberg_catalog_name: glue_catalog.as_ref().map(|cfg| cfg.catalog_name.clone()),
         iceberg_database: glue_catalog.as_ref().map(|cfg| cfg.database.clone()),
         iceberg_namespace: glue_catalog.as_ref().map(|cfg| cfg.namespace.clone()),
         iceberg_table: glue_catalog.as_ref().map(|cfg| cfg.table.clone()),
     })
+}
+
+fn iceberg_small_file_threshold_bytes(entity: &config::EntityConfig) -> u64 {
+    metrics::default_small_file_threshold_bytes(
+        entity
+            .sink
+            .accepted
+            .options
+            .as_ref()
+            .and_then(|options| options.max_size_per_file),
+    )
 }
 
 fn build_iceberg_write_context(

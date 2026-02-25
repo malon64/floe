@@ -119,9 +119,7 @@ fn append_extracted_row_into(
                         rule: "json_selector_non_scalar".to_string(),
                         message: format!(
                             "failed to stringify selector {} at {}: {}",
-                            plan.source,
-                            location,
-                            err.message
+                            plan.source, location, err.message
                         ),
                     })?)
                 } else {

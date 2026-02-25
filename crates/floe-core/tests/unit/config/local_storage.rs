@@ -20,6 +20,7 @@ fn config_with_default_local() -> RootConfig {
                 prefix: None,
             }],
         }),
+        catalogs: None,
         env: None,
         domains: Vec::new(),
         report: None,

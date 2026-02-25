@@ -16,6 +16,7 @@ pub(super) struct AcceptedOutputContext<'a> {
     pub(super) temp_dir: Option<&'a Path>,
     pub(super) cloud: &'a mut io::storage::CloudClient,
     pub(super) resolver: &'a config::StorageResolver,
+    pub(super) catalogs: &'a config::CatalogResolver,
     pub(super) entity: &'a config::EntityConfig,
     pub(super) mode: config::WriteMode,
 }
@@ -43,6 +44,7 @@ pub(super) fn write_accepted_output(
         temp_dir,
         cloud,
         resolver,
+        catalogs,
         entity,
         mode,
     } = context;
@@ -55,6 +57,7 @@ pub(super) fn write_accepted_output(
             temp_dir,
             cloud,
             resolver,
+            catalogs,
             entity,
             mode,
         },

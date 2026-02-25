@@ -75,6 +75,24 @@ entities:
     )
 }
 
+fn config_with_storages_and_catalogs(
+    storages_yaml: &str,
+    catalogs_yaml: &str,
+    entities_yaml: &str,
+) -> String {
+    format!(
+        r#"version: "0.1"
+storages:
+{storages_yaml}
+catalogs:
+{catalogs_yaml}
+report:
+  path: "/tmp/reports"
+entities:
+{entities_yaml}"#
+    )
+}
+
 #[test]
 fn missing_report_path_defaults() {
     let yaml = format!(
@@ -1230,6 +1248,136 @@ fn iceberg_accepted_sink_rejects_adls_storage() {
             "sink.accepted.format=iceberg",
             "local, s3, or gcs",
             "adls",
+        ],
+    );
+}
+
+#[test]
+fn iceberg_glue_catalog_binding_validates_on_s3() {
+    let storages = r#"  default: "local_fs"
+  definitions:
+    - name: "local_fs"
+      type: "local"
+    - name: "s3_out"
+      type: "s3"
+      bucket: "demo-bucket"
+      region: "us-east-1"
+      prefix: "accepted"
+"#;
+    let catalogs = r#"  default: "glue_main"
+  definitions:
+    - name: "glue_main"
+      type: "glue"
+      region: "us-east-1"
+      database: "lakehouse"
+      warehouse_storage: "s3_out"
+      warehouse_prefix: "iceberg"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      storage: "local_fs"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "customer_iceberg"
+        storage: "s3_out"
+        iceberg:
+          catalog: "glue_main"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_ok(&config_with_storages_and_catalogs(
+        storages, catalogs, entity,
+    ));
+}
+
+#[test]
+fn iceberg_glue_catalog_binding_requires_s3_sink_storage() {
+    let storages = r#"  default: "local_fs"
+  definitions:
+    - name: "local_fs"
+      type: "local"
+"#;
+    let catalogs = r#"  definitions:
+    - name: "glue_main"
+      type: "glue"
+      region: "us-east-1"
+      database: "lakehouse"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+      storage: "local_fs"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "/tmp/out"
+        storage: "local_fs"
+        iceberg:
+          catalog: "glue_main"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &config_with_storages_and_catalogs(storages, catalogs, entity),
+        &[
+            "sink.accepted.iceberg.catalog",
+            "requires sink.accepted storage type s3",
+            "local",
+        ],
+    );
+}
+
+#[test]
+fn iceberg_glue_catalog_binding_rejects_unknown_catalog_reference() {
+    let storages = r#"  default: "s3_out"
+  definitions:
+    - name: "s3_out"
+      type: "s3"
+      bucket: "demo-bucket"
+      region: "us-east-1"
+"#;
+    let catalogs = r#"  definitions:
+    - name: "glue_other"
+      type: "glue"
+      region: "us-east-1"
+      database: "lakehouse"
+"#;
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "customer_iceberg"
+        storage: "s3_out"
+        iceberg:
+          catalog: "glue_main"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &config_with_storages_and_catalogs(storages, catalogs, entity),
+        &[
+            "sink.accepted.iceberg.catalog",
+            "unknown catalog",
+            "glue_main",
         ],
     );
 }

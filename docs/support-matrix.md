@@ -36,14 +36,15 @@ Notes:
 |---|---|---|---|---|---|
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
-| Accepted: Iceberg | ✅ | ✅ (filesystem catalog over object_store) | ❌ | ✅ (filesystem catalog over object_store) | `metadata/` + `data/`; append/overwrite; single-writer; no schema evolution/GC |
+| Accepted: Iceberg | ✅ | ✅ (filesystem catalog or Glue catalog over object_store) | ❌ | ✅ (filesystem catalog over object_store) | `metadata/` + `data/`; append/overwrite; single-writer; no schema evolution/GC |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
 
 Notes:
 - Parquet outputs to cloud are written locally then uploaded.
 - Delta outputs to cloud are **direct** via object_store (no temp upload).
-- Iceberg on S3/GCS uses filesystem-catalog semantics (no Glue catalog yet).
+- Iceberg on S3 supports filesystem-catalog semantics and AWS Glue catalog registration (S3 data location).
+- Iceberg on GCS uses filesystem-catalog semantics (no external catalog yet).
 - Iceberg cloud support is currently S3 and GCS only (ADLS is follow-up work).
 - `sink.write_mode` applies to accepted and rejected outputs (`overwrite` or `append`).
 

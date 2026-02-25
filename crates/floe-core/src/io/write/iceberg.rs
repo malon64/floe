@@ -8,6 +8,12 @@ use arrow::array::{
     StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
 };
 use arrow::record_batch::RecordBatch;
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_glue::config::Region as GlueRegion;
+use aws_sdk_glue::types::{
+    StorageDescriptor as GlueStorageDescriptor, TableInput as GlueTableInput,
+};
+use aws_sdk_glue::Client as GlueClient;
 use iceberg::arrow::schema_to_arrow_schema;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{DataFileFormat, NestedField, PrimitiveType, Schema, Type};
@@ -46,16 +52,22 @@ struct PreparedIcebergWrite {
 }
 
 #[derive(Debug)]
-struct LocalIcebergWriteResult {
+struct IcebergWriteResult {
     files_written: u64,
     snapshot_id: Option<i64>,
     metadata_version: Option<i64>,
     file_paths: Vec<String>,
+    table_root_uri: String,
+    iceberg_catalog_name: Option<String>,
+    iceberg_database: Option<String>,
+    iceberg_namespace: Option<String>,
+    iceberg_table: Option<String>,
 }
 
 struct IcebergRemoteContext<'a> {
     cloud: &'a mut io::storage::CloudClient,
     resolver: &'a config::StorageResolver,
+    catalogs: &'a config::CatalogResolver,
 }
 
 struct IcebergWriteContext {
@@ -63,6 +75,16 @@ struct IcebergWriteContext {
     catalog_name: &'static str,
     catalog_props: HashMap<String, String>,
     metadata_location: Option<String>,
+    glue_catalog: Option<GlueIcebergCatalogConfig>,
+}
+
+#[derive(Debug, Clone)]
+struct GlueIcebergCatalogConfig {
+    catalog_name: String,
+    region: String,
+    database: String,
+    namespace: String,
+    table: String,
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
@@ -75,6 +97,7 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
         _temp_dir: Option<&Path>,
         cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
+        catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
         write_iceberg_table_with_remote_context(
@@ -82,7 +105,11 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
             target,
             entity,
             mode,
-            Some(IcebergRemoteContext { cloud, resolver }),
+            Some(IcebergRemoteContext {
+                cloud,
+                resolver,
+                catalogs,
+            }),
         )
     }
 }
@@ -117,6 +144,14 @@ fn write_iceberg_table_with_remote_context(
         part_files: result.file_paths,
         table_version: result.metadata_version,
         snapshot_id: result.snapshot_id,
+        table_root_uri: result
+            .iceberg_catalog_name
+            .as_ref()
+            .map(|_| result.table_root_uri.clone()),
+        iceberg_catalog_name: result.iceberg_catalog_name,
+        iceberg_database: result.iceberg_database,
+        iceberg_namespace: result.iceberg_namespace,
+        iceberg_table: result.iceberg_table,
     })
 }
 
@@ -125,22 +160,37 @@ async fn write_iceberg_table_async(
     prepared: PreparedIcebergWrite,
     entity: &config::EntityConfig,
     mode: config::WriteMode,
-) -> FloeResult<LocalIcebergWriteResult> {
+) -> FloeResult<IcebergWriteResult> {
     let IcebergWriteContext {
         table_root_uri,
         catalog_name,
         mut catalog_props,
-        metadata_location,
+        mut metadata_location,
+        glue_catalog,
     } = write_ctx;
+    let mut glue_table_state = None;
+    if let Some(glue_cfg) = glue_catalog.as_ref() {
+        let state = load_glue_table_state(glue_cfg).await?;
+        metadata_location = state.metadata_location.clone();
+        glue_table_state = Some(state);
+    }
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
     let catalog = MemoryCatalogBuilder::default()
         .load(catalog_name, catalog_props)
         .await
         .map_err(map_iceberg_err("iceberg catalog init failed"))?;
-    let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
+    let namespace_name = glue_catalog
+        .as_ref()
+        .map(|cfg| cfg.namespace.clone())
+        .unwrap_or_else(|| ICEBERG_NAMESPACE.to_string());
+    let namespace = NamespaceIdent::new(namespace_name);
     ensure_namespace(&catalog, &namespace).await?;
-    let table_ident = TableIdent::new(namespace.clone(), sanitize_table_name(&entity.name));
+    let table_name = glue_catalog
+        .as_ref()
+        .map(|cfg| cfg.table.clone())
+        .unwrap_or_else(|| sanitize_table_name(&entity.name));
+    let table_ident = TableIdent::new(namespace.clone(), table_name);
 
     let existing_table = if let Some(location) = metadata_location.as_ref() {
         Some(
@@ -231,12 +281,37 @@ async fn write_iceberg_table_async(
     let metadata_version = table_after_write
         .metadata_location()
         .and_then(parse_metadata_version_from_location);
+    let final_metadata_location = table_after_write
+        .metadata_location()
+        .map(|value| value.to_string())
+        .ok_or_else(|| {
+            Box::new(RunError(
+                "iceberg table metadata location missing after commit".to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
-    Ok(LocalIcebergWriteResult {
+    if let Some(glue_cfg) = glue_catalog.as_ref() {
+        upsert_glue_table(
+            glue_cfg,
+            &table_root_uri,
+            &final_metadata_location,
+            glue_table_state
+                .as_ref()
+                .and_then(|state| state.version_id.as_deref()),
+        )
+        .await?;
+    }
+
+    Ok(IcebergWriteResult {
         files_written,
         snapshot_id,
         metadata_version,
         file_paths,
+        table_root_uri,
+        iceberg_catalog_name: glue_catalog.as_ref().map(|cfg| cfg.catalog_name.clone()),
+        iceberg_database: glue_catalog.as_ref().map(|cfg| cfg.database.clone()),
+        iceberg_namespace: glue_catalog.as_ref().map(|cfg| cfg.namespace.clone()),
+        iceberg_table: glue_catalog.as_ref().map(|cfg| cfg.table.clone()),
     })
 }
 
@@ -246,6 +321,12 @@ fn build_iceberg_write_context(
     mode: config::WriteMode,
     mut remote: Option<&mut IcebergRemoteContext<'_>>,
 ) -> FloeResult<IcebergWriteContext> {
+    if entity.sink.accepted.iceberg.is_some() && remote.is_none() {
+        return Err(Box::new(RunError(format!(
+            "iceberg catalog writes require runtime catalog context for entity {}",
+            entity.name
+        ))));
+    }
     match target {
         Target::Local { base_path, .. } => {
             let table_root = PathBuf::from(base_path);
@@ -256,6 +337,7 @@ fn build_iceberg_write_context(
                 catalog_name: "floe_iceberg",
                 catalog_props: HashMap::new(),
                 metadata_location,
+                glue_catalog: None,
             })
         }
         Target::S3 {
@@ -264,6 +346,33 @@ fn build_iceberg_write_context(
             bucket,
             base_key,
         } => {
+            if let Some(ctx) = remote.as_mut() {
+                let ctx = &mut **ctx;
+                if let Some(glue_target) = ctx.catalogs.resolve_iceberg_target(
+                    ctx.resolver,
+                    entity,
+                    &entity.sink.accepted,
+                )? {
+                    if glue_target.catalog_type == "glue" {
+                        let catalog_target = Target::from_resolved(&glue_target.table_location)?;
+                        let store = iceberg_store_config(&catalog_target, ctx.resolver, entity)?;
+                        return Ok(IcebergWriteContext {
+                            table_root_uri: store.warehouse_location,
+                            catalog_name: "floe_iceberg",
+                            catalog_props: store.file_io_props,
+                            metadata_location: None,
+                            glue_catalog: Some(GlueIcebergCatalogConfig {
+                                catalog_name: glue_target.catalog_name,
+                                region: glue_target.region,
+                                database: glue_target.database,
+                                namespace: glue_target.namespace,
+                                table: glue_target.table,
+                            }),
+                        });
+                    }
+                }
+            }
+
             let metadata_location = if matches!(mode, config::WriteMode::Append) {
                 match remote.as_mut() {
                     Some(ctx) => {
@@ -289,6 +398,7 @@ fn build_iceberg_write_context(
                         catalog_name: "floe_iceberg",
                         catalog_props: store.file_io_props,
                         metadata_location,
+                        glue_catalog: None,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -296,6 +406,7 @@ fn build_iceberg_write_context(
                     catalog_name: "floe_iceberg",
                     catalog_props: HashMap::new(),
                     metadata_location,
+                    glue_catalog: None,
                 }),
             }
         }
@@ -330,6 +441,7 @@ fn build_iceberg_write_context(
                         catalog_name: "floe_iceberg",
                         catalog_props: store.file_io_props,
                         metadata_location,
+                        glue_catalog: None,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -337,6 +449,7 @@ fn build_iceberg_write_context(
                     catalog_name: "floe_iceberg",
                     catalog_props: HashMap::new(),
                     metadata_location,
+                    glue_catalog: None,
                 }),
             }
         }
@@ -718,6 +831,145 @@ fn latest_metadata_location_from_objects(objects: Vec<ObjectRef>) -> FloeResult<
         }
     }
     Ok(best.map(|(_, _, uri)| uri))
+}
+
+#[derive(Debug, Clone)]
+struct GlueTableState {
+    metadata_location: Option<String>,
+    version_id: Option<String>,
+}
+
+async fn build_glue_client(region: &str) -> FloeResult<GlueClient> {
+    let region_provider =
+        RegionProviderChain::first_try(GlueRegion::new(region.to_string())).or_default_provider();
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(region_provider)
+        .load()
+        .await;
+    Ok(GlueClient::new(&config))
+}
+
+async fn load_glue_table_state(glue_cfg: &GlueIcebergCatalogConfig) -> FloeResult<GlueTableState> {
+    let client = build_glue_client(&glue_cfg.region).await?;
+    let response = client
+        .get_table()
+        .database_name(glue_cfg.database.as_str())
+        .name(glue_cfg.table.as_str())
+        .send()
+        .await;
+    match response {
+        Ok(output) => {
+            let table = output.table().ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "glue get_table returned no table for {}.{}",
+                    glue_cfg.database, glue_cfg.table
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let parameters = table.parameters();
+            let metadata_location =
+                parameters.and_then(|params| params.get("metadata_location").cloned());
+            let iceberg_param = parameters
+                .and_then(|params| params.get("table_type"))
+                .map(|value| value.eq_ignore_ascii_case("ICEBERG"))
+                .unwrap_or(false);
+            if !iceberg_param || metadata_location.is_none() {
+                return Err(Box::new(RunError(format!(
+                    "glue table {}.{} exists but is not an Iceberg table managed by Floe (missing Iceberg parameters/metadata_location)",
+                    glue_cfg.database, glue_cfg.table
+                ))));
+            }
+            Ok(GlueTableState {
+                metadata_location,
+                version_id: table.version_id().map(ToOwned::to_owned),
+            })
+        }
+        Err(err) => {
+            if err
+                .as_service_error()
+                .is_some_and(|service_err| service_err.is_entity_not_found_exception())
+            {
+                return Ok(GlueTableState {
+                    metadata_location: None,
+                    version_id: None,
+                });
+            }
+            Err(Box::new(RunError(format!(
+                "glue get_table failed for {}.{}: {err}",
+                glue_cfg.database, glue_cfg.table
+            ))))
+        }
+    }
+}
+
+async fn upsert_glue_table(
+    glue_cfg: &GlueIcebergCatalogConfig,
+    table_root_uri: &str,
+    metadata_location: &str,
+    version_id: Option<&str>,
+) -> FloeResult<()> {
+    let client = build_glue_client(&glue_cfg.region).await?;
+    let table_input = build_glue_table_input(glue_cfg, table_root_uri, metadata_location);
+
+    let create_result = client
+        .create_table()
+        .database_name(glue_cfg.database.as_str())
+        .name(glue_cfg.table.as_str())
+        .table_input(table_input.clone())
+        .send()
+        .await;
+    match create_result {
+        Ok(_) => return Ok(()),
+        Err(err) => {
+            if !err
+                .as_service_error()
+                .is_some_and(|service_err| service_err.is_already_exists_exception())
+            {
+                return Err(Box::new(RunError(format!(
+                    "glue create_table failed for {}.{}: {err}",
+                    glue_cfg.database, glue_cfg.table
+                ))));
+            }
+        }
+    }
+
+    let mut update = client
+        .update_table()
+        .database_name(glue_cfg.database.as_str())
+        .name(glue_cfg.table.as_str())
+        .table_input(table_input)
+        .skip_archive(true);
+    if let Some(version_id) = version_id {
+        update = update.version_id(version_id);
+    }
+    update.send().await.map_err(|err| {
+        Box::new(RunError(format!(
+            "glue update_table failed for {}.{}: {err}",
+            glue_cfg.database, glue_cfg.table
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    Ok(())
+}
+
+fn build_glue_table_input(
+    glue_cfg: &GlueIcebergCatalogConfig,
+    table_root_uri: &str,
+    metadata_location: &str,
+) -> GlueTableInput {
+    let storage_descriptor = GlueStorageDescriptor::builder()
+        .location(table_root_uri)
+        .build();
+
+    GlueTableInput::builder()
+        .name(glue_cfg.table.as_str())
+        .table_type("EXTERNAL_TABLE")
+        .storage_descriptor(storage_descriptor)
+        .set_partition_keys(Some(Vec::new()))
+        .parameters("table_type", "ICEBERG")
+        .parameters("EXTERNAL", "TRUE")
+        .parameters("metadata_location", metadata_location)
+        .parameters("floe.iceberg.namespace", glue_cfg.namespace.as_str())
+        .build()
+        .expect("glue table input builder validated")
 }
 
 fn parse_metadata_version_from_location(location: &str) -> Option<i64> {

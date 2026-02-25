@@ -27,6 +27,7 @@ glob = "0.3"
 roxmltree = "0.20"
 aws-config = "1"
 aws-sdk-s3 = "1"
+aws-sdk-glue = "1"
 apache-avro = "0.16"
 google-cloud-storage = { package = "gcloud-storage", version = "1.2.0" }
 tempfile = "3"

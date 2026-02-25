@@ -14,6 +14,7 @@ fn build_config(definition: StorageDefinition, report: ReportConfig) -> RootConf
             default: Some(definition.name.clone()),
             definitions: vec![definition],
         }),
+        catalogs: None,
         env: None,
         domains: Vec::new(),
         report: Some(report),
@@ -124,6 +125,7 @@ fn local_report_paths_and_uris_are_normalized() {
                 prefix: None,
             }],
         }),
+        catalogs: None,
         env: None,
         domains: Vec::new(),
         report: Some(ReportConfig {

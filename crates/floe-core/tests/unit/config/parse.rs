@@ -256,3 +256,77 @@ entities:
     assert_eq!(spec[1].column, "country");
     assert_eq!(spec[1].transform, "identity");
 }
+
+#[test]
+fn parse_config_supports_catalogs_and_iceberg_catalog_binding() {
+    let yaml = r#"
+version: "0.1"
+storages:
+  default: "s3_out"
+  definitions:
+    - name: "s3_out"
+      type: "s3"
+      bucket: "data-bucket"
+      region: "us-east-1"
+      prefix: "accepted"
+catalogs:
+  default: "glue_main"
+  definitions:
+    - name: "glue_main"
+      type: "glue"
+      region: "us-east-1"
+      database: "lakehouse"
+      warehouse_storage: "s3_out"
+      warehouse_prefix: "iceberg"
+domains:
+  - name: "sales"
+    incoming_dir: "/tmp/incoming/sales"
+entities:
+  - name: "orders"
+    domain: "sales"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "orders_table"
+        iceberg:
+          catalog: "glue_main"
+          namespace: "sales_ops"
+          table: "orders_fact"
+          location: "custom/orders"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "number"
+"#;
+
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let catalogs = config.catalogs.as_ref().expect("catalogs");
+    assert_eq!(catalogs.default.as_deref(), Some("glue_main"));
+    assert_eq!(catalogs.definitions.len(), 1);
+    assert_eq!(catalogs.definitions[0].catalog_type, "glue");
+    assert_eq!(
+        catalogs.definitions[0].database.as_deref(),
+        Some("lakehouse")
+    );
+    assert_eq!(
+        catalogs.definitions[0].warehouse_prefix.as_deref(),
+        Some("iceberg")
+    );
+
+    let iceberg = config.entities[0]
+        .sink
+        .accepted
+        .iceberg
+        .as_ref()
+        .expect("iceberg options");
+    assert_eq!(iceberg.catalog.as_deref(), Some("glue_main"));
+    assert_eq!(iceberg.namespace.as_deref(), Some("sales_ops"));
+    assert_eq!(iceberg.table.as_deref(), Some("orders_fact"));
+    assert_eq!(iceberg.location.as_deref(), Some("custom/orders"));
+}

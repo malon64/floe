@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use crate::config::{EntityConfig, RootConfig, SourceOptions, StorageDefinition};
+use crate::config::{
+    CatalogDefinition, EntityConfig, RootConfig, SourceOptions, StorageDefinition,
+};
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
 use crate::io::read::xml_selector;
@@ -13,6 +15,7 @@ const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
+const ALLOWED_CATALOG_TYPES: &[&str] = &["glue"];
 const ALLOWED_ICEBERG_PARTITION_TRANSFORMS: &[&str] = &["identity", "year", "month", "day", "hour"];
 const MAX_JSON_COLUMNS: usize = 1024;
 
@@ -24,13 +27,14 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     }
 
     let storage_registry = StorageRegistry::new(config)?;
+    let catalog_registry = CatalogRegistry::new(config, &storage_registry)?;
     if let Some(report) = &config.report {
         validate_report(report, &storage_registry)?;
     }
 
     let mut names = HashSet::new();
     for entity in &config.entities {
-        validate_entity(entity, &storage_registry)?;
+        validate_entity(entity, &storage_registry, &catalog_registry)?;
         if !names.insert(entity.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} is duplicated in config",
@@ -51,10 +55,14 @@ fn validate_report(
     Ok(())
 }
 
-fn validate_entity(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
+fn validate_entity(
+    entity: &EntityConfig,
+    storages: &StorageRegistry,
+    catalogs: &CatalogRegistry,
+) -> FloeResult<()> {
     validate_source(entity, storages)?;
     validate_policy(entity)?;
-    validate_sink(entity, storages)?;
+    validate_sink(entity, storages, catalogs)?;
     validate_schema(entity)?;
     Ok(())
 }
@@ -158,7 +166,11 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
     Ok(())
 }
 
-fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResult<()> {
+fn validate_sink(
+    entity: &EntityConfig,
+    storages: &StorageRegistry,
+    catalogs: &CatalogRegistry,
+) -> FloeResult<()> {
     format::ensure_accepted_sink_format(&entity.name, entity.sink.accepted.format.as_str())?;
     format::validate_sink_options(
         &entity.name,
@@ -209,6 +221,7 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
             }
         }
     }
+    validate_iceberg_catalog_binding(entity, storages, catalogs, &accepted_storage)?;
 
     let _ = storages.definition_type(&accepted_storage);
 
@@ -231,6 +244,78 @@ fn validate_sink(entity: &EntityConfig, storages: &StorageRegistry) -> FloeResul
             }
         }
         storages.validate_reference(entity, "sink.archive.storage", archive_storage)?;
+    }
+
+    Ok(())
+}
+
+fn validate_iceberg_catalog_binding(
+    entity: &EntityConfig,
+    storages: &StorageRegistry,
+    catalogs: &CatalogRegistry,
+    accepted_storage: &str,
+) -> FloeResult<()> {
+    let accepted = &entity.sink.accepted;
+    if accepted.format != "iceberg" {
+        if accepted.iceberg.is_some() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.iceberg is only supported for sink.accepted.format=iceberg",
+                entity.name
+            ))));
+        }
+        return Ok(());
+    }
+
+    let Some(iceberg_cfg) = accepted.iceberg.as_ref() else {
+        return Ok(());
+    };
+
+    let accepted_storage_type = storages
+        .definition_type(accepted_storage)
+        .unwrap_or("local");
+    if accepted_storage_type != "s3" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 (got {})",
+            entity.name, accepted_storage_type
+        ))));
+    }
+
+    let catalog_name = if let Some(name) = iceberg_cfg.catalog.as_deref() {
+        name.to_string()
+    } else if let Some(name) = catalogs.default_name() {
+        name.to_string()
+    } else {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.iceberg.catalog is required (or set catalogs.default)",
+            entity.name
+        ))));
+    };
+
+    let definition = catalogs.definition(&catalog_name).ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.iceberg.catalog references unknown catalog {}",
+            entity.name, catalog_name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    if definition.catalog_type != "glue" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.iceberg.catalog={} uses unsupported catalog type {} (allowed: glue)",
+            entity.name, catalog_name, definition.catalog_type
+        ))));
+    }
+    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+        let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                definition.name, storage_name
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        if storage_type != "s3" {
+            return Err(Box::new(ConfigError(format!(
+                "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                definition.name, storage_type
+            ))));
+        }
     }
 
     Ok(())
@@ -476,6 +561,105 @@ struct StorageRegistry {
     has_config: bool,
     default_name: Option<String>,
     definitions: std::collections::HashMap<String, StorageDefinition>,
+}
+
+struct CatalogRegistry {
+    has_config: bool,
+    default_name: Option<String>,
+    definitions: std::collections::HashMap<String, CatalogDefinition>,
+}
+
+impl CatalogRegistry {
+    fn new(config: &RootConfig, storages: &StorageRegistry) -> FloeResult<Self> {
+        let Some(catalogs) = &config.catalogs else {
+            return Ok(Self {
+                has_config: false,
+                default_name: None,
+                definitions: std::collections::HashMap::new(),
+            });
+        };
+
+        if catalogs.definitions.is_empty() {
+            return Err(Box::new(ConfigError(
+                "catalogs.definitions must not be empty".to_string(),
+            )));
+        }
+
+        let mut definitions = std::collections::HashMap::new();
+        for definition in &catalogs.definitions {
+            if !ALLOWED_CATALOG_TYPES.contains(&definition.catalog_type.as_str()) {
+                return Err(Box::new(ConfigError(format!(
+                    "catalogs.definitions name={} type={} is unsupported (allowed: {})",
+                    definition.name,
+                    definition.catalog_type,
+                    ALLOWED_CATALOG_TYPES.join(", ")
+                ))));
+            }
+            if definition.catalog_type == "glue" {
+                if definition.region.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} requires region for type glue",
+                        definition.name
+                    ))));
+                }
+                if definition.database.is_none() {
+                    return Err(Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} requires database for type glue",
+                        definition.name
+                    ))));
+                }
+                if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+                    let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
+                        Box::new(ConfigError(format!(
+                            "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                            definition.name, storage_name
+                        ))) as Box<dyn std::error::Error + Send + Sync>
+                    })?;
+                    if storage_type != "s3" {
+                        return Err(Box::new(ConfigError(format!(
+                            "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                            definition.name, storage_type
+                        ))));
+                    }
+                }
+            }
+            if definitions
+                .insert(definition.name.clone(), definition.clone())
+                .is_some()
+            {
+                return Err(Box::new(ConfigError(format!(
+                    "catalogs.definitions name={} is duplicated",
+                    definition.name
+                ))));
+            }
+        }
+
+        if let Some(default_name) = &catalogs.default {
+            if !definitions.contains_key(default_name) {
+                return Err(Box::new(ConfigError(format!(
+                    "catalogs.default={} does not match any definition",
+                    default_name
+                ))));
+            }
+        }
+
+        Ok(Self {
+            has_config: true,
+            default_name: catalogs.default.clone(),
+            definitions,
+        })
+    }
+
+    fn definition(&self, name: &str) -> Option<&CatalogDefinition> {
+        if !self.has_config {
+            return None;
+        }
+        self.definitions.get(name)
+    }
+
+    fn default_name(&self) -> Option<&str> {
+        self.default_name.as_deref()
+    }
 }
 
 impl StorageRegistry {

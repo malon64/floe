@@ -611,6 +611,11 @@ pub(super) fn run_entity(
     let mut accepted_part_files = Vec::new();
     let mut accepted_table_version = None;
     let mut accepted_snapshot_id = None;
+    let mut accepted_table_root_uri = None;
+    let mut accepted_iceberg_catalog_name = None;
+    let mut accepted_iceberg_database = None;
+    let mut accepted_iceberg_namespace = None;
+    let mut accepted_iceberg_table = None;
     // Phase C: write accepted output once per entity.
     if !accepted_accum.is_empty() {
         let mut accepted_df = accepted_accum
@@ -632,6 +637,7 @@ pub(super) fn run_entity(
             temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
             cloud: runtime.storage(),
             resolver: &context.storage_resolver,
+            catalogs: &context.catalog_resolver,
             entity,
             mode: write_mode,
         })?;
@@ -639,6 +645,11 @@ pub(super) fn run_entity(
         accepted_part_files = accepted_output.part_files;
         accepted_table_version = accepted_output.table_version;
         accepted_snapshot_id = accepted_output.snapshot_id;
+        accepted_table_root_uri = accepted_output.table_root_uri;
+        accepted_iceberg_catalog_name = accepted_output.iceberg_catalog_name;
+        accepted_iceberg_database = accepted_output.iceberg_database;
+        accepted_iceberg_namespace = accepted_output.iceberg_namespace;
+        accepted_iceberg_table = accepted_output.iceberg_table;
     }
     if accepted_parts_written > 0 {
         for file_report in &mut file_reports {
@@ -662,6 +673,11 @@ pub(super) fn run_entity(
         accepted_part_files,
         accepted_table_version,
         accepted_snapshot_id,
+        accepted_table_root_uri,
+        accepted_iceberg_catalog_name,
+        accepted_iceberg_database,
+        accepted_iceberg_namespace,
+        accepted_iceberg_table,
     });
 
     if let Some(report_target) = &context.report_target {

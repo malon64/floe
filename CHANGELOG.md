@@ -2,6 +2,19 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.0
+
+- Core performance and observability:
+  - added internal phase timing instrumentation (gated by `FLOE_PERF_PHASE_TIMINGS`) for run- and entity-level phases
+  - reduced CSV read overhead by reusing prechecked input columns in the read path
+  - optimized JSON `read_parse` path by reducing intermediate row allocations during selector extraction.
+- Core refactoring (no intended behavior change):
+  - split `run/entity` validation + split/reject flow into dedicated modules
+  - split accepted write phase/report-state plumbing out of `run/entity/mod.rs`
+  - further modularized writer internals (Delta/Iceberg) and report plumbing for maintainability.
+- Documentation:
+  - refreshed v0.3 release communication draft and docs updates for the new core organization/perf instrumentation.
+
 ## v0.2.8
 
 - Iceberg accepted sink:

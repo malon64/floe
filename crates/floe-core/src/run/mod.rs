@@ -109,6 +109,7 @@ pub fn run_with_runtime(
         validate_entities(&context.config, &options.entities)?;
     }
 
+    let observer = default_observer();
     let perf_enabled = perf::phase_timing_enabled();
     let selected_entities = select_entities(&context, &options);
     let resolution_mode = if options.dry_run {
@@ -116,11 +117,19 @@ pub fn run_with_runtime(
     } else {
         io::storage::inputs::ResolveInputsMode::Download
     };
+    if !options.dry_run {
+        observer.on_event(RunEvent::RunStarted {
+            run_id: context.run_id.clone(),
+            config: context.config_path.display().to_string(),
+            report_base: context.report_base_path.clone(),
+            ts_ms: event_time_ms(),
+        });
+    }
     let resolve_start = perf_enabled.then(Instant::now);
     let plans = resolve_entity_plans(&context, runtime, &selected_entities, resolution_mode)?;
     if let Some(start) = resolve_start {
         perf::emit_perf_log(
-            default_observer(),
+            observer,
             &context.run_id,
             None,
             "perf_run_phase_timings",
@@ -141,13 +150,6 @@ pub fn run_with_runtime(
 
     let mut entity_outcomes = Vec::new();
     let mut abort_run = false;
-    let observer = default_observer();
-    observer.on_event(RunEvent::RunStarted {
-        run_id: context.run_id.clone(),
-        config: context.config_path.display().to_string(),
-        report_base: context.report_base_path.clone(),
-        ts_ms: event_time_ms(),
-    });
 
     for plan in plans {
         observer.on_event(RunEvent::EntityStarted {

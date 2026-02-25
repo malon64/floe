@@ -101,6 +101,7 @@ Current scope:
 - partition columns must exist in `schema.columns`
 - supported transforms: `identity`, `year`, `month`, `day`, `hour`
 - partition spec is applied to Iceberg table metadata and partitioned file writes
+- append validates partition-spec compatibility with existing tables (no implicit partition-spec evolution)
 - compaction/optimization remains external to Floe
 
 ## Supported scope (current)
@@ -114,14 +115,29 @@ Current scope:
 - S3/GCS writes use direct Iceberg/object_store `FileIO`
 - S3 supports optional AWS Glue catalog registration (`sink.accepted.iceberg.catalog`)
 - Glue mode uses S3 for actual table data/metadata location
-- Run report includes sink format, table root URI, write mode, files written, snapshot id (when present), and Iceberg catalog identity when configured
+- Run report `accepted_output` includes:
+  - `table_root_uri`, `write_mode`, `files_written`, `parts_written`, `part_files`
+  - `table_version` (Iceberg metadata version, when available)
+  - `snapshot_id` (when a snapshot exists)
+  - `iceberg_catalog_name`, `iceberg_database`, `iceberg_namespace`, `iceberg_table` (Glue mode)
+  - file sizing metrics (`total_bytes_written`, `avg_file_size_mb`, `small_files_count`)
+- Iceberg file sizing metrics are based on Iceberg data files only (metadata/manifests excluded)
 
-## Limitations / non-goals (v0.2)
+## Limitations / non-goals (current)
 
 - No schema evolution
 - No merge/upsert
 - No cleanup/garbage collection of orphaned files/metadata
+- No table compaction/maintenance jobs (externalized to platform/data lake workflows)
 - No ADLS Iceberg sink yet (follow-up work)
+
+## Glue catalog scope and limitations
+
+- Catalog type supported by Floe today: AWS Glue (`catalogs.definitions[].type: glue`)
+- Glue-backed Iceberg requires S3-backed table locations (no GCS/ADLS Glue mode)
+- Floe creates/updates the Glue table entry for the configured Iceberg table location
+- The target Glue database must already exist
+- Floe does not manage Glue database lifecycle or table maintenance workflows
 
 ## Manual S3 integration test
 

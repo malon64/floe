@@ -17,6 +17,14 @@ important references so you can quickly find the right guide.
 - Run reports and JSON schema: [docs/report.md](report.md)
 - Logging for orchestrators (`--log-format`): [docs/logging.md](logging.md)
 
+## Orchestrators & manifests
+
+- CLI manifest generation (`floe manifest generate`): [docs/cli.md](cli.md)
+- Common orchestrator manifest schema: [orchestrators/schemas/floe.manifest.v1.json](../orchestrators/schemas/floe.manifest.v1.json)
+- Dagster integration package + examples: [orchestrators/dagster-floe/README.md](../orchestrators/dagster-floe/README.md)
+- Airflow integration package + examples: [orchestrators/airflow-floe/README.md](../orchestrators/airflow-floe/README.md)
+- Local integration dev notes: [orchestrators/LOCAL_DEV.md](../orchestrators/LOCAL_DEV.md)
+
 ## Configuration
 
 - Full config reference (all keys + defaults): [docs/config.md](config.md)
@@ -33,19 +41,22 @@ important references so you can quickly find the right guide.
   - Sink options (parquet settings): [docs/sinks/options.md](sinks/options.md)
   - Iceberg (filesystem catalog on local/S3/GCS, plus AWS Glue catalog on S3): [docs/sinks/iceberg.md](sinks/iceberg.md)
 
+## Bootstrap & CLI productivity
+
+- CLI usage (`validate`, `run`, `manifest generate`, `add-entity`): [docs/cli.md](cli.md)
+- `floe add-entity` can bootstrap a missing config file and infer entity name/format from input path extensions (CSV/JSON/Parquet).
+
 ## Benchmarking & development
 
 - Bench setup and results: [docs/benchmarking.md](benchmarking.md)
 
-## Notes
+## Current boundaries
 
-- Recent additions:
-  - New input formats: TSV, XLSX, fixed-width, ORC, Avro, and XML.
-  - `schema.columns[].source` now supports nested JSON selectors and XML selectors.
-  - Dry-run now resolves inputs ahead of execution and previews resolved files.
-- Cloud IO for CSV/JSON/Parquet uses temp download/upload (file-level IO).
-- Delta writes to cloud use transactional object_store (no temp upload).
-- Reports can be written to cloud storages via temp upload.
+- Floe supports partitioned Delta (`partition_by`) and partitioned Iceberg (`partition_spec`) writes.
+- Floe reports write-time metrics/metadata for accepted outputs (format-dependent), including Delta/Iceberg table versioning metadata and file sizing metrics where available.
+- Floe does not perform table optimization/maintenance (for example Delta optimize/vacuum or Iceberg compaction/maintenance); run those as separate jobs.
+- Iceberg schema evolution and merge/upsert workflows are out of scope in current releases.
+- Target-aware uniqueness checks against existing sink tables in append mode are future work (current uniqueness checks operate within Floe's processed data scope for the run).
 
 If you are missing a document or a section feels out of date, please open an
 issue or PR so we can keep this summary aligned with current behavior.

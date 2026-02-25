@@ -1,35 +1,29 @@
-use crate::errors::RunError;
-use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
-use polars::prelude::DataFrame;
+use crate::{check, io, report, ConfigError, FloeResult};
 use serde_json::json;
 use std::time::Instant;
 
 use super::file::required_columns;
-use super::output::{
-    append_rejection_columns, validate_rejected_target, write_accepted_output,
-    write_error_report_output, write_rejected_output, write_rejected_raw_output,
-    AcceptedOutputContext, RejectedOutputContext,
-};
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::checks::normalize::{
-    output_column_mapping, rename_output_columns, resolve_normalize_strategy,
-    resolve_source_columns, source_column_mapping,
+    output_column_mapping, resolve_normalize_strategy, resolve_source_columns,
+    source_column_mapping,
 };
-use crate::report::build::summarize_validation_sparse;
-
-use io::format::ReadInput;
 use io::storage::Target;
 
+mod accepted_write;
 mod precheck;
 mod process;
 mod resolve;
 mod unique_existing;
+mod validate_split;
 pub(crate) use resolve::{resolve_entity_targets, ResolvedEntityTargets};
 
 use crate::report::entity::{build_run_report, RunReportContext};
-use crate::run::events::{event_time_ms, RunObserver};
-use precheck::{run_precheck, PrecheckContext, PrecheckedInput};
-use process::{append_sink_options_warning, sink_options_warning};
+use crate::run::events::RunObserver;
+use accepted_write::{run_accepted_write_phase, AcceptedWritePhaseContext};
+use precheck::{run_precheck, PrecheckContext};
+use process::sink_options_warning;
+use validate_split::{run_validate_split_phase, ValidateSplitPhaseContext};
 
 pub(super) struct EntityRunResult {
     pub outcome: EntityOutcome,
@@ -65,59 +59,6 @@ impl EntityPhaseTimings {
     }
 }
 
-#[derive(Debug, Default)]
-struct AcceptedWriteReportState {
-    parts_written: u64,
-    files_written: u64,
-    part_files: Vec<String>,
-    table_version: Option<i64>,
-    snapshot_id: Option<i64>,
-    table_root_uri: Option<String>,
-    iceberg_catalog_name: Option<String>,
-    iceberg_database: Option<String>,
-    iceberg_namespace: Option<String>,
-    iceberg_table: Option<String>,
-    total_bytes_written: Option<u64>,
-    avg_file_size_mb: Option<f64>,
-    small_files_count: Option<u64>,
-}
-
-impl AcceptedWriteReportState {
-    fn from_write_output(output: io::format::AcceptedWriteOutput) -> Self {
-        Self {
-            parts_written: output.parts_written,
-            files_written: output.files_written,
-            part_files: output.part_files,
-            table_version: output.table_version,
-            snapshot_id: output.snapshot_id,
-            table_root_uri: output.table_root_uri,
-            iceberg_catalog_name: output.iceberg_catalog_name,
-            iceberg_database: output.iceberg_database,
-            iceberg_namespace: output.iceberg_namespace,
-            iceberg_table: output.iceberg_table,
-            total_bytes_written: output.metrics.total_bytes_written,
-            avg_file_size_mb: output.metrics.avg_file_size_mb,
-            small_files_count: output.metrics.small_files_count,
-        }
-    }
-
-    fn apply_accepted_path_to_file_reports(
-        &self,
-        file_reports: &mut [report::FileReport],
-        accepted_target_uri: &str,
-    ) {
-        if self.parts_written == 0 {
-            return;
-        }
-        let accepted_path = accepted_target_uri.to_string();
-        for file_report in file_reports {
-            file_report.output.accepted_path = Some(accepted_path.clone());
-        }
-    }
-}
-
-// PrecheckedInput moved to precheck module
-
 pub(super) fn run_entity(
     context: &RunContext,
     runtime: &mut dyn crate::runtime::Runtime,
@@ -130,7 +71,6 @@ pub(super) fn run_entity(
     let mut phase_timings = EntityPhaseTimings::default();
     let input = &entity.source;
     let write_mode = entity.sink.resolved_write_mode();
-    let mut rejected_overwrite_used = false;
     let input_adapter = runtime.input_adapter(input.format.as_str())?;
     let resolved_targets = plan.resolved_targets;
     let formatter_name = context
@@ -212,11 +152,8 @@ pub(super) fn run_entity(
             Target::from_resolved(&resolved)
         })
         .transpose()?;
-    let archive_enabled = archive_target.is_some();
-
     let mut file_timings_ms = Vec::with_capacity(input_files.len());
     let sink_options_warning = sink_options_warning(entity);
-    let mut sink_options_warned = false;
     // Phase A: per-file precheck (schema mismatch / early rejection).
     let precheck_start = perf_enabled.then(Instant::now);
     let precheck = run_precheck(
@@ -242,9 +179,8 @@ pub(super) fn run_entity(
     let mut abort_run = precheck.abort_run;
     let prechecked_inputs = precheck.prechecked;
 
-    let mut accepted_accum: Vec<DataFrame> = Vec::new();
-    let mut accepted_accum_rows: u64 = 0;
-    let mut accepted_accum_frames: u64 = 0;
+    let mut accepted_accum = Vec::new();
+    let temp_dir_path = temp_dir.as_ref().map(|dir| dir.path());
     let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
     unique_existing::seed_unique_tracker_for_append(
         &mut unique_tracker,
@@ -257,524 +193,55 @@ pub(super) fn run_entity(
         entity,
         &normalized_columns,
     )?;
-
     // Phase B: row-level validation + entity-level accumulation.
-    let collect_raw = true;
-    for prechecked in prechecked_inputs {
-        let PrecheckedInput {
-            input_file,
-            input_columns,
-            mismatch,
-            file_timer,
-        } = prechecked;
-        let read_parse_start = perf_enabled.then(Instant::now);
-        let mut inputs = input_adapter.read_inputs_with_prechecked_columns(
-            entity,
-            std::slice::from_ref(&input_file),
-            &read_columns,
-            normalize_strategy.as_deref(),
-            collect_raw,
-            Some(&input_columns),
-        )?;
-        if let Some(start) = read_parse_start {
-            phase_timings.read_parse_ms += start.elapsed().as_millis() as u64;
-        }
-        let input = inputs.pop().ok_or_else(|| {
-            Box::new(RunError(format!(
-                "entity.name={} missing input data",
-                entity.name
-            )))
-        })?;
-        let (input_file, mut raw_df, mut df) = match input {
-            ReadInput::Data {
-                input_file,
-                raw_df,
-                typed_df,
-            } => (input_file, raw_df, typed_df),
-            ReadInput::FileError { input_file, error } => {
-                crate::errors::emit(
-                    &context.run_id,
-                    Some(&entity.name),
-                    Some(&input_file.source_uri),
-                    Some(&error.rule),
-                    &format!("entity.name={} {}", entity.name, error.message),
-                );
-                let status = if entity.policy.severity == "abort" {
-                    report::FileStatus::Aborted
-                } else {
-                    report::FileStatus::Rejected
-                };
-                let mismatch_action = if status == report::FileStatus::Aborted {
-                    report::MismatchAction::Aborted
-                } else {
-                    report::MismatchAction::RejectedFile
-                };
-
-                let rejected_path = rejected_target
-                    .as_ref()
-                    .map(|target| {
-                        write_rejected_raw_output(
-                            target,
-                            &input_file,
-                            temp_dir.as_ref().map(|dir| dir.path()),
-                            runtime.storage(),
-                            &context.storage_resolver,
-                            entity,
-                        )
-                    })
-                    .transpose()?;
-
-                let mismatch_report = mismatch.report;
-                let file_report = report::FileReport {
-                    input_file: input_file.source_uri.clone(),
-                    status,
-                    row_count: 0,
-                    accepted_count: 0,
-                    rejected_count: 0,
-                    mismatch: report::FileMismatch {
-                        declared_columns_count: mismatch_report.declared_columns_count,
-                        input_columns_count: mismatch_report.input_columns_count,
-                        missing_columns: mismatch_report.missing_columns,
-                        extra_columns: mismatch_report.extra_columns,
-                        mismatch_action,
-                        error: Some(report::MismatchIssue {
-                            rule: error.rule,
-                            message: format!("entity.name={} {}", entity.name, error.message),
-                        }),
-                        warning: mismatch_report.warning,
-                    },
-                    output: report::FileOutput {
-                        accepted_path: None,
-                        rejected_path,
-                        errors_path: None,
-                        archived_path: None,
-                    },
-                    validation: report::FileValidation {
-                        errors: 1 + mismatch.errors,
-                        warnings: mismatch.warnings,
-                        rules: Vec::new(),
-                    },
-                };
-
-                totals.errors_total += 1 + mismatch.errors;
-                totals.warnings_total += mismatch.warnings;
-                file_reports.push(file_report);
-                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
-
-                if status == report::FileStatus::Aborted {
-                    abort_run = true;
-                    break;
-                }
-                continue;
-            }
-        };
-
-        let validation_start = perf_enabled.then(Instant::now);
-        check::apply_mismatch_plan(&mismatch, &normalized_columns, raw_df.as_mut(), &mut df)?;
-        let mismatch_report = mismatch.report;
-        let mismatch_errors = mismatch.errors;
-        let mismatch_warnings = mismatch.warnings;
-
-        let row_count = raw_df
-            .as_ref()
-            .map(|df| df.height())
-            .unwrap_or_else(|| df.height()) as u64;
-        let source_stem = input_file.source_stem.as_str();
-
-        let raw_df = raw_df.ok_or_else(|| {
-            Box::new(RunError(format!(
-                "entity.name={} raw dataframe unavailable for rejection checks",
-                entity.name
-            )))
-        })?;
-        let raw_indices = check::column_index_map(&raw_df);
-        let typed_indices = check::column_index_map(&df);
-
-        let cast_counts = if track_cast_errors {
-            check::cast_mismatch_counts(&raw_df, &df, &normalized_columns)?
-        } else {
-            Vec::new()
-        };
-        let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
-
-        let mut error_lists = if entity.policy.severity == "abort" && cast_total > 0 {
-            check::cast_mismatch_errors_sparse(
-                &raw_df,
-                &df,
-                &normalized_columns,
-                &raw_indices,
-                &typed_indices,
-            )?
-        } else {
-            let not_null_counts = check::not_null_counts(&df, &required_cols)?;
-            let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
-            let quick_total = cast_total + not_null_total;
-
-            if quick_total == 0 {
-                check::SparseRowErrors::new(row_count as usize)
-            } else {
-                let mut errors =
-                    check::not_null_errors_sparse(&df, &required_cols, &typed_indices)?;
-                if track_cast_errors && cast_total > 0 {
-                    let cast_errors = check::cast_mismatch_errors_sparse(
-                        &raw_df,
-                        &df,
-                        &normalized_columns,
-                        &raw_indices,
-                        &typed_indices,
-                    )?;
-                    errors.merge(cast_errors);
-                }
-                errors
-            }
-        };
-
-        if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
-            let unique_errors = unique_tracker.apply_sparse(&df, &normalized_columns)?;
-            error_lists.merge(unique_errors);
-        }
-
-        // Sparse errors -> accept mask and formatted errors only for rejected rows.
-        let accept_rows = error_lists.accept_rows();
-        let errors_json = error_lists.build_errors_formatted(row_error_formatter.as_ref());
-        let row_error_count = error_lists.error_row_count();
-        let violation_count = error_lists.violation_count();
-
-        drop(raw_df);
-        let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
-        let reject_count = row_count.saturating_sub(accept_count);
-        let has_errors = row_error_count > 0;
-        let mut accepted_df_opt: Option<DataFrame> = None;
-        let mut rejected_path = None;
-        let mut errors_path = None;
-        let mut archived_path = None;
-        let mut rules = if has_errors {
-            summarize_validation_sparse(
-                &error_lists,
-                &normalized_columns,
-                severity,
-                Some(&source_column_map),
-            )
-        } else {
-            Vec::new()
-        };
-        let mut sink_options_warnings = 0;
-        if let Some(message) = sink_options_warning.as_deref() {
-            sink_options_warnings = 1;
-            warnings::emit_once(
-                &mut sink_options_warned,
-                &context.run_id,
-                Some(&entity.name),
-                None,
-                Some("sink_options_ignored"),
-                message,
-            );
-            append_sink_options_warning(&mut rules, message);
-        }
-        if let Some(start) = validation_start {
-            phase_timings.checks_validation_ms += start.elapsed().as_millis() as u64;
-        }
-
-        let split_start = perf_enabled.then(Instant::now);
-        let mut write_rejected_ms_this_file = 0_u64;
-
-        match entity.policy.severity.as_str() {
-            "warn" => {
-                let mut accepted_df = df;
-                rename_output_columns(&mut accepted_df, &output_column_map)?;
-                accepted_df_opt = Some(accepted_df);
-                if has_errors {
-                    if let Some(rejected_target) = rejected_target.as_ref() {
-                        let write_start = perf_enabled.then(Instant::now);
-                        let errors_path_value = write_error_report_output(
-                            rejected_target,
-                            source_stem,
-                            &errors_json,
-                            temp_dir.as_ref().map(|dir| dir.path()),
-                            runtime.storage(),
-                            &context.storage_resolver,
-                            entity,
-                        )?;
-                        if let Some(start) = write_start {
-                            write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
-                        }
-                        errors_path = Some(errors_path_value);
-                    } else {
-                        let message = format!(
-                            "entity.name={} sink.rejected missing; error report not written",
-                            entity.name
-                        );
-                        warnings::emit(
-                            &context.run_id,
-                            Some(&entity.name),
-                            None,
-                            Some("sink_rejected_missing"),
-                            &message,
-                        );
-                    }
-                }
-            }
-            "reject" => {
-                if has_errors {
-                    validate_rejected_target(entity, "reject")?;
-
-                    let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
-                    let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
-                        Box::new(RunError(format!("failed to filter accepted rows: {err}")))
-                    })?;
-                    let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
-                        Box::new(RunError(format!("failed to filter rejected rows: {err}")))
-                    })?;
-                    append_rejection_columns(&mut rejected_df, &errors_json, false)?;
-                    rename_output_columns(&mut accepted_df, &output_column_map)?;
-                    rename_output_columns(&mut rejected_df, &output_column_map)?;
-                    accepted_df_opt = Some(accepted_df);
-                    let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.storage is required for rejection",
-                            entity.name
-                        )))
-                    })?;
-                    let rejected_target = rejected_target.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.storage is required for rejection",
-                            entity.name
-                        )))
-                    })?;
-                    let rejected_mode = if write_mode == config::WriteMode::Overwrite {
-                        if rejected_overwrite_used {
-                            config::WriteMode::Append
-                        } else {
-                            rejected_overwrite_used = true;
-                            config::WriteMode::Overwrite
-                        }
-                    } else {
-                        write_mode
-                    };
-                    let rejected_adapter =
-                        runtime.rejected_sink_adapter(rejected_config.format.as_str())?;
-                    let write_start = perf_enabled.then(Instant::now);
-                    let rejected_path_value = write_rejected_output(RejectedOutputContext {
-                        adapter: rejected_adapter,
-                        target: rejected_target,
-                        df: &mut rejected_df,
-                        source_stem,
-                        temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-                        cloud: runtime.storage(),
-                        resolver: &context.storage_resolver,
-                        entity,
-                        mode: rejected_mode,
-                    })?;
-                    if let Some(start) = write_start {
-                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
-                    }
-                    rejected_path = Some(rejected_path_value);
-                } else {
-                    let mut accepted_df = df;
-                    rename_output_columns(&mut accepted_df, &output_column_map)?;
-                    accepted_df_opt = Some(accepted_df);
-                }
-            }
-            "abort" => {
-                if has_errors {
-                    validate_rejected_target(entity, "abort")?;
-                    let rejected_target = rejected_target.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "entity.name={} sink.rejected.storage is required for rejection",
-                            entity.name
-                        )))
-                    })?;
-                    let rejected_write_start = perf_enabled.then(Instant::now);
-                    let rejected_path_value = write_rejected_raw_output(
-                        rejected_target,
-                        &input_file,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        runtime.storage(),
-                        &context.storage_resolver,
-                        entity,
-                    )?;
-                    if let Some(start) = rejected_write_start {
-                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
-                    }
-                    let error_write_start = perf_enabled.then(Instant::now);
-                    let errors_path_value = write_error_report_output(
-                        rejected_target,
-                        source_stem,
-                        &errors_json,
-                        temp_dir.as_ref().map(|dir| dir.path()),
-                        runtime.storage(),
-                        &context.storage_resolver,
-                        entity,
-                    )?;
-                    if let Some(start) = error_write_start {
-                        write_rejected_ms_this_file += start.elapsed().as_millis() as u64;
-                    }
-                    rejected_path = Some(rejected_path_value);
-                    errors_path = Some(errors_path_value);
-                } else {
-                    let mut accepted_df = df;
-                    rename_output_columns(&mut accepted_df, &output_column_map)?;
-                    accepted_df_opt = Some(accepted_df);
-                }
-            }
-            severity => {
-                return Err(Box::new(ConfigError(format!(
-                    "unsupported policy severity: {severity}"
-                ))))
-            }
-        }
-        if let Some(start) = split_start {
-            let split_elapsed_ms = start.elapsed().as_millis() as u64;
-            phase_timings.write_rejected_ms += write_rejected_ms_this_file;
-            phase_timings.accept_reject_split_ms +=
-                split_elapsed_ms.saturating_sub(write_rejected_ms_this_file);
-        }
-
-        if let Some(accepted_df) = accepted_df_opt {
-            accepted_accum_rows += accepted_df.height() as u64;
-            accepted_accum_frames += 1;
-            accepted_accum.push(accepted_df);
-        }
-
-        if archive_enabled {
-            let archive_start = perf_enabled.then(Instant::now);
-            archived_path = io::storage::ops::archive_input(
-                runtime.storage(),
-                &context.storage_resolver,
-                &context.run_id,
-                entity,
-                archive_target.as_ref(),
-                &input_file,
-            )?;
-            if let Some(start) = archive_start {
-                phase_timings.archive_ms += start.elapsed().as_millis() as u64;
-            }
-        }
-
-        let (status, accepted_count, rejected_count, errors, warnings) =
-            match entity.policy.severity.as_str() {
-                "warn" => (
-                    report::FileStatus::Success,
-                    row_count,
-                    0,
-                    0,
-                    violation_count,
-                ),
-                "reject" => {
-                    if has_errors {
-                        (
-                            report::FileStatus::Rejected,
-                            accept_count,
-                            reject_count,
-                            violation_count,
-                            0,
-                        )
-                    } else {
-                        (report::FileStatus::Success, row_count, 0, 0, 0)
-                    }
-                }
-                "abort" => {
-                    if has_errors {
-                        (
-                            report::FileStatus::Aborted,
-                            0,
-                            row_count,
-                            violation_count,
-                            0,
-                        )
-                    } else {
-                        (report::FileStatus::Success, row_count, 0, 0, 0)
-                    }
-                }
-                _ => unreachable!("severity validated earlier"),
-            };
-        let errors = errors + mismatch_errors;
-        let warnings = warnings + mismatch_warnings + sink_options_warnings;
-
-        let file_report = report::FileReport {
-            input_file: input_file.source_uri.clone(),
-            status,
-            row_count,
-            accepted_count,
-            rejected_count,
-            mismatch: mismatch_report,
-            output: report::FileOutput {
-                accepted_path: None,
-                rejected_path,
-                errors_path,
-                archived_path,
-            },
-            validation: report::FileValidation {
-                errors,
-                warnings,
-                rules,
-            },
-        };
-
-        totals.rows_total += row_count;
-        totals.accepted_total += accepted_count;
-        totals.rejected_total += rejected_count;
-        totals.errors_total += errors;
-        totals.warnings_total += warnings;
-        file_reports.push(file_report);
-        file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
-        observer.on_event(crate::run::events::RunEvent::FileFinished {
-            run_id: context.run_id.clone(),
-            entity: entity.name.clone(),
-            input: input_file.source_uri.clone(),
-            status: file_status_str(status).to_string(),
-            rows: row_count,
-            accepted: accepted_count,
-            rejected: rejected_count,
-            elapsed_ms: file_timer.elapsed().as_millis() as u64,
-            ts_ms: event_time_ms(),
-        });
-
-        if status == report::FileStatus::Aborted {
-            abort_run = true;
-            break;
-        }
-    }
+    let phase_b = run_validate_split_phase(ValidateSplitPhaseContext {
+        run_context: context,
+        runtime,
+        observer,
+        entity,
+        input_adapter,
+        prechecked_inputs,
+        read_columns: &read_columns,
+        normalize_strategy: normalize_strategy.as_deref(),
+        normalized_columns: &normalized_columns,
+        required_cols: &required_cols,
+        source_column_map: &source_column_map,
+        output_column_map: &output_column_map,
+        row_error_formatter: row_error_formatter.as_ref(),
+        severity,
+        track_cast_errors,
+        write_mode,
+        rejected_target: rejected_target.as_ref(),
+        archive_target: archive_target.as_ref(),
+        temp_dir: temp_dir_path,
+        sink_options_warning: sink_options_warning.as_deref(),
+        perf_enabled,
+        phase_timings: &mut phase_timings,
+        file_reports: &mut file_reports,
+        file_timings_ms: &mut file_timings_ms,
+        totals: &mut totals,
+        unique_tracker: &mut unique_tracker,
+        accepted_accum: &mut accepted_accum,
+        initial_abort_run: abort_run,
+    })?;
+    abort_run = phase_b.abort_run;
+    let accepted_accum_rows = phase_b.accepted_accum_rows;
+    let accepted_accum_frames = phase_b.accepted_accum_frames;
 
     totals.files_total = file_reports.len() as u64;
 
     let accepted_target_uri = accepted_target.target_uri().to_string();
-    let mut accepted_write_report = AcceptedWriteReportState::default();
-    // Phase C: write accepted output once per entity.
-    if !accepted_accum.is_empty() {
-        let concat_start = perf_enabled.then(Instant::now);
-        let mut accepted_df = accepted_accum
-            .pop()
-            .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?;
-        for frame in accepted_accum {
-            accepted_df.vstack_mut(&frame).map_err(|err| {
-                Box::new(RunError(format!("failed to concat accepted rows: {err}")))
-            })?;
-        }
-        if let Some(start) = concat_start {
-            phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
-        }
-        let output_stem = io::storage::paths::build_part_stem(0);
-        let accepted_adapter =
-            runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;
-        let write_accepted_start = perf_enabled.then(Instant::now);
-        let accepted_output = write_accepted_output(AcceptedOutputContext {
-            adapter: accepted_adapter,
-            target: &accepted_target,
-            df: &mut accepted_df,
-            output_stem: &output_stem,
-            temp_dir: temp_dir.as_ref().map(|dir| dir.path()),
-            cloud: runtime.storage(),
-            resolver: &context.storage_resolver,
-            catalogs: &context.catalog_resolver,
-            entity,
-            mode: write_mode,
-        })?;
-        if let Some(start) = write_accepted_start {
-            phase_timings.write_accepted_ms += start.elapsed().as_millis() as u64;
-        }
-        accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);
-    }
+    let accepted_write_report = run_accepted_write_phase(AcceptedWritePhaseContext {
+        run_context: context,
+        runtime,
+        entity,
+        accepted_target: &accepted_target,
+        temp_dir: temp_dir_path,
+        write_mode,
+        perf_enabled,
+        phase_timings: &mut phase_timings,
+        accepted_accum,
+    })?;
     accepted_write_report
         .apply_accepted_path_to_file_reports(&mut file_reports, &accepted_target_uri);
 
@@ -848,15 +315,4 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
-}
-
-// accepted dataframe concatenation handled after file loop
-
-fn file_status_str(status: report::FileStatus) -> &'static str {
-    match status {
-        report::FileStatus::Success => "success",
-        report::FileStatus::Rejected => "rejected",
-        report::FileStatus::Aborted => "aborted",
-        report::FileStatus::Failed => "failed",
-    }
 }

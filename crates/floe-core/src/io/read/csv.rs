@@ -112,38 +112,80 @@ impl InputAdapter for DelimitedInputAdapter {
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.source_local_path;
-            let input_columns = resolve_input_columns(path, source_options, columns)?;
-            let typed_projection = if collect_raw {
-                projected_columns(&input_columns, columns)
-            } else {
-                None
-            };
-            let typed_schema =
-                format::build_typed_schema(input_columns.as_slice(), columns, normalize_strategy)?;
-            let input = if collect_raw {
-                let raw_schema = build_raw_schema(&input_columns);
-                let raw_plan = CsvReadPlan::strict(raw_schema);
-                let raw_df = read_csv_file(path, source_options, &raw_plan)?;
-                let mut typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
-                if let Some(projection) = typed_projection.as_ref() {
-                    typed_df = typed_df.select(projection).map_err(|err| {
-                        Box::new(RunError(format!("failed to project typed columns: {err}")))
-                    })?;
-                }
-                format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy)?
-            } else {
-                let typed_plan = CsvReadPlan {
-                    schema: typed_schema,
-                    ignore_errors: true,
-                };
-                let typed_df = read_csv_lazy(path, source_options, &typed_plan.schema, true, None)?;
-                format::finalize_read_input(input_file, None, typed_df, normalize_strategy)?
-            };
-            inputs.push(input);
+            let input_columns =
+                resolve_input_columns(&input_file.source_local_path, source_options, columns)?;
+            inputs.push(read_csv_input_with_columns(
+                input_file,
+                source_options,
+                columns,
+                normalize_strategy,
+                collect_raw,
+                input_columns,
+            )?);
         }
         Ok(inputs)
     }
+
+    fn read_inputs_with_prechecked_columns(
+        &self,
+        entity: &config::EntityConfig,
+        files: &[InputFile],
+        columns: &[config::ColumnConfig],
+        normalize_strategy: Option<&str>,
+        collect_raw: bool,
+        prechecked_input_columns: Option<&[String]>,
+    ) -> FloeResult<Vec<ReadInput>> {
+        if let (Some(prechecked), [input_file]) = (prechecked_input_columns, files) {
+            let default_options = config::SourceOptions::defaults_for_format(self.format);
+            let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
+            return Ok(vec![read_csv_input_with_columns(
+                input_file,
+                source_options,
+                columns,
+                normalize_strategy,
+                collect_raw,
+                prechecked.to_vec(),
+            )?]);
+        }
+        self.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
+    }
+}
+
+fn read_csv_input_with_columns(
+    input_file: &InputFile,
+    source_options: &config::SourceOptions,
+    columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
+    collect_raw: bool,
+    input_columns: Vec<String>,
+) -> FloeResult<ReadInput> {
+    let path = &input_file.source_local_path;
+    let typed_projection = if collect_raw {
+        projected_columns(&input_columns, columns)
+    } else {
+        None
+    };
+    let typed_schema =
+        format::build_typed_schema(input_columns.as_slice(), columns, normalize_strategy)?;
+    if collect_raw {
+        let raw_schema = build_raw_schema(&input_columns);
+        let raw_plan = CsvReadPlan::strict(raw_schema);
+        let raw_df = read_csv_file(path, source_options, &raw_plan)?;
+        let mut typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
+        if let Some(projection) = typed_projection.as_ref() {
+            typed_df = typed_df.select(projection).map_err(|err| {
+                Box::new(RunError(format!("failed to project typed columns: {err}")))
+            })?;
+        }
+        return format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy);
+    }
+
+    let typed_plan = CsvReadPlan {
+        schema: typed_schema,
+        ignore_errors: true,
+    };
+    let typed_df = read_csv_lazy(path, source_options, &typed_plan.schema, true, None)?;
+    format::finalize_read_input(input_file, None, typed_df, normalize_strategy)
 }
 
 fn resolve_input_columns(

@@ -98,6 +98,19 @@ pub trait InputAdapter: Send + Sync {
         normalize_strategy: Option<&str>,
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>>;
+
+    fn read_inputs_with_prechecked_columns(
+        &self,
+        entity: &config::EntityConfig,
+        files: &[InputFile],
+        columns: &[config::ColumnConfig],
+        normalize_strategy: Option<&str>,
+        collect_raw: bool,
+        prechecked_input_columns: Option<&[String]>,
+    ) -> FloeResult<Vec<ReadInput>> {
+        let _ = prechecked_input_columns;
+        self.read_inputs(entity, files, columns, normalize_strategy, collect_raw)
+    }
 }
 
 pub trait AcceptedSinkAdapter: Send + Sync {

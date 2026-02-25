@@ -10,6 +10,7 @@ use io::format::InputAdapter;
 
 pub(super) struct PrecheckedInput {
     pub(super) input_file: io::format::InputFile,
+    pub(super) input_columns: Vec<String>,
     pub(super) mismatch: check::MismatchOutcome,
     pub(super) file_timer: Instant,
 }
@@ -259,6 +260,7 @@ pub(super) fn run_precheck(
 
         prechecked_inputs.push(PrecheckedInput {
             input_file,
+            input_columns,
             mismatch,
             file_timer,
         });

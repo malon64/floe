@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Once;
+use std::time::Instant;
 
 use crate::errors::IoError;
 use crate::report::build::project_metadata_json;
@@ -13,10 +14,12 @@ pub(crate) mod entity;
 pub mod events;
 mod file;
 mod output;
+mod perf;
 
 pub(crate) use context::RunContext;
 use entity::{run_entity, EntityRunResult, ResolvedEntityTargets};
 use events::{default_observer, event_time_ms, RunEvent};
+use serde_json::json;
 
 pub(super) const MAX_RESOLVED_INPUTS: usize = 50;
 
@@ -101,19 +104,37 @@ pub fn run_with_runtime(
         entities: options.entities.clone(),
     };
     crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
-
     let context = RunContext::new(config_path, config_base, &options)?;
     if !options.entities.is_empty() {
         validate_entities(&context.config, &options.entities)?;
     }
 
+    let perf_enabled = perf::phase_timing_enabled();
     let selected_entities = select_entities(&context, &options);
     let resolution_mode = if options.dry_run {
         io::storage::inputs::ResolveInputsMode::ListOnly
     } else {
         io::storage::inputs::ResolveInputsMode::Download
     };
+    let resolve_start = perf_enabled.then(Instant::now);
     let plans = resolve_entity_plans(&context, runtime, &selected_entities, resolution_mode)?;
+    if let Some(start) = resolve_start {
+        perf::emit_perf_log(
+            default_observer(),
+            &context.run_id,
+            None,
+            "perf_run_phase_timings",
+            json!({
+                "phase": "resolve_inputs",
+                "elapsed_ms": start.elapsed().as_millis() as u64,
+                "entity_count": selected_entities.len(),
+                "mode": match resolution_mode {
+                    io::storage::inputs::ResolveInputsMode::ListOnly => "list_only",
+                    io::storage::inputs::ResolveInputsMode::Download => "download",
+                },
+            }),
+        );
+    }
     if options.dry_run {
         return create_dry_run_outcome(&context, plans);
     }
@@ -169,6 +190,7 @@ pub fn run_with_runtime(
     }
     let summary = build_run_summary(&context, &entity_outcomes);
     if let Some(report_target) = &context.report_target {
+        let summary_write_start = perf_enabled.then(Instant::now);
         write_summary_report(
             report_target,
             &context.run_id,
@@ -176,6 +198,19 @@ pub fn run_with_runtime(
             runtime.storage(),
             &context.storage_resolver,
         )?;
+        if let Some(start) = summary_write_start {
+            perf::emit_perf_log(
+                observer,
+                &context.run_id,
+                None,
+                "perf_run_phase_timings",
+                json!({
+                    "phase": "write_summary_report",
+                    "elapsed_ms": start.elapsed().as_millis() as u64,
+                    "entity_count": entity_outcomes.len(),
+                }),
+            );
+        }
     }
     observer.on_event(RunEvent::RunFinished {
         run_id: context.run_id.clone(),

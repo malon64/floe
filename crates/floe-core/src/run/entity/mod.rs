@@ -65,6 +65,57 @@ impl EntityPhaseTimings {
     }
 }
 
+#[derive(Debug, Default)]
+struct AcceptedWriteReportState {
+    parts_written: u64,
+    files_written: u64,
+    part_files: Vec<String>,
+    table_version: Option<i64>,
+    snapshot_id: Option<i64>,
+    table_root_uri: Option<String>,
+    iceberg_catalog_name: Option<String>,
+    iceberg_database: Option<String>,
+    iceberg_namespace: Option<String>,
+    iceberg_table: Option<String>,
+    total_bytes_written: Option<u64>,
+    avg_file_size_mb: Option<f64>,
+    small_files_count: Option<u64>,
+}
+
+impl AcceptedWriteReportState {
+    fn from_write_output(output: io::format::AcceptedWriteOutput) -> Self {
+        Self {
+            parts_written: output.parts_written,
+            files_written: output.files_written,
+            part_files: output.part_files,
+            table_version: output.table_version,
+            snapshot_id: output.snapshot_id,
+            table_root_uri: output.table_root_uri,
+            iceberg_catalog_name: output.iceberg_catalog_name,
+            iceberg_database: output.iceberg_database,
+            iceberg_namespace: output.iceberg_namespace,
+            iceberg_table: output.iceberg_table,
+            total_bytes_written: output.metrics.total_bytes_written,
+            avg_file_size_mb: output.metrics.avg_file_size_mb,
+            small_files_count: output.metrics.small_files_count,
+        }
+    }
+
+    fn apply_accepted_path_to_file_reports(
+        &self,
+        file_reports: &mut [report::FileReport],
+        accepted_target_uri: &str,
+    ) {
+        if self.parts_written == 0 {
+            return;
+        }
+        let accepted_path = accepted_target_uri.to_string();
+        for file_report in file_reports {
+            file_report.output.accepted_path = Some(accepted_path.clone());
+        }
+    }
+}
+
 // PrecheckedInput moved to precheck module
 
 pub(super) fn run_entity(
@@ -688,19 +739,7 @@ pub(super) fn run_entity(
     totals.files_total = file_reports.len() as u64;
 
     let accepted_target_uri = accepted_target.target_uri().to_string();
-    let mut accepted_parts_written = 0;
-    let mut accepted_files_written = 0;
-    let mut accepted_part_files = Vec::new();
-    let mut accepted_table_version = None;
-    let mut accepted_snapshot_id = None;
-    let mut accepted_table_root_uri = None;
-    let mut accepted_iceberg_catalog_name = None;
-    let mut accepted_iceberg_database = None;
-    let mut accepted_iceberg_namespace = None;
-    let mut accepted_iceberg_table = None;
-    let mut accepted_total_bytes_written = None;
-    let mut accepted_avg_file_size_mb = None;
-    let mut accepted_small_files_count = None;
+    let mut accepted_write_report = AcceptedWriteReportState::default();
     // Phase C: write accepted output once per entity.
     if !accepted_accum.is_empty() {
         let concat_start = perf_enabled.then(Instant::now);
@@ -734,25 +773,10 @@ pub(super) fn run_entity(
         if let Some(start) = write_accepted_start {
             phase_timings.write_accepted_ms += start.elapsed().as_millis() as u64;
         }
-        accepted_files_written = accepted_output.files_written;
-        accepted_parts_written = accepted_output.parts_written;
-        accepted_part_files = accepted_output.part_files;
-        accepted_table_version = accepted_output.table_version;
-        accepted_snapshot_id = accepted_output.snapshot_id;
-        accepted_table_root_uri = accepted_output.table_root_uri;
-        accepted_iceberg_catalog_name = accepted_output.iceberg_catalog_name;
-        accepted_iceberg_database = accepted_output.iceberg_database;
-        accepted_iceberg_namespace = accepted_output.iceberg_namespace;
-        accepted_iceberg_table = accepted_output.iceberg_table;
-        accepted_total_bytes_written = accepted_output.metrics.total_bytes_written;
-        accepted_avg_file_size_mb = accepted_output.metrics.avg_file_size_mb;
-        accepted_small_files_count = accepted_output.metrics.small_files_count;
+        accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);
     }
-    if accepted_parts_written > 0 {
-        for file_report in &mut file_reports {
-            file_report.output.accepted_path = Some(accepted_target_uri.clone());
-        }
-    }
+    accepted_write_report
+        .apply_accepted_path_to_file_reports(&mut file_reports, &accepted_target_uri);
 
     let perf_files_total = totals.files_total;
     let perf_rows_total = totals.rows_total;
@@ -769,19 +793,19 @@ pub(super) fn run_entity(
         file_reports,
         severity,
         accepted_write_mode: write_mode,
-        accepted_parts_written,
-        accepted_files_written,
-        accepted_part_files,
-        accepted_table_version,
-        accepted_snapshot_id,
-        accepted_table_root_uri,
-        accepted_iceberg_catalog_name,
-        accepted_iceberg_database,
-        accepted_iceberg_namespace,
-        accepted_iceberg_table,
-        accepted_total_bytes_written,
-        accepted_avg_file_size_mb,
-        accepted_small_files_count,
+        accepted_parts_written: accepted_write_report.parts_written,
+        accepted_files_written: accepted_write_report.files_written,
+        accepted_part_files: accepted_write_report.part_files,
+        accepted_table_version: accepted_write_report.table_version,
+        accepted_snapshot_id: accepted_write_report.snapshot_id,
+        accepted_table_root_uri: accepted_write_report.table_root_uri,
+        accepted_iceberg_catalog_name: accepted_write_report.iceberg_catalog_name,
+        accepted_iceberg_database: accepted_write_report.iceberg_database,
+        accepted_iceberg_namespace: accepted_write_report.iceberg_namespace,
+        accepted_iceberg_table: accepted_write_report.iceberg_table,
+        accepted_total_bytes_written: accepted_write_report.total_bytes_written,
+        accepted_avg_file_size_mb: accepted_write_report.avg_file_size_mb,
+        accepted_small_files_count: accepted_write_report.small_files_count,
     });
 
     if let Some(report_target) = &context.report_target {

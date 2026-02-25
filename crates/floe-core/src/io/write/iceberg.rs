@@ -865,9 +865,19 @@ async fn load_glue_table_state(glue_cfg: &GlueIcebergCatalogConfig) -> FloeResul
                     glue_cfg.database, glue_cfg.table
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
-            let metadata_location = table
-                .parameters()
-                .and_then(|params| params.get("metadata_location").cloned());
+            let parameters = table.parameters();
+            let metadata_location =
+                parameters.and_then(|params| params.get("metadata_location").cloned());
+            let iceberg_param = parameters
+                .and_then(|params| params.get("table_type"))
+                .map(|value| value.eq_ignore_ascii_case("ICEBERG"))
+                .unwrap_or(false);
+            if !iceberg_param || metadata_location.is_none() {
+                return Err(Box::new(RunError(format!(
+                    "glue table {}.{} exists but is not an Iceberg table managed by Floe (missing Iceberg parameters/metadata_location)",
+                    glue_cfg.database, glue_cfg.table
+                ))));
+            }
             Ok(GlueTableState {
                 metadata_location,
                 version_id: table.version_id().map(ToOwned::to_owned),

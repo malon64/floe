@@ -7,8 +7,7 @@ use serde_json::Value;
 
 use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
 use crate::io::read::json_selector::{
-    compact_json, evaluate_selector, parse_selector, selector_is_top_level, SelectorToken,
-    SelectorValue,
+    compact_json, evaluate_selector, parse_selector, SelectorToken, SelectorValue,
 };
 use crate::{config, FloeResult};
 
@@ -37,7 +36,7 @@ impl std::error::Error for JsonReadError {}
 struct SelectorPlan {
     source: String,
     tokens: Vec<SelectorToken>,
-    is_top_level: bool,
+    top_level_key: Option<String>,
 }
 
 fn build_selector_plan(
@@ -57,11 +56,14 @@ fn build_selector_plan(
             rule: "json_selector_invalid".to_string(),
             message: format!("invalid selector {}: {}", source, err.message),
         })?;
-        let is_top_level = selector_is_top_level(&source);
+        let top_level_key = match tokens.as_slice() {
+            [SelectorToken::Field(name)] => Some(name.clone()),
+            _ => None,
+        };
         plans.push(SelectorPlan {
             source,
             tokens,
-            is_top_level,
+            top_level_key,
         });
     }
     Ok(plans)
@@ -71,11 +73,11 @@ fn evaluate_selector_plan(
     value: &Value,
     plan: &SelectorPlan,
 ) -> Result<SelectorValue, JsonReadError> {
-    if plan.is_top_level {
+    if let Some(key) = plan.top_level_key.as_deref() {
         let Some(object) = value.as_object() else {
             return Ok(SelectorValue::Null);
         };
-        let Some(current) = object.get(plan.source.as_str()) else {
+        let Some(current) = object.get(key) else {
             return Ok(SelectorValue::Null);
         };
         if current.is_null() {

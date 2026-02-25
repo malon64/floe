@@ -199,8 +199,11 @@ fn delta_commit_metrics_for_target(
             };
             Ok((stats.files_written, stats.part_files, metrics))
         }
+        // Remote Delta writes may produce multiple data files (partitioning, writer chunking).
+        // Until commit-log parsing is implemented via object_store, keep the count unknown
+        // instead of reporting an incorrect hardcoded value.
         Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => Ok((
-            1,
+            0,
             Vec::new(),
             AcceptedWriteMetrics {
                 total_bytes_written: None,

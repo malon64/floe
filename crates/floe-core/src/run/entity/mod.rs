@@ -100,7 +100,8 @@ pub(super) fn run_entity(
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
     let mut required_cols = required_columns(&normalized_columns);
     append_primary_key_required_columns(&mut required_cols, entity, normalize_strategy.as_deref())?;
-    let unique_constraints = resolve_unique_constraints(entity, normalize_strategy.as_deref())?;
+    let unique_constraints =
+        resolve_unique_constraints(entity, normalize_strategy.as_deref(), write_mode)?;
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
     let temp_dir = plan.temp_dir;
@@ -330,11 +331,22 @@ pub(super) fn run_entity(
 fn resolve_unique_constraints(
     entity: &crate::config::EntityConfig,
     normalize_strategy: Option<&str>,
+    write_mode: crate::config::WriteMode,
 ) -> FloeResult<Vec<check::UniqueConstraint>> {
     let unique_keys = check::resolve_schema_unique_keys(&entity.schema);
     if unique_keys.is_empty() {
         return Ok(Vec::new());
     }
+    let merge_primary_key = if write_mode == crate::config::WriteMode::MergeScd1 {
+        entity.schema.primary_key.as_ref().map(|primary_key| {
+            primary_key
+                .iter()
+                .map(|column| column.trim().to_string())
+                .collect::<Vec<_>>()
+        })
+    } else {
+        None
+    };
     let mut constraints = Vec::with_capacity(unique_keys.len());
     for key in unique_keys {
         let mut runtime_columns = Vec::with_capacity(key.len());
@@ -352,9 +364,14 @@ fn resolve_unique_constraints(
                 })?;
             runtime_columns.push(runtime_column_name(column, normalize_strategy));
         }
+        let enforce_reject = merge_primary_key
+            .as_ref()
+            .map(|primary_key| primary_key == &key)
+            .unwrap_or(false);
         constraints.push(check::UniqueConstraint {
             runtime_columns,
             report_columns: key,
+            enforce_reject,
         });
     }
     Ok(constraints)

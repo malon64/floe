@@ -316,7 +316,7 @@ entities:
 }
 
 #[test]
-fn local_delta_merge_scd1_rejects_duplicate_keys_in_source() {
+fn local_delta_merge_scd1_warn_drops_duplicate_keys_before_merge() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();
     let input_dir = root.join("in");
@@ -362,7 +362,7 @@ entities:
     );
     let config_path = write_config(root, &yaml);
 
-    let err = run(
+    let outcome = run(
         &config_path,
         RunOptions {
             run_id: Some("it-delta-merge-dup-source".to_string()),
@@ -370,12 +370,22 @@ entities:
             dry_run: false,
         },
     )
-    .expect_err("merge with duplicate source keys should fail");
-    let message = err.to_string();
-    assert!(
-        message.contains("ambiguous merge"),
-        "unexpected error: {message}"
-    );
+    .expect("merge_scd1 should reject duplicate merge-key rows before merge in warn mode");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.rows_total, 2);
+    assert_eq!(report.results.accepted_total, 1);
+    assert_eq!(report.results.rejected_total, 1);
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 1);
+    let name = df
+        .column("name")
+        .expect("name")
+        .as_materialized_series()
+        .str()
+        .expect("name string");
+    assert_eq!(name.get(0), Some("alice"));
 }
 
 #[test]

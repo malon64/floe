@@ -36,6 +36,7 @@ struct CompositeKey(Vec<UniqueKey>);
 pub struct UniqueConstraint {
     pub runtime_columns: Vec<String>,
     pub report_columns: Vec<String>,
+    pub enforce_reject: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ impl UniqueTracker {
             .map(|column| UniqueConstraint {
                 runtime_columns: vec![column.clone()],
                 report_columns: vec![column],
+                enforce_reject: false,
             })
             .collect::<Vec<_>>();
         Self::with_constraints(constraints)
@@ -144,6 +146,16 @@ impl UniqueTracker {
         df: &DataFrame,
         _columns: &[config::ColumnConfig],
     ) -> FloeResult<SparseRowErrors> {
+        let mut forced_reject_rows = HashSet::new();
+        self.apply_sparse_with_forced_rejects(df, _columns, &mut forced_reject_rows)
+    }
+
+    pub fn apply_sparse_with_forced_rejects(
+        &mut self,
+        df: &DataFrame,
+        _columns: &[config::ColumnConfig],
+        forced_reject_rows: &mut HashSet<usize>,
+    ) -> FloeResult<SparseRowErrors> {
         let mut errors = SparseRowErrors::new(df.height());
         if df.height() == 0 || self.states.is_empty() {
             return Ok(errors);
@@ -164,6 +176,9 @@ impl UniqueTracker {
                 };
                 if state.seen.contains(&key) {
                     errors.add_error(row_idx, RowError::new("unique", &constraint_repr, message));
+                    if state.constraint.enforce_reject {
+                        forced_reject_rows.insert(row_idx);
+                    }
                     state.duplicates_count += 1;
                     let counter = state.sample_counts.entry(key).or_insert(0);
                     *counter += 1;

@@ -16,7 +16,7 @@ fn write_config(dir: &Path, contents: &str) -> PathBuf {
 }
 
 #[test]
-fn merge_scd1_aborts_on_duplicate_source_keys() {
+fn merge_scd1_warn_rejects_duplicate_source_keys_before_merge() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();
     let input_dir = root.join("in");
@@ -58,7 +58,7 @@ entities:
     );
     let config_path = write_config(root, &yaml);
 
-    let err = run(
+    let outcome = run(
         &config_path,
         RunOptions {
             run_id: Some("unit-delta-merge-dup".to_string()),
@@ -66,9 +66,13 @@ entities:
             dry_run: false,
         },
     )
-    .expect_err("duplicate source merge keys should abort merge");
+    .expect("merge_scd1 should reject duplicate merge-key rows before merge in warn mode");
 
-    assert!(err.to_string().contains("ambiguous merge"));
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.rows_total, 2);
+    assert_eq!(report.results.accepted_total, 1);
+    assert_eq!(report.results.rejected_total, 1);
+    assert_eq!(report.accepted_output.target_rows_after, Some(1));
 }
 
 #[test]

@@ -126,7 +126,6 @@ fn write_delta_table_with_metrics(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn merge_scd1_delta_table_with_metrics(
     source_df: &mut DataFrame,
     target: &Target,

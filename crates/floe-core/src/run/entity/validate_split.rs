@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -267,10 +267,16 @@ pub(super) fn run_validate_split_phase(
             }
         };
 
+        let mut forced_reject_rows = HashSet::new();
         if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
-            let unique_errors = unique_tracker.apply_sparse(&df, normalized_columns)?;
+            let unique_errors = unique_tracker.apply_sparse_with_forced_rejects(
+                &df,
+                normalized_columns,
+                &mut forced_reject_rows,
+            )?;
             error_lists.merge(unique_errors);
         }
+        let forced_reject_count = forced_reject_rows.len() as u64;
 
         let accept_rows = error_lists.accept_rows();
         let errors_json = error_lists.build_errors_formatted(row_error_formatter);
@@ -317,7 +323,19 @@ pub(super) fn run_validate_split_phase(
 
         match entity.policy.severity.as_str() {
             "warn" => {
-                let mut accepted_df = df;
+                let mut accepted_df = if forced_reject_rows.is_empty() {
+                    df
+                } else {
+                    let force_accept_rows = (0..df.height())
+                        .map(|row_idx| !forced_reject_rows.contains(&row_idx))
+                        .collect::<Vec<_>>();
+                    let (force_accept_mask, _) = check::build_row_masks(&force_accept_rows);
+                    df.filter(&force_accept_mask).map_err(|err| {
+                        Box::new(RunError(format!(
+                            "failed to filter merge_scd1 duplicate source rows: {err}"
+                        )))
+                    })?
+                };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
@@ -492,8 +510,8 @@ pub(super) fn run_validate_split_phase(
             match entity.policy.severity.as_str() {
                 "warn" => (
                     report::FileStatus::Success,
-                    row_count,
-                    0,
+                    row_count.saturating_sub(forced_reject_count),
+                    forced_reject_count,
                     0,
                     violation_count,
                 ),

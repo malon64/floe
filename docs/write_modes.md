@@ -11,11 +11,13 @@ Supported values:
 
 - Accepted sink format must be `delta`.
 - `schema.primary_key` is required and is used as merge key.
-- Source rows must be unique on the merge key; duplicate source keys abort the entity merge.
+- Source rows are validated for merge-key uniqueness during row checks.
+  In `policy.severity=warn`, duplicate merge-key rows are rejected before merge so only unambiguous rows are merged.
+  A writer-level safeguard still errors if ambiguous duplicates reach the Delta merge stage.
 - On key match: update non-key columns from source.
 - On missing key: insert source row.
 - Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
-- Current fallback implementation computes merged rows in-memory and commits through a Delta overwrite transaction.
+- Merge execution uses Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 
 ## Rejected output behavior

@@ -61,52 +61,41 @@ fn write_delta_table_with_metrics(
     if let Target::Local { base_path, .. } = target {
         std::fs::create_dir_all(Path::new(base_path))?;
     }
-    let batch = dataframe_to_record_batch(df, entity)?;
     let runtime_options = delta_write_runtime_options(entity)?;
     let partition_by = runtime_options.partition_by.clone();
     let target_file_size_bytes = runtime_options.target_file_size_bytes;
     let small_file_threshold_bytes = runtime_options.small_file_threshold_bytes;
-    let store = object_store::delta_store_config(target, resolver, entity)?;
-    let table_url = store.table_url;
-    let storage_options = store.storage_options;
-    let builder = DeltaTableBuilder::from_url(table_url.clone())
-        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
-        .with_storage_options(storage_options.clone());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-    let version = runtime
-        .block_on(async move {
-            let table = match builder.load().await {
-                Ok(table) => table,
-                Err(err) => match err {
-                    deltalake::DeltaTableError::NotATable(_) => {
-                        let builder = DeltaTableBuilder::from_url(table_url)?
-                            .with_storage_options(storage_options);
-                        builder.build()?
-                    }
-                    other => return Err(other),
-                },
-            };
-            let mut write = table
-                .write(vec![batch])
-                .with_save_mode(save_mode_for_write_mode(mode));
-            if let Some(partition_by) = partition_by.clone() {
-                write = write.with_partition_columns(partition_by);
-            }
-            if let Some(target_file_size) = target_file_size_bytes {
-                write = write.with_target_file_size(target_file_size);
-            }
-            let table = write.await?;
-            let version = table.version().ok_or_else(|| {
-                deltalake::DeltaTableError::Generic(
-                    "delta table version missing after write".to_string(),
-                )
-            })?;
-            Ok::<i64, deltalake::DeltaTableError>(version)
-        })
-        .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?;
+    let (version, merge) = match mode {
+        config::WriteMode::Overwrite | config::WriteMode::Append => {
+            let version = write_standard_delta_version(
+                &runtime,
+                df,
+                target,
+                resolver,
+                entity,
+                mode,
+                partition_by,
+                target_file_size_bytes,
+            )?;
+            (version, None)
+        }
+        config::WriteMode::MergeScd1 => {
+            let (version, merge) = merge_scd1_with_runtime(
+                &runtime,
+                df,
+                target,
+                resolver,
+                entity,
+                partition_by,
+                target_file_size_bytes,
+            )?;
+            (version, Some(merge))
+        }
+    };
 
     let (files_written, part_files, metrics) = delta_commit_metrics_for_target(
         &runtime,
@@ -122,20 +111,69 @@ fn write_delta_table_with_metrics(
         files_written,
         part_files,
         metrics,
-        merge: None,
+        merge,
     })
 }
 
-fn merge_scd1_delta_table_with_metrics(
+fn write_standard_delta_version(
+    runtime: &tokio::runtime::Runtime,
+    df: &mut DataFrame,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+    partition_by: Option<Vec<String>>,
+    target_file_size_bytes: Option<usize>,
+) -> FloeResult<i64> {
+    let batch = dataframe_to_record_batch(df, entity)?;
+    let store = object_store::delta_store_config(target, resolver, entity)?;
+    let table_url = store.table_url;
+    let storage_options = store.storage_options;
+    let builder = DeltaTableBuilder::from_url(table_url.clone())
+        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .with_storage_options(storage_options.clone());
+    Ok(runtime
+        .block_on(async move {
+            let table = match builder.load().await {
+                Ok(table) => table,
+                Err(err) => match err {
+                    deltalake::DeltaTableError::NotATable(_) => {
+                        let builder = DeltaTableBuilder::from_url(table_url)?
+                            .with_storage_options(storage_options);
+                        builder.build()?
+                    }
+                    other => return Err(other),
+                },
+            };
+            let mut write = table
+                .write(vec![batch])
+                .with_save_mode(save_mode_for_write_mode(mode));
+            if let Some(partition_by) = partition_by {
+                write = write.with_partition_columns(partition_by);
+            }
+            if let Some(target_file_size) = target_file_size_bytes {
+                write = write.with_target_file_size(target_file_size);
+            }
+            let table = write.await?;
+            let version = table.version().ok_or_else(|| {
+                deltalake::DeltaTableError::Generic(
+                    "delta table version missing after write".to_string(),
+                )
+            })?;
+            Ok::<i64, deltalake::DeltaTableError>(version)
+        })
+        .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?)
+}
+
+fn merge_scd1_with_runtime(
+    runtime: &tokio::runtime::Runtime,
     source_df: &mut DataFrame,
     target: &Target,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
-) -> FloeResult<DeltaWriteResult> {
-    if let Target::Local { base_path, .. } = target {
-        std::fs::create_dir_all(Path::new(base_path))?;
-    }
-
+    partition_by: Option<Vec<String>>,
+    target_file_size_bytes: Option<usize>,
+) -> FloeResult<(i64, AcceptedMergeMetrics)> {
     let merge_start = Instant::now();
     let merge_key = resolve_merge_key(entity)?;
     ensure_source_unique_on_merge_key(source_df, &merge_key, &entity.name)?;
@@ -145,11 +183,6 @@ fn merge_scd1_delta_table_with_metrics(
     let builder = DeltaTableBuilder::from_url(table_url.clone())
         .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
         .with_storage_options(storage_options.clone());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-
     let loaded_table = runtime
         .block_on(async move { builder.load().await })
         .map(Some)
@@ -158,22 +191,27 @@ fn merge_scd1_delta_table_with_metrics(
             other => Err(Box::new(RunError(format!("delta load failed: {other}")))),
         })?;
     if loaded_table.is_none() {
-        let mut result = write_delta_table_with_metrics(
+        let version = write_standard_delta_version(
+            runtime,
             source_df,
             target,
             resolver,
             entity,
             config::WriteMode::Append,
+            partition_by,
+            target_file_size_bytes,
         )?;
-        result.merge = Some(AcceptedMergeMetrics {
-            merge_key,
-            inserted_count: source_df.height() as u64,
-            updated_count: 0,
-            target_rows_before: 0,
-            target_rows_after: source_df.height() as u64,
-            merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
-        });
-        return Ok(result);
+        return Ok((
+            version,
+            AcceptedMergeMetrics {
+                merge_key,
+                inserted_count: source_df.height() as u64,
+                updated_count: 0,
+                target_rows_before: 0,
+                target_rows_after: source_df.height() as u64,
+                merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
+            },
+        ));
     }
 
     let table = loaded_table.expect("checked is_some");
@@ -226,36 +264,21 @@ fn merge_scd1_delta_table_with_metrics(
             "delta table version missing after merge".to_string(),
         ))
     })?;
-
-    let runtime_options = delta_write_runtime_options(entity)?;
-    let small_file_threshold_bytes = runtime_options.small_file_threshold_bytes;
-    let (files_written, part_files, metrics) = delta_commit_metrics_for_target(
-        &runtime,
-        target,
-        resolver,
-        entity,
-        version,
-        small_file_threshold_bytes,
-    )?;
-
     let target_rows_before = (merge_metrics.num_target_rows_copied
         + merge_metrics.num_target_rows_updated
         + merge_metrics.num_target_rows_deleted) as u64;
     let target_rows_after = merge_metrics.num_output_rows as u64;
-    Ok(DeltaWriteResult {
+    Ok((
         version,
-        files_written,
-        part_files,
-        metrics,
-        merge: Some(AcceptedMergeMetrics {
+        AcceptedMergeMetrics {
             merge_key,
             inserted_count: merge_metrics.num_target_rows_inserted as u64,
             updated_count: merge_metrics.num_target_rows_updated as u64,
             target_rows_before,
             target_rows_after,
             merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
-        }),
-    })
+        },
+    ))
 }
 
 fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>> {
@@ -456,14 +479,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
-        let result = match mode {
-            config::WriteMode::Overwrite | config::WriteMode::Append => {
-                write_delta_table_with_metrics(df, target, resolver, entity, mode)?
-            }
-            config::WriteMode::MergeScd1 => {
-                merge_scd1_delta_table_with_metrics(df, target, resolver, entity)?
-            }
-        };
+        let result = write_delta_table_with_metrics(df, target, resolver, entity, mode)?;
         Ok(AcceptedWriteOutput {
             files_written: result.files_written,
             parts_written: 1,

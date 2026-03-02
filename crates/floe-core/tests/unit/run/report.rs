@@ -63,6 +63,7 @@ fn sample_report() -> RunReport {
             avg_file_size_mb: None,
             small_files_count: None,
         },
+        unique_constraints: Vec::new(),
         results: ResultsTotals {
             files_total: 1,
             rows_total: 10,

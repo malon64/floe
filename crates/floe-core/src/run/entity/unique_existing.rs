@@ -19,12 +19,11 @@ pub fn seed_unique_tracker_for_append(
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
-    columns: &[config::ColumnConfig],
 ) -> FloeResult<()> {
     if write_mode != config::WriteMode::Append || unique_tracker.is_empty() {
         return Ok(());
     }
-    let unique_columns = unique_column_names(columns);
+    let unique_columns = unique_tracker.runtime_columns();
     if unique_columns.is_empty() {
         return Ok(());
     }
@@ -36,7 +35,6 @@ pub fn seed_unique_tracker_for_append(
             cloud,
             resolver,
             entity,
-            columns,
             &unique_columns,
         ),
         "delta" => seed_from_delta(
@@ -46,19 +44,10 @@ pub fn seed_unique_tracker_for_append(
             cloud,
             resolver,
             entity,
-            columns,
             &unique_columns,
         ),
         _ => Ok(()),
     }
-}
-
-fn unique_column_names(columns: &[config::ColumnConfig]) -> Vec<String> {
-    columns
-        .iter()
-        .filter(|col| col.unique == Some(true))
-        .map(|col| col.name.clone())
-        .collect()
 }
 
 fn seed_from_parquet(
@@ -68,7 +57,6 @@ fn seed_from_parquet(
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
-    columns: &[config::ColumnConfig],
     unique_columns: &[String],
 ) -> FloeResult<()> {
     match target {
@@ -76,7 +64,7 @@ fn seed_from_parquet(
             let base_path = Path::new(base_path);
             let part_files = parts::list_local_part_paths(base_path, "parquet")?;
             for part_path in part_files {
-                seed_from_parquet_path(unique_tracker, &part_path, columns, unique_columns)?;
+                seed_from_parquet_path(unique_tracker, &part_path, unique_columns)?;
             }
         }
         Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
@@ -103,7 +91,7 @@ fn seed_from_parquet(
                 .filter(|obj| parts::is_part_key(&obj.key, spec.extension))
             {
                 let local_path = client.download_to_temp(&object.uri, temp_dir)?;
-                seed_from_parquet_path(unique_tracker, &local_path, columns, unique_columns)?;
+                seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
             }
         }
     }
@@ -113,11 +101,10 @@ fn seed_from_parquet(
 fn seed_from_parquet_path(
     unique_tracker: &mut check::UniqueTracker,
     path: &Path,
-    columns: &[config::ColumnConfig],
     unique_columns: &[String],
 ) -> FloeResult<()> {
     let df = read_parquet_lazy(path, Some(unique_columns))?;
-    unique_tracker.seed_from_df(&df, columns)?;
+    unique_tracker.seed_from_df(&df)?;
     Ok(())
 }
 
@@ -128,7 +115,6 @@ fn seed_from_delta(
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
-    columns: &[config::ColumnConfig],
     unique_columns: &[String],
 ) -> FloeResult<()> {
     let store = object_store::delta_store_config(target, resolver, entity)?;
@@ -173,7 +159,7 @@ fn seed_from_delta(
                 client.download_to_temp(&uri, temp_dir)?
             }
         };
-        seed_from_parquet_path(unique_tracker, &local_path, columns, unique_columns)?;
+        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
     }
 
     Ok(())

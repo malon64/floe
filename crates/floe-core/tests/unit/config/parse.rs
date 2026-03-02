@@ -167,6 +167,94 @@ entities:
 }
 
 #[test]
+fn parse_config_supports_schema_primary_key_and_unique_keys() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "users"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["id", "country"]
+      unique_keys:
+        - ["id", "country"]
+        - ["email"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "email"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let schema = &config.entities[0].schema;
+    assert_eq!(
+        schema.primary_key.as_ref().expect("primary key"),
+        &vec!["id".to_string(), "country".to_string()]
+    );
+    assert_eq!(
+        schema.unique_keys.as_ref().expect("unique keys"),
+        &vec![
+            vec!["id".to_string(), "country".to_string()],
+            vec!["email".to_string()]
+        ]
+    );
+}
+
+#[test]
+fn parse_config_prefers_schema_unique_keys_over_legacy_column_unique_flags() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "users"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      unique_keys:
+        - ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+          unique: true
+        - name: "country"
+          type: "string"
+        - name: "email"
+          type: "string"
+          unique: true
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let schema = &config.entities[0].schema;
+    let constraints = floe_core::check::resolve_schema_unique_keys(schema);
+    assert_eq!(
+        constraints,
+        vec![vec!["id".to_string(), "country".to_string()]]
+    );
+}
+
+#[test]
 fn parse_config_supports_sink_partitioning_and_file_size_knobs() {
     let yaml = r#"
 version: "0.1"

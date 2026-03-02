@@ -15,7 +15,10 @@ pub use mismatch::{
     top_level_declared_columns, MismatchOutcome,
 };
 pub use not_null::{not_null_counts, not_null_errors, not_null_errors_sparse};
-pub use unique::{unique_counts, unique_errors, unique_errors_sparse, UniqueTracker};
+pub use unique::{
+    resolve_schema_unique_keys, unique_counts, unique_errors, unique_errors_sparse,
+    UniqueConstraint, UniqueConstraintResult, UniqueTracker,
+};
 
 pub type ColumnIndex = HashMap<String, usize>;
 

@@ -19,6 +19,9 @@ pub struct RunReport {
     pub sink: SinkEcho,
     pub policy: PolicyEcho,
     pub accepted_output: AcceptedOutputSummary,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unique_constraints: Vec<UniqueConstraintReport>,
     pub results: ResultsTotals,
     pub files: Vec<FileReport>,
 }
@@ -162,6 +165,26 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub small_files_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UniqueConstraintReport {
+    pub columns: Vec<String>,
+    pub duplicates_count: u64,
+    pub affected_rows_count: u64,
+    pub action: String,
+    pub status_effect: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub samples: Vec<UniqueConstraintSampleReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UniqueConstraintSampleReport {
+    pub values: std::collections::BTreeMap<String, String>,
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -591,7 +591,13 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     validate_known_keys(
         hash,
         "schema",
-        &["normalize_columns", "mismatch", "columns"],
+        &[
+            "normalize_columns",
+            "mismatch",
+            "primary_key",
+            "unique_keys",
+            "columns",
+        ],
     )?;
     let normalize_columns = match hash_get(hash, "normalize_columns") {
         Some(value) => Some(parse_normalize_columns(value)?),
@@ -601,6 +607,8 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
         Some(value) => Some(parse_mismatch(value)?),
         None => None,
     };
+    let primary_key = opt_vec_string(hash, "primary_key", "schema")?;
+    let unique_keys = opt_vec_vec_string(hash, "unique_keys", "schema")?;
     let columns_yaml = get_array(hash, "columns", "schema")?;
 
     let mut columns = Vec::with_capacity(columns_yaml.len());
@@ -613,6 +621,8 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     Ok(SchemaConfig {
         normalize_columns,
         mismatch,
+        primary_key,
+        unique_keys,
         columns,
     })
 }
@@ -695,6 +705,26 @@ fn opt_vec_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<Vec<St
     for (index, item) in list.iter().enumerate() {
         let item_ctx = format!("{ctx}.{key}[{index}]");
         values.push(yaml_string(item, &item_ctx)?);
+    }
+    Ok(Some(values))
+}
+
+fn opt_vec_vec_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<Vec<Vec<String>>>> {
+    let value = match hash_get(hash, key) {
+        None | Some(Yaml::Null) | Some(Yaml::BadValue) => return Ok(None),
+        Some(value) => value,
+    };
+    let list = yaml_array(value, &format!("{ctx}.{key}"))?;
+    let mut values = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        let item_ctx = format!("{ctx}.{key}[{index}]");
+        let item_array = yaml_array(item, &item_ctx)?;
+        let mut tuple = Vec::with_capacity(item_array.len());
+        for (inner_idx, inner_item) in item_array.iter().enumerate() {
+            let inner_ctx = format!("{item_ctx}[{inner_idx}]");
+            tuple.push(yaml_string(inner_item, &inner_ctx)?);
+        }
+        values.push(tuple);
     }
     Ok(Some(values))
 }

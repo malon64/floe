@@ -83,6 +83,8 @@ fn entity() -> config::EntityConfig {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     }

@@ -468,6 +468,8 @@ fn build_entity(
         schema: config::SchemaConfig {
             normalize_columns,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns,
         },
     }

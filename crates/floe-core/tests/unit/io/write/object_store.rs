@@ -69,6 +69,8 @@ fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -125,6 +127,8 @@ fn iceberg_store_config_builds_s3_warehouse_and_region_props() -> FloeResult<()>
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -193,6 +197,8 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -250,6 +256,8 @@ fn iceberg_store_config_builds_local_warehouse_without_props() -> FloeResult<()>
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -319,6 +327,8 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -404,6 +414,8 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -476,6 +488,8 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };
@@ -544,6 +558,8 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            primary_key: None,
+            unique_keys: None,
             columns: Vec::new(),
         },
     };

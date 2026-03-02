@@ -1,9 +1,11 @@
-use polars::prelude::{is_duplicated, is_first_distinct, AnyValue, DataFrame};
-use std::collections::{HashMap, HashSet};
+use polars::prelude::{AnyValue, DataFrame, Series};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
 use crate::{config, FloeResult};
+
+const UNIQUE_SAMPLE_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum UniqueKey {
@@ -15,195 +17,110 @@ enum UniqueKey {
     Other(String),
 }
 
-fn unique_key(value: AnyValue) -> Option<UniqueKey> {
-    match value {
-        AnyValue::Null => None,
-        AnyValue::Boolean(value) => Some(UniqueKey::Bool(value)),
-        AnyValue::Int8(value) => Some(UniqueKey::I64(value as i64)),
-        AnyValue::Int16(value) => Some(UniqueKey::I64(value as i64)),
-        AnyValue::Int32(value) => Some(UniqueKey::I64(value as i64)),
-        AnyValue::Int64(value) => Some(UniqueKey::I64(value)),
-        AnyValue::Int128(value) => Some(UniqueKey::Other(value.to_string())),
-        AnyValue::UInt8(value) => Some(UniqueKey::U64(value as u64)),
-        AnyValue::UInt16(value) => Some(UniqueKey::U64(value as u64)),
-        AnyValue::UInt32(value) => Some(UniqueKey::U64(value as u64)),
-        AnyValue::UInt64(value) => Some(UniqueKey::U64(value)),
-        AnyValue::UInt128(value) => Some(UniqueKey::Other(value.to_string())),
-        AnyValue::Float32(value) => Some(UniqueKey::F64((value as f64).to_bits())),
-        AnyValue::Float64(value) => Some(UniqueKey::F64(value.to_bits())),
-        AnyValue::String(value) => Some(UniqueKey::String(value.to_string())),
-        AnyValue::StringOwned(value) => Some(UniqueKey::String(value.to_string())),
-        other => Some(UniqueKey::Other(other.to_string())),
+impl UniqueKey {
+    fn as_string(&self) -> String {
+        match self {
+            UniqueKey::Bool(value) => value.to_string(),
+            UniqueKey::I64(value) => value.to_string(),
+            UniqueKey::U64(value) => value.to_string(),
+            UniqueKey::F64(value) => f64::from_bits(*value).to_string(),
+            UniqueKey::String(value) | UniqueKey::Other(value) => value.clone(),
+        }
     }
 }
 
-pub fn unique_errors(
-    df: &DataFrame,
-    columns: &[config::ColumnConfig],
-    indices: &ColumnIndex,
-) -> FloeResult<Vec<Vec<RowError>>> {
-    let mut errors_per_row = vec![Vec::new(); df.height()];
-    let unique_columns: Vec<&config::ColumnConfig> = columns
-        .iter()
-        .filter(|col| col.unique == Some(true))
-        .collect();
-    if unique_columns.is_empty() {
-        return Ok(errors_per_row);
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompositeKey(Vec<UniqueKey>);
 
-    for column in unique_columns {
-        let index = indices.get(&column.name).ok_or_else(|| {
-            Box::new(RunError(format!("unique column {} not found", column.name)))
-        })?;
-        let series = df.select_at_idx(*index).ok_or_else(|| {
-            Box::new(RunError(format!("unique column {} not found", column.name)))
-        })?;
-        let series = series.as_materialized_series();
-        let non_null = series.len().saturating_sub(series.null_count());
-        if non_null == 0 {
-            continue;
-        }
-        let mut duplicate_mask = is_duplicated(series).map_err(|err| {
-            Box::new(RunError(format!(
-                "unique column {} read failed: {err}",
-                column.name
-            )))
-        })?;
-        let not_null = series.is_not_null();
-        duplicate_mask = &duplicate_mask & &not_null;
-        let mut first_mask = is_first_distinct(series).map_err(|err| {
-            Box::new(RunError(format!(
-                "unique column {} read failed: {err}",
-                column.name
-            )))
-        })?;
-        first_mask = &first_mask & &not_null;
-        let mask = duplicate_mask & !first_mask;
-        for (row_idx, is_dup) in mask.into_iter().enumerate() {
-            if is_dup == Some(true) {
-                errors_per_row[row_idx].push(RowError::new(
-                    "unique",
-                    &column.name,
-                    "duplicate value",
-                ));
-            }
-        }
-    }
-
-    Ok(errors_per_row)
+#[derive(Debug, Clone)]
+pub struct UniqueConstraint {
+    pub runtime_columns: Vec<String>,
+    pub report_columns: Vec<String>,
 }
 
-pub fn unique_errors_sparse(
-    df: &DataFrame,
-    columns: &[config::ColumnConfig],
-    indices: &ColumnIndex,
-) -> FloeResult<SparseRowErrors> {
-    let mut errors = SparseRowErrors::new(df.height());
-    if df.height() == 0 {
-        return Ok(errors);
-    }
-    let unique_columns: Vec<&config::ColumnConfig> = columns
-        .iter()
-        .filter(|col| col.unique == Some(true))
-        .collect();
-    if unique_columns.is_empty() {
-        return Ok(errors);
-    }
+#[derive(Debug, Clone)]
+pub struct UniqueConstraintSample {
+    pub values: BTreeMap<String, String>,
+    pub count: u64,
+}
 
-    for column in unique_columns {
-        let index = indices.get(&column.name).ok_or_else(|| {
-            Box::new(RunError(format!(
-                "unique column {} not found in dataframe",
-                column.name
-            )))
-        })?;
-        let series = df
-            .select_at_idx(*index)
-            .ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "unique column {} not found in dataframe",
-                    column.name
-                )))
-            })?
-            .as_materialized_series()
-            .rechunk();
-        let mut seen: HashSet<UniqueKey> = HashSet::new();
-        for (row_idx, value) in series.iter().enumerate() {
-            let key = match unique_key(value) {
-                Some(key) => key,
-                None => continue,
-            };
-            if seen.contains(&key) {
-                errors.add_error(
-                    row_idx,
-                    RowError::new("unique", &column.name, "duplicate value"),
-                );
-            } else {
-                seen.insert(key);
-            }
-        }
-    }
+#[derive(Debug, Clone)]
+pub struct UniqueConstraintResult {
+    pub columns: Vec<String>,
+    pub duplicates_count: u64,
+    pub affected_rows_count: u64,
+    pub samples: Vec<UniqueConstraintSample>,
+}
 
-    Ok(errors)
+#[derive(Debug, Clone)]
+struct ConstraintState {
+    constraint: UniqueConstraint,
+    seen: HashSet<CompositeKey>,
+    duplicates_count: u64,
+    sample_counts: HashMap<CompositeKey, u64>,
 }
 
 #[derive(Debug, Default)]
 pub struct UniqueTracker {
-    seen: HashMap<String, HashSet<UniqueKey>>,
+    states: Vec<ConstraintState>,
 }
 
 impl UniqueTracker {
     pub fn new(columns: &[config::ColumnConfig]) -> Self {
-        let mut seen = HashMap::new();
-        for column in columns.iter().filter(|col| col.unique == Some(true)) {
-            seen.insert(column.name.clone(), HashSet::new());
-        }
-        Self { seen }
+        let constraints = legacy_unique_constraints(columns)
+            .into_iter()
+            .map(|column| UniqueConstraint {
+                runtime_columns: vec![column.clone()],
+                report_columns: vec![column],
+            })
+            .collect::<Vec<_>>();
+        Self::with_constraints(constraints)
+    }
+
+    pub fn with_constraints(constraints: Vec<UniqueConstraint>) -> Self {
+        let states = constraints
+            .into_iter()
+            .map(|constraint| ConstraintState {
+                constraint,
+                seen: HashSet::new(),
+                duplicates_count: 0,
+                sample_counts: HashMap::new(),
+            })
+            .collect();
+        Self { states }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.seen.is_empty()
+        self.states.is_empty()
     }
 
-    pub fn seed_from_df(
-        &mut self,
-        df: &DataFrame,
-        columns: &[config::ColumnConfig],
-    ) -> FloeResult<()> {
-        if df.height() == 0 || self.seen.is_empty() {
-            return Ok(());
+    pub fn runtime_columns(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut columns = Vec::new();
+        for state in &self.states {
+            for column in &state.constraint.runtime_columns {
+                if seen.insert(column.clone()) {
+                    columns.push(column.clone());
+                }
+            }
         }
-        let unique_columns: Vec<&config::ColumnConfig> = columns
-            .iter()
-            .filter(|col| col.unique == Some(true))
-            .collect();
-        if unique_columns.is_empty() {
-            return Ok(());
-        }
+        columns
+    }
 
-        for column in unique_columns {
-            let series = df.column(&column.name).map_err(|err| {
-                Box::new(RunError(format!(
-                    "unique column {} not found: {err}",
-                    column.name
-                )))
-            })?;
-            let series = series.as_materialized_series().rechunk();
-            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "unique column {} not tracked",
-                    column.name
-                )))
-            })?;
-            for value in series.iter() {
-                let key = match unique_key(value) {
+    pub fn seed_from_df(&mut self, df: &DataFrame) -> FloeResult<()> {
+        if df.height() == 0 || self.states.is_empty() {
+            return Ok(());
+        }
+        for state in &mut self.states {
+            let columns = load_constraint_columns(df, &state.constraint.runtime_columns)?;
+            for row_idx in 0..df.height() {
+                let key = match composite_key_from_row(&columns, row_idx)? {
                     Some(key) => key,
                     None => continue,
                 };
-                seen.insert(key);
+                state.seen.insert(key);
             }
         }
-
         Ok(())
     }
 
@@ -213,100 +130,107 @@ impl UniqueTracker {
         columns: &[config::ColumnConfig],
     ) -> FloeResult<Vec<Vec<RowError>>> {
         let mut errors_per_row = vec![Vec::new(); df.height()];
-        if df.height() == 0 {
-            return Ok(errors_per_row);
-        }
-        let unique_columns: Vec<&config::ColumnConfig> = columns
-            .iter()
-            .filter(|col| col.unique == Some(true))
-            .collect();
-        if unique_columns.is_empty() {
-            return Ok(errors_per_row);
-        }
-
-        for column in unique_columns {
-            let series = df.column(&column.name).map_err(|err| {
-                Box::new(RunError(format!(
-                    "unique column {} not found: {err}",
-                    column.name
-                )))
-            })?;
-            let series = series.as_materialized_series().rechunk();
-            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "unique column {} not tracked",
-                    column.name
-                )))
-            })?;
-            for (row_idx, value) in series.iter().enumerate() {
-                let key = match unique_key(value) {
-                    Some(key) => key,
-                    None => continue,
-                };
-                if seen.contains(&key) {
-                    errors_per_row[row_idx].push(RowError::new(
-                        "unique",
-                        &column.name,
-                        "duplicate value",
-                    ));
-                } else {
-                    seen.insert(key);
-                }
+        let sparse = self.apply_sparse(df, columns)?;
+        for (row_idx, row_errors) in sparse.iter() {
+            if let Some(slot) = errors_per_row.get_mut(*row_idx) {
+                slot.extend(row_errors.clone());
             }
         }
-
         Ok(errors_per_row)
     }
 
     pub fn apply_sparse(
         &mut self,
         df: &DataFrame,
-        columns: &[config::ColumnConfig],
+        _columns: &[config::ColumnConfig],
     ) -> FloeResult<SparseRowErrors> {
         let mut errors = SparseRowErrors::new(df.height());
-        if df.height() == 0 {
-            return Ok(errors);
-        }
-        let unique_columns: Vec<&config::ColumnConfig> = columns
-            .iter()
-            .filter(|col| col.unique == Some(true))
-            .collect();
-        if unique_columns.is_empty() {
+        if df.height() == 0 || self.states.is_empty() {
             return Ok(errors);
         }
 
-        for column in unique_columns {
-            let series = df.column(&column.name).map_err(|err| {
-                Box::new(RunError(format!(
-                    "unique column {} not found: {err}",
-                    column.name
-                )))
-            })?;
-            let series = series.as_materialized_series().rechunk();
-            let seen = self.seen.get_mut(&column.name).ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "unique column {} not tracked",
-                    column.name
-                )))
-            })?;
-            for (row_idx, value) in series.iter().enumerate() {
-                let key = match unique_key(value) {
+        for state in &mut self.states {
+            let columns = load_constraint_columns(df, &state.constraint.runtime_columns)?;
+            let report_columns = state.constraint.report_columns.clone();
+            let (constraint_repr, message) = if report_columns.len() == 1 {
+                (report_columns[0].clone(), "duplicate value")
+            } else {
+                (format!("[{}]", report_columns.join(",")), "duplicate key")
+            };
+            for row_idx in 0..df.height() {
+                let key = match composite_key_from_row(&columns, row_idx)? {
                     Some(key) => key,
                     None => continue,
                 };
-                if seen.contains(&key) {
-                    errors.add_error(
-                        row_idx,
-                        RowError::new("unique", &column.name, "duplicate value"),
-                    );
+                if state.seen.contains(&key) {
+                    errors.add_error(row_idx, RowError::new("unique", &constraint_repr, message));
+                    state.duplicates_count += 1;
+                    let counter = state.sample_counts.entry(key).or_insert(0);
+                    *counter += 1;
                 } else {
-                    seen.insert(key);
+                    state.seen.insert(key);
                 }
             }
         }
 
         Ok(errors)
     }
+
+    pub fn results(&self) -> Vec<UniqueConstraintResult> {
+        self.states
+            .iter()
+            .map(|state| {
+                let mut sample_counts = state
+                    .sample_counts
+                    .iter()
+                    .map(|(key, count)| (key, *count))
+                    .collect::<Vec<_>>();
+                sample_counts.sort_by(|left, right| {
+                    right
+                        .1
+                        .cmp(&left.1)
+                        .then_with(|| format!("{:?}", left.0).cmp(&format!("{:?}", right.0)))
+                });
+                let samples = sample_counts
+                    .into_iter()
+                    .take(UNIQUE_SAMPLE_LIMIT)
+                    .map(|(key, count)| {
+                        let mut values = BTreeMap::new();
+                        for (idx, value) in key.0.iter().enumerate() {
+                            if let Some(column_name) = state.constraint.report_columns.get(idx) {
+                                values.insert(column_name.clone(), value.as_string());
+                            }
+                        }
+                        UniqueConstraintSample { values, count }
+                    })
+                    .collect::<Vec<_>>();
+                UniqueConstraintResult {
+                    columns: state.constraint.report_columns.clone(),
+                    duplicates_count: state.duplicates_count,
+                    affected_rows_count: state.duplicates_count,
+                    samples,
+                }
+            })
+            .collect()
+    }
+}
+
+pub fn unique_errors(
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    _indices: &ColumnIndex,
+) -> FloeResult<Vec<Vec<RowError>>> {
+    let mut tracker = UniqueTracker::new(columns);
+    tracker.apply(df, columns)
+}
+
+pub fn unique_errors_sparse(
+    df: &DataFrame,
+    columns: &[config::ColumnConfig],
+    _indices: &ColumnIndex,
+) -> FloeResult<SparseRowErrors> {
+    let mut tracker = UniqueTracker::new(columns);
+    tracker.apply_sparse(df, columns)
 }
 
 pub fn unique_counts(
@@ -350,4 +274,92 @@ pub fn unique_counts(
     }
 
     Ok(counts)
+}
+
+pub fn resolve_schema_unique_keys(schema: &config::SchemaConfig) -> Vec<Vec<String>> {
+    if let Some(unique_keys) = schema.unique_keys.as_ref() {
+        let mut seen = HashSet::new();
+        let mut deduped = Vec::new();
+        for key in unique_keys {
+            let normalized = key
+                .iter()
+                .map(|column| column.trim().to_string())
+                .collect::<Vec<_>>();
+            if normalized.is_empty() {
+                continue;
+            }
+            let signature = normalized.join("\u{1f}");
+            if seen.insert(signature) {
+                deduped.push(normalized);
+            }
+        }
+        return deduped;
+    }
+
+    legacy_unique_constraints(&schema.columns)
+        .into_iter()
+        .map(|column| vec![column])
+        .collect()
+}
+
+fn legacy_unique_constraints(columns: &[config::ColumnConfig]) -> Vec<String> {
+    columns
+        .iter()
+        .filter(|col| col.unique == Some(true))
+        .map(|col| col.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+fn load_constraint_columns(df: &DataFrame, columns: &[String]) -> FloeResult<Vec<Series>> {
+    let mut output = Vec::with_capacity(columns.len());
+    for column in columns {
+        let series = df.column(column).map_err(|err| {
+            Box::new(RunError(format!(
+                "unique constraint column {} not found: {err}",
+                column
+            )))
+        })?;
+        output.push(series.as_materialized_series().rechunk());
+    }
+    Ok(output)
+}
+
+fn composite_key_from_row(columns: &[Series], row_idx: usize) -> FloeResult<Option<CompositeKey>> {
+    let mut key = Vec::with_capacity(columns.len());
+    for series in columns {
+        let value = series.get(row_idx).map_err(|err| {
+            Box::new(RunError(format!(
+                "unique constraint read failed at row {}: {err}",
+                row_idx
+            )))
+        })?;
+        let Some(value) = unique_key(value) else {
+            return Ok(None);
+        };
+        key.push(value);
+    }
+    Ok(Some(CompositeKey(key)))
+}
+
+fn unique_key(value: AnyValue) -> Option<UniqueKey> {
+    match value {
+        AnyValue::Null => None,
+        AnyValue::Boolean(value) => Some(UniqueKey::Bool(value)),
+        AnyValue::Int8(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int16(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int32(value) => Some(UniqueKey::I64(value as i64)),
+        AnyValue::Int64(value) => Some(UniqueKey::I64(value)),
+        AnyValue::Int128(value) => Some(UniqueKey::Other(value.to_string())),
+        AnyValue::UInt8(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt16(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt32(value) => Some(UniqueKey::U64(value as u64)),
+        AnyValue::UInt64(value) => Some(UniqueKey::U64(value)),
+        AnyValue::UInt128(value) => Some(UniqueKey::Other(value.to_string())),
+        AnyValue::Float32(value) => Some(UniqueKey::F64((value as f64).to_bits())),
+        AnyValue::Float64(value) => Some(UniqueKey::F64(value.to_bits())),
+        AnyValue::String(value) => Some(UniqueKey::String(value.to_string())),
+        AnyValue::StringOwned(value) => Some(UniqueKey::String(value.to_string())),
+        other => Some(UniqueKey::Other(other.to_string())),
+    }
 }

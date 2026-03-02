@@ -1381,3 +1381,156 @@ fn iceberg_glue_catalog_binding_rejects_unknown_catalog_reference() {
         ],
     );
 }
+
+#[test]
+fn schema_unique_keys_reject_unknown_columns() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      unique_keys:
+        - ["customer_id", "missing_col"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=customer",
+            "schema.unique_keys[0][1]=missing_col",
+            "unknown schema column",
+        ],
+    );
+}
+
+#[test]
+fn schema_unique_keys_reject_duplicate_columns_inside_constraint() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      unique_keys:
+        - ["customer_id", "customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=customer",
+            "schema.unique_keys[0] has duplicate column customer_id",
+        ],
+    );
+}
+
+#[test]
+fn schema_unique_keys_reject_empty_constraint() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      unique_keys:
+        - []
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=customer",
+            "schema.unique_keys[0] must not be empty",
+        ],
+    );
+}
+
+#[test]
+fn schema_primary_key_rejects_nullable_true_column() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: true
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=customer",
+            "schema.primary_key column customer_id cannot set nullable=true",
+        ],
+    );
+}
+
+#[test]
+fn schema_unique_keys_with_legacy_column_unique_flags_is_valid() {
+    let entity = r#"  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      unique_keys:
+        - ["customer_id", "country"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+          unique: true
+        - name: "country"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config(entity));
+}

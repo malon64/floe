@@ -296,6 +296,8 @@ pub struct PolicyConfig {
 pub struct SchemaConfig {
     pub normalize_columns: Option<NormalizeColumnsConfig>,
     pub mismatch: Option<SchemaMismatchConfig>,
+    pub primary_key: Option<Vec<String>>,
+    pub unique_keys: Option<Vec<Vec<String>>>,
     pub columns: Vec<ColumnConfig>,
 }
 

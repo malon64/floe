@@ -1,5 +1,6 @@
 use crate::{check, io, report, ConfigError, FloeResult};
 use serde_json::json;
+use std::collections::HashSet;
 use std::time::Instant;
 
 use super::file::required_columns;
@@ -97,7 +98,9 @@ pub(super) fn run_entity(
     )?;
     let output_column_map =
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
-    let required_cols = required_columns(&normalized_columns);
+    let mut required_cols = required_columns(&normalized_columns);
+    append_primary_key_required_columns(&mut required_cols, entity, normalize_strategy.as_deref())?;
+    let unique_constraints = resolve_unique_constraints(entity, normalize_strategy.as_deref())?;
     let accepted_target = resolved_targets.accepted.clone();
     let rejected_target = resolved_targets.rejected.clone();
     let temp_dir = plan.temp_dir;
@@ -181,7 +184,7 @@ pub(super) fn run_entity(
 
     let mut accepted_accum = Vec::new();
     let temp_dir_path = temp_dir.as_ref().map(|dir| dir.path());
-    let mut unique_tracker = check::UniqueTracker::new(&normalized_columns);
+    let mut unique_tracker = check::UniqueTracker::with_constraints(unique_constraints);
     unique_existing::seed_unique_tracker_for_append(
         &mut unique_tracker,
         write_mode,
@@ -191,7 +194,6 @@ pub(super) fn run_entity(
         runtime.storage(),
         &context.storage_resolver,
         entity,
-        &normalized_columns,
     )?;
     // Phase B: row-level validation + entity-level accumulation.
     let phase_b = run_validate_split_phase(ValidateSplitPhaseContext {
@@ -227,6 +229,7 @@ pub(super) fn run_entity(
     abort_run = phase_b.abort_run;
     let accepted_accum_rows = phase_b.accepted_accum_rows;
     let accepted_accum_frames = phase_b.accepted_accum_frames;
+    let unique_constraints = unique_tracker.results();
 
     totals.files_total = file_reports.len() as u64;
 
@@ -273,6 +276,7 @@ pub(super) fn run_entity(
         accepted_total_bytes_written: accepted_write_report.total_bytes_written,
         accepted_avg_file_size_mb: accepted_write_report.avg_file_size_mb,
         accepted_small_files_count: accepted_write_report.small_files_count,
+        unique_constraints,
     });
 
     if let Some(report_target) = &context.report_target {
@@ -315,4 +319,81 @@ pub(super) fn run_entity(
         },
         abort_run,
     })
+}
+
+fn resolve_unique_constraints(
+    entity: &crate::config::EntityConfig,
+    normalize_strategy: Option<&str>,
+) -> FloeResult<Vec<check::UniqueConstraint>> {
+    let unique_keys = check::resolve_schema_unique_keys(&entity.schema);
+    if unique_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut constraints = Vec::with_capacity(unique_keys.len());
+    for key in unique_keys {
+        let mut runtime_columns = Vec::with_capacity(key.len());
+        for name in &key {
+            let column = entity
+                .schema
+                .columns
+                .iter()
+                .find(|column| column.name == *name)
+                .ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "entity.name={} schema unique key references unknown column {}",
+                        entity.name, name
+                    )))
+                })?;
+            runtime_columns.push(runtime_column_name(column, normalize_strategy));
+        }
+        constraints.push(check::UniqueConstraint {
+            runtime_columns,
+            report_columns: key,
+        });
+    }
+    Ok(constraints)
+}
+
+fn append_primary_key_required_columns(
+    required_cols: &mut Vec<String>,
+    entity: &crate::config::EntityConfig,
+    normalize_strategy: Option<&str>,
+) -> FloeResult<()> {
+    let Some(primary_key) = entity.schema.primary_key.as_ref() else {
+        return Ok(());
+    };
+    if primary_key.is_empty() {
+        return Ok(());
+    }
+    let mut seen = required_cols.iter().cloned().collect::<HashSet<_>>();
+    for key_column in primary_key {
+        let column = entity
+            .schema
+            .columns
+            .iter()
+            .find(|column| column.name == *key_column)
+            .ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} schema.primary_key references unknown column {}",
+                    entity.name, key_column
+                )))
+            })?;
+        let runtime = runtime_column_name(column, normalize_strategy);
+        if seen.insert(runtime.clone()) {
+            required_cols.push(runtime);
+        }
+    }
+    Ok(())
+}
+
+fn runtime_column_name(
+    column: &crate::config::ColumnConfig,
+    normalize_strategy: Option<&str>,
+) -> String {
+    let source_name = column.source_or_name();
+    if let Some(strategy) = normalize_strategy {
+        check::normalize::normalize_name(source_name, strategy)
+    } else {
+        source_name.to_string()
+    }
 }

@@ -6,7 +6,7 @@ use crate::config::{
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
 use crate::io::read::xml_selector;
-use crate::{ConfigError, FloeResult};
+use crate::{warnings, ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
@@ -526,6 +526,145 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
                 ))));
             }
         }
+    }
+
+    validate_schema_primary_key(entity)?;
+    validate_schema_unique_keys(entity)?;
+
+    Ok(())
+}
+
+fn validate_schema_primary_key(entity: &EntityConfig) -> FloeResult<()> {
+    let Some(primary_key) = entity.schema.primary_key.as_ref() else {
+        return Ok(());
+    };
+    if primary_key.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} schema.primary_key must not be empty",
+            entity.name
+        ))));
+    }
+    let mut seen = HashSet::new();
+    for (index, column_name) in primary_key.iter().enumerate() {
+        let value = column_name.trim();
+        if value.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} schema.primary_key[{}] must not be empty",
+                entity.name, index
+            ))));
+        }
+        if !seen.insert(value.to_string()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} schema.primary_key has duplicate column {}",
+                entity.name, value
+            ))));
+        }
+        let column = entity
+            .schema
+            .columns
+            .iter()
+            .find(|column| column.name == value)
+            .ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} schema.primary_key[{}]={} references unknown schema column",
+                    entity.name, index, value
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+        if column.nullable == Some(true) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} schema.primary_key column {} cannot set nullable=true",
+                entity.name, value
+            ))));
+        }
+    }
+    Ok(())
+}
+
+fn validate_schema_unique_keys(entity: &EntityConfig) -> FloeResult<()> {
+    let Some(unique_keys) = entity.schema.unique_keys.as_ref() else {
+        return Ok(());
+    };
+    if unique_keys.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} schema.unique_keys must not be empty",
+            entity.name
+        ))));
+    }
+
+    let has_legacy_unique = entity
+        .schema
+        .columns
+        .iter()
+        .any(|column| column.unique == Some(true));
+    if has_legacy_unique {
+        warnings::emit(
+            "validate",
+            Some(&entity.name),
+            None,
+            Some("schema_unique_keys_override"),
+            &format!(
+                "entity.name={} schema.unique_keys is set; schema.columns[].unique is ignored",
+                entity.name
+            ),
+        );
+    }
+
+    let schema_columns = entity
+        .schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut seen_constraints = HashSet::new();
+    let mut duplicate_constraints = 0_u64;
+    for (index, key) in unique_keys.iter().enumerate() {
+        if key.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} schema.unique_keys[{}] must not be empty",
+                entity.name, index
+            ))));
+        }
+        let mut seen_columns = HashSet::new();
+        let mut signature_parts = Vec::with_capacity(key.len());
+        for (column_index, column_name) in key.iter().enumerate() {
+            let value = column_name.trim();
+            if value.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.unique_keys[{}][{}] must not be empty",
+                    entity.name, index, column_index
+                ))));
+            }
+            if !schema_columns.contains(value) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.unique_keys[{}][{}]={} references unknown schema column",
+                    entity.name, index, column_index, value
+                ))));
+            }
+            if !seen_columns.insert(value.to_string()) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} schema.unique_keys[{}] has duplicate column {}",
+                    entity.name, index, value
+                ))));
+            }
+            signature_parts.push(value.to_string());
+        }
+        let signature = signature_parts.join("\u{1f}");
+        if !seen_constraints.insert(signature) {
+            duplicate_constraints += 1;
+        }
+    }
+
+    if duplicate_constraints > 0 {
+        warnings::emit(
+            "validate",
+            Some(&entity.name),
+            None,
+            Some("schema_unique_keys_dedup"),
+            &format!(
+                "entity.name={} schema.unique_keys contains {} duplicated constraint(s); duplicates are ignored",
+                entity.name, duplicate_constraints
+            ),
+        );
     }
 
     Ok(())

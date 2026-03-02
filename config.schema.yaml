@@ -332,6 +332,19 @@ $defs:
         $ref: "#/$defs/normalize_columns"
       mismatch:
         $ref: "#/$defs/schema_mismatch"
+      primary_key:
+        type: array
+        minItems: 1
+        items:
+          type: string
+      unique_keys:
+        type: array
+        minItems: 1
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: string
       columns:
         type: array
         items:

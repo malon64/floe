@@ -260,6 +260,17 @@ is available for templating within that entity.
   - `strategy`: `snake_case`, `lower`, `camel_case`, `none`.
   - When enabled, both schema column names and input column names are normalized
     before checks. If normalization causes a name collision, the run fails.
+- `primary_key` (optional)
+  - Array of schema column names.
+  - Primary key columns are always treated as required (`not_null`) at runtime.
+  - Config validation rejects `nullable: true` on primary key columns.
+  - `primary_key` does not imply uniqueness by itself; use `unique_keys` for uniqueness checks.
+- `unique_keys` (optional)
+  - Array of unique constraints, each constraint being an array of schema column names.
+  - Supports single-column and multi-column uniqueness:
+    - `unique_keys: [["email"], ["id","country_code"]]`
+  - If `unique_keys` is present, legacy `columns[].unique` flags are ignored.
+  - Null semantics: a row is ignored for a constraint if any key component is null.
 - `columns` (required)
   - Array of column definitions.
   - `name` (required): target column name in the output schema.
@@ -276,7 +287,8 @@ is available for templating within that entity.
   - `type` (required): logical type. Accepted values are case-insensitive and
     normalized by removing `-` and `_`.
   - `nullable` (optional): default `true`.
-  - `unique` (optional): default `false`.
+  - `unique` (optional, legacy): default `false`.
+    - Legacy single-column unique. Prefer `schema.unique_keys`.
   - `width` (required for `source.format: fixed`): number of characters to read.
   - `trim` (optional, `source.format: fixed`): trim whitespace for the column (default `true`).
 

@@ -1,4 +1,4 @@
-use crate::{config, report};
+use crate::{check, config, report};
 
 use crate::report::build::{entity_metadata_json, source_options_json};
 use crate::run::entity::ResolvedEntityTargets;
@@ -29,6 +29,7 @@ pub(crate) struct RunReportContext<'a> {
     pub accepted_total_bytes_written: Option<u64>,
     pub accepted_avg_file_size_mb: Option<f64>,
     pub accepted_small_files_count: Option<u64>,
+    pub unique_constraints: Vec<check::UniqueConstraintResult>,
 }
 
 pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
@@ -102,7 +103,50 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
             avg_file_size_mb: ctx.accepted_avg_file_size_mb,
             small_files_count: ctx.accepted_small_files_count,
         },
+        unique_constraints: build_unique_constraint_reports(ctx.severity, &ctx.unique_constraints),
         results: ctx.totals,
         files: ctx.file_reports,
+    }
+}
+
+fn build_unique_constraint_reports(
+    severity: report::Severity,
+    results: &[check::UniqueConstraintResult],
+) -> Vec<report::UniqueConstraintReport> {
+    results
+        .iter()
+        .map(|result| {
+            let (action, status_effect) =
+                unique_constraint_effect(severity, result.duplicates_count);
+            report::UniqueConstraintReport {
+                columns: result.columns.clone(),
+                duplicates_count: result.duplicates_count,
+                affected_rows_count: result.affected_rows_count,
+                action: action.to_string(),
+                status_effect: status_effect.to_string(),
+                samples: result
+                    .samples
+                    .iter()
+                    .map(|sample| report::UniqueConstraintSampleReport {
+                        values: sample.values.clone(),
+                        count: sample.count,
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+fn unique_constraint_effect(
+    severity: report::Severity,
+    duplicates_count: u64,
+) -> (&'static str, &'static str) {
+    if duplicates_count == 0 {
+        return ("none", "none");
+    }
+    match severity {
+        report::Severity::Warn => ("warn", "warning"),
+        report::Severity::Reject => ("reject_rows", "rows_rejected"),
+        report::Severity::Abort => ("abort_run", "run_aborted"),
     }
 }

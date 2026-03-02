@@ -47,6 +47,8 @@ pub fn strategy_for(mode: config::WriteMode) -> &'static dyn ModeStrategy {
     match mode {
         config::WriteMode::Overwrite => &overwrite::OVERWRITE_STRATEGY,
         config::WriteMode::Append => &append::APPEND_STRATEGY,
+        // merge_scd1 is accepted-writer specific (Delta only); rejected row outputs keep append semantics.
+        config::WriteMode::MergeScd1 => &append::APPEND_STRATEGY,
     }
 }
 
@@ -54,6 +56,7 @@ pub fn ensure_mode_supported(mode: config::WriteMode) -> FloeResult<()> {
     match mode {
         config::WriteMode::Overwrite => Ok(()),
         config::WriteMode::Append => Ok(()),
+        config::WriteMode::MergeScd1 => Ok(()),
     }
 }
 

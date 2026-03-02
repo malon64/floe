@@ -276,6 +276,12 @@ pub(super) fn run_entity(
         accepted_total_bytes_written: accepted_write_report.total_bytes_written,
         accepted_avg_file_size_mb: accepted_write_report.avg_file_size_mb,
         accepted_small_files_count: accepted_write_report.small_files_count,
+        accepted_merge_key: accepted_write_report.merge_key,
+        accepted_inserted_count: accepted_write_report.inserted_count,
+        accepted_updated_count: accepted_write_report.updated_count,
+        accepted_target_rows_before: accepted_write_report.target_rows_before,
+        accepted_target_rows_after: accepted_write_report.target_rows_after,
+        accepted_merge_elapsed_ms: accepted_write_report.merge_elapsed_ms,
         unique_constraints,
     });
 

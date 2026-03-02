@@ -165,6 +165,24 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub small_files_count: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub merge_key: Vec<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserted_count: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_count: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_rows_before: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_rows_after: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

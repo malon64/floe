@@ -73,6 +73,7 @@ pub(super) fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
     match mode {
         config::WriteMode::Overwrite => SaveMode::Overwrite,
         config::WriteMode::Append => SaveMode::Append,
+        config::WriteMode::MergeScd1 => SaveMode::Overwrite,
     }
 }
 

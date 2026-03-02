@@ -184,6 +184,11 @@ is available for templating within that entity.
 - `write_mode` (optional)
   - `overwrite` (default): remove existing dataset parts, then write new ones.
   - `append`: add new dataset parts without deleting existing ones.
+  - `merge_scd1`: Delta-only upsert mode keyed by `schema.primary_key`.
+    - updates matching keys (SCD1) and inserts new keys
+    - requires `sink.accepted.format: delta`
+    - requires non-empty `schema.primary_key`
+    - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet`, `delta`, or `iceberg`.
@@ -264,7 +269,8 @@ is available for templating within that entity.
   - Array of schema column names.
   - Primary key columns are always treated as required (`not_null`) at runtime.
   - Config validation rejects `nullable: true` on primary key columns.
-  - `primary_key` does not imply uniqueness by itself; use `unique_keys` for uniqueness checks.
+  - `primary_key` is also enforced as a composite unique constraint.
+  - In `sink.write_mode: merge_scd1`, `primary_key` is the mandatory merge key.
 - `unique_keys` (optional)
   - Array of unique constraints, each constraint being an array of schema column names.
   - Supports single-column and multi-column uniqueness:

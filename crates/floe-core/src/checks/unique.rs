@@ -277,9 +277,10 @@ pub fn unique_counts(
 }
 
 pub fn resolve_schema_unique_keys(schema: &config::SchemaConfig) -> Vec<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut constraints = Vec::new();
+
     if let Some(unique_keys) = schema.unique_keys.as_ref() {
-        let mut seen = HashSet::new();
-        let mut deduped = Vec::new();
         for key in unique_keys {
             let normalized = key
                 .iter()
@@ -290,16 +291,33 @@ pub fn resolve_schema_unique_keys(schema: &config::SchemaConfig) -> Vec<Vec<Stri
             }
             let signature = normalized.join("\u{1f}");
             if seen.insert(signature) {
-                deduped.push(normalized);
+                constraints.push(normalized);
             }
         }
-        return deduped;
+    } else {
+        for column in legacy_unique_constraints(&schema.columns) {
+            let constraint = vec![column];
+            let signature = constraint.join("\u{1f}");
+            if seen.insert(signature) {
+                constraints.push(constraint);
+            }
+        }
     }
 
-    legacy_unique_constraints(&schema.columns)
-        .into_iter()
-        .map(|column| vec![column])
-        .collect()
+    if let Some(primary_key) = schema.primary_key.as_ref() {
+        let normalized = primary_key
+            .iter()
+            .map(|column| column.trim().to_string())
+            .collect::<Vec<_>>();
+        if !normalized.is_empty() {
+            let signature = normalized.join("\u{1f}");
+            if seen.insert(signature) {
+                constraints.push(normalized);
+            }
+        }
+    }
+
+    constraints
 }
 
 fn legacy_unique_constraints(columns: &[config::ColumnConfig]) -> Vec<String> {

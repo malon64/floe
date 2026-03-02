@@ -60,6 +60,7 @@ Common fields:
 - `path`: accepted sink target URI/path used for the run
 - `table_root_uri`: table/dataset root URI (defaults to `path` when not format-specific)
 - `write_mode`: resolved write mode (`overwrite` or `append`)
+  - possible values: `overwrite`, `append`, `merge_scd1`
 - `accepted_rows`: total accepted rows written for the entity
 - `files_written`: number of accepted data files written (format-specific semantics)
 - `parts_written`: writer part count (may differ from `files_written`, especially for table formats)
@@ -77,6 +78,14 @@ Write-time file sizing metrics (optional):
 - `total_bytes_written`
 - `avg_file_size_mb`
 - `small_files_count`
+
+Merge-specific metrics (optional, Delta `merge_scd1`):
+- `merge_key`: merge key columns (`schema.primary_key`)
+- `inserted_count`
+- `updated_count`
+- `target_rows_before`
+- `target_rows_after`
+- `merge_elapsed_ms`
 
 Notes:
 - Metrics are populated when the writer can collect them cheaply and reliably.

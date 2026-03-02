@@ -36,6 +36,7 @@ struct CompositeKey(Vec<UniqueKey>);
 pub struct UniqueConstraint {
     pub runtime_columns: Vec<String>,
     pub report_columns: Vec<String>,
+    pub enforce_reject: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ impl UniqueTracker {
             .map(|column| UniqueConstraint {
                 runtime_columns: vec![column.clone()],
                 report_columns: vec![column],
+                enforce_reject: false,
             })
             .collect::<Vec<_>>();
         Self::with_constraints(constraints)
@@ -144,6 +146,16 @@ impl UniqueTracker {
         df: &DataFrame,
         _columns: &[config::ColumnConfig],
     ) -> FloeResult<SparseRowErrors> {
+        let mut forced_reject_rows = HashSet::new();
+        self.apply_sparse_with_forced_rejects(df, _columns, &mut forced_reject_rows)
+    }
+
+    pub fn apply_sparse_with_forced_rejects(
+        &mut self,
+        df: &DataFrame,
+        _columns: &[config::ColumnConfig],
+        forced_reject_rows: &mut HashSet<usize>,
+    ) -> FloeResult<SparseRowErrors> {
         let mut errors = SparseRowErrors::new(df.height());
         if df.height() == 0 || self.states.is_empty() {
             return Ok(errors);
@@ -164,6 +176,9 @@ impl UniqueTracker {
                 };
                 if state.seen.contains(&key) {
                     errors.add_error(row_idx, RowError::new("unique", &constraint_repr, message));
+                    if state.constraint.enforce_reject {
+                        forced_reject_rows.insert(row_idx);
+                    }
                     state.duplicates_count += 1;
                     let counter = state.sample_counts.entry(key).or_insert(0);
                     *counter += 1;
@@ -277,9 +292,10 @@ pub fn unique_counts(
 }
 
 pub fn resolve_schema_unique_keys(schema: &config::SchemaConfig) -> Vec<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut constraints = Vec::new();
+
     if let Some(unique_keys) = schema.unique_keys.as_ref() {
-        let mut seen = HashSet::new();
-        let mut deduped = Vec::new();
         for key in unique_keys {
             let normalized = key
                 .iter()
@@ -290,16 +306,33 @@ pub fn resolve_schema_unique_keys(schema: &config::SchemaConfig) -> Vec<Vec<Stri
             }
             let signature = normalized.join("\u{1f}");
             if seen.insert(signature) {
-                deduped.push(normalized);
+                constraints.push(normalized);
             }
         }
-        return deduped;
+    } else {
+        for column in legacy_unique_constraints(&schema.columns) {
+            let constraint = vec![column];
+            let signature = constraint.join("\u{1f}");
+            if seen.insert(signature) {
+                constraints.push(constraint);
+            }
+        }
     }
 
-    legacy_unique_constraints(&schema.columns)
-        .into_iter()
-        .map(|column| vec![column])
-        .collect()
+    if let Some(primary_key) = schema.primary_key.as_ref() {
+        let normalized = primary_key
+            .iter()
+            .map(|column| column.trim().to_string())
+            .collect::<Vec<_>>();
+        if !normalized.is_empty() {
+            let signature = normalized.join("\u{1f}");
+            if seen.insert(signature) {
+                constraints.push(normalized);
+            }
+        }
+    }
+
+    constraints
 }
 
 fn legacy_unique_constraints(columns: &[config::ColumnConfig]) -> Vec<String> {

@@ -157,6 +157,7 @@ fn write_iceberg_table_with_remote_context(
         iceberg_namespace: result.iceberg_namespace,
         iceberg_table: result.iceberg_table,
         metrics: result.metrics,
+        merge: None,
     })
 }
 
@@ -254,6 +255,12 @@ async fn write_iceberg_table_async(
                 prepared.partition_spec.clone(),
             )
             .await?
+        }
+        config::WriteMode::MergeScd1 => {
+            return Err(Box::new(RunError(format!(
+                "entity.name={} sink.write_mode=merge_scd1 is only supported for delta accepted sinks",
+                entity.name
+            ))));
         }
     };
 

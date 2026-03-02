@@ -61,6 +61,12 @@ fn sample_outcome() -> RunOutcome {
             total_bytes_written: None,
             avg_file_size_mb: None,
             small_files_count: None,
+            merge_key: Vec::new(),
+            inserted_count: None,
+            updated_count: None,
+            target_rows_before: None,
+            target_rows_after: None,
+            merge_elapsed_ms: None,
         },
         unique_constraints: Vec::new(),
         results: report::ResultsTotals {

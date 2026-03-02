@@ -41,6 +41,16 @@ pub struct AcceptedWriteMetrics {
 }
 
 #[derive(Debug, Clone)]
+pub struct AcceptedMergeMetrics {
+    pub merge_key: Vec<String>,
+    pub inserted_count: u64,
+    pub updated_count: u64,
+    pub target_rows_before: u64,
+    pub target_rows_after: u64,
+    pub merge_elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct AcceptedWriteOutput {
     pub files_written: u64,
     pub parts_written: u64,
@@ -53,6 +63,7 @@ pub struct AcceptedWriteOutput {
     pub iceberg_namespace: Option<String>,
     pub iceberg_table: Option<String>,
     pub metrics: AcceptedWriteMetrics,
+    pub merge: Option<AcceptedMergeMetrics>,
 }
 
 pub trait InputAdapter: Send + Sync {

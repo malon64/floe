@@ -26,6 +26,12 @@ pub(super) struct AcceptedWriteReportState {
     pub(super) total_bytes_written: Option<u64>,
     pub(super) avg_file_size_mb: Option<f64>,
     pub(super) small_files_count: Option<u64>,
+    pub(super) merge_key: Vec<String>,
+    pub(super) inserted_count: Option<u64>,
+    pub(super) updated_count: Option<u64>,
+    pub(super) target_rows_before: Option<u64>,
+    pub(super) target_rows_after: Option<u64>,
+    pub(super) merge_elapsed_ms: Option<u64>,
 }
 
 impl AcceptedWriteReportState {
@@ -44,6 +50,16 @@ impl AcceptedWriteReportState {
             total_bytes_written: output.metrics.total_bytes_written,
             avg_file_size_mb: output.metrics.avg_file_size_mb,
             small_files_count: output.metrics.small_files_count,
+            merge_key: output
+                .merge
+                .as_ref()
+                .map(|merge| merge.merge_key.clone())
+                .unwrap_or_default(),
+            inserted_count: output.merge.as_ref().map(|merge| merge.inserted_count),
+            updated_count: output.merge.as_ref().map(|merge| merge.updated_count),
+            target_rows_before: output.merge.as_ref().map(|merge| merge.target_rows_before),
+            target_rows_after: output.merge.as_ref().map(|merge| merge.target_rows_after),
+            merge_elapsed_ms: output.merge.as_ref().map(|merge| merge.merge_elapsed_ms),
         }
     }
 

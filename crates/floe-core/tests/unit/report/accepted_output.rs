@@ -43,6 +43,12 @@ fn accepted_output_summary_serializes_new_metrics_when_present() {
         total_bytes_written: Some(8_388_608),
         avg_file_size_mb: Some(4.0),
         small_files_count: Some(1),
+        merge_key: vec!["id".to_string()],
+        inserted_count: Some(1),
+        updated_count: Some(1),
+        target_rows_before: Some(1),
+        target_rows_after: Some(2),
+        merge_elapsed_ms: Some(123),
     };
 
     let value = serde_json::to_value(summary).expect("serialize");
@@ -82,6 +88,12 @@ fn accepted_output_summary_omits_new_metrics_when_absent() {
         total_bytes_written: None,
         avg_file_size_mb: None,
         small_files_count: None,
+        merge_key: Vec::new(),
+        inserted_count: None,
+        updated_count: None,
+        target_rows_before: None,
+        target_rows_after: None,
+        merge_elapsed_ms: None,
     };
 
     let value = serde_json::to_value(summary).expect("serialize");
@@ -90,4 +102,7 @@ fn accepted_output_summary_omits_new_metrics_when_absent() {
     assert!(!obj.contains_key("total_bytes_written"));
     assert!(!obj.contains_key("avg_file_size_mb"));
     assert!(!obj.contains_key("small_files_count"));
+    assert!(!obj.contains_key("merge_key"));
+    assert!(!obj.contains_key("inserted_count"));
+    assert!(!obj.contains_key("updated_count"));
 }

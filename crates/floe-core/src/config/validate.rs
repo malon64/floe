@@ -226,6 +226,7 @@ fn validate_sink(
     let _ = storages.definition_type(&accepted_storage);
 
     validate_sink_partitioning(entity)?;
+    validate_sink_write_mode(entity)?;
 
     if let Some(rejected) = &entity.sink.rejected {
         let rejected_storage =
@@ -244,6 +245,34 @@ fn validate_sink(
             }
         }
         storages.validate_reference(entity, "sink.archive.storage", archive_storage)?;
+    }
+
+    Ok(())
+}
+
+fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
+    if entity.sink.resolved_write_mode() != crate::config::WriteMode::MergeScd1 {
+        return Ok(());
+    }
+
+    if entity.sink.accepted.format != "delta" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.write_mode=merge_scd1 requires sink.accepted.format=delta",
+            entity.name
+        ))));
+    }
+
+    let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "entity.name={} sink.write_mode=merge_scd1 requires schema.primary_key",
+            entity.name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    if primary_key.is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.write_mode=merge_scd1 requires non-empty schema.primary_key",
+            entity.name
+        ))));
     }
 
     Ok(())

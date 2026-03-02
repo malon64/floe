@@ -410,8 +410,9 @@ fn parse_write_mode(value: &str, ctx: &str) -> FloeResult<WriteMode> {
     match value.trim().to_ascii_lowercase().as_str() {
         "overwrite" => Ok(WriteMode::Overwrite),
         "append" => Ok(WriteMode::Append),
+        "merge_scd1" => Ok(WriteMode::MergeScd1),
         _ => Err(Box::new(ConfigError(format!(
-            "unsupported value at {ctx}: {value} (allowed: overwrite, append)"
+            "unsupported value at {ctx}: {value} (allowed: overwrite, append, merge_scd1)"
         )))),
     }
 }

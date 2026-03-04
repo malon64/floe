@@ -14,7 +14,7 @@ use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::{config, FloeResult};
 
-pub(super) fn dataframe_to_record_batch(
+pub(crate) fn dataframe_to_record_batch(
     df: &DataFrame,
     entity: &config::EntityConfig,
 ) -> FloeResult<RecordBatch> {
@@ -69,7 +69,7 @@ pub(super) fn dataframe_to_record_batch(
     })
 }
 
-pub(super) fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
+pub(crate) fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
     match mode {
         config::WriteMode::Overwrite => SaveMode::Overwrite,
         config::WriteMode::Append => SaveMode::Append,

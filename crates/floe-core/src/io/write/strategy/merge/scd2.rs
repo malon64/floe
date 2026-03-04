@@ -279,10 +279,10 @@ fn scd2_changed_predicate(compare_columns: &[String]) -> String {
     compare_columns
         .iter()
         .map(|column| {
+            let target_col = shared::qualified_column("target", column);
+            let source_col = shared::qualified_column("source", column);
             format!(
-                "{} IS DISTINCT FROM {}",
-                shared::qualified_column("target", column),
-                shared::qualified_column("source", column)
+                "(({target_col} <> {source_col}) OR ({target_col} IS NULL AND {source_col} IS NOT NULL) OR ({target_col} IS NOT NULL AND {source_col} IS NULL))"
             )
         })
         .collect::<Vec<_>>()

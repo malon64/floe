@@ -6,6 +6,7 @@ use crate::{config, io, ConfigError, FloeResult};
 use super::parts;
 
 mod append;
+pub(crate) mod merge;
 mod overwrite;
 
 #[derive(Debug, Clone, Copy)]

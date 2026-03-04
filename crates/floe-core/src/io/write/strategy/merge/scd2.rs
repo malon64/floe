@@ -4,6 +4,7 @@ use polars::prelude::{DataFrame, DataType, NamedFrom, Series, TimeUnit};
 use std::collections::HashSet;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::{object_store, Target};
@@ -82,9 +83,12 @@ impl MergeBackend for DeltaMergeBackend {
         if loaded_table.is_none() {
             let mut bootstrap_df = source_df.clone();
             append_scd2_system_columns(&mut bootstrap_df)?;
-            let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch_all(
-                &bootstrap_df,
-            )?;
+            let bootstrap_schema_columns = build_scd2_bootstrap_schema_columns(ctx.entity)?;
+            let batch =
+                crate::io::write::delta::record_batch::dataframe_to_record_batch_with_schema(
+                    &bootstrap_df,
+                    &bootstrap_schema_columns,
+                )?;
             let version = shared::write_delta_batch_version(
                 ctx.runtime,
                 batch,
@@ -261,6 +265,43 @@ fn append_scd2_system_columns(df: &mut DataFrame) -> FloeResult<()> {
         )))
     })?;
     Ok(())
+}
+
+fn build_scd2_bootstrap_schema_columns(
+    entity: &config::EntityConfig,
+) -> FloeResult<Vec<config::ColumnConfig>> {
+    let mut columns = normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize::resolve_normalize_strategy(entity)?.as_deref(),
+    );
+    columns.push(config::ColumnConfig {
+        name: SCD2_IS_CURRENT_COLUMN.to_string(),
+        source: None,
+        column_type: "boolean".to_string(),
+        nullable: Some(false),
+        unique: None,
+        width: None,
+        trim: None,
+    });
+    columns.push(config::ColumnConfig {
+        name: SCD2_VALID_FROM_COLUMN.to_string(),
+        source: None,
+        column_type: "datetime".to_string(),
+        nullable: Some(false),
+        unique: None,
+        width: None,
+        trim: None,
+    });
+    columns.push(config::ColumnConfig {
+        name: SCD2_VALID_TO_COLUMN.to_string(),
+        source: None,
+        column_type: "datetime".to_string(),
+        nullable: Some(true),
+        unique: None,
+        width: None,
+        trim: None,
+    });
+    Ok(columns)
 }
 
 fn now_timestamp_micros() -> i64 {

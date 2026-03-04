@@ -26,9 +26,16 @@ pub(crate) fn dataframe_to_record_batch(
         &entity.schema.columns,
         normalize::resolve_normalize_strategy(entity)?.as_deref(),
     );
+    dataframe_to_record_batch_with_schema(df, &schema_columns)
+}
+
+pub(crate) fn dataframe_to_record_batch_with_schema(
+    df: &DataFrame,
+    schema_columns: &[config::ColumnConfig],
+) -> FloeResult<RecordBatch> {
     let mut fields = Vec::with_capacity(schema_columns.len());
     let mut arrays = Vec::with_capacity(schema_columns.len());
-    for column in &schema_columns {
+    for column in schema_columns {
         let series = df
             .column(column.name.as_str())
             .map_err(|err| Box::new(RunError(format!("delta column lookup failed: {err}"))))?;

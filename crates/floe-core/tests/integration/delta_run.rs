@@ -529,6 +529,209 @@ entities:
 }
 
 #[test]
+fn local_delta_merge_scd2_bootstrap_preserves_configured_nullable_columns() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;country;name\n1;fr;alice\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+          nullable: true
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-nullable-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge_scd2 run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first batch");
+    write_csv(&input_dir, "batch2.csv", "id;country;name\n1;fr;\n");
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-nullable-second".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("second merge_scd2 run with null in configured nullable column");
+
+    let df = read_local_delta_table(&accepted_dir);
+    let id = df
+        .column("id")
+        .expect("id")
+        .as_materialized_series()
+        .str()
+        .expect("id string");
+    let country = df
+        .column("country")
+        .expect("country")
+        .as_materialized_series()
+        .str()
+        .expect("country string");
+    let name = df
+        .column("name")
+        .expect("name")
+        .as_materialized_series()
+        .str()
+        .expect("name string");
+    let is_current = df
+        .column("__floe_is_current")
+        .expect("is current")
+        .as_materialized_series()
+        .bool()
+        .expect("is_current bool");
+
+    let has_current_null_name = (0..df.height()).any(|idx| {
+        id.get(idx) == Some("1")
+            && country.get(idx) == Some("fr")
+            && is_current.get(idx) == Some(true)
+            && name.get(idx).is_none()
+    });
+    assert!(has_current_null_name);
+}
+
+#[test]
+fn local_delta_merge_scd2_fails_when_target_has_extra_business_columns() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(
+        &input_dir,
+        "batch1.csv",
+        "id;country;name;city\n1;fr;alice;paris\n",
+    );
+
+    let yaml_with_city = format!(
+        r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+        - name: "city"
+          type: "string"
+"#,
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &yaml_with_city);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-city-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge_scd2 run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first batch");
+    write_csv(&input_dir, "batch2.csv", "id;country;name\n1;fr;alice-v2\n");
+
+    let yaml_without_city = format!(
+        r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    write_config(root, &yaml_without_city);
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-city-drift".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect_err("merge_scd2 with target-only business columns should fail");
+    assert!(err
+        .to_string()
+        .contains("source schema missing target column city"));
+}
+
+#[test]
 fn validate_merge_scd1_requires_primary_key() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

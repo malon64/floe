@@ -151,12 +151,18 @@ pub(crate) fn validate_scd2_schema_compatibility(
     system_columns: &[&str],
     entity_name: &str,
 ) -> FloeResult<()> {
+    let source_columns = source_df
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<HashSet<_>>();
+    let system_columns_set = system_columns.iter().copied().collect::<HashSet<_>>();
     let target_columns = target_schema_columns
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    for source_column in source_df.get_column_names() {
-        if !target_columns.contains(source_column.as_str()) {
+    for source_column in &source_columns {
+        if !target_columns.contains(source_column) {
             return Err(Box::new(RunError(format!(
                 "entity.name={} delta merge_scd2 failed: target schema missing source column {}",
                 entity_name, source_column
@@ -168,6 +174,17 @@ pub(crate) fn validate_scd2_schema_compatibility(
             return Err(Box::new(RunError(format!(
                 "entity.name={} delta merge_scd2 failed: target schema missing system column {}",
                 entity_name, system_column
+            ))));
+        }
+    }
+    for target_column in target_schema_columns {
+        if system_columns_set.contains(target_column.as_str()) {
+            continue;
+        }
+        if !source_columns.contains(target_column.as_str()) {
+            return Err(Box::new(RunError(format!(
+                "entity.name={} delta merge_scd2 failed: source schema missing target column {}",
+                entity_name, target_column
             ))));
         }
     }

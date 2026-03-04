@@ -34,6 +34,11 @@ Supported values:
   then new current versions are inserted.
 - Missing keys are inserted as new current rows.
 - Unchanged current rows are left as-is.
+- Reported merge metrics for `merge_scd2`:
+  - `closed_count` = rows closed in the current target set.
+  - `inserted_count` = rows inserted as new current versions (changed + brand new keys).
+  - `unchanged_count` = source rows that matched active target rows with no change.
+  - `updated_count` is preserved for backward compatibility and matches `closed_count`.
 - Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 

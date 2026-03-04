@@ -73,6 +73,8 @@ impl MergeBackend for DeltaMergeBackend {
                     merge_key,
                     inserted_count: source_df.height() as u64,
                     updated_count: 0,
+                    closed_count: None,
+                    unchanged_count: None,
                     target_rows_before: 0,
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,

@@ -83,6 +83,8 @@ Merge-specific metrics (optional, Delta `merge_scd1` / `merge_scd2`):
 - `merge_key`: merge key columns (`schema.primary_key`)
 - `inserted_count`
 - `updated_count` (`merge_scd1`: updated rows, `merge_scd2`: closed previous current rows)
+- `closed_count` (`merge_scd2` only): rows closed from current target set
+- `unchanged_count` (`merge_scd2` only): source rows that matched active target rows with no data change
 - `target_rows_before`
 - `target_rows_after`
 - `merge_elapsed_ms`

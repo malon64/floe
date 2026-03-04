@@ -45,6 +45,8 @@ pub struct AcceptedMergeMetrics {
     pub merge_key: Vec<String>,
     pub inserted_count: u64,
     pub updated_count: u64,
+    pub closed_count: Option<u64>,
+    pub unchanged_count: Option<u64>,
     pub target_rows_before: u64,
     pub target_rows_after: u64,
     pub merge_elapsed_ms: u64,

@@ -176,6 +176,12 @@ pub struct AcceptedOutputSummary {
     pub updated_count: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_count: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unchanged_count: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_rows_before: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -19,6 +19,8 @@ fn accepted_output_summary_deserializes_legacy_payload_without_new_metrics() {
     assert_eq!(summary.total_bytes_written, None);
     assert_eq!(summary.avg_file_size_mb, None);
     assert_eq!(summary.small_files_count, None);
+    assert_eq!(summary.closed_count, None);
+    assert_eq!(summary.unchanged_count, None);
 }
 
 #[test]
@@ -46,6 +48,8 @@ fn accepted_output_summary_serializes_new_metrics_when_present() {
         merge_key: vec!["id".to_string()],
         inserted_count: Some(1),
         updated_count: Some(1),
+        closed_count: Some(1),
+        unchanged_count: Some(2),
         target_rows_before: Some(1),
         target_rows_after: Some(2),
         merge_elapsed_ms: Some(123),
@@ -67,6 +71,8 @@ fn accepted_output_summary_serializes_new_metrics_when_present() {
         obj.get("small_files_count").and_then(|v| v.as_u64()),
         Some(1)
     );
+    assert_eq!(obj.get("closed_count").and_then(|v| v.as_u64()), Some(1));
+    assert_eq!(obj.get("unchanged_count").and_then(|v| v.as_u64()), Some(2));
 }
 
 #[test]
@@ -91,6 +97,8 @@ fn accepted_output_summary_omits_new_metrics_when_absent() {
         merge_key: Vec::new(),
         inserted_count: None,
         updated_count: None,
+        closed_count: None,
+        unchanged_count: None,
         target_rows_before: None,
         target_rows_after: None,
         merge_elapsed_ms: None,
@@ -105,4 +113,6 @@ fn accepted_output_summary_omits_new_metrics_when_absent() {
     assert!(!obj.contains_key("merge_key"));
     assert!(!obj.contains_key("inserted_count"));
     assert!(!obj.contains_key("updated_count"));
+    assert!(!obj.contains_key("closed_count"));
+    assert!(!obj.contains_key("unchanged_count"));
 }

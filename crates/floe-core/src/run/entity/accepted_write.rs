@@ -29,6 +29,8 @@ pub(super) struct AcceptedWriteReportState {
     pub(super) merge_key: Vec<String>,
     pub(super) inserted_count: Option<u64>,
     pub(super) updated_count: Option<u64>,
+    pub(super) closed_count: Option<u64>,
+    pub(super) unchanged_count: Option<u64>,
     pub(super) target_rows_before: Option<u64>,
     pub(super) target_rows_after: Option<u64>,
     pub(super) merge_elapsed_ms: Option<u64>,
@@ -57,6 +59,11 @@ impl AcceptedWriteReportState {
                 .unwrap_or_default(),
             inserted_count: output.merge.as_ref().map(|merge| merge.inserted_count),
             updated_count: output.merge.as_ref().map(|merge| merge.updated_count),
+            closed_count: output.merge.as_ref().and_then(|merge| merge.closed_count),
+            unchanged_count: output
+                .merge
+                .as_ref()
+                .and_then(|merge| merge.unchanged_count),
             target_rows_before: output.merge.as_ref().map(|merge| merge.target_rows_before),
             target_rows_after: output.merge.as_ref().map(|merge| merge.target_rows_after),
             merge_elapsed_ms: output.merge.as_ref().map(|merge| merge.merge_elapsed_ms),

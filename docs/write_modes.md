@@ -15,6 +15,7 @@ Supported values:
 - Source rows are validated for merge-key uniqueness during row checks.
   In `policy.severity=warn`, duplicate merge-key rows are rejected before merge so only unambiguous rows are merged.
 - On key match: update non-key columns from source.
+- `sink.accepted.merge.ignore_columns` can exclude additional business columns from SCD1 update sets.
 - On missing key: insert source row.
 - Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
 - Merge execution uses Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
@@ -30,6 +31,7 @@ Supported values:
   - `__floe_is_current`
   - `__floe_valid_from`
   - `__floe_valid_to`
+- `sink.accepted.merge.scd2` can override these system column names.
 - Changed current rows are closed (`is_current=false`, `valid_to=current_timestamp()`),
   then new current versions are inserted.
 - Missing keys are inserted as new current rows.
@@ -39,6 +41,9 @@ Supported values:
   - `inserted_count` = rows inserted as new current versions (changed + brand new keys).
   - `unchanged_count` = source rows that matched active target rows with no change.
   - `updated_count` is preserved for backward compatibility and matches `closed_count`.
+- Change detection columns are resolved as:
+  - `sink.accepted.merge.compare_columns` when configured
+  - otherwise all non-key business columns minus `sink.accepted.merge.ignore_columns`
 - Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 

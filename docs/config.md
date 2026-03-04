@@ -188,11 +188,13 @@ is available for templating within that entity.
     - updates matching keys (SCD1) and inserts new keys
     - requires `sink.accepted.format: delta`
     - requires non-empty `schema.primary_key`
+    - optional merge behavior can be configured in `sink.accepted.merge`
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
   - `merge_scd2`: Delta-only history mode keyed by `schema.primary_key`.
     - closes changed current rows and inserts new current versions
     - requires `sink.accepted.format: delta`
     - requires non-empty `schema.primary_key`
+    - optional merge behavior can be configured in `sink.accepted.merge`
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
@@ -221,6 +223,24 @@ is available for templating within that entity.
       - `transform` (optional, default `identity`): `identity`, `year`, `month`, `day`, `hour`
     - `floe validate` checks column existence and supported transforms.
     - Runtime wiring is implemented for Iceberg accepted writes (table partition spec + partitioned file layout).
+  - `merge` (optional, Delta merge modes only)
+    - Supported only when:
+      - `sink.accepted.format: delta`
+      - `sink.write_mode: merge_scd1` or `merge_scd2`
+    - `ignore_columns` (optional)
+      - List of schema business columns excluded from merge update/compare behavior.
+      - Columns must exist in `schema.columns`.
+      - `schema.primary_key` columns are not allowed.
+    - `compare_columns` (optional; most relevant for `merge_scd2`)
+      - Explicit list of schema business columns used for change detection.
+      - Columns must exist in `schema.columns`.
+      - `schema.primary_key` columns are not allowed.
+      - If omitted in `merge_scd2`, Floe compares all non-key business columns minus `ignore_columns`.
+    - `scd2` (optional, `merge_scd2` only)
+      - `current_flag_column` (default `__floe_is_current`)
+      - `valid_from_column` (default `__floe_valid_from`)
+      - `valid_to_column` (default `__floe_valid_to`)
+      - Custom names must be non-empty, unique, and must not collide with business schema columns.
   - `iceberg` (optional, `sink.accepted.format: iceberg`)
     - Enables Iceberg catalog-specific options.
     - `catalog` (optional)

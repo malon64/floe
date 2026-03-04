@@ -32,6 +32,13 @@ pub(crate) struct DeltaMergePerfBreakdown {
     pub(crate) commit_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Scd2SystemColumns {
+    pub(crate) is_current: String,
+    pub(crate) valid_from: String,
+    pub(crate) valid_to: String,
+}
+
 pub(crate) fn write_standard_delta_version_with_perf(
     runtime: &tokio::runtime::Runtime,
     df: &mut DataFrame,
@@ -131,6 +138,77 @@ pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec
         ))));
     }
     Ok(primary_key.clone())
+}
+
+pub(crate) fn resolve_merge_ignore_columns(entity: &config::EntityConfig) -> HashSet<String> {
+    entity
+        .sink
+        .accepted
+        .merge
+        .as_ref()
+        .and_then(|merge| merge.ignore_columns.as_ref())
+        .map(|columns| {
+            columns
+                .iter()
+                .map(|column| column.trim())
+                .filter(|column| !column.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn resolve_merge_compare_columns(entity: &config::EntityConfig) -> Option<Vec<String>> {
+    entity
+        .sink
+        .accepted
+        .merge
+        .as_ref()
+        .and_then(|merge| merge.compare_columns.as_ref())
+        .map(|columns| {
+            let mut seen = HashSet::new();
+            columns
+                .iter()
+                .map(|column| column.trim())
+                .filter(|column| !column.is_empty())
+                .filter_map(|column| {
+                    if seen.insert(column.to_string()) {
+                        Some(column.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+}
+
+pub(crate) fn resolve_scd2_system_columns(entity: &config::EntityConfig) -> Scd2SystemColumns {
+    let scd2 = entity
+        .sink
+        .accepted
+        .merge
+        .as_ref()
+        .and_then(|merge| merge.scd2.as_ref());
+    let is_current = scd2
+        .and_then(|value| value.current_flag_column.as_deref())
+        .unwrap_or(config::DEFAULT_SCD2_CURRENT_FLAG_COLUMN)
+        .trim()
+        .to_string();
+    let valid_from = scd2
+        .and_then(|value| value.valid_from_column.as_deref())
+        .unwrap_or(config::DEFAULT_SCD2_VALID_FROM_COLUMN)
+        .trim()
+        .to_string();
+    let valid_to = scd2
+        .and_then(|value| value.valid_to_column.as_deref())
+        .unwrap_or(config::DEFAULT_SCD2_VALID_TO_COLUMN)
+        .trim()
+        .to_string();
+    Scd2SystemColumns {
+        is_current,
+        valid_from,
+        valid_to,
+    }
 }
 
 pub(crate) fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>> {

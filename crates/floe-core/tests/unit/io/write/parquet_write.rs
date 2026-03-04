@@ -11,6 +11,7 @@ fn sink_target(max_size_per_file: Option<u64>) -> config::SinkTarget {
             row_group_size: None,
             max_size_per_file,
         }),
+        merge: None,
         iceberg: None,
         partition_by: None,
         partition_spec: None,

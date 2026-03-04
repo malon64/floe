@@ -531,6 +531,197 @@ entities:
 }
 
 #[test]
+fn local_delta_merge_scd2_supports_custom_system_column_names() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(
+        &input_dir,
+        "batch1.csv",
+        "id;country;name\n1;fr;alice\n2;ca;bob\n",
+    );
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+        merge:
+          scd2:
+            current_flag_column: "__is_current"
+            valid_from_column: "__valid_from"
+            valid_to_column: "__valid_to"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-custom-cols-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge_scd2 run with custom system columns");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first batch");
+    write_csv(
+        &input_dir,
+        "batch2.csv",
+        "id;country;name\n1;fr;alice-v2\n2;ca;bob\n",
+    );
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-custom-cols-upsert".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("merge_scd2 run with custom system columns");
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert!(df.column("__is_current").is_ok());
+    assert!(df.column("__valid_from").is_ok());
+    assert!(df.column("__valid_to").is_ok());
+    assert!(df.column("__floe_is_current").is_err());
+    assert!(df.column("__floe_valid_from").is_err());
+    assert!(df.column("__floe_valid_to").is_err());
+}
+
+#[test]
+fn local_delta_merge_scd2_compare_columns_and_ignore_columns_control_change_detection() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(
+        &input_dir,
+        "batch1.csv",
+        "id;country;name;status;ingested_at\n1;fr;alice;active;2024-01-01T00:00:00Z\n",
+    );
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+        merge:
+          ignore_columns: ["ingested_at"]
+          compare_columns: ["name"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+        - name: "status"
+          type: "string"
+        - name: "ingested_at"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-compare-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge_scd2 run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first batch");
+    write_csv(
+        &input_dir,
+        "batch2.csv",
+        "id;country;name;status;ingested_at\n1;fr;alice;inactive;2024-02-01T00:00:00Z\n",
+    );
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-compare-second".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("second merge_scd2 run");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.accepted_output.updated_count, Some(0));
+    assert_eq!(report.accepted_output.inserted_count, Some(0));
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 1);
+    let is_current = df
+        .column("__floe_is_current")
+        .expect("is current")
+        .as_materialized_series()
+        .bool()
+        .expect("is_current bool");
+    assert_eq!(is_current.get(0), Some(true));
+    let status = df
+        .column("status")
+        .expect("status")
+        .as_materialized_series()
+        .str()
+        .expect("status string");
+    assert_eq!(status.get(0), Some("active"));
+}
+
+#[test]
 fn local_delta_merge_scd2_bootstrap_preserves_configured_nullable_columns() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

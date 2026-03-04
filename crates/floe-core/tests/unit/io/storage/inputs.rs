@@ -219,6 +219,7 @@ fn mock_entity(name: &str) -> config::EntityConfig {
                 path: "out".to_string(),
                 storage: None,
                 options: None,
+                merge: None,
                 iceberg: None,
                 write_mode: config::WriteMode::Overwrite,
                 partition_by: None,

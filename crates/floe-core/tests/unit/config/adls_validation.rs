@@ -19,6 +19,7 @@ fn base_entity() -> config::EntityConfig {
                 path: "out.parquet".to_string(),
                 storage: None,
                 options: None,
+                merge: None,
                 iceberg: None,
                 write_mode: config::WriteMode::Overwrite,
                 partition_by: None,

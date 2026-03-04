@@ -218,10 +218,29 @@ pub struct SinkTarget {
     pub path: String,
     pub storage: Option<String>,
     pub options: Option<SinkOptions>,
+    pub merge: Option<MergeOptionsConfig>,
     pub iceberg: Option<IcebergSinkTargetConfig>,
     pub partition_by: Option<Vec<String>>,
     pub partition_spec: Option<Vec<IcebergPartitionFieldConfig>>,
     pub write_mode: WriteMode,
+}
+
+pub const DEFAULT_SCD2_CURRENT_FLAG_COLUMN: &str = "__floe_is_current";
+pub const DEFAULT_SCD2_VALID_FROM_COLUMN: &str = "__floe_valid_from";
+pub const DEFAULT_SCD2_VALID_TO_COLUMN: &str = "__floe_valid_to";
+
+#[derive(Debug, Clone)]
+pub struct MergeOptionsConfig {
+    pub ignore_columns: Option<Vec<String>>,
+    pub compare_columns: Option<Vec<String>>,
+    pub scd2: Option<MergeScd2OptionsConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MergeScd2OptionsConfig {
+    pub current_flag_column: Option<String>,
+    pub valid_from_column: Option<String>,
+    pub valid_to_column: Option<String>,
 }
 
 #[derive(Debug)]

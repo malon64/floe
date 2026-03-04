@@ -40,7 +40,8 @@ impl MergeBackend for DeltaMergeBackend {
     ) -> FloeResult<(i64, AcceptedMergeMetrics)> {
         let merge_start = Instant::now();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
-        shared::ensure_source_unique_on_merge_key(source_df, &merge_key, &ctx.entity.name)?;
+        // Merge-key uniqueness is enforced upstream by check::UniqueTracker for merge_scd1,
+        // so the writer can stay focused on sink-level merge execution.
         let store = object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
         let table_url = store.table_url;
         let storage_options = store.storage_options;

@@ -1,6 +1,6 @@
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
-use polars::prelude::{AnyValue, DataFrame, Series};
+use polars::prelude::DataFrame;
 use std::collections::HashSet;
 
 use crate::errors::RunError;
@@ -72,33 +72,6 @@ pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec
         ))));
     }
     Ok(primary_key.clone())
-}
-
-pub(crate) fn ensure_source_unique_on_merge_key(
-    source_df: &DataFrame,
-    merge_key: &[String],
-    entity_name: &str,
-) -> FloeResult<()> {
-    let key_series = key_series_for_df(source_df, merge_key, "source merge key")?;
-    let mut seen = HashSet::new();
-    let mut duplicate_count = 0_u64;
-    for row_idx in 0..source_df.height() {
-        let Some(key) = key_from_row(&key_series, row_idx)? else {
-            continue;
-        };
-        if !seen.insert(key) {
-            duplicate_count += 1;
-        }
-    }
-    if duplicate_count > 0 {
-        return Err(Box::new(RunError(format!(
-            "entity.name={} merge_scd1 source is not unique on merge_key [{}]: {} duplicate row(s) found (ambiguous merge)",
-            entity_name,
-            merge_key.join(","),
-            duplicate_count
-        ))));
-    }
-    Ok(())
 }
 
 pub(crate) fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>> {
@@ -195,69 +168,5 @@ pub(crate) fn accepted_merge_metrics_from_delta(
         target_rows_before,
         target_rows_after,
         merge_elapsed_ms,
-    }
-}
-
-fn key_series_for_df(df: &DataFrame, columns: &[String], context: &str) -> FloeResult<Vec<Series>> {
-    let mut series = Vec::with_capacity(columns.len());
-    for column in columns {
-        let col = df.column(column).map_err(|err| {
-            Box::new(RunError(format!(
-                "delta merge {context} column {} not found: {err}",
-                column
-            )))
-        })?;
-        series.push(col.as_materialized_series().rechunk());
-    }
-    Ok(series)
-}
-
-fn key_from_row(columns: &[Series], row_idx: usize) -> FloeResult<Option<String>> {
-    let mut encoded = String::new();
-    for (column_idx, series) in columns.iter().enumerate() {
-        let value = series.get(row_idx).map_err(|err| {
-            Box::new(RunError(format!(
-                "delta merge key read failed at row {}: {err}",
-                row_idx
-            )))
-        })?;
-        let Some(token) = encode_key_component(value) else {
-            return Ok(None);
-        };
-        if column_idx > 0 {
-            encoded.push('\u{1f}');
-        }
-        encoded.push_str(&token);
-    }
-    Ok(Some(encoded))
-}
-
-fn encode_key_component(value: AnyValue) -> Option<String> {
-    match value {
-        AnyValue::Null => None,
-        AnyValue::String(text) => Some(format!("s:{text}")),
-        AnyValue::StringOwned(text) => Some(format!("s:{text}")),
-        AnyValue::Boolean(flag) => Some(format!("b:{flag}")),
-        AnyValue::Int8(number) => Some(format!("i:{number}")),
-        AnyValue::Int16(number) => Some(format!("i:{number}")),
-        AnyValue::Int32(number) => Some(format!("i:{number}")),
-        AnyValue::Int64(number) => Some(format!("i:{number}")),
-        AnyValue::UInt8(number) => Some(format!("u:{number}")),
-        AnyValue::UInt16(number) => Some(format!("u:{number}")),
-        AnyValue::UInt32(number) => Some(format!("u:{number}")),
-        AnyValue::UInt64(number) => Some(format!("u:{number}")),
-        AnyValue::Float32(number) => Some(format!("f:{}", (number as f64).to_bits())),
-        AnyValue::Float64(number) => Some(format!("f:{}", number.to_bits())),
-        AnyValue::Date(number) => Some(format!("d:{number}")),
-        AnyValue::Datetime(number, unit, _) => Some(format!("dt:{unit:?}:{number}")),
-        AnyValue::Time(number) => Some(format!("t:{number}")),
-        AnyValue::Duration(number, unit) => Some(format!("dur:{unit:?}:{number}")),
-        AnyValue::Binary(binary) => Some(format!("bin:{binary:?}")),
-        AnyValue::BinaryOwned(binary) => Some(format!("bin:{binary:?}")),
-        AnyValue::Categorical(idx, _) => Some(format!("cat:{idx}")),
-        AnyValue::Enum(idx, _) => Some(format!("enum:{idx}")),
-        AnyValue::Int128(value) => Some(format!("i128:{value}")),
-        AnyValue::UInt128(value) => Some(format!("u128:{value}")),
-        _ => Some(format!("{value:?}")),
     }
 }

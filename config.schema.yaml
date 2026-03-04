@@ -203,7 +203,7 @@ $defs:
     properties:
       write_mode:
         type: string
-        enum: [overwrite, append, merge_scd1]
+        enum: [overwrite, append, merge_scd1, merge_scd2]
       accepted:
         $ref: "#/$defs/sink_accepted"
       rejected:

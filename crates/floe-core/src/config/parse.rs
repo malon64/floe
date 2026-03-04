@@ -411,8 +411,9 @@ fn parse_write_mode(value: &str, ctx: &str) -> FloeResult<WriteMode> {
         "overwrite" => Ok(WriteMode::Overwrite),
         "append" => Ok(WriteMode::Append),
         "merge_scd1" => Ok(WriteMode::MergeScd1),
+        "merge_scd2" => Ok(WriteMode::MergeScd2),
         _ => Err(Box::new(ConfigError(format!(
-            "unsupported value at {ctx}: {value} (allowed: overwrite, append, merge_scd1)"
+            "unsupported value at {ctx}: {value} (allowed: overwrite, append, merge_scd1, merge_scd2)"
         )))),
     }
 }

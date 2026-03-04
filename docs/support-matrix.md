@@ -50,8 +50,8 @@ Notes:
 - Iceberg accepted-output reports include snapshot/version metadata and file sizing metrics for data files.
 - Iceberg on GCS uses filesystem-catalog semantics (no external catalog yet).
 - Iceberg cloud support is currently S3 and GCS only (ADLS is follow-up work).
-- `sink.write_mode` applies to accepted and rejected outputs (`overwrite`, `append`, or `merge_scd1`).
-- `merge_scd1` is accepted-Delta only; non-Delta accepted sinks fail validation.
+- `sink.write_mode` applies to accepted and rejected outputs (`overwrite`, `append`, `merge_scd1`, `merge_scd2`).
+- `merge_scd1` and `merge_scd2` are accepted-Delta only; non-Delta accepted sinks fail validation.
 
 ## Accepted-output report metadata (current)
 

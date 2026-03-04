@@ -256,10 +256,11 @@ async fn write_iceberg_table_async(
             )
             .await?
         }
-        config::WriteMode::MergeScd1 => {
+        config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2 => {
             return Err(Box::new(RunError(format!(
-                "entity.name={} sink.write_mode=merge_scd1 is only supported for delta accepted sinks",
-                entity.name
+                "entity.name={} sink.write_mode={} is only supported for delta accepted sinks",
+                entity.name,
+                mode.as_str()
             ))));
         }
     };

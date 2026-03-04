@@ -337,7 +337,10 @@ fn resolve_unique_constraints(
     if unique_keys.is_empty() {
         return Ok(Vec::new());
     }
-    let merge_primary_key = if write_mode == crate::config::WriteMode::MergeScd1 {
+    let merge_primary_key = if matches!(
+        write_mode,
+        crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+    ) {
         entity.schema.primary_key.as_ref().map(|primary_key| {
             primary_key
                 .iter()

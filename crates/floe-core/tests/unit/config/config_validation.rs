@@ -1133,6 +1133,7 @@ entities:
             "overwrite",
             "append",
             "merge_scd1",
+            "merge_scd2",
         ],
     );
 }
@@ -1220,6 +1221,94 @@ entities:
         &[
             "entity.name=customer",
             "sink.write_mode=merge_scd1",
+            "schema.primary_key",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_write_mode_is_valid_for_delta_with_primary_key() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_ok(yaml);
+}
+
+#[test]
+fn sink_level_merge_scd2_requires_delta_sink() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.write_mode=merge_scd2",
+            "sink.accepted.format=delta",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_requires_primary_key() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.write_mode=merge_scd2",
             "schema.primary_key",
         ],
     );

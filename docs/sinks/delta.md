@@ -23,15 +23,16 @@ Semantics:
   - `merge_scd1`: upsert source rows using `schema.primary_key` as merge key.
     - matched keys: update non-key columns from source
     - missing keys: insert source rows
-    - source duplicates on merge key abort the merge as ambiguous
+  - `merge_scd2`: close changed current rows and insert new current versions.
+    - requires SCD2 system columns in the Delta table:
+      `__floe_is_current`, `__floe_valid_from`, `__floe_valid_to`
 - Local, S3, ADLS, and GCS storage are supported for delta output.
 
-Merge mode notes (`merge_scd1`):
+Merge mode notes (`merge_scd1`, `merge_scd2`):
 - Requires `schema.primary_key` in config (non-empty, non-nullable columns).
 - Only supported on Delta accepted sinks.
 - Current implementation validates strict schema compatibility; no schema evolution.
-- Current fallback implementation rewrites the table through a Delta transaction
-  (`SaveMode::Overwrite`) after computing SCD1 upsert rows.
+- Source duplicates on merge key are handled during row checks before write.
 - Single-writer assumption applies; Delta commit conflicts surface as write errors.
 
 ## Partition config

@@ -6,7 +6,7 @@ use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
 };
 use crate::io::storage::Target;
-use crate::io::write::strategy::merge::{scd1, shared};
+use crate::io::write::strategy::merge::{scd1, scd2, shared};
 use crate::{config, io, FloeResult};
 
 mod commit_metrics;
@@ -81,6 +81,18 @@ fn write_delta_table_with_metrics(
         }
         config::WriteMode::MergeScd1 => {
             let (version, merge) = scd1::execute_merge_scd1_with_runtime(
+                &runtime,
+                df,
+                target,
+                resolver,
+                entity,
+                partition_by,
+                target_file_size_bytes,
+            )?;
+            (version, Some(merge))
+        }
+        config::WriteMode::MergeScd2 => {
+            let (version, merge) = scd2::execute_merge_scd2_with_runtime(
                 &runtime,
                 df,
                 target,

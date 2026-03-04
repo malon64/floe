@@ -1,5 +1,6 @@
 use polars::prelude::DataFrame;
 
+use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::Target;
 use crate::{config, FloeResult};
@@ -26,4 +27,14 @@ pub(crate) trait MergeBackend {
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
     ) -> FloeResult<(i64, AcceptedMergeMetrics)>;
+
+    fn execute_scd2(
+        &self,
+        _source_df: &mut DataFrame,
+        _ctx: &MergeExecutionContext<'_>,
+    ) -> FloeResult<(i64, AcceptedMergeMetrics)> {
+        Err(Box::new(RunError(
+            "write_mode=merge_scd2 is not implemented for this backend".to_string(),
+        )))
+    }
 }

@@ -198,6 +198,7 @@ pub enum WriteMode {
     Overwrite,
     Append,
     MergeScd1,
+    MergeScd2,
 }
 
 impl WriteMode {
@@ -206,6 +207,7 @@ impl WriteMode {
             WriteMode::Overwrite => "overwrite",
             WriteMode::Append => "append",
             WriteMode::MergeScd1 => "merge_scd1",
+            WriteMode::MergeScd2 => "merge_scd2",
         }
     }
 }

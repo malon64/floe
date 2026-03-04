@@ -141,6 +141,43 @@ entities:
 }
 
 #[test]
+fn parse_config_supports_sink_level_merge_scd2_write_mode() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let entity = config.entities.first().expect("entity");
+    assert_eq!(entity.sink.write_mode, WriteMode::MergeScd2);
+    assert_eq!(entity.sink.accepted.write_mode, WriteMode::MergeScd2);
+    assert_eq!(
+        entity.sink.rejected.as_ref().unwrap().write_mode,
+        WriteMode::MergeScd2
+    );
+    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::MergeScd2);
+}
+
+#[test]
 fn parse_config_defaults_column_source_to_name() {
     let yaml = r#"
 version: "0.1"

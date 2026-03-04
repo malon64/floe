@@ -19,21 +19,7 @@ pub(crate) fn dataframe_to_record_batch(
     entity: &config::EntityConfig,
 ) -> FloeResult<RecordBatch> {
     if entity.schema.columns.is_empty() {
-        let mut fields = Vec::with_capacity(df.width());
-        let mut arrays = Vec::with_capacity(df.width());
-        for column in df.get_columns() {
-            let series = column.as_materialized_series();
-            let name = series.name().to_string();
-            let array = series_to_arrow_array(series)?;
-            let nullable = array.null_count() > 0;
-            fields.push(Field::new(name, array.data_type().clone(), nullable));
-            arrays.push(array);
-        }
-        let schema = Arc::new(Schema::new(fields));
-        return RecordBatch::try_new(schema, arrays).map_err(|err| {
-            Box::new(RunError(format!("delta record batch build failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        });
+        return dataframe_to_record_batch_all(df);
     }
 
     let schema_columns = normalize::resolve_output_columns(
@@ -69,11 +55,30 @@ pub(crate) fn dataframe_to_record_batch(
     })
 }
 
+pub(crate) fn dataframe_to_record_batch_all(df: &DataFrame) -> FloeResult<RecordBatch> {
+    let mut fields = Vec::with_capacity(df.width());
+    let mut arrays = Vec::with_capacity(df.width());
+    for column in df.get_columns() {
+        let series = column.as_materialized_series();
+        let name = series.name().to_string();
+        let array = series_to_arrow_array(series)?;
+        let nullable = array.null_count() > 0;
+        fields.push(Field::new(name, array.data_type().clone(), nullable));
+        arrays.push(array);
+    }
+    let schema = Arc::new(Schema::new(fields));
+    RecordBatch::try_new(schema, arrays).map_err(|err| {
+        Box::new(RunError(format!("delta record batch build failed: {err}")))
+            as Box<dyn std::error::Error + Send + Sync>
+    })
+}
+
 pub(crate) fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
     match mode {
         config::WriteMode::Overwrite => SaveMode::Overwrite,
         config::WriteMode::Append => SaveMode::Append,
         config::WriteMode::MergeScd1 => SaveMode::Overwrite,
+        config::WriteMode::MergeScd2 => SaveMode::Overwrite,
     }
 }
 

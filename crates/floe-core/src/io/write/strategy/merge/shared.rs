@@ -1,3 +1,4 @@
+use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
 use polars::prelude::DataFrame;
@@ -19,6 +20,28 @@ pub(crate) fn write_standard_delta_version(
     target_file_size_bytes: Option<usize>,
 ) -> FloeResult<i64> {
     let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch(df, entity)?;
+    write_delta_batch_version(
+        runtime,
+        batch,
+        target,
+        resolver,
+        entity,
+        save_mode_for_write_mode(mode),
+        partition_by,
+        target_file_size_bytes,
+    )
+}
+
+pub(crate) fn write_delta_batch_version(
+    runtime: &tokio::runtime::Runtime,
+    batch: deltalake::arrow::record_batch::RecordBatch,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    save_mode: SaveMode,
+    partition_by: Option<Vec<String>>,
+    target_file_size_bytes: Option<usize>,
+) -> FloeResult<i64> {
     let store = object_store::delta_store_config(target, resolver, entity)?;
     let table_url = store.table_url;
     let storage_options = store.storage_options;
@@ -38,9 +61,7 @@ pub(crate) fn write_standard_delta_version(
                     other => return Err(other),
                 },
             };
-            let mut write = table.write(vec![batch]).with_save_mode(
-                crate::io::write::delta::record_batch::save_mode_for_write_mode(mode),
-            );
+            let mut write = table.write(vec![batch]).with_save_mode(save_mode);
             if let Some(partition_by) = partition_by {
                 write = write.with_partition_columns(partition_by);
             }
@@ -58,16 +79,20 @@ pub(crate) fn write_standard_delta_version(
         .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?)
 }
 
+fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
+    crate::io::write::delta::record_batch::save_mode_for_write_mode(mode)
+}
+
 pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec<String>> {
     let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
         Box::new(RunError(format!(
-            "entity.name={} sink.write_mode=merge_scd1 requires schema.primary_key",
+            "entity.name={} merge write modes require schema.primary_key",
             entity.name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
     if primary_key.is_empty() {
         return Err(Box::new(RunError(format!(
-            "entity.name={} sink.write_mode=merge_scd1 requires non-empty schema.primary_key",
+            "entity.name={} merge write modes require non-empty schema.primary_key",
             entity.name
         ))));
     }
@@ -114,6 +139,35 @@ pub(crate) fn validate_merge_schema_compatibility(
             return Err(Box::new(RunError(format!(
                 "entity.name={} delta merge failed: target schema missing source column {}",
                 entity_name, source_column
+            ))));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_scd2_schema_compatibility(
+    target_schema_columns: &[String],
+    source_df: &DataFrame,
+    system_columns: &[&str],
+    entity_name: &str,
+) -> FloeResult<()> {
+    let target_columns = target_schema_columns
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    for source_column in source_df.get_column_names() {
+        if !target_columns.contains(source_column.as_str()) {
+            return Err(Box::new(RunError(format!(
+                "entity.name={} delta merge_scd2 failed: target schema missing source column {}",
+                entity_name, source_column
+            ))));
+        }
+    }
+    for system_column in system_columns {
+        if !target_columns.contains(system_column) {
+            return Err(Box::new(RunError(format!(
+                "entity.name={} delta merge_scd2 failed: target schema missing system column {}",
+                entity_name, system_column
             ))));
         }
     }

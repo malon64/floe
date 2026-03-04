@@ -251,27 +251,32 @@ fn validate_sink(
 }
 
 fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
-    if entity.sink.resolved_write_mode() != crate::config::WriteMode::MergeScd1 {
+    let write_mode = entity.sink.resolved_write_mode();
+    if !matches!(
+        write_mode,
+        crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+    ) {
         return Ok(());
     }
+    let mode_name = write_mode.as_str();
 
     if entity.sink.accepted.format != "delta" {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode=merge_scd1 requires sink.accepted.format=delta",
-            entity.name
+            "entity.name={} sink.write_mode={} requires sink.accepted.format=delta",
+            entity.name, mode_name
         ))));
     }
 
     let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
         Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode=merge_scd1 requires schema.primary_key",
-            entity.name
+            "entity.name={} sink.write_mode={} requires schema.primary_key",
+            entity.name, mode_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
     if primary_key.is_empty() {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode=merge_scd1 requires non-empty schema.primary_key",
-            entity.name
+            "entity.name={} sink.write_mode={} requires non-empty schema.primary_key",
+            entity.name, mode_name
         ))));
     }
 

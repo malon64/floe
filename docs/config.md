@@ -189,6 +189,11 @@ is available for templating within that entity.
     - requires `sink.accepted.format: delta`
     - requires non-empty `schema.primary_key`
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
+  - `merge_scd2`: Delta-only history mode keyed by `schema.primary_key`.
+    - closes changed current rows and inserts new current versions
+    - requires `sink.accepted.format: delta`
+    - requires non-empty `schema.primary_key`
+    - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet`, `delta`, or `iceberg`.
@@ -270,7 +275,7 @@ is available for templating within that entity.
   - Primary key columns are always treated as required (`not_null`) at runtime.
   - Config validation rejects `nullable: true` on primary key columns.
   - `primary_key` is also enforced as a composite unique constraint.
-  - In `sink.write_mode: merge_scd1`, `primary_key` is the mandatory merge key.
+  - In `sink.write_mode: merge_scd1` or `merge_scd2`, `primary_key` is the mandatory merge key.
 - `unique_keys` (optional)
   - Array of unique constraints, each constraint being an array of schema column names.
   - Supports single-column and multi-column uniqueness:

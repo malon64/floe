@@ -332,7 +332,7 @@ pub(super) fn run_validate_split_phase(
                     let (force_accept_mask, _) = check::build_row_masks(&force_accept_rows);
                     df.filter(&force_accept_mask).map_err(|err| {
                         Box::new(RunError(format!(
-                            "failed to filter merge_scd1 duplicate source rows: {err}"
+                            "failed to filter merge duplicate source rows: {err}"
                         )))
                     })?
                 };

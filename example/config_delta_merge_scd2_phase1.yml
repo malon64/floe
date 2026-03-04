@@ -1,0 +1,36 @@
+version: "0.1"
+
+report:
+  path: "./scd2/report"
+
+entities:
+  - name: "customer_dim"
+    source:
+      format: "csv"
+      path: "./scd2/in/phase1"
+      options:
+        header: true
+        separator: ","
+      cast_mode: "strict"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "./scd2/out/accepted/customer_dim_delta"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id", "country_code"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+          nullable: false
+        - name: "country_code"
+          type: "string"
+          nullable: false
+        - name: "name"
+          type: "string"
+          nullable: false
+        - name: "status"
+          type: "string"
+          nullable: false

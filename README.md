@@ -99,6 +99,39 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Local development
+
+### Prerequisites
+
+- Rust stable toolchain (`rustup`, `cargo`)
+- A C/C++ toolchain available in `PATH`
+
+### Setup
+
+From the repository root:
+
+```bash
+cargo fetch
+cargo build -p floe-cli
+cargo run -p floe-cli -- --version
+```
+
+### Environment configuration
+
+- No extra environment variables are required for local files (`local://`).
+- For cloud storages (`s3://`, `abfs://`, `gs://`), configure provider credentials in your environment:
+  [docs/storages/s3.md](docs/storages/s3.md),
+  [docs/storages/adls.md](docs/storages/adls.md),
+  [docs/storages/gcs.md](docs/storages/gcs.md)
+
+### Run locally
+
+```bash
+cargo run -p floe-cli -- validate -c example/config.yml
+cargo run -p floe-cli -- run -c example/config.yml --entities customer --dry-run
+cargo run -p floe-cli -- run -c example/config.yml --entities customer
+```
+
 ## Run with Docker
 
 ### Pull

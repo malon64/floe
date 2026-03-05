@@ -102,10 +102,9 @@ Full installation guide: [docs/installation.md](docs/installation.md)
 ## Local development
 
 ```bash
-cargo fmt --all
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all
 cargo build --all
+cargo run -p floe-cli -- validate -c example/config.yml
+cargo test --all
 ```
 
 ## Run with Docker

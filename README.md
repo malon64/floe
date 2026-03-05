@@ -99,6 +99,21 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Local development
+
+```bash
+rustup show
+cargo build
+cargo run -- validate -c example/config.yml
+cargo run -- run -c example/config.yml
+```
+
+For a faster dev loop, run the binary directly after building:
+
+```bash
+./target/debug/floe validate -c example/config.yml
+```
+
 ## Run with Docker
 
 ### Pull

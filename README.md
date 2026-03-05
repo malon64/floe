@@ -99,6 +99,36 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Local development
+
+Prerequisites:
+- Rust stable toolchain (`rustup toolchain install stable`)
+- A C/C++ toolchain available in `PATH`
+
+Build and run from this repo:
+
+```bash
+cargo build --all
+cargo run -p floe-cli -- --help
+```
+
+Run checks before opening a PR:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Run tests:
+
+```bash
+cargo test -p floe-core --test unit
+cargo test -p floe-core --test integration
+cargo test -p floe-cli --tests
+```
+
+For orchestrators (Dagster + Airflow) local setup, see [orchestrators/LOCAL_DEV.md](orchestrators/LOCAL_DEV.md).
+
 ## Run with Docker
 
 ### Pull

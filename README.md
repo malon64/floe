@@ -99,6 +99,20 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Local development
+
+```bash
+# build from source
+cargo build
+
+# required checks before opening a PR
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+
+# run tests
+cargo test
+```
+
 ## Run with Docker
 
 ### Pull

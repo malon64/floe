@@ -280,6 +280,8 @@ pub(super) fn run_entity(
         accepted_merge_key: accepted_write_report.merge_key,
         accepted_inserted_count: accepted_write_report.inserted_count,
         accepted_updated_count: accepted_write_report.updated_count,
+        accepted_closed_count: accepted_write_report.closed_count,
+        accepted_unchanged_count: accepted_write_report.unchanged_count,
         accepted_target_rows_before: accepted_write_report.target_rows_before,
         accepted_target_rows_after: accepted_write_report.target_rows_after,
         accepted_merge_elapsed_ms: accepted_write_report.merge_elapsed_ms,

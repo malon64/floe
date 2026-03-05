@@ -469,6 +469,8 @@ entities:
     );
     assert_eq!(report.accepted_output.inserted_count, Some(2));
     assert_eq!(report.accepted_output.updated_count, Some(1));
+    assert_eq!(report.accepted_output.closed_count, Some(1));
+    assert_eq!(report.accepted_output.unchanged_count, Some(1));
     assert_eq!(report.accepted_output.target_rows_before, Some(2));
     assert_eq!(report.accepted_output.target_rows_after, Some(4));
 

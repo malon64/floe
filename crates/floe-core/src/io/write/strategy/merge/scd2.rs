@@ -105,6 +105,8 @@ impl MergeBackend for DeltaMergeBackend {
                     merge_key,
                     inserted_count: source_df.height() as u64,
                     updated_count: 0,
+                    closed_count: Some(0),
+                    unchanged_count: Some(0),
                     target_rows_before: 0,
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
@@ -200,7 +202,10 @@ impl MergeBackend for DeltaMergeBackend {
                 "delta table version missing after merge".to_string(),
             ))
         })?;
+        let source_rows = source_df.height() as u64;
+        let closed_count = close_metrics.num_target_rows_updated as u64;
         let inserted_count = insert_metrics.num_target_rows_inserted as u64;
+        let unchanged_count = source_rows.saturating_sub(inserted_count);
 
         let target_rows_before = (close_metrics.num_target_rows_copied
             + close_metrics.num_target_rows_updated
@@ -211,7 +216,9 @@ impl MergeBackend for DeltaMergeBackend {
             AcceptedMergeMetrics {
                 merge_key,
                 inserted_count,
-                updated_count: close_metrics.num_target_rows_updated as u64,
+                updated_count: closed_count,
+                closed_count: Some(closed_count),
+                unchanged_count: Some(unchanged_count),
                 target_rows_before,
                 target_rows_after,
                 merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,

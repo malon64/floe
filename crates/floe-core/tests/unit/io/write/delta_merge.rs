@@ -153,6 +153,8 @@ entities:
     assert_eq!(accepted.write_mode.as_deref(), Some("merge_scd1"));
     assert_eq!(accepted.inserted_count, Some(1));
     assert_eq!(accepted.updated_count, Some(1));
+    assert_eq!(accepted.closed_count, None);
+    assert_eq!(accepted.unchanged_count, None);
     assert_eq!(accepted.target_rows_before, Some(2));
     assert_eq!(accepted.target_rows_after, Some(3));
 }

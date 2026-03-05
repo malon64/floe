@@ -236,6 +236,8 @@ pub(crate) fn accepted_merge_metrics_from_delta(
         merge_key,
         inserted_count: merge_metrics.num_target_rows_inserted as u64,
         updated_count: merge_metrics.num_target_rows_updated as u64,
+        closed_count: None,
+        unchanged_count: None,
         target_rows_before,
         target_rows_after,
         merge_elapsed_ms,

@@ -65,6 +65,8 @@ fn sample_report() -> RunReport {
             merge_key: Vec::new(),
             inserted_count: None,
             updated_count: None,
+            closed_count: None,
+            unchanged_count: None,
             target_rows_before: None,
             target_rows_after: None,
             merge_elapsed_ms: None,

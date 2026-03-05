@@ -109,7 +109,7 @@ pub(super) fn run_accepted_write_phase(
         write_mode,
         perf_enabled,
         phase_timings,
-        mut accepted_accum,
+        accepted_accum,
     } = context;
 
     let mut accepted_write_report = AcceptedWriteReportState::default();
@@ -118,14 +118,7 @@ pub(super) fn run_accepted_write_phase(
     }
 
     let concat_start = perf_enabled.then(Instant::now);
-    let mut accepted_df = accepted_accum
-        .pop()
-        .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())))?;
-    for frame in accepted_accum {
-        accepted_df
-            .vstack_mut(&frame)
-            .map_err(|err| Box::new(RunError(format!("failed to concat accepted rows: {err}"))))?;
-    }
+    let mut accepted_df = concat_accepted_frames(accepted_accum)?;
     if let Some(start) = concat_start {
         phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
     }
@@ -151,4 +144,28 @@ pub(super) fn run_accepted_write_phase(
 
     accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);
     Ok(accepted_write_report)
+}
+
+fn concat_accepted_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame> {
+    if frames.is_empty() {
+        return Err(Box::new(RunError("missing accepted dataframe".to_string())));
+    }
+    // Pairwise concatenation bounds repeated growth of a single frame compared to
+    // strictly left-associative stacking while preserving row order.
+    while frames.len() > 1 {
+        let mut next = Vec::with_capacity(frames.len().div_ceil(2));
+        let mut iter = frames.into_iter();
+        while let Some(mut left) = iter.next() {
+            if let Some(right) = iter.next() {
+                left.vstack_mut(&right).map_err(|err| {
+                    Box::new(RunError(format!("failed to concat accepted rows: {err}")))
+                })?;
+            }
+            next.push(left);
+        }
+        frames = next;
+    }
+    frames
+        .pop()
+        .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())).into())
 }

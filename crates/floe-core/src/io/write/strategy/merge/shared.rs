@@ -1,3 +1,6 @@
+use std::time::Instant;
+
+use arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
@@ -9,7 +12,27 @@ use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::{object_store, Target};
 use crate::{config, FloeResult};
 
-pub(crate) fn write_standard_delta_version(
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct DeltaStandardWritePerf {
+    pub(crate) conversion_ms: u64,
+    pub(crate) commit_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeltaVersionWriteOutcome {
+    pub(crate) version: i64,
+    pub(crate) perf: DeltaStandardWritePerf,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct DeltaMergePerfBreakdown {
+    pub(crate) conversion_ms: u64,
+    pub(crate) source_df_build_ms: u64,
+    pub(crate) merge_exec_ms: u64,
+    pub(crate) commit_ms: u64,
+}
+
+pub(crate) fn write_standard_delta_version_with_perf(
     runtime: &tokio::runtime::Runtime,
     df: &mut DataFrame,
     target: &Target,
@@ -18,9 +41,12 @@ pub(crate) fn write_standard_delta_version(
     mode: config::WriteMode,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
-) -> FloeResult<i64> {
+) -> FloeResult<DeltaVersionWriteOutcome> {
+    let conversion_start = Instant::now();
     let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch(df, entity)?;
-    write_delta_batch_version(
+    let conversion_ms = conversion_start.elapsed().as_millis() as u64;
+    let commit_start = Instant::now();
+    let version = write_delta_batch_version(
         runtime,
         batch,
         target,
@@ -29,7 +55,15 @@ pub(crate) fn write_standard_delta_version(
         save_mode_for_write_mode(mode),
         partition_by,
         target_file_size_bytes,
-    )
+    )?;
+    let commit_ms = commit_start.elapsed().as_millis() as u64;
+    Ok(DeltaVersionWriteOutcome {
+        version,
+        perf: DeltaStandardWritePerf {
+            conversion_ms,
+            commit_ms,
+        },
+    })
 }
 
 pub(crate) fn write_delta_batch_version(
@@ -191,16 +225,21 @@ pub(crate) fn validate_scd2_schema_compatibility(
     Ok(())
 }
 
-pub(crate) fn source_as_datafusion_df(
+pub(crate) fn source_record_batch(
     source_df: &DataFrame,
     entity: &config::EntityConfig,
+) -> FloeResult<RecordBatch> {
+    crate::io::write::delta::record_batch::dataframe_to_record_batch(source_df, entity)
+}
+
+pub(crate) fn source_as_datafusion_df_from_batch(
+    batch: RecordBatch,
+    entity_name: &str,
 ) -> FloeResult<deltalake::datafusion::prelude::DataFrame> {
-    let clone = source_df.clone();
-    let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch(&clone, entity)?;
     SessionContext::new().read_batch(batch).map_err(|err| {
         Box::new(RunError(format!(
             "entity.name={} delta merge failed to build source dataframe: {err}",
-            entity.name
+            entity_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })
 }

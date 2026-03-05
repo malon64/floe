@@ -36,7 +36,9 @@ where
         DataType::Int8 => {
             let values = series.i8()?;
             if options.upcast_i8_i16_to_i32 {
-                Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
+                Arc::new(Int32Array::from_iter(
+                    values.into_iter().map(|opt| opt.map(i32::from)),
+                ))
             } else {
                 Arc::new(Int8Array::from_iter(values))
             }
@@ -44,7 +46,9 @@ where
         DataType::Int16 => {
             let values = series.i16()?;
             if options.upcast_i8_i16_to_i32 {
-                Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
+                Arc::new(Int32Array::from_iter(
+                    values.into_iter().map(|opt| opt.map(i32::from)),
+                ))
             } else {
                 Arc::new(Int16Array::from_iter(values))
             }

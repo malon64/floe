@@ -1,11 +1,14 @@
 use polars::prelude::DataFrame;
+use serde_json::json;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
 };
 use crate::io::storage::Target;
+use crate::io::write::perf;
 use crate::io::write::strategy::merge::{scd1, scd2, shared};
 use crate::{config, io, FloeResult};
 
@@ -31,6 +34,15 @@ struct DeltaWriteResult {
     part_files: Vec<String>,
     metrics: AcceptedWriteMetrics,
     merge: Option<AcceptedMergeMetrics>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct DeltaWritePerfBreakdown {
+    conversion_ms: u64,
+    source_df_build_ms: u64,
+    merge_exec_ms: u64,
+    commit_ms: u64,
+    metrics_read_ms: u64,
 }
 
 pub(crate) fn delta_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
@@ -65,9 +77,9 @@ fn write_delta_table_with_metrics(
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-    let (version, merge) = match mode {
+    let (version, merge, mut perf_breakdown) = match mode {
         config::WriteMode::Overwrite | config::WriteMode::Append => {
-            let version = shared::write_standard_delta_version(
+            let outcome = shared::write_standard_delta_version_with_perf(
                 &runtime,
                 df,
                 target,
@@ -77,10 +89,18 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, None)
+            (
+                outcome.version,
+                None,
+                DeltaWritePerfBreakdown {
+                    conversion_ms: outcome.perf.conversion_ms,
+                    commit_ms: outcome.perf.commit_ms,
+                    ..DeltaWritePerfBreakdown::default()
+                },
+            )
         }
         config::WriteMode::MergeScd1 => {
-            let (version, merge) = scd1::execute_merge_scd1_with_runtime(
+            let (version, merge, perf) = scd1::execute_merge_scd1_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -89,10 +109,20 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, Some(merge))
+            (
+                version,
+                Some(merge),
+                DeltaWritePerfBreakdown {
+                    conversion_ms: perf.conversion_ms,
+                    source_df_build_ms: perf.source_df_build_ms,
+                    merge_exec_ms: perf.merge_exec_ms,
+                    commit_ms: perf.commit_ms,
+                    ..DeltaWritePerfBreakdown::default()
+                },
+            )
         }
         config::WriteMode::MergeScd2 => {
-            let (version, merge) = scd2::execute_merge_scd2_with_runtime(
+            let (version, merge, perf) = scd2::execute_merge_scd2_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -101,10 +131,21 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, Some(merge))
+            (
+                version,
+                Some(merge),
+                DeltaWritePerfBreakdown {
+                    conversion_ms: perf.conversion_ms,
+                    source_df_build_ms: perf.source_df_build_ms,
+                    merge_exec_ms: perf.merge_exec_ms,
+                    commit_ms: perf.commit_ms,
+                    ..DeltaWritePerfBreakdown::default()
+                },
+            )
         }
     };
 
+    let metrics_read_start = Instant::now();
     let (files_written, part_files, metrics) = delta_commit_metrics_for_target(
         &runtime,
         target,
@@ -113,6 +154,21 @@ fn write_delta_table_with_metrics(
         version,
         small_file_threshold_bytes,
     )?;
+    perf_breakdown.metrics_read_ms = metrics_read_start.elapsed().as_millis() as u64;
+
+    perf::emit_write_perf_log(
+        "perf_delta_write_timings",
+        json!({
+            "entity": entity.name,
+            "write_mode": mode.as_str(),
+            "conversion_ms": perf_breakdown.conversion_ms,
+            "source_df_build_ms": perf_breakdown.source_df_build_ms,
+            "merge_exec_ms": perf_breakdown.merge_exec_ms,
+            "commit_ms": perf_breakdown.commit_ms,
+            "metrics_read_ms": perf_breakdown.metrics_read_ms,
+            "table_version": version,
+        }),
+    );
 
     Ok(DeltaWriteResult {
         version,

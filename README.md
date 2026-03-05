@@ -99,6 +99,23 @@ If Homebrew is unavailable:
 More CLI details: [docs/cli.md](docs/cli.md)
 Full installation guide: [docs/installation.md](docs/installation.md)
 
+## Local development
+
+Run Floe from source:
+
+```bash
+cargo run -p floe-cli -- validate -c example/config.yml
+cargo run -p floe-cli -- run -c example/config.yml
+```
+
+Recommended checks before a PR:
+
+```bash
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all
+```
+
 ## Run with Docker
 
 ### Pull

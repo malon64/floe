@@ -9,6 +9,7 @@ ingests raw files into typed datasets using YAML contracts, applies schema
 enforcement and data quality rules, and produces clear, auditable outputs.
 
 Start here: [docs/summary.md](docs/summary.md)
+Local development: [docs/local-dev.md](docs/local-dev.md)
 
 ## What Floe solves
 

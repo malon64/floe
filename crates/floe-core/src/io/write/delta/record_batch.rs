@@ -1,17 +1,14 @@
 use std::sync::Arc;
 
-use deltalake::arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, NullArray, StringArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
-};
-use deltalake::arrow::datatypes::{Field, Schema};
-use deltalake::arrow::record_batch::RecordBatch;
+use arrow::array::ArrayRef;
+use arrow::datatypes::{Field, Schema};
+use arrow::record_batch::RecordBatch;
 use deltalake::protocol::SaveMode;
-use polars::prelude::{DataFrame, DataType, TimeUnit};
+use polars::prelude::DataFrame;
 
 use crate::checks::normalize;
 use crate::errors::RunError;
+use crate::io::write::arrow_convert::{self, ArrowConversionOptions, ArrowTimeEncoding};
 use crate::{config, FloeResult};
 
 pub(crate) fn dataframe_to_record_batch(
@@ -90,79 +87,17 @@ pub(crate) fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
 }
 
 fn series_to_arrow_array(series: &polars::prelude::Series) -> FloeResult<ArrayRef> {
-    let array: ArrayRef = match series.dtype() {
-        DataType::String => {
-            let values = series.str()?;
-            Arc::new(StringArray::from_iter(values))
-        }
-        DataType::Boolean => {
-            let values = series.bool()?;
-            Arc::new(BooleanArray::from_iter(values))
-        }
-        DataType::Int8 => {
-            let values = series.i8()?;
-            Arc::new(Int8Array::from_iter(values))
-        }
-        DataType::Int16 => {
-            let values = series.i16()?;
-            Arc::new(Int16Array::from_iter(values))
-        }
-        DataType::Int32 => {
-            let values = series.i32()?;
-            Arc::new(Int32Array::from_iter(values))
-        }
-        DataType::Int64 => {
-            let values = series.i64()?;
-            Arc::new(Int64Array::from_iter(values))
-        }
-        DataType::UInt8 => {
-            let values = series.u8()?;
-            Arc::new(UInt8Array::from_iter(values))
-        }
-        DataType::UInt16 => {
-            let values = series.u16()?;
-            Arc::new(UInt16Array::from_iter(values))
-        }
-        DataType::UInt32 => {
-            let values = series.u32()?;
-            Arc::new(UInt32Array::from_iter(values))
-        }
-        DataType::UInt64 => {
-            let values = series.u64()?;
-            Arc::new(UInt64Array::from_iter(values))
-        }
-        DataType::Float32 => {
-            let values = series.f32()?;
-            Arc::new(Float32Array::from_iter(values))
-        }
-        DataType::Float64 => {
-            let values = series.f64()?;
-            Arc::new(Float64Array::from_iter(values))
-        }
-        DataType::Date => {
-            let values = series.date()?;
-            Arc::new(Date32Array::from_iter(values.phys.iter()))
-        }
-        DataType::Datetime(unit, _) => {
-            let values = series.datetime()?;
-            let micros = values.phys.iter().map(|opt| match unit {
-                TimeUnit::Milliseconds => opt.map(|value| value.saturating_mul(1000)),
-                TimeUnit::Microseconds => opt,
-                TimeUnit::Nanoseconds => opt.map(|value| value / 1000),
-            });
-            Arc::new(TimestampMicrosecondArray::from_iter(micros))
-        }
-        DataType::Time => {
-            let values = series.time()?;
-            Arc::new(Time64NanosecondArray::from_iter(values.phys.iter()))
-        }
-        DataType::Null => Arc::new(NullArray::new(series.len())),
-        dtype => {
-            return Err(Box::new(RunError(format!(
+    arrow_convert::series_to_arrow_array(
+        series,
+        ArrowConversionOptions {
+            upcast_i8_i16_to_i32: false,
+            time_encoding: ArrowTimeEncoding::Nanoseconds,
+        },
+        |dtype| {
+            RunError(format!(
                 "delta sink does not support dtype {dtype:?} for {}",
                 series.name()
-            ))))
-        }
-    };
-    Ok(array)
+            ))
+        },
+    )
 }

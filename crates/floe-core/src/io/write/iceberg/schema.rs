@@ -1,16 +1,14 @@
 use std::sync::Arc;
 
-use arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int32Array, Int64Array,
-    StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
-};
+use arrow::array::ArrayRef;
 use arrow::record_batch::RecordBatch;
 use iceberg::arrow::schema_to_arrow_schema;
 use iceberg::spec::{NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec};
-use polars::prelude::{DataFrame, DataType, Series, TimeUnit};
+use polars::prelude::{DataFrame, DataType, Series};
 
 use crate::checks::normalize;
 use crate::errors::RunError;
+use crate::io::write::arrow_convert::{self, ArrowConversionOptions, ArrowTimeEncoding};
 use crate::{config, FloeResult};
 
 use super::{map_iceberg_err, PreparedIcebergWrite};
@@ -196,47 +194,19 @@ fn series_to_arrow_array(
     column_name: &str,
     entity_name: &str,
 ) -> FloeResult<ArrayRef> {
-    let array: ArrayRef = match series.dtype() {
-        DataType::String => Arc::new(StringArray::from_iter(series.str()?)),
-        DataType::Boolean => Arc::new(BooleanArray::from_iter(series.bool()?)),
-        DataType::Int8 => {
-            let values = series.i8()?;
-            Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
-        }
-        DataType::Int16 => {
-            let values = series.i16()?;
-            Arc::new(Int32Array::from_iter(values.into_iter().map(|opt| opt.map(i32::from))))
-        }
-        DataType::Int32 => Arc::new(Int32Array::from_iter(series.i32()?)),
-        DataType::Int64 => Arc::new(Int64Array::from_iter(series.i64()?)),
-        DataType::Float32 => Arc::new(Float32Array::from_iter(series.f32()?)),
-        DataType::Float64 => Arc::new(Float64Array::from_iter(series.f64()?)),
-        DataType::Date => {
-            let values = series.date()?;
-            Arc::new(Date32Array::from_iter(values.phys.iter()))
-        }
-        DataType::Time => {
-            let values = series.time()?;
-            let micros = values.phys.iter().map(|opt| opt.map(|value| value / 1_000));
-            Arc::new(Time64MicrosecondArray::from_iter(micros))
-        }
-        DataType::Datetime(unit, _) => {
-            let values = series.datetime()?;
-            let micros = values.phys.iter().map(|opt| match unit {
-                TimeUnit::Milliseconds => opt.map(|value| value.saturating_mul(1_000)),
-                TimeUnit::Microseconds => opt,
-                TimeUnit::Nanoseconds => opt.map(|value| value / 1_000),
-            });
-            Arc::new(TimestampMicrosecondArray::from_iter(micros))
-        }
-        dtype => {
-            return Err(Box::new(RunError(format!(
+    arrow_convert::series_to_arrow_array(
+        series,
+        ArrowConversionOptions {
+            upcast_i8_i16_to_i32: true,
+            time_encoding: ArrowTimeEncoding::Microseconds,
+        },
+        |dtype| {
+            RunError(format!(
                 "iceberg sink supports scalar types only; unsupported dtype {dtype:?} for column {} (entity {})",
                 column_name, entity_name
-            ))))
-        }
-    };
-    Ok(array)
+            ))
+        },
+    )
 }
 
 pub(super) fn ensure_schema_matches(

@@ -20,7 +20,7 @@ pub(crate) fn execute_merge_scd1_with_runtime(
     entity: &config::EntityConfig,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
-) -> FloeResult<(i64, AcceptedMergeMetrics)> {
+) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
     let ctx = MergeExecutionContext {
         runtime,
         target,
@@ -37,8 +37,9 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics)> {
+    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
         let merge_start = Instant::now();
+        let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
         // Merge-key uniqueness is enforced upstream by check::UniqueTracker for merge_scd1,
         // so the writer can stay focused on sink-level merge execution.
@@ -57,7 +58,7 @@ impl MergeBackend for DeltaMergeBackend {
                 other => Err(Box::new(RunError(format!("delta load failed: {other}")))),
             })?;
         if loaded_table.is_none() {
-            let version = shared::write_standard_delta_version(
+            let outcome = shared::write_standard_delta_version_with_perf(
                 ctx.runtime,
                 source_df,
                 ctx.target,
@@ -67,8 +68,10 @@ impl MergeBackend for DeltaMergeBackend {
                 ctx.partition_by.clone(),
                 ctx.target_file_size_bytes,
             )?;
+            perf.conversion_ms = outcome.perf.conversion_ms;
+            perf.commit_ms = outcome.perf.commit_ms;
             return Ok((
-                version,
+                outcome.version,
                 AcceptedMergeMetrics {
                     merge_key,
                     inserted_count: source_df.height() as u64,
@@ -79,6 +82,7 @@ impl MergeBackend for DeltaMergeBackend {
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
                 },
+                perf,
             ));
         }
 
@@ -89,7 +93,12 @@ impl MergeBackend for DeltaMergeBackend {
             source_df,
             &ctx.entity.name,
         )?;
-        let source = shared::source_as_datafusion_df(source_df, ctx.entity)?;
+        let conversion_start = Instant::now();
+        let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
+        perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
+        let source_df_build_start = Instant::now();
+        let source = shared::source_as_datafusion_df_from_batch(source_batch, &ctx.entity.name)?;
+        perf.source_df_build_ms = source_df_build_start.elapsed().as_millis() as u64;
         let source_columns = source_df
             .get_column_names()
             .iter()
@@ -102,6 +111,7 @@ impl MergeBackend for DeltaMergeBackend {
             .cloned()
             .collect::<Vec<_>>();
         let predicate = shared::merge_predicate_sql(&merge_key);
+        let merge_exec_start = Instant::now();
         let merge_result = ctx.runtime.block_on(async move {
             let mut merge = table
                 .merge(source, predicate)
@@ -129,6 +139,7 @@ impl MergeBackend for DeltaMergeBackend {
             })?;
             merge.await
         });
+        perf.merge_exec_ms = merge_exec_start.elapsed().as_millis() as u64;
         let (table, merge_metrics) =
             merge_result.map_err(|err| Box::new(RunError(format!("delta merge failed: {err}"))))?;
         let version = table.version().ok_or_else(|| {
@@ -141,6 +152,6 @@ impl MergeBackend for DeltaMergeBackend {
             &merge_metrics,
             merge_start.elapsed().as_millis() as u64,
         );
-        Ok((version, accepted_merge_metrics))
+        Ok((version, accepted_merge_metrics, perf))
     }
 }

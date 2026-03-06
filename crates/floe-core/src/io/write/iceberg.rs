@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Instant;
 
 use arrow::record_batch::RecordBatch;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
@@ -9,7 +10,9 @@ use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 use polars::prelude::DataFrame;
 
 use crate::errors::RunError;
-use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput};
+use crate::io::format::{
+    AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
+};
 use crate::io::storage::Target;
 use crate::{config, io, FloeResult};
 
@@ -58,6 +61,7 @@ struct IcebergWriteResult {
     iceberg_database: Option<String>,
     iceberg_namespace: Option<String>,
     iceberg_table: Option<String>,
+    perf: AcceptedWritePerfBreakdown,
 }
 
 struct IcebergRemoteContext<'a> {
@@ -127,7 +131,9 @@ fn write_iceberg_table_with_remote_context(
     mut remote: Option<IcebergRemoteContext<'_>>,
 ) -> FloeResult<AcceptedWriteOutput> {
     let write_ctx = build_iceberg_write_context(target, entity, mode, remote.as_mut())?;
+    let conversion_start = Instant::now();
     let prepared = prepare_iceberg_write(df, entity)?;
+    let conversion_ms = conversion_start.elapsed().as_millis() as u64;
     let small_file_threshold_bytes = iceberg_small_file_threshold_bytes(entity);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -135,13 +141,14 @@ fn write_iceberg_table_with_remote_context(
         .build()
         .map_err(|err| Box::new(RunError(format!("iceberg runtime init failed: {err}"))))?;
 
-    let result = runtime.block_on(write_iceberg_table_async(
+    let mut result = runtime.block_on(write_iceberg_table_async(
         write_ctx,
         prepared,
         entity,
         mode,
         small_file_threshold_bytes,
     ))?;
+    result.perf.conversion_ms = Some(conversion_ms);
     Ok(AcceptedWriteOutput {
         files_written: result.files_written,
         parts_written: result.files_written,
@@ -158,6 +165,7 @@ fn write_iceberg_table_with_remote_context(
         iceberg_table: result.iceberg_table,
         metrics: result.metrics,
         merge: None,
+        perf: Some(result.perf),
     })
 }
 
@@ -269,9 +277,12 @@ async fn write_iceberg_table_async(
     let mut file_sizes = Vec::new();
     let mut files_written = 0_u64;
     let mut table_after_write = table;
+    let mut perf = AcceptedWritePerfBreakdown::default();
 
     if prepared.batch.num_rows() > 0 {
+        let data_write_start = Instant::now();
         let data_files = write_data_files(&table_after_write, prepared.batch).await?;
+        perf.data_write_ms = Some(data_write_start.elapsed().as_millis() as u64);
         files_written = data_files.len() as u64;
         // Iceberg returns DataFile entries for data files only, so these sizes exclude
         // metadata/manifests and match the accepted-output metrics semantics.
@@ -297,10 +308,12 @@ async fn write_iceberg_table_async(
         let tx = action
             .apply(tx)
             .map_err(map_iceberg_err("iceberg append transaction apply failed"))?;
+        let commit_start = Instant::now();
         table_after_write = tx
             .commit(&catalog)
             .await
             .map_err(map_iceberg_err("iceberg commit failed"))?;
+        perf.commit_ms = Some(commit_start.elapsed().as_millis() as u64);
     }
 
     let snapshot_id = table_after_write
@@ -330,7 +343,9 @@ async fn write_iceberg_table_async(
         )
         .await?;
     }
+    let metrics_start = Instant::now();
     let metrics = metrics::summarize_written_file_sizes(&file_sizes, small_file_threshold_bytes);
+    perf.metrics_read_ms = Some(metrics_start.elapsed().as_millis() as u64);
 
     Ok(IcebergWriteResult {
         files_written,
@@ -343,6 +358,7 @@ async fn write_iceberg_table_async(
         iceberg_database: glue_catalog.as_ref().map(|cfg| cfg.database.clone()),
         iceberg_namespace: glue_catalog.as_ref().map(|cfg| cfg.namespace.clone()),
         iceberg_table: glue_catalog.as_ref().map(|cfg| cfg.table.clone()),
+        perf,
     })
 }
 

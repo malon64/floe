@@ -1,9 +1,11 @@
 use polars::prelude::DataFrame;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
+    AcceptedWritePerfBreakdown,
 };
 use crate::io::storage::Target;
 use crate::io::write::strategy::merge::{scd1, scd2, shared};
@@ -31,6 +33,7 @@ struct DeltaWriteResult {
     part_files: Vec<String>,
     metrics: AcceptedWriteMetrics,
     merge: Option<AcceptedMergeMetrics>,
+    perf: AcceptedWritePerfBreakdown,
 }
 
 pub(crate) fn delta_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
@@ -65,9 +68,9 @@ fn write_delta_table_with_metrics(
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-    let (version, merge) = match mode {
+    let (version, merge, mut perf_breakdown) = match mode {
         config::WriteMode::Overwrite | config::WriteMode::Append => {
-            let version = shared::write_standard_delta_version(
+            let outcome = shared::write_standard_delta_version_with_perf(
                 &runtime,
                 df,
                 target,
@@ -77,10 +80,18 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, None)
+            (
+                outcome.version,
+                None,
+                AcceptedWritePerfBreakdown {
+                    conversion_ms: Some(outcome.perf.conversion_ms),
+                    commit_ms: Some(outcome.perf.commit_ms),
+                    ..AcceptedWritePerfBreakdown::default()
+                },
+            )
         }
         config::WriteMode::MergeScd1 => {
-            let (version, merge) = scd1::execute_merge_scd1_with_runtime(
+            let (version, merge, perf) = scd1::execute_merge_scd1_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -89,10 +100,20 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, Some(merge))
+            (
+                version,
+                Some(merge),
+                AcceptedWritePerfBreakdown {
+                    conversion_ms: Some(perf.conversion_ms),
+                    source_df_build_ms: Some(perf.source_df_build_ms),
+                    merge_exec_ms: Some(perf.merge_exec_ms),
+                    commit_ms: Some(perf.commit_ms),
+                    ..AcceptedWritePerfBreakdown::default()
+                },
+            )
         }
         config::WriteMode::MergeScd2 => {
-            let (version, merge) = scd2::execute_merge_scd2_with_runtime(
+            let (version, merge, perf) = scd2::execute_merge_scd2_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -101,10 +122,21 @@ fn write_delta_table_with_metrics(
                 partition_by,
                 target_file_size_bytes,
             )?;
-            (version, Some(merge))
+            (
+                version,
+                Some(merge),
+                AcceptedWritePerfBreakdown {
+                    conversion_ms: Some(perf.conversion_ms),
+                    source_df_build_ms: Some(perf.source_df_build_ms),
+                    merge_exec_ms: Some(perf.merge_exec_ms),
+                    commit_ms: Some(perf.commit_ms),
+                    ..AcceptedWritePerfBreakdown::default()
+                },
+            )
         }
     };
 
+    let metrics_read_start = Instant::now();
     let (files_written, part_files, metrics) = delta_commit_metrics_for_target(
         &runtime,
         target,
@@ -113,6 +145,7 @@ fn write_delta_table_with_metrics(
         version,
         small_file_threshold_bytes,
     )?;
+    perf_breakdown.metrics_read_ms = Some(metrics_read_start.elapsed().as_millis() as u64);
 
     Ok(DeltaWriteResult {
         version,
@@ -120,6 +153,7 @@ fn write_delta_table_with_metrics(
         part_files,
         metrics,
         merge,
+        perf: perf_breakdown,
     })
 }
 
@@ -150,6 +184,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             iceberg_table: None,
             metrics: result.metrics,
             merge: result.merge,
+            perf: Some(result.perf),
         })
     }
 }

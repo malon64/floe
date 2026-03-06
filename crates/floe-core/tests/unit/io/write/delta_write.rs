@@ -430,6 +430,7 @@ fn build_entity(
                 path: table_path.display().to_string(),
                 storage: None,
                 options: None,
+                merge: None,
                 iceberg: None,
                 write_mode,
                 partition_by: None,

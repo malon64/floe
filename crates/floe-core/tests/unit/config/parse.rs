@@ -178,6 +178,76 @@ entities:
 }
 
 #[test]
+fn parse_config_supports_delta_merge_options_block() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+        merge:
+          ignore_columns: ["ingested_at", "load_ts"]
+          compare_columns: ["name", "address", "status"]
+          scd2:
+            current_flag_column: "__is_current"
+            valid_from_column: "__valid_from"
+            valid_to_column: "__valid_to"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+        - name: "address"
+          type: "string"
+        - name: "status"
+          type: "string"
+        - name: "ingested_at"
+          type: "datetime"
+        - name: "load_ts"
+          type: "datetime"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let entity = config.entities.first().expect("entity");
+    let merge = entity
+        .sink
+        .accepted
+        .merge
+        .as_ref()
+        .expect("sink.accepted.merge");
+
+    assert_eq!(
+        merge.ignore_columns.as_ref().expect("ignore columns"),
+        &vec!["ingested_at".to_string(), "load_ts".to_string()]
+    );
+    assert_eq!(
+        merge.compare_columns.as_ref().expect("compare columns"),
+        &vec![
+            "name".to_string(),
+            "address".to_string(),
+            "status".to_string()
+        ]
+    );
+    let scd2 = merge.scd2.as_ref().expect("scd2 options");
+    assert_eq!(scd2.current_flag_column.as_deref(), Some("__is_current"));
+    assert_eq!(scd2.valid_from_column.as_deref(), Some("__valid_from"));
+    assert_eq!(scd2.valid_to_column.as_deref(), Some("__valid_to"));
+}
+
+#[test]
 fn parse_config_defaults_column_source_to_name() {
     let yaml = r#"
 version: "0.1"

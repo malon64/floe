@@ -252,34 +252,222 @@ fn validate_sink(
 
 fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     let write_mode = entity.sink.resolved_write_mode();
+    let is_merge_mode = matches!(
+        write_mode,
+        crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+    );
+    if is_merge_mode {
+        let mode_name = write_mode.as_str();
+        if entity.sink.accepted.format != "delta" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.write_mode={} requires sink.accepted.format=delta",
+                entity.name, mode_name
+            ))));
+        }
+
+        let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "entity.name={} sink.write_mode={} requires schema.primary_key",
+                entity.name, mode_name
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        if primary_key.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.write_mode={} requires non-empty schema.primary_key",
+                entity.name, mode_name
+            ))));
+        }
+    }
+
+    validate_merge_options(entity, write_mode)
+}
+
+fn validate_merge_options(
+    entity: &EntityConfig,
+    write_mode: crate::config::WriteMode,
+) -> FloeResult<()> {
+    let Some(merge) = entity.sink.accepted.merge.as_ref() else {
+        return Ok(());
+    };
+
+    if entity.sink.accepted.format != "delta" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.merge is only supported when sink.accepted.format=delta",
+            entity.name
+        ))));
+    }
     if !matches!(
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
     ) {
-        return Ok(());
-    }
-    let mode_name = write_mode.as_str();
-
-    if entity.sink.accepted.format != "delta" {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode={} requires sink.accepted.format=delta",
-            entity.name, mode_name
+            "entity.name={} sink.accepted.merge is only supported with sink.write_mode=merge_scd1 or merge_scd2",
+            entity.name
         ))));
     }
 
-    let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode={} requires schema.primary_key",
-            entity.name, mode_name
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    if primary_key.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode={} requires non-empty schema.primary_key",
-            entity.name, mode_name
-        ))));
+    let schema_columns = entity
+        .schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let normalize_strategy = if entity
+        .schema
+        .normalize_columns
+        .as_ref()
+        .and_then(|normalize| normalize.enabled)
+        .unwrap_or(false)
+    {
+        entity
+            .schema
+            .normalize_columns
+            .as_ref()
+            .and_then(|normalize| normalize.strategy.as_deref())
+            .or(Some("snake_case"))
+    } else {
+        None
+    };
+    let resolved_output_columns = crate::checks::normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize_strategy,
+    );
+    let resolved_output_column_names = resolved_output_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let primary_key_columns = entity
+        .schema
+        .primary_key
+        .as_ref()
+        .map(|columns| {
+            columns
+                .iter()
+                .map(|column| column.trim().to_string())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+
+    if let Some(ignore_columns) = merge.ignore_columns.as_ref() {
+        validate_merge_column_list(
+            entity,
+            "sink.accepted.merge.ignore_columns",
+            ignore_columns,
+            &schema_columns,
+        )?;
+        for (index, column_name) in ignore_columns.iter().enumerate() {
+            let value = column_name.trim();
+            if primary_key_columns.contains(value) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.merge.ignore_columns[{}]={} cannot reference schema.primary_key column",
+                    entity.name, index, value
+                ))));
+            }
+        }
     }
 
+    if let Some(compare_columns) = merge.compare_columns.as_ref() {
+        validate_merge_column_list(
+            entity,
+            "sink.accepted.merge.compare_columns",
+            compare_columns,
+            &schema_columns,
+        )?;
+        for (index, column_name) in compare_columns.iter().enumerate() {
+            let value = column_name.trim();
+            if primary_key_columns.contains(value) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.merge.compare_columns[{}]={} cannot reference schema.primary_key column",
+                    entity.name, index, value
+                ))));
+            }
+        }
+    }
+
+    if let Some(scd2) = merge.scd2.as_ref() {
+        if write_mode != crate::config::WriteMode::MergeScd2 {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.merge.scd2 is only supported with sink.write_mode=merge_scd2",
+                entity.name
+            ))));
+        }
+        let current_flag_column = scd2
+            .current_flag_column
+            .as_deref()
+            .unwrap_or(crate::config::DEFAULT_SCD2_CURRENT_FLAG_COLUMN)
+            .trim();
+        let valid_from_column = scd2
+            .valid_from_column
+            .as_deref()
+            .unwrap_or(crate::config::DEFAULT_SCD2_VALID_FROM_COLUMN)
+            .trim();
+        let valid_to_column = scd2
+            .valid_to_column
+            .as_deref()
+            .unwrap_or(crate::config::DEFAULT_SCD2_VALID_TO_COLUMN)
+            .trim();
+        let resolved_columns = [
+            ("current_flag_column", current_flag_column),
+            ("valid_from_column", valid_from_column),
+            ("valid_to_column", valid_to_column),
+        ];
+        for (field, value) in resolved_columns {
+            if value.is_empty() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.merge.scd2.{} must not be empty",
+                    entity.name, field
+                ))));
+            }
+            if resolved_output_column_names.contains(value) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.merge.scd2.{}={} collides with schema column name",
+                    entity.name, field, value
+                ))));
+            }
+        }
+        let unique_columns = resolved_columns
+            .iter()
+            .map(|(_, value)| *value)
+            .collect::<HashSet<_>>();
+        if unique_columns.len() != resolved_columns.len() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.merge.scd2 column names must be unique",
+                entity.name
+            ))));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_merge_column_list(
+    entity: &EntityConfig,
+    field: &str,
+    values: &[String],
+    schema_columns: &HashSet<&str>,
+) -> FloeResult<()> {
+    let mut seen = HashSet::new();
+    for (index, value) in values.iter().enumerate() {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} {}[{}] must not be empty",
+                entity.name, field, index
+            ))));
+        }
+        if !schema_columns.contains(trimmed) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} {}[{}]={} references unknown schema column",
+                entity.name, field, index, trimmed
+            ))));
+        }
+        if !seen.insert(trimmed.to_string()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} {} has duplicate column {}",
+                entity.name, field, trimmed
+            ))));
+        }
+    }
     Ok(())
 }
 

@@ -1315,6 +1315,365 @@ entities:
 }
 
 #[test]
+fn sink_level_merge_options_are_valid_for_delta_merge_scd2() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          ignore_columns: ["ingested_at", "load_ts"]
+          compare_columns: ["name", "status"]
+          scd2:
+            current_flag_column: "__is_current"
+            valid_from_column: "__valid_from"
+            valid_to_column: "__valid_to"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+        - name: "status"
+          type: "string"
+        - name: "ingested_at"
+          type: "datetime"
+        - name: "load_ts"
+          type: "datetime"
+"#;
+    assert_validation_ok(yaml);
+}
+
+#[test]
+fn sink_level_merge_options_require_merge_write_mode() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          ignore_columns: ["name"]
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge",
+            "sink.write_mode=merge_scd1 or merge_scd2",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_options_require_delta_sink() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+        merge:
+          ignore_columns: ["name"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.write_mode=merge_scd1",
+            "sink.accepted.format=delta",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_ignore_columns_cannot_reference_primary_key() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          ignore_columns: ["customer_id"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.ignore_columns[0]=customer_id",
+            "schema.primary_key",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_compare_columns_cannot_reference_primary_key() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          compare_columns: ["customer_id", "name"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.compare_columns[0]=customer_id",
+            "schema.primary_key",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_compare_columns_must_reference_schema_columns() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          compare_columns: ["missing_col"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.compare_columns[0]=missing_col",
+            "unknown schema column",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_system_column_names_must_be_unique_and_not_business_columns() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          scd2:
+            current_flag_column: "status"
+            valid_from_column: "__shared"
+            valid_to_column: "__shared"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "status"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.scd2.current_flag_column=status",
+            "collides with schema column name",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_system_column_names_must_not_collide_with_normalized_business_columns() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          scd2:
+            current_flag_column: "order_id"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "Order ID"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.scd2.current_flag_column=order_id",
+            "collides with schema column name",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_system_column_names_must_be_unique() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          scd2:
+            current_flag_column: "__shared"
+            valid_from_column: "__shared"
+            valid_to_column: "__valid_to"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.scd2 column names must be unique",
+        ],
+    );
+}
+
+#[test]
+fn sink_level_merge_scd2_options_require_merge_scd2_mode() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          scd2:
+            current_flag_column: "__is_current"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.scd2",
+            "sink.write_mode=merge_scd2",
+        ],
+    );
+}
+
+#[test]
 fn iceberg_accepted_sink_is_valid_on_local_storage() {
     let entity = r#"  - name: "customer"
     source:

@@ -12,10 +12,6 @@ use crate::{config, FloeResult};
 
 use super::{shared, MergeBackend, MergeExecutionContext};
 
-const SCD2_IS_CURRENT_COLUMN: &str = "__floe_is_current";
-const SCD2_VALID_FROM_COLUMN: &str = "__floe_valid_from";
-const SCD2_VALID_TO_COLUMN: &str = "__floe_valid_to";
-
 struct DeltaMergeBackend;
 
 pub(crate) fn execute_merge_scd2_with_runtime(
@@ -58,12 +54,20 @@ impl MergeBackend for DeltaMergeBackend {
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
         let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
-        let compare_columns = source_df
-            .get_column_names()
-            .iter()
-            .map(|name| name.to_string())
-            .filter(|name| !merge_key_set.contains(name.as_str()))
-            .collect::<Vec<_>>();
+        let ignore_columns = shared::resolve_merge_ignore_columns(ctx.entity)?;
+        let compare_columns =
+            shared::resolve_merge_compare_columns(ctx.entity)?.unwrap_or_else(|| {
+                source_df
+                    .get_column_names()
+                    .iter()
+                    .map(|name| name.to_string())
+                    .filter(|name| {
+                        !merge_key_set.contains(name.as_str())
+                            && !ignore_columns.contains(name.as_str())
+                    })
+                    .collect::<Vec<_>>()
+            });
+        let system_columns = shared::resolve_scd2_system_columns(ctx.entity);
         let merge_key_predicate = shared::merge_predicate_sql(&merge_key);
 
         let store = object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
@@ -83,8 +87,9 @@ impl MergeBackend for DeltaMergeBackend {
 
         if loaded_table.is_none() {
             let mut bootstrap_df = source_df.clone();
-            append_scd2_system_columns(&mut bootstrap_df)?;
-            let bootstrap_schema_columns = build_scd2_bootstrap_schema_columns(ctx.entity)?;
+            append_scd2_system_columns(&mut bootstrap_df, &system_columns)?;
+            let bootstrap_schema_columns =
+                build_scd2_bootstrap_schema_columns(ctx.entity, &system_columns)?;
             let conversion_start = Instant::now();
             let batch =
                 crate::io::write::delta::record_batch::dataframe_to_record_batch_with_schema(
@@ -126,9 +131,9 @@ impl MergeBackend for DeltaMergeBackend {
             &target_schema_columns,
             source_df,
             &[
-                SCD2_IS_CURRENT_COLUMN,
-                SCD2_VALID_FROM_COLUMN,
-                SCD2_VALID_TO_COLUMN,
+                system_columns.is_current.as_str(),
+                system_columns.valid_from.as_str(),
+                system_columns.valid_to.as_str(),
             ],
             &ctx.entity.name,
         )?;
@@ -145,6 +150,11 @@ impl MergeBackend for DeltaMergeBackend {
         let update_predicate = scd2_changed_predicate(&compare_columns);
         let merge_key_predicate_for_close = merge_key_predicate.clone();
         let merge_exec_start = Instant::now();
+        let is_current_column = system_columns.is_current.clone();
+        let valid_from_column = system_columns.valid_from.clone();
+        let valid_to_column = system_columns.valid_to.clone();
+        let close_is_current_column = is_current_column.clone();
+        let close_valid_to_column = valid_to_column.clone();
         let close_result = ctx.runtime.block_on(async move {
             let mut merge = table
                 .merge(source_for_close, merge_key_predicate_for_close)
@@ -154,15 +164,15 @@ impl MergeBackend for DeltaMergeBackend {
                 update
                     .predicate(format!(
                         "{} = true AND ({})",
-                        shared::qualified_column("target", SCD2_IS_CURRENT_COLUMN),
+                        shared::qualified_column("target", close_is_current_column.as_str()),
                         update_predicate
                     ))
                     .update(
-                        shared::qualified_column("target", SCD2_IS_CURRENT_COLUMN),
+                        shared::qualified_column("target", close_is_current_column.as_str()),
                         "false",
                     )
                     .update(
-                        shared::qualified_column("target", SCD2_VALID_TO_COLUMN),
+                        shared::qualified_column("target", close_valid_to_column.as_str()),
                         "current_timestamp()",
                     )
             })?;
@@ -174,13 +184,16 @@ impl MergeBackend for DeltaMergeBackend {
         let active_match_predicate = format!(
             "{} AND {} = true",
             merge_key_predicate,
-            shared::qualified_column("target", SCD2_IS_CURRENT_COLUMN)
+            shared::qualified_column("target", is_current_column.as_str())
         );
         let source_columns = source_df
             .get_column_names()
             .iter()
             .map(|name| name.to_string())
             .collect::<Vec<_>>();
+        let insert_is_current_column = is_current_column.clone();
+        let insert_valid_from_column = valid_from_column.clone();
+        let insert_valid_to_column = valid_to_column.clone();
         let insert_result = ctx.runtime.block_on(async move {
             let mut merge = table_after_close
                 .merge(source_for_insert, active_match_predicate)
@@ -195,15 +208,15 @@ impl MergeBackend for DeltaMergeBackend {
                 });
                 insert
                     .set(
-                        shared::qualified_column("target", SCD2_IS_CURRENT_COLUMN),
+                        shared::qualified_column("target", insert_is_current_column.as_str()),
                         "true",
                     )
                     .set(
-                        shared::qualified_column("target", SCD2_VALID_FROM_COLUMN),
+                        shared::qualified_column("target", insert_valid_from_column.as_str()),
                         "current_timestamp()",
                     )
                     .set(
-                        shared::qualified_column("target", SCD2_VALID_TO_COLUMN),
+                        shared::qualified_column("target", insert_valid_to_column.as_str()),
                         "NULL",
                     )
             })?;
@@ -243,48 +256,54 @@ impl MergeBackend for DeltaMergeBackend {
     }
 }
 
-fn append_scd2_system_columns(df: &mut DataFrame) -> FloeResult<()> {
+fn append_scd2_system_columns(
+    df: &mut DataFrame,
+    system_columns: &shared::Scd2SystemColumns,
+) -> FloeResult<()> {
     let row_count = df.height();
     let now_micros = now_timestamp_micros();
     let valid_from = Series::new(
-        SCD2_VALID_FROM_COLUMN.into(),
+        system_columns.valid_from.as_str().into(),
         vec![Some(now_micros); row_count],
     )
     .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
     .map_err(|err| {
         Box::new(RunError(format!(
             "delta merge_scd2 failed to build {} column: {err}",
-            SCD2_VALID_FROM_COLUMN
+            system_columns.valid_from.as_str()
         )))
     })?;
     let valid_to = Series::new(
-        SCD2_VALID_TO_COLUMN.into(),
+        system_columns.valid_to.as_str().into(),
         vec![Option::<i64>::None; row_count],
     )
     .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
     .map_err(|err| {
         Box::new(RunError(format!(
             "delta merge_scd2 failed to build {} column: {err}",
-            SCD2_VALID_TO_COLUMN
+            system_columns.valid_to.as_str()
         )))
     })?;
-    let is_current = Series::new(SCD2_IS_CURRENT_COLUMN.into(), vec![Some(true); row_count]);
+    let is_current = Series::new(
+        system_columns.is_current.as_str().into(),
+        vec![Some(true); row_count],
+    );
     df.with_column(valid_from).map_err(|err| {
         Box::new(RunError(format!(
             "delta merge_scd2 failed to append {} column: {err}",
-            SCD2_VALID_FROM_COLUMN
+            system_columns.valid_from.as_str()
         )))
     })?;
     df.with_column(valid_to).map_err(|err| {
         Box::new(RunError(format!(
             "delta merge_scd2 failed to append {} column: {err}",
-            SCD2_VALID_TO_COLUMN
+            system_columns.valid_to.as_str()
         )))
     })?;
     df.with_column(is_current).map_err(|err| {
         Box::new(RunError(format!(
             "delta merge_scd2 failed to append {} column: {err}",
-            SCD2_IS_CURRENT_COLUMN
+            system_columns.is_current.as_str()
         )))
     })?;
     Ok(())
@@ -292,13 +311,14 @@ fn append_scd2_system_columns(df: &mut DataFrame) -> FloeResult<()> {
 
 fn build_scd2_bootstrap_schema_columns(
     entity: &config::EntityConfig,
+    system_columns: &shared::Scd2SystemColumns,
 ) -> FloeResult<Vec<config::ColumnConfig>> {
     let mut columns = normalize::resolve_output_columns(
         &entity.schema.columns,
         normalize::resolve_normalize_strategy(entity)?.as_deref(),
     );
     columns.push(config::ColumnConfig {
-        name: SCD2_IS_CURRENT_COLUMN.to_string(),
+        name: system_columns.is_current.clone(),
         source: None,
         column_type: "boolean".to_string(),
         nullable: Some(false),
@@ -307,7 +327,7 @@ fn build_scd2_bootstrap_schema_columns(
         trim: None,
     });
     columns.push(config::ColumnConfig {
-        name: SCD2_VALID_FROM_COLUMN.to_string(),
+        name: system_columns.valid_from.clone(),
         source: None,
         column_type: "datetime".to_string(),
         nullable: Some(false),
@@ -316,7 +336,7 @@ fn build_scd2_bootstrap_schema_columns(
         trim: None,
     });
     columns.push(config::ColumnConfig {
-        name: SCD2_VALID_TO_COLUMN.to_string(),
+        name: system_columns.valid_to.clone(),
         source: None,
         column_type: "datetime".to_string(),
         nullable: Some(true),

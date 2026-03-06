@@ -64,6 +64,7 @@ fn entity() -> config::EntityConfig {
                 path: "customer/orders".to_string(),
                 storage: Some("s3_out".to_string()),
                 options: None,
+                merge: None,
                 iceberg: Some(config::IcebergSinkTargetConfig {
                     catalog: Some("glue_main".to_string()),
                     namespace: None,

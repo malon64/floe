@@ -11,9 +11,10 @@ use crate::config::yaml_decode::{
 use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
     EntityMetadata, EnvConfig, IcebergPartitionFieldConfig, IcebergSinkTargetConfig,
-    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
-    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
-    StorageDefinition, StoragesConfig, WriteMode,
+    MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PolicyConfig,
+    ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig,
+    SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
+    WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -349,7 +350,13 @@ fn parse_sink_target(
     let hash = yaml_hash(value, ctx)?;
     let mut allowed = vec!["format", "path", "storage", "filesystem"];
     if allow_options {
-        allowed.extend(["options", "iceberg", "partition_by", "partition_spec"]);
+        allowed.extend([
+            "options",
+            "merge",
+            "iceberg",
+            "partition_by",
+            "partition_spec",
+        ]);
     }
     validate_known_keys(hash, ctx, &allowed)?;
     let storage = opt_string(hash, "storage", ctx)?;
@@ -362,6 +369,14 @@ fn parse_sink_target(
     let options = if allow_options {
         match hash_get(hash, "options") {
             Some(value) => Some(parse_sink_options(value, &format!("{ctx}.options"))?),
+            None => None,
+        }
+    } else {
+        None
+    };
+    let merge = if allow_options {
+        match hash_get(hash, "merge") {
+            Some(value) => Some(parse_merge_options(value, &format!("{ctx}.merge"))?),
             None => None,
         }
     } else {
@@ -399,6 +414,7 @@ fn parse_sink_target(
         path: get_string(hash, "path", ctx)?,
         storage: storage.or(filesystem),
         options,
+        merge,
         iceberg,
         partition_by,
         partition_spec,
@@ -429,6 +445,38 @@ fn parse_sink_options(value: &Yaml, ctx: &str) -> FloeResult<SinkOptions> {
         compression: opt_string(hash, "compression", ctx)?,
         row_group_size: opt_u64(hash, "row_group_size", ctx)?,
         max_size_per_file: opt_u64(hash, "max_size_per_file", ctx)?,
+    })
+}
+
+fn parse_merge_options(value: &Yaml, ctx: &str) -> FloeResult<MergeOptionsConfig> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["ignore_columns", "compare_columns", "scd2"])?;
+    let scd2 = match hash_get(hash, "scd2") {
+        Some(value) => Some(parse_merge_scd2_options(value, &format!("{ctx}.scd2"))?),
+        None => None,
+    };
+    Ok(MergeOptionsConfig {
+        ignore_columns: opt_vec_string(hash, "ignore_columns", ctx)?,
+        compare_columns: opt_vec_string(hash, "compare_columns", ctx)?,
+        scd2,
+    })
+}
+
+fn parse_merge_scd2_options(value: &Yaml, ctx: &str) -> FloeResult<MergeScd2OptionsConfig> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(
+        hash,
+        ctx,
+        &[
+            "current_flag_column",
+            "valid_from_column",
+            "valid_to_column",
+        ],
+    )?;
+    Ok(MergeScd2OptionsConfig {
+        current_flag_column: opt_string(hash, "current_flag_column", ctx)?,
+        valid_from_column: opt_string(hash, "valid_from_column", ctx)?,
+        valid_to_column: opt_string(hash, "valid_to_column", ctx)?,
     })
 }
 

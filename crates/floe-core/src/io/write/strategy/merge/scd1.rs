@@ -105,9 +105,12 @@ impl MergeBackend for DeltaMergeBackend {
             .map(|name| name.to_string())
             .collect::<Vec<_>>();
         let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
+        let ignore_columns = shared::resolve_merge_ignore_columns(ctx.entity)?;
         let update_columns = source_columns
             .iter()
-            .filter(|name| !merge_key_set.contains(name.as_str()))
+            .filter(|name| {
+                !merge_key_set.contains(name.as_str()) && !ignore_columns.contains(name.as_str())
+            })
             .cloned()
             .collect::<Vec<_>>();
         let predicate = shared::merge_predicate_sql(&merge_key);

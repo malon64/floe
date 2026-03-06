@@ -54,9 +54,9 @@ impl MergeBackend for DeltaMergeBackend {
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
         let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
-        let ignore_columns = shared::resolve_merge_ignore_columns(ctx.entity);
+        let ignore_columns = shared::resolve_merge_ignore_columns(ctx.entity)?;
         let compare_columns =
-            shared::resolve_merge_compare_columns(ctx.entity).unwrap_or_else(|| {
+            shared::resolve_merge_compare_columns(ctx.entity)?.unwrap_or_else(|| {
                 source_df
                     .get_column_names()
                     .iter()

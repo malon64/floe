@@ -312,6 +312,30 @@ fn validate_merge_options(
         .iter()
         .map(|column| column.name.as_str())
         .collect::<HashSet<_>>();
+    let normalize_strategy = if entity
+        .schema
+        .normalize_columns
+        .as_ref()
+        .and_then(|normalize| normalize.enabled)
+        .unwrap_or(false)
+    {
+        entity
+            .schema
+            .normalize_columns
+            .as_ref()
+            .and_then(|normalize| normalize.strategy.as_deref())
+            .or(Some("snake_case"))
+    } else {
+        None
+    };
+    let resolved_output_columns = crate::checks::normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize_strategy,
+    );
+    let resolved_output_column_names = resolved_output_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
     let primary_key_columns = entity
         .schema
         .primary_key
@@ -394,7 +418,7 @@ fn validate_merge_options(
                     entity.name, field
                 ))));
             }
-            if schema_columns.contains(value) {
+            if resolved_output_column_names.contains(value) {
                 return Err(Box::new(ConfigError(format!(
                     "entity.name={} sink.accepted.merge.scd2.{}={} collides with schema column name",
                     entity.name, field, value

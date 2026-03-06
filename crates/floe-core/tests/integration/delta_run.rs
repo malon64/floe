@@ -722,6 +722,89 @@ entities:
 }
 
 #[test]
+fn local_delta_merge_scd2_compare_columns_map_to_normalized_output_names() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;name;status\n1;Alice;active\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+        merge:
+          compare_columns: ["Name"]
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id"]
+      normalize_columns:
+        enabled: true
+        strategy: "lower"
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "Name"
+          type: "string"
+        - name: "status"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-compare-normalized-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge_scd2 run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first batch");
+    write_csv(
+        &input_dir,
+        "batch2.csv",
+        "id;name;status\n1;Alice Updated;active\n",
+    );
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-scd2-compare-normalized-second".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("second merge_scd2 run");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.accepted_output.updated_count, Some(1));
+    assert_eq!(report.accepted_output.inserted_count, Some(1));
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert!(df.column("name").is_ok());
+}
+
+#[test]
 fn local_delta_merge_scd2_bootstrap_preserves_configured_nullable_columns() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

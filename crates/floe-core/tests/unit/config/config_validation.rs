@@ -1566,6 +1566,45 @@ entities:
 }
 
 #[test]
+fn sink_level_merge_scd2_system_column_names_must_not_collide_with_normalized_business_columns() {
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      write_mode: "merge_scd2"
+      accepted:
+        format: "delta"
+        path: "/tmp/out_delta"
+        merge:
+          scd2:
+            current_flag_column: "order_id"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["customer_id"]
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      columns:
+        - name: "customer_id"
+          type: "string"
+        - name: "Order ID"
+          type: "string"
+"#;
+    assert_validation_error(
+        yaml,
+        &[
+            "entity.name=customer",
+            "sink.accepted.merge.scd2.current_flag_column=order_id",
+            "collides with schema column name",
+        ],
+    );
+}
+
+#[test]
 fn sink_level_merge_scd2_system_column_names_must_be_unique() {
     let yaml = r#"version: "0.1"
 entities:

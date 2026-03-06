@@ -5,7 +5,7 @@ use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
 use polars::prelude::DataFrame;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
@@ -140,46 +140,80 @@ pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec
     Ok(primary_key.clone())
 }
 
-pub(crate) fn resolve_merge_ignore_columns(entity: &config::EntityConfig) -> HashSet<String> {
-    entity
+pub(crate) fn resolve_merge_ignore_columns(
+    entity: &config::EntityConfig,
+) -> FloeResult<HashSet<String>> {
+    let Some(columns) = entity
         .sink
         .accepted
         .merge
         .as_ref()
         .and_then(|merge| merge.ignore_columns.as_ref())
-        .map(|columns| {
-            columns
-                .iter()
-                .map(|column| column.trim())
-                .filter(|column| !column.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<HashSet<_>>()
+    else {
+        return Ok(HashSet::new());
+    };
+
+    let schema_to_output = schema_to_output_column_name_map(entity)?;
+    let resolved = columns
+        .iter()
+        .map(|column| column.trim())
+        .filter(|column| !column.is_empty())
+        .map(|column| {
+            schema_to_output
+                .get(column)
+                .cloned()
+                .unwrap_or_else(|| column.to_string())
         })
-        .unwrap_or_default()
+        .collect::<HashSet<_>>();
+    Ok(resolved)
 }
 
-pub(crate) fn resolve_merge_compare_columns(entity: &config::EntityConfig) -> Option<Vec<String>> {
-    entity
+pub(crate) fn resolve_merge_compare_columns(
+    entity: &config::EntityConfig,
+) -> FloeResult<Option<Vec<String>>> {
+    let Some(columns) = entity
         .sink
         .accepted
         .merge
         .as_ref()
         .and_then(|merge| merge.compare_columns.as_ref())
-        .map(|columns| {
-            let mut seen = HashSet::new();
-            columns
-                .iter()
-                .map(|column| column.trim())
-                .filter(|column| !column.is_empty())
-                .filter_map(|column| {
-                    if seen.insert(column.to_string()) {
-                        Some(column.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
+    else {
+        return Ok(None);
+    };
+
+    let schema_to_output = schema_to_output_column_name_map(entity)?;
+    let mut seen = HashSet::new();
+    let resolved = columns
+        .iter()
+        .map(|column| column.trim())
+        .filter(|column| !column.is_empty())
+        .map(|column| {
+            schema_to_output
+                .get(column)
+                .cloned()
+                .unwrap_or_else(|| column.to_string())
         })
+        .filter(|column| seen.insert(column.clone()))
+        .collect::<Vec<_>>();
+    Ok(Some(resolved))
+}
+
+fn schema_to_output_column_name_map(
+    entity: &config::EntityConfig,
+) -> FloeResult<HashMap<String, String>> {
+    let normalize_strategy = crate::checks::normalize::resolve_normalize_strategy(entity)?;
+    let output_columns = crate::checks::normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize_strategy.as_deref(),
+    );
+    let mut mapping = HashMap::with_capacity(entity.schema.columns.len());
+    for (schema_column, output_column) in entity.schema.columns.iter().zip(output_columns.iter()) {
+        mapping.insert(
+            schema_column.name.trim().to_string(),
+            output_column.name.clone(),
+        );
+    }
+    Ok(mapping)
 }
 
 pub(crate) fn resolve_scd2_system_columns(entity: &config::EntityConfig) -> Scd2SystemColumns {

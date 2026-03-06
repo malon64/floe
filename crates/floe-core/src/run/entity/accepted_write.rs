@@ -34,6 +34,7 @@ pub(super) struct AcceptedWriteReportState {
     pub(super) target_rows_before: Option<u64>,
     pub(super) target_rows_after: Option<u64>,
     pub(super) merge_elapsed_ms: Option<u64>,
+    pub(super) write_perf: Option<io::format::AcceptedWritePerfBreakdown>,
 }
 
 impl AcceptedWriteReportState {
@@ -67,6 +68,7 @@ impl AcceptedWriteReportState {
             target_rows_before: output.merge.as_ref().map(|merge| merge.target_rows_before),
             target_rows_after: output.merge.as_ref().map(|merge| merge.target_rows_after),
             merge_elapsed_ms: output.merge.as_ref().map(|merge| merge.merge_elapsed_ms),
+            write_perf: output.perf,
         }
     }
 
@@ -139,7 +141,13 @@ pub(super) fn run_accepted_write_phase(
         mode: write_mode,
     })?;
     if let Some(start) = write_accepted_start {
-        phase_timings.write_accepted_ms += start.elapsed().as_millis() as u64;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        phase_timings.write_accepted_ms += elapsed_ms;
+        match entity.sink.accepted.format.as_str() {
+            "delta" => phase_timings.write_delta_ms += elapsed_ms,
+            "iceberg" => phase_timings.write_iceberg_ms += elapsed_ms,
+            _ => {}
+        }
     }
 
     accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);

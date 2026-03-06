@@ -41,6 +41,8 @@ struct EntityPhaseTimings {
     archive_ms: u64,
     concat_accepted_ms: u64,
     write_accepted_ms: u64,
+    write_delta_ms: u64,
+    write_iceberg_ms: u64,
     report_write_ms: u64,
 }
 
@@ -55,6 +57,8 @@ impl EntityPhaseTimings {
             "archive_input": self.archive_ms,
             "concat_accepted": self.concat_accepted_ms,
             "write_accepted": self.write_accepted_ms,
+            "write_delta": self.write_delta_ms,
+            "write_iceberg": self.write_iceberg_ms,
             "write_entity_report": self.report_write_ms,
         })
     }
@@ -316,6 +320,11 @@ pub(super) fn run_entity(
                 "rows_total": perf_rows_total,
                 "accepted_rows_accumulated": accepted_accum_rows,
                 "accepted_frames_accumulated": accepted_accum_frames,
+                "write_sink_format": entity.sink.accepted.format,
+                "write_sink_breakdown_ms": accepted_write_report
+                    .write_perf
+                    .as_ref()
+                    .map(write_perf_breakdown_json),
                 "phases_ms": phase_timings.into_json(),
             }),
         );
@@ -327,6 +336,19 @@ pub(super) fn run_entity(
             file_timings_ms,
         },
         abort_run,
+    })
+}
+
+fn write_perf_breakdown_json(
+    perf: &crate::io::format::AcceptedWritePerfBreakdown,
+) -> serde_json::Value {
+    json!({
+        "conversion": perf.conversion_ms,
+        "source_df_build": perf.source_df_build_ms,
+        "merge_exec": perf.merge_exec_ms,
+        "data_write": perf.data_write_ms,
+        "commit": perf.commit_ms,
+        "metrics_read": perf.metrics_read_ms,
     })
 }
 

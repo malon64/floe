@@ -40,6 +40,16 @@ pub struct AcceptedWriteMetrics {
     pub small_files_count: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AcceptedWritePerfBreakdown {
+    pub conversion_ms: Option<u64>,
+    pub source_df_build_ms: Option<u64>,
+    pub merge_exec_ms: Option<u64>,
+    pub data_write_ms: Option<u64>,
+    pub commit_ms: Option<u64>,
+    pub metrics_read_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AcceptedMergeMetrics {
     pub merge_key: Vec<String>,
@@ -66,6 +76,7 @@ pub struct AcceptedWriteOutput {
     pub iceberg_table: Option<String>,
     pub metrics: AcceptedWriteMetrics,
     pub merge: Option<AcceptedMergeMetrics>,
+    pub perf: Option<AcceptedWritePerfBreakdown>,
 }
 
 pub trait InputAdapter: Send + Sync {

@@ -165,6 +165,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             iceberg_table: None,
             metrics,
             merge: None,
+            perf: None,
         })
     }
 }

@@ -23,7 +23,7 @@ important references so you can quickly find the right guide.
 - Common orchestrator manifest schema: [orchestrators/schemas/floe.manifest.v1.json](../orchestrators/schemas/floe.manifest.v1.json)
 - Dagster integration package + examples: [orchestrators/dagster-floe/README.md](../orchestrators/dagster-floe/README.md)
 - Airflow integration package + examples: [orchestrators/airflow-floe/README.md](../orchestrators/airflow-floe/README.md)
-- Local integration dev notes: [orchestrators/LOCAL_DEV.md](../orchestrators/LOCAL_DEV.md)
+- Local integration dev notes: [docs/local-dev.md](local-dev.md)
 
 ## Configuration
 

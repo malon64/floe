@@ -6,7 +6,7 @@ all supported options. See `example/config.yml` for a full working example.
 ## Structure at a glance
 
 ```yaml
-version: "0.1"
+version: "0.2"
 metadata: { ... }
 report:
   path: "/abs/or/relative/report/dir"
@@ -48,6 +48,9 @@ entities:
       normalize_columns:
         enabled: true
         strategy: "snake_case"
+      schema_evolution:
+        mode: "strict"
+        on_incompatible: "fail"
       columns:
         - name: "customer_id"
           type: "string"
@@ -58,7 +61,9 @@ entities:
 ## Top-level fields
 
 - `version` (required)
-  - String used to validate config compatibility (example: `"0.1"`).
+  - String used to validate config compatibility.
+  - Supported values: `"0.1"` and `"0.2"`.
+  - `schema.schema_evolution` requires `version: "0.2"`.
 - `metadata` (optional)
   - Free-form project metadata. Keys supported in schema: `project`,
     `description`, `owner`, `tags`.
@@ -265,7 +270,9 @@ is available for templating within that entity.
   - `table_version` / `snapshot_id` in reports are sink-format specific (for example Delta table version, Iceberg metadata version + snapshot ID).
   - Compaction/optimization/maintenance remains external to Floe (for Parquet/Delta/Iceberg datasets).
     - Examples: Delta optimize/vacuum, Iceberg compaction/maintenance jobs.
-  - Schema evolution is currently out of scope for accepted Delta/Iceberg sink workflows in Floe.
+  - `schema.schema_evolution` is scaffolding only in this release.
+    - Validation is version-aware and `mode: add_columns` is Delta-only.
+    - Accepted sink runtime behavior does not apply schema evolution yet.
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.
@@ -290,6 +297,12 @@ is available for templating within that entity.
   - `strategy`: `snake_case`, `lower`, `camel_case`, `none`.
   - When enabled, both schema column names and input column names are normalized
     before checks. If normalization causes a name collision, the run fails.
+- `schema_evolution` (optional, v0.2)
+  - Omitted by default, Floe behaves as `mode: strict` and `on_incompatible: fail`.
+  - `mode`: `strict` or `add_columns`.
+  - `on_incompatible`: `fail`.
+  - `mode: add_columns` requires `sink.accepted.format: delta`.
+  - Current scope is config parsing and validation only; accepted-write runtime behavior remains strict.
 - `primary_key` (optional)
   - Array of schema column names.
   - Primary key columns are always treated as required (`not_null`) at runtime.

@@ -50,6 +50,7 @@ fn sample_entity() -> config::EntityConfig {
         schema: config::SchemaConfig {
             normalize_columns: None,
             mismatch: None,
+            schema_evolution: None,
             primary_key: None,
             unique_keys: None,
             columns: Vec::new(),

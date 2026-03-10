@@ -12,7 +12,8 @@ use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
     EntityMetadata, EnvConfig, IcebergPartitionFieldConfig, IcebergSinkTargetConfig,
     MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PolicyConfig,
-    ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaMismatchConfig, SinkConfig,
+    ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
+    SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
     SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
     WriteMode,
 };
@@ -644,6 +645,7 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
         &[
             "normalize_columns",
             "mismatch",
+            "schema_evolution",
             "primary_key",
             "unique_keys",
             "columns",
@@ -655,6 +657,10 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     };
     let mismatch = match hash_get(hash, "mismatch") {
         Some(value) => Some(parse_mismatch(value)?),
+        None => None,
+    };
+    let schema_evolution = match hash_get(hash, "schema_evolution") {
+        Some(value) => Some(parse_schema_evolution(value)?),
         None => None,
     };
     let primary_key = opt_vec_string(hash, "primary_key", "schema")?;
@@ -671,6 +677,7 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     Ok(SchemaConfig {
         normalize_columns,
         mismatch,
+        schema_evolution,
         primary_key,
         unique_keys,
         columns,
@@ -697,6 +704,52 @@ fn parse_mismatch(value: &Yaml) -> FloeResult<SchemaMismatchConfig> {
         missing_columns: opt_string(hash, "missing_columns", "schema.mismatch")?,
         extra_columns: opt_string(hash, "extra_columns", "schema.mismatch")?,
     })
+}
+
+fn parse_schema_evolution(value: &Yaml) -> FloeResult<SchemaEvolutionConfig> {
+    let hash = yaml_hash(value, "schema.schema_evolution")?;
+    validate_known_keys(
+        hash,
+        "schema.schema_evolution",
+        &["mode", "on_incompatible"],
+    )?;
+    let mode = match opt_string(hash, "mode", "schema.schema_evolution")? {
+        Some(value) => parse_schema_evolution_mode(&value, "schema.schema_evolution.mode")?,
+        None => SchemaEvolutionMode::Strict,
+    };
+    let on_incompatible = match opt_string(hash, "on_incompatible", "schema.schema_evolution")? {
+        Some(value) => parse_schema_evolution_incompatible_action(
+            &value,
+            "schema.schema_evolution.on_incompatible",
+        )?,
+        None => SchemaEvolutionIncompatibleAction::Fail,
+    };
+    Ok(SchemaEvolutionConfig {
+        mode,
+        on_incompatible,
+    })
+}
+
+fn parse_schema_evolution_mode(value: &str, ctx: &str) -> FloeResult<SchemaEvolutionMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "strict" => Ok(SchemaEvolutionMode::Strict),
+        "add_columns" => Ok(SchemaEvolutionMode::AddColumns),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported value at {ctx}: {value} (allowed: strict, add_columns)"
+        )))),
+    }
+}
+
+fn parse_schema_evolution_incompatible_action(
+    value: &str,
+    ctx: &str,
+) -> FloeResult<SchemaEvolutionIncompatibleAction> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "fail" => Ok(SchemaEvolutionIncompatibleAction::Fail),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported value at {ctx}: {value} (allowed: fail)"
+        )))),
+    }
 }
 
 fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {

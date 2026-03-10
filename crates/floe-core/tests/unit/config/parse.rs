@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use floe_core::config::WriteMode;
+use floe_core::config::{SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, WriteMode};
 use floe_core::load_config;
 
 static TEMP_CONFIG_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -65,6 +65,50 @@ entities:
         WriteMode::Overwrite
     );
     assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Overwrite);
+    let schema_evolution = entity.schema.resolved_schema_evolution();
+    assert_eq!(schema_evolution.mode, SchemaEvolutionMode::Strict);
+    assert_eq!(
+        schema_evolution.on_incompatible,
+        SchemaEvolutionIncompatibleAction::Fail
+    );
+}
+
+#[test]
+fn parse_config_supports_version_0_2_and_schema_evolution() {
+    let yaml = r#"
+version: "0.2"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+        on_incompatible: "fail"
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    assert_eq!(config.version, "0.2");
+    let schema_evolution = config.entities[0]
+        .schema
+        .schema_evolution
+        .expect("schema evolution");
+    assert_eq!(schema_evolution.mode, SchemaEvolutionMode::AddColumns);
+    assert_eq!(
+        schema_evolution.on_incompatible,
+        SchemaEvolutionIncompatibleAction::Fail
+    );
 }
 
 #[test]

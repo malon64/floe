@@ -17,9 +17,12 @@ const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
 const ALLOWED_CATALOG_TYPES: &[&str] = &["glue"];
 const ALLOWED_ICEBERG_PARTITION_TRANSFORMS: &[&str] = &["identity", "year", "month", "day", "hour"];
+const ALLOWED_CONFIG_VERSIONS: &[&str] = &["0.1", "0.2"];
 const MAX_JSON_COLUMNS: usize = 1024;
 
 pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
+    validate_version(config)?;
+
     if config.entities.is_empty() {
         return Err(Box::new(ConfigError(
             "entities list is empty (at least one entity is required)".to_string(),
@@ -34,7 +37,12 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
 
     let mut names = HashSet::new();
     for entity in &config.entities {
-        validate_entity(entity, &storage_registry, &catalog_registry)?;
+        validate_entity(
+            entity,
+            &config.version,
+            &storage_registry,
+            &catalog_registry,
+        )?;
         if !names.insert(entity.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} is duplicated in config",
@@ -43,6 +51,17 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_version(config: &RootConfig) -> FloeResult<()> {
+    if !ALLOWED_CONFIG_VERSIONS.contains(&config.version.as_str()) {
+        return Err(Box::new(ConfigError(format!(
+            "root.version={} is unsupported (allowed: {})",
+            config.version,
+            ALLOWED_CONFIG_VERSIONS.join(", ")
+        ))));
+    }
     Ok(())
 }
 
@@ -57,13 +76,14 @@ fn validate_report(
 
 fn validate_entity(
     entity: &EntityConfig,
+    config_version: &str,
     storages: &StorageRegistry,
     catalogs: &CatalogRegistry,
 ) -> FloeResult<()> {
     validate_source(entity, storages)?;
     validate_policy(entity)?;
     validate_sink(entity, storages, catalogs)?;
-    validate_schema(entity)?;
+    validate_schema(entity, config_version)?;
     Ok(())
 }
 
@@ -658,7 +678,7 @@ fn validate_policy(entity: &EntityConfig) -> FloeResult<()> {
     Ok(())
 }
 
-fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
+fn validate_schema(entity: &EntityConfig, config_version: &str) -> FloeResult<()> {
     if entity.source.format == "json" && entity.schema.columns.len() > MAX_JSON_COLUMNS {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} schema.columns has {} entries which exceeds the JSON selector limit of {}",
@@ -752,6 +772,32 @@ fn validate_schema(entity: &EntityConfig) -> FloeResult<()> {
 
     validate_schema_primary_key(entity)?;
     validate_schema_unique_keys(entity)?;
+    validate_schema_evolution(entity, config_version)?;
+
+    Ok(())
+}
+
+fn validate_schema_evolution(entity: &EntityConfig, config_version: &str) -> FloeResult<()> {
+    let Some(schema_evolution) = entity.schema.schema_evolution else {
+        return Ok(());
+    };
+
+    if config_version != "0.2" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} schema.schema_evolution requires root.version=\"0.2\"",
+            entity.name
+        ))));
+    }
+
+    if entity.sink.accepted.format != "delta"
+        && schema_evolution.mode == crate::config::SchemaEvolutionMode::AddColumns
+    {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} schema.schema_evolution.mode={} requires sink.accepted.format=delta",
+            entity.name,
+            schema_evolution.mode.as_str()
+        ))));
+    }
 
     Ok(())
 }

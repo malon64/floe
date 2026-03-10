@@ -2,6 +2,16 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.1
+
+- Delta merge write modes:
+  - added `merge_scd1` support for keyed upserts into accepted Delta outputs
+  - added `merge_scd2` support for history-preserving merges with managed current/validity columns
+- Schema/config validation:
+  - added `schema.primary_key` as the explicit merge key surface, including validation for required, known, unique, non-nullable key columns
+- Merge/reporting refinements:
+  - added configurable Delta merge options and SCD2 closed/unchanged reporting metrics
+
 ## v0.3.0
 
 - Core performance and observability:

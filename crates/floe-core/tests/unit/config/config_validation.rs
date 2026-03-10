@@ -126,10 +126,28 @@ fn config_version_0_2_is_valid() {
 }
 
 #[test]
-fn unsupported_config_version_errors() {
+fn config_version_0_3_is_valid() {
+    assert_validation_ok(&base_config_with_version("0.3", &base_entity("customer")));
+}
+
+#[test]
+fn malformed_config_version_errors() {
     assert_validation_error(
-        &base_config_with_version("0.3", &base_entity("customer")),
-        &["root.version=0.3", "unsupported", "0.1", "0.2"],
+        &base_config_with_version("abc", &base_entity("customer")),
+        &["root.version=abc", "invalid", "major.minor"],
+    );
+}
+
+#[test]
+fn config_version_below_minimum_errors() {
+    assert_validation_error(
+        &base_config_with_version("0.0", &base_entity("customer")),
+        &[
+            "root.version=0.0",
+            "unsupported",
+            "minimum supported version",
+            "0.1",
+        ],
     );
 }
 
@@ -358,7 +376,7 @@ fn schema_evolution_is_rejected_for_version_0_1() {
         &[
             "entity.name=orders",
             "schema.schema_evolution",
-            "root.version=\"0.2\"",
+            "root.version >= \"0.2\"",
         ],
     );
 }
@@ -383,6 +401,28 @@ fn schema_evolution_add_columns_is_valid_for_delta_on_version_0_2() {
           type: "string"
 "#;
     assert_validation_ok(&base_config_with_version("0.2", entity));
+}
+
+#[test]
+fn schema_evolution_add_columns_is_valid_for_delta_on_higher_version() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config_with_version("0.3", entity));
 }
 
 #[test]

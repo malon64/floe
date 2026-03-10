@@ -112,6 +112,42 @@ entities:
 }
 
 #[test]
+fn parse_config_supports_higher_version_with_schema_evolution() {
+    let yaml = r#"
+version: "0.3"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    assert_eq!(config.version, "0.3");
+    assert_eq!(
+        config.entities[0]
+            .schema
+            .schema_evolution
+            .expect("schema evolution")
+            .mode,
+        SchemaEvolutionMode::AddColumns
+    );
+}
+
+#[test]
 fn parse_config_supports_sink_level_append_write_mode() {
     let yaml = r#"
 version: "0.1"

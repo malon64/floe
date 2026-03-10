@@ -62,8 +62,9 @@ entities:
 
 - `version` (required)
   - String used to validate config compatibility.
-  - Supported values: `"0.1"` and `"0.2"`.
-  - `schema.schema_evolution` requires `version: "0.2"`.
+  - Must be a numeric `major.minor` string such as `"0.1"`, `"0.2"`, or `"0.3"`.
+  - Minimum supported version is `"0.1"`.
+  - `schema.schema_evolution` requires `version >= "0.2"`.
 - `metadata` (optional)
   - Free-form project metadata. Keys supported in schema: `project`,
     `description`, `owner`, `tags`.

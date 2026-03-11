@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use polars::prelude::DataFrame;
+use polars::prelude::{DataFrame, Series};
 
 use crate::errors::RunError;
 use crate::{config, io, report, FloeResult};
@@ -41,20 +41,11 @@ pub(super) struct AcceptedWriteReportState {
 
 impl AcceptedWriteReportState {
     pub(super) fn for_entity(entity: &config::EntityConfig, write_mode: config::WriteMode) -> Self {
-        let schema_evolution = entity.schema.resolved_schema_evolution();
         Self {
-            schema_evolution: io::format::AcceptedSchemaEvolution {
-                enabled: entity.sink.accepted.format == "delta"
-                    && schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
-                    && matches!(
-                        write_mode,
-                        config::WriteMode::Append | config::WriteMode::Overwrite
-                    ),
-                mode: schema_evolution.mode.as_str().to_string(),
-                applied: false,
-                added_columns: Vec::new(),
-                incompatible_changes_detected: false,
-            },
+            schema_evolution:
+                crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
+                    entity, write_mode,
+                ),
             ..Self::default()
         }
     }
@@ -139,15 +130,20 @@ pub(super) fn run_accepted_write_phase(
     } = context;
 
     let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
-    if accepted_accum.is_empty() {
+    if accepted_accum.is_empty() && write_mode != config::WriteMode::Overwrite {
         return Ok(accepted_write_report);
     }
 
-    let concat_start = perf_enabled.then(Instant::now);
-    let mut accepted_df = concat_accepted_frames(accepted_accum)?;
-    if let Some(start) = concat_start {
-        phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
-    }
+    let mut accepted_df = if accepted_accum.is_empty() {
+        empty_accepted_frame(entity)?
+    } else {
+        let concat_start = perf_enabled.then(Instant::now);
+        let accepted_df = concat_accepted_frames(accepted_accum)?;
+        if let Some(start) = concat_start {
+            phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
+        }
+        accepted_df
+    };
 
     let output_stem = io::storage::paths::build_part_stem(0);
     let accepted_adapter = runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;
@@ -209,4 +205,25 @@ fn concat_accepted_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame> {
     frames
         .pop()
         .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())).into())
+}
+
+fn empty_accepted_frame(entity: &config::EntityConfig) -> FloeResult<DataFrame> {
+    let normalize_strategy = crate::checks::normalize::resolve_normalize_strategy(entity)?;
+    let columns = crate::checks::normalize::resolve_output_columns(
+        &entity.schema.columns,
+        normalize_strategy.as_deref(),
+    );
+    let series = columns
+        .into_iter()
+        .map(|column| {
+            let dtype = config::parse_data_type(&column.column_type)?;
+            Ok(Series::full_null(column.name.into(), 0, &dtype).into())
+        })
+        .collect::<FloeResult<Vec<_>>>()?;
+    DataFrame::new(series).map_err(|err| {
+        Box::new(RunError(format!(
+            "failed to build empty accepted dataframe: {err}"
+        )))
+        .into()
+    })
 }

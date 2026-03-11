@@ -26,13 +26,23 @@ pub(crate) trait MergeBackend {
         &self,
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)>;
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )>;
 
     fn execute_scd2(
         &self,
         _source_df: &mut DataFrame,
         _ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         Err(Box::new(RunError(
             "write_mode=merge_scd2 is not implemented for this backend".to_string(),
         )))

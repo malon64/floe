@@ -3,6 +3,14 @@
 This document describes the GitHub Actions workflows and the secrets required
 to publish Floe.
 
+## Latest release draft
+
+### Floe v0.3.2
+
+- Rolls out additive Delta schema evolution across `append`, `overwrite`, `merge_scd1`, and `merge_scd2`.
+- Includes guardrails for additive-only evolution, current partitioned-table limitations, and merge-key protection so key columns cannot be introduced through schema evolution.
+- Improves observability with the entity report `schema_evolution` block and the `schema_evolution_applied` lifecycle event when columns are added.
+
 ## Workflows
 
 - `CI` (`.github/workflows/ci.yml`)

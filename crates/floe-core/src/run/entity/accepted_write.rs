@@ -41,20 +41,11 @@ pub(super) struct AcceptedWriteReportState {
 
 impl AcceptedWriteReportState {
     pub(super) fn for_entity(entity: &config::EntityConfig, write_mode: config::WriteMode) -> Self {
-        let schema_evolution = entity.schema.resolved_schema_evolution();
         Self {
-            schema_evolution: io::format::AcceptedSchemaEvolution {
-                enabled: entity.sink.accepted.format == "delta"
-                    && schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
-                    && matches!(
-                        write_mode,
-                        config::WriteMode::Append | config::WriteMode::Overwrite
-                    ),
-                mode: schema_evolution.mode.as_str().to_string(),
-                applied: false,
-                added_columns: Vec::new(),
-                incompatible_changes_detected: false,
-            },
+            schema_evolution:
+                crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
+                    entity, write_mode,
+                ),
             ..Self::default()
         }
     }

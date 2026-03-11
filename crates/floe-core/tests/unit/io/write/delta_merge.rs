@@ -158,3 +158,126 @@ entities:
     assert_eq!(accepted.target_rows_before, Some(2));
     assert_eq!(accepted.target_rows_after, Some(3));
 }
+
+#[test]
+fn merge_scd1_add_columns_reports_schema_evolution() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(
+        &input_dir,
+        "batch1.csv",
+        "id;country;name\n1;fr;alice\n2;ca;bob\n",
+    );
+
+    let initial_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &initial_yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("unit-delta-merge-schema-evolution-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove first file");
+    write_csv(
+        &input_dir,
+        "batch2.csv",
+        "id;country;name;city\n1;fr;alice-updated;paris\n3;us;carol;new-york\n",
+    );
+
+    let evolved_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id", "country"]
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "country"
+          type: "string"
+        - name: "name"
+          type: "string"
+        - name: "city"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    write_config(root, &evolved_yaml);
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("unit-delta-merge-schema-evolution-upsert".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("merge upsert with new column");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert!(report.schema_evolution.enabled);
+    assert_eq!(report.schema_evolution.mode, "add_columns");
+    assert!(report.schema_evolution.applied);
+    assert_eq!(
+        report.schema_evolution.added_columns,
+        vec!["city".to_string()]
+    );
+    assert!(!report.schema_evolution.incompatible_changes_detected);
+}

@@ -28,6 +28,13 @@ pub(crate) struct DeltaVersionWriteOutcome {
     pub(crate) schema_evolution: crate::io::format::AcceptedSchemaEvolution,
 }
 
+#[derive(Clone)]
+pub(crate) struct PlannedDeltaSchemaEvolution {
+    pub(crate) summary: crate::io::format::AcceptedSchemaEvolution,
+    pub(crate) write_schema_mode: Option<SchemaMode>,
+    pub(crate) merge_schema: bool,
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DeltaMergePerfBreakdown {
     pub(crate) conversion_ms: u64,
@@ -41,6 +48,28 @@ pub(crate) struct Scd2SystemColumns {
     pub(crate) is_current: String,
     pub(crate) valid_from: String,
     pub(crate) valid_to: String,
+}
+
+pub(crate) fn default_schema_evolution_summary(
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+) -> crate::io::format::AcceptedSchemaEvolution {
+    let schema_evolution = entity.schema.resolved_schema_evolution();
+    crate::io::format::AcceptedSchemaEvolution {
+        enabled: entity.sink.accepted.format == "delta"
+            && schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
+            && matches!(
+                mode,
+                config::WriteMode::Append
+                    | config::WriteMode::Overwrite
+                    | config::WriteMode::MergeScd1
+                    | config::WriteMode::MergeScd2
+            ),
+        mode: schema_evolution.mode.as_str().to_string(),
+        applied: false,
+        added_columns: Vec::new(),
+        incompatible_changes_detected: false,
+    }
 }
 
 pub(crate) fn write_standard_delta_version_with_perf(
@@ -81,11 +110,6 @@ pub(crate) fn write_standard_delta_version_with_perf(
     })
 }
 
-struct PlannedSchemaEvolution {
-    summary: crate::io::format::AcceptedSchemaEvolution,
-    write_schema_mode: Option<SchemaMode>,
-}
-
 fn plan_standard_delta_schema_evolution(
     runtime: &tokio::runtime::Runtime,
     batch: &RecordBatch,
@@ -93,48 +117,54 @@ fn plan_standard_delta_schema_evolution(
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
     mode: config::WriteMode,
-) -> FloeResult<PlannedSchemaEvolution> {
-    let schema_evolution = entity.schema.resolved_schema_evolution();
-    let enabled = schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
-        && matches!(
-            mode,
-            config::WriteMode::Append | config::WriteMode::Overwrite
-        );
-    let mut summary = crate::io::format::AcceptedSchemaEvolution {
-        enabled,
-        mode: schema_evolution.mode.as_str().to_string(),
-        applied: false,
-        added_columns: Vec::new(),
-        incompatible_changes_detected: false,
-    };
-    if !enabled {
-        return Ok(PlannedSchemaEvolution {
+) -> FloeResult<PlannedDeltaSchemaEvolution> {
+    plan_delta_schema_evolution(runtime, batch, target, resolver, entity, mode, &[])
+}
+
+pub(crate) fn plan_merge_delta_schema_evolution(
+    runtime: &tokio::runtime::Runtime,
+    batch: &RecordBatch,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+    ignored_target_columns: &[&str],
+) -> FloeResult<PlannedDeltaSchemaEvolution> {
+    plan_delta_schema_evolution(
+        runtime,
+        batch,
+        target,
+        resolver,
+        entity,
+        mode,
+        ignored_target_columns,
+    )
+}
+
+fn plan_delta_schema_evolution(
+    runtime: &tokio::runtime::Runtime,
+    batch: &RecordBatch,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+    ignored_target_columns: &[&str],
+) -> FloeResult<PlannedDeltaSchemaEvolution> {
+    let mut summary = default_schema_evolution_summary(entity, mode);
+    if !summary.enabled {
+        return Ok(PlannedDeltaSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     }
 
-    let store = object_store::delta_store_config(target, resolver, entity)?;
-    let table_url = store.table_url;
-    let storage_options = store.storage_options;
-    let builder = DeltaTableBuilder::from_url(table_url.clone())
-        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
-        .with_storage_options(storage_options.clone());
-
-    let maybe_table = runtime
-        .block_on(async move {
-            match builder.load().await {
-                Ok(table) => Ok(Some(table)),
-                Err(deltalake::DeltaTableError::NotATable(_)) => Ok(None),
-                Err(err) => Err(err),
-            }
-        })
-        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
-
+    let maybe_table = load_delta_table(runtime, target, resolver, entity)?;
     let Some(table) = maybe_table else {
-        return Ok(PlannedSchemaEvolution {
+        return Ok(PlannedDeltaSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     };
 
@@ -145,8 +175,13 @@ fn plan_standard_delta_schema_evolution(
     let target_fields = target_schema.fields();
     let source_schema = batch.schema();
     let source_fields = source_schema.fields();
+    let ignored_target_columns = ignored_target_columns
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
     let added_columns = additive_columns(target_fields, source_fields);
-    let incompatible_changes = incompatible_schema_changes(target_fields, source_fields);
+    let incompatible_changes =
+        incompatible_schema_changes(target_fields, source_fields, &ignored_target_columns);
 
     summary.added_columns = added_columns;
     summary.incompatible_changes_detected = !incompatible_changes.is_empty();
@@ -159,10 +194,31 @@ fn plan_standard_delta_schema_evolution(
         ))));
     }
 
+    if matches!(
+        mode,
+        config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2
+    ) {
+        let merge_key = resolve_merge_key(entity)?;
+        let added_merge_key_columns = merge_key
+            .iter()
+            .filter(|column| summary.added_columns.iter().any(|added| added == *column))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !added_merge_key_columns.is_empty() {
+            summary.incompatible_changes_detected = true;
+            return Err(Box::new(RunError(format!(
+                "entity.name={} delta schema evolution failed: merge key columns cannot be added: {}",
+                entity.name,
+                added_merge_key_columns.join(", ")
+            ))));
+        }
+    }
+
     if summary.added_columns.is_empty() {
-        return Ok(PlannedSchemaEvolution {
+        return Ok(PlannedDeltaSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     }
 
@@ -175,9 +231,17 @@ fn plan_standard_delta_schema_evolution(
     }
 
     summary.applied = true;
-    Ok(PlannedSchemaEvolution {
+    Ok(PlannedDeltaSchemaEvolution {
+        write_schema_mode: matches!(
+            mode,
+            config::WriteMode::Append | config::WriteMode::Overwrite
+        )
+        .then_some(SchemaMode::Merge),
+        merge_schema: matches!(
+            mode,
+            config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2
+        ),
         summary,
-        write_schema_mode: Some(SchemaMode::Merge),
     })
 }
 
@@ -196,6 +260,7 @@ fn additive_columns(target_fields: &[FieldRef], source_fields: &[FieldRef]) -> V
 fn incompatible_schema_changes(
     target_fields: &[FieldRef],
     source_fields: &[FieldRef],
+    ignored_target_columns: &HashSet<&str>,
 ) -> Vec<String> {
     let source_by_name = source_fields
         .iter()
@@ -203,6 +268,9 @@ fn incompatible_schema_changes(
         .collect::<HashMap<_, _>>();
     let mut incompatible = Vec::new();
     for target_field in target_fields {
+        if ignored_target_columns.contains(target_field.name().as_str()) {
+            continue;
+        }
         let Some(source_field) = source_by_name.get(target_field.name()) else {
             incompatible.push(format!("missing existing column {}", target_field.name()));
             continue;
@@ -223,6 +291,30 @@ fn incompatible_schema_changes(
         }
     }
     incompatible
+}
+
+pub(crate) fn load_delta_table(
+    runtime: &tokio::runtime::Runtime,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<Option<DeltaTable>> {
+    let store = object_store::delta_store_config(target, resolver, entity)?;
+    let table_url = store.table_url;
+    let storage_options = store.storage_options;
+    let builder = DeltaTableBuilder::from_url(table_url.clone())
+        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .with_storage_options(storage_options.clone());
+
+    runtime
+        .block_on(async move {
+            match builder.load().await {
+                Ok(table) => Ok(Some(table)),
+                Err(deltalake::DeltaTableError::NotATable(_)) => Ok(None),
+                Err(err) => Err(err),
+            }
+        })
+        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))).into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -417,6 +509,7 @@ pub(crate) fn validate_merge_schema_compatibility(
     target_schema_columns: &[String],
     source_df: &DataFrame,
     entity_name: &str,
+    allow_target_additive_evolution: bool,
 ) -> FloeResult<()> {
     let source_columns = source_df
         .get_column_names()
@@ -439,6 +532,9 @@ pub(crate) fn validate_merge_schema_compatibility(
         .collect::<HashSet<_>>();
     for source_column in source_columns {
         if !target_columns.contains(source_column) {
+            if allow_target_additive_evolution {
+                continue;
+            }
             return Err(Box::new(RunError(format!(
                 "entity.name={} delta merge failed: target schema missing source column {}",
                 entity_name, source_column
@@ -453,6 +549,7 @@ pub(crate) fn validate_scd2_schema_compatibility(
     source_df: &DataFrame,
     system_columns: &[&str],
     entity_name: &str,
+    allow_target_additive_evolution: bool,
 ) -> FloeResult<()> {
     let source_columns = source_df
         .get_column_names()
@@ -466,6 +563,9 @@ pub(crate) fn validate_scd2_schema_compatibility(
         .collect::<HashSet<_>>();
     for source_column in &source_columns {
         if !target_columns.contains(source_column) {
+            if allow_target_additive_evolution {
+                continue;
+            }
             return Err(Box::new(RunError(format!(
                 "entity.name={} delta merge_scd2 failed: target schema missing source column {}",
                 entity_name, source_column

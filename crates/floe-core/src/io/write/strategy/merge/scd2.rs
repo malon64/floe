@@ -1,5 +1,4 @@
 use deltalake::protocol::SaveMode;
-use deltalake::table::builder::DeltaTableBuilder;
 use polars::prelude::{DataFrame, DataType, NamedFrom, Series, TimeUnit};
 use std::collections::HashSet;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -7,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::checks::normalize;
 use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
-use crate::io::storage::{object_store, Target};
+use crate::io::storage::Target;
 use crate::{config, FloeResult};
 
 use super::{shared, MergeBackend, MergeExecutionContext};
@@ -22,7 +21,12 @@ pub(crate) fn execute_merge_scd2_with_runtime(
     entity: &config::EntityConfig,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
-) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+) -> FloeResult<(
+    i64,
+    AcceptedMergeMetrics,
+    crate::io::format::AcceptedSchemaEvolution,
+    shared::DeltaMergePerfBreakdown,
+)> {
     let ctx = MergeExecutionContext {
         runtime,
         target,
@@ -39,7 +43,12 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         _source_df: &mut DataFrame,
         _ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         Err(Box::new(RunError(
             "write_mode=merge_scd1 is not implemented for scd2 backend".to_string(),
         )))
@@ -49,7 +58,12 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         let merge_start = Instant::now();
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
@@ -70,20 +84,8 @@ impl MergeBackend for DeltaMergeBackend {
         let system_columns = shared::resolve_scd2_system_columns(ctx.entity);
         let merge_key_predicate = shared::merge_predicate_sql(&merge_key);
 
-        let store = object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
-        let table_url = store.table_url;
-        let storage_options = store.storage_options;
-        let builder = DeltaTableBuilder::from_url(table_url.clone())
-            .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
-            .with_storage_options(storage_options.clone());
-        let loaded_table = ctx
-            .runtime
-            .block_on(async move { builder.load().await })
-            .map(Some)
-            .or_else(|err| match err {
-                deltalake::DeltaTableError::NotATable(_) => Ok(None),
-                other => Err(Box::new(RunError(format!("delta load failed: {other}")))),
-            })?;
+        let loaded_table =
+            shared::load_delta_table(ctx.runtime, ctx.target, ctx.resolver, ctx.entity)?;
 
         if loaded_table.is_none() {
             let mut bootstrap_df = source_df.clone();
@@ -122,11 +124,28 @@ impl MergeBackend for DeltaMergeBackend {
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
                 },
+                shared::default_schema_evolution_summary(ctx.entity, config::WriteMode::MergeScd2),
                 perf,
             ));
         }
 
         let table = loaded_table.expect("checked is_some");
+        let conversion_start = Instant::now();
+        let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
+        perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
+        let schema_evolution = shared::plan_merge_delta_schema_evolution(
+            ctx.runtime,
+            &source_batch,
+            ctx.target,
+            ctx.resolver,
+            ctx.entity,
+            config::WriteMode::MergeScd2,
+            &[
+                system_columns.is_current.as_str(),
+                system_columns.valid_from.as_str(),
+                system_columns.valid_to.as_str(),
+            ],
+        )?;
         let target_schema_columns = shared::delta_schema_columns(&table)?;
         shared::validate_scd2_schema_compatibility(
             &target_schema_columns,
@@ -137,18 +156,35 @@ impl MergeBackend for DeltaMergeBackend {
                 system_columns.valid_to.as_str(),
             ],
             &ctx.entity.name,
+            schema_evolution.merge_schema,
         )?;
-
-        let conversion_start = Instant::now();
-        let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
-        perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
+        let added_compare_columns = compare_columns
+            .iter()
+            .filter(|column| schema_evolution.summary.added_columns.contains(column))
+            .cloned()
+            .collect::<Vec<_>>();
+        let existing_compare_columns = compare_columns
+            .iter()
+            .filter(|column| !schema_evolution.summary.added_columns.contains(column))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut source_with_system_columns = source_df.clone();
+        append_scd2_system_columns(&mut source_with_system_columns, &system_columns)?;
+        let source_with_system_columns_schema =
+            build_scd2_bootstrap_schema_columns(ctx.entity, &system_columns)?;
         let source_df_build_start = Instant::now();
         let source_for_close =
             shared::source_as_datafusion_df_from_batch(source_batch.clone(), &ctx.entity.name)?;
-        let source_for_insert =
-            shared::source_as_datafusion_df_from_batch(source_batch, &ctx.entity.name)?;
+        let source_for_insert = shared::source_as_datafusion_df_from_batch(
+            crate::io::write::delta::record_batch::dataframe_to_record_batch_with_schema(
+                &source_with_system_columns,
+                &source_with_system_columns_schema,
+            )?,
+            &ctx.entity.name,
+        )?;
         perf.source_df_build_ms = source_df_build_start.elapsed().as_millis() as u64;
-        let update_predicate = scd2_changed_predicate(&compare_columns);
+        let update_predicate =
+            scd2_changed_predicate(&existing_compare_columns, &added_compare_columns);
         let merge_key_predicate_for_close = merge_key_predicate.clone();
         let merge_exec_start = Instant::now();
         let is_current_column = system_columns.is_current.clone();
@@ -199,7 +235,8 @@ impl MergeBackend for DeltaMergeBackend {
             let mut merge = table_after_close
                 .merge(source_for_insert, active_match_predicate)
                 .with_source_alias("source")
-                .with_target_alias("target");
+                .with_target_alias("target")
+                .with_merge_schema(schema_evolution.merge_schema);
             merge = merge.when_not_matched_insert(|insert| {
                 let insert = source_columns.iter().fold(insert, |builder, column| {
                     builder.set(
@@ -252,6 +289,7 @@ impl MergeBackend for DeltaMergeBackend {
                 target_rows_after,
                 merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
             },
+            schema_evolution.summary,
             perf,
         ))
     }
@@ -357,11 +395,14 @@ fn now_timestamp_micros() -> i64 {
         .saturating_add(i64::from(duration.subsec_micros()))
 }
 
-fn scd2_changed_predicate(compare_columns: &[String]) -> String {
-    if compare_columns.is_empty() {
+fn scd2_changed_predicate(
+    existing_compare_columns: &[String],
+    added_compare_columns: &[String],
+) -> String {
+    if existing_compare_columns.is_empty() && added_compare_columns.is_empty() {
         return "false".to_string();
     }
-    compare_columns
+    existing_compare_columns
         .iter()
         .map(|column| {
             let target_col = shared::qualified_column("target", column);
@@ -370,6 +411,10 @@ fn scd2_changed_predicate(compare_columns: &[String]) -> String {
                 "(({target_col} <> {source_col}) OR ({target_col} IS NULL AND {source_col} IS NOT NULL) OR ({target_col} IS NOT NULL AND {source_col} IS NULL))"
             )
         })
+        .chain(added_compare_columns.iter().map(|column| {
+            let source_col = shared::qualified_column("source", column);
+            format!("{source_col} IS NOT NULL")
+        }))
         .collect::<Vec<_>>()
         .join(" OR ")
 }

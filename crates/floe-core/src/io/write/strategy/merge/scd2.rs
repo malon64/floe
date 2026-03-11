@@ -22,7 +22,12 @@ pub(crate) fn execute_merge_scd2_with_runtime(
     entity: &config::EntityConfig,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
-) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+) -> FloeResult<(
+    i64,
+    AcceptedMergeMetrics,
+    crate::io::format::AcceptedSchemaEvolution,
+    shared::DeltaMergePerfBreakdown,
+)> {
     let ctx = MergeExecutionContext {
         runtime,
         target,
@@ -39,7 +44,12 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         _source_df: &mut DataFrame,
         _ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         Err(Box::new(RunError(
             "write_mode=merge_scd1 is not implemented for scd2 backend".to_string(),
         )))
@@ -49,7 +59,12 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         let merge_start = Instant::now();
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
@@ -122,33 +137,63 @@ impl MergeBackend for DeltaMergeBackend {
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
                 },
+                shared::merge_schema_evolution_summary(ctx.entity),
                 perf,
             ));
         }
 
         let table = loaded_table.expect("checked is_some");
-        let target_schema_columns = shared::delta_schema_columns(&table)?;
-        shared::validate_scd2_schema_compatibility(
-            &target_schema_columns,
-            source_df,
-            &[
-                system_columns.is_current.as_str(),
-                system_columns.valid_from.as_str(),
-                system_columns.valid_to.as_str(),
-            ],
-            &ctx.entity.name,
-        )?;
-
         let conversion_start = Instant::now();
         let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
         perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
+        let required_target_columns = [
+            merge_key.clone(),
+            vec![
+                system_columns.is_current.clone(),
+                system_columns.valid_from.clone(),
+                system_columns.valid_to.clone(),
+            ],
+        ]
+        .concat();
+        let target_only_columns = vec![
+            system_columns.is_current.clone(),
+            system_columns.valid_from.clone(),
+            system_columns.valid_to.clone(),
+        ];
+        let schema_evolution = shared::plan_merge_delta_schema_evolution(
+            ctx.runtime,
+            &source_batch,
+            ctx.target,
+            ctx.resolver,
+            ctx.entity,
+            "merge_scd2",
+            &required_target_columns,
+            &target_only_columns,
+        )?;
+        let table = if schema_evolution.summary.applied {
+            shared::evolve_delta_table_columns(
+                ctx.runtime,
+                table,
+                &source_batch,
+                &schema_evolution.summary.added_columns,
+                &ctx.entity.name,
+            )?
+        } else {
+            table
+        };
         let source_df_build_start = Instant::now();
         let source_for_close =
             shared::source_as_datafusion_df_from_batch(source_batch.clone(), &ctx.entity.name)?;
         let source_for_insert =
             shared::source_as_datafusion_df_from_batch(source_batch, &ctx.entity.name)?;
         perf.source_df_build_ms = source_df_build_start.elapsed().as_millis() as u64;
-        let update_predicate = scd2_changed_predicate(&compare_columns);
+        let added_columns = schema_evolution
+            .summary
+            .added_columns
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let update_predicate = scd2_changed_predicate(&compare_columns, &added_columns);
         let merge_key_predicate_for_close = merge_key_predicate.clone();
         let merge_exec_start = Instant::now();
         let is_current_column = system_columns.is_current.clone();
@@ -168,14 +213,8 @@ impl MergeBackend for DeltaMergeBackend {
                         shared::qualified_column("target", close_is_current_column.as_str()),
                         update_predicate
                     ))
-                    .update(
-                        shared::qualified_column("target", close_is_current_column.as_str()),
-                        "false",
-                    )
-                    .update(
-                        shared::qualified_column("target", close_valid_to_column.as_str()),
-                        "current_timestamp()",
-                    )
+                    .update(close_is_current_column.as_str(), "false")
+                    .update(close_valid_to_column.as_str(), "current_timestamp()")
             })?;
             merge.await
         });
@@ -202,24 +241,12 @@ impl MergeBackend for DeltaMergeBackend {
                 .with_target_alias("target");
             merge = merge.when_not_matched_insert(|insert| {
                 let insert = source_columns.iter().fold(insert, |builder, column| {
-                    builder.set(
-                        shared::qualified_column("target", column),
-                        shared::qualified_column("source", column),
-                    )
+                    builder.set(column, shared::qualified_column("source", column))
                 });
                 insert
-                    .set(
-                        shared::qualified_column("target", insert_is_current_column.as_str()),
-                        "true",
-                    )
-                    .set(
-                        shared::qualified_column("target", insert_valid_from_column.as_str()),
-                        "current_timestamp()",
-                    )
-                    .set(
-                        shared::qualified_column("target", insert_valid_to_column.as_str()),
-                        "NULL",
-                    )
+                    .set(insert_is_current_column.as_str(), "true")
+                    .set(insert_valid_from_column.as_str(), "current_timestamp()")
+                    .set(insert_valid_to_column.as_str(), "NULL")
             })?;
             merge.await
         });
@@ -252,6 +279,7 @@ impl MergeBackend for DeltaMergeBackend {
                 target_rows_after,
                 merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
             },
+            schema_evolution.summary,
             perf,
         ))
     }
@@ -357,15 +385,18 @@ fn now_timestamp_micros() -> i64 {
         .saturating_add(i64::from(duration.subsec_micros()))
 }
 
-fn scd2_changed_predicate(compare_columns: &[String]) -> String {
+fn scd2_changed_predicate(compare_columns: &[String], added_columns: &HashSet<String>) -> String {
     if compare_columns.is_empty() {
         return "false".to_string();
     }
     compare_columns
         .iter()
         .map(|column| {
-            let target_col = shared::qualified_column("target", column);
             let source_col = shared::qualified_column("source", column);
+            if added_columns.contains(column) {
+                return format!("{source_col} IS NOT NULL");
+            }
+            let target_col = shared::qualified_column("target", column);
             format!(
                 "(({target_col} <> {source_col}) OR ({target_col} IS NULL AND {source_col} IS NOT NULL) OR ({target_col} IS NOT NULL AND {source_col} IS NULL))"
             )

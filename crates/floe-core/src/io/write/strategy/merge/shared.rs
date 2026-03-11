@@ -3,10 +3,12 @@ use std::time::Instant;
 use arrow::datatypes::FieldRef;
 use arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
+use deltalake::datafusion::prelude::SessionContext;
+use deltalake::kernel::engine::arrow_conversion::TryFromArrow;
 use deltalake::operations::write::SchemaMode;
 use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
-use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
+use deltalake::{DeltaTable, StructField};
 use polars::prelude::DataFrame;
 use std::collections::{HashMap, HashSet};
 
@@ -81,9 +83,10 @@ pub(crate) fn write_standard_delta_version_with_perf(
     })
 }
 
-struct PlannedSchemaEvolution {
-    summary: crate::io::format::AcceptedSchemaEvolution,
-    write_schema_mode: Option<SchemaMode>,
+pub(crate) struct PlannedSchemaEvolution {
+    pub(crate) summary: crate::io::format::AcceptedSchemaEvolution,
+    pub(crate) write_schema_mode: Option<SchemaMode>,
+    pub(crate) merge_schema: bool,
 }
 
 fn plan_standard_delta_schema_evolution(
@@ -111,6 +114,7 @@ fn plan_standard_delta_schema_evolution(
         return Ok(PlannedSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     }
 
@@ -135,6 +139,7 @@ fn plan_standard_delta_schema_evolution(
         return Ok(PlannedSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     };
 
@@ -163,6 +168,7 @@ fn plan_standard_delta_schema_evolution(
         return Ok(PlannedSchemaEvolution {
             summary,
             write_schema_mode: None,
+            merge_schema: false,
         });
     }
 
@@ -178,7 +184,197 @@ fn plan_standard_delta_schema_evolution(
     Ok(PlannedSchemaEvolution {
         summary,
         write_schema_mode: Some(SchemaMode::Merge),
+        merge_schema: false,
     })
+}
+
+pub(crate) fn merge_schema_evolution_summary(
+    entity: &config::EntityConfig,
+) -> crate::io::format::AcceptedSchemaEvolution {
+    let schema_evolution = entity.schema.resolved_schema_evolution();
+    crate::io::format::AcceptedSchemaEvolution {
+        enabled: schema_evolution.mode == config::SchemaEvolutionMode::AddColumns,
+        mode: schema_evolution.mode.as_str().to_string(),
+        applied: false,
+        added_columns: Vec::new(),
+        incompatible_changes_detected: false,
+    }
+}
+
+pub(crate) fn plan_merge_delta_schema_evolution(
+    runtime: &tokio::runtime::Runtime,
+    batch: &RecordBatch,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    error_context: &str,
+    required_target_columns: &[String],
+    target_only_columns: &[String],
+) -> FloeResult<PlannedSchemaEvolution> {
+    let schema_evolution = entity.schema.resolved_schema_evolution();
+    let enabled = schema_evolution.mode == config::SchemaEvolutionMode::AddColumns;
+    let mut summary = merge_schema_evolution_summary(entity);
+    summary.enabled = enabled;
+
+    let store = object_store::delta_store_config(target, resolver, entity)?;
+    let table_url = store.table_url;
+    let storage_options = store.storage_options;
+    let builder = DeltaTableBuilder::from_url(table_url.clone())
+        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .with_storage_options(storage_options.clone());
+
+    let maybe_table = runtime
+        .block_on(async move {
+            match builder.load().await {
+                Ok(table) => Ok(Some(table)),
+                Err(deltalake::DeltaTableError::NotATable(_)) => Ok(None),
+                Err(err) => Err(err),
+            }
+        })
+        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
+
+    let Some(table) = maybe_table else {
+        return Ok(PlannedSchemaEvolution {
+            summary,
+            write_schema_mode: None,
+            merge_schema: false,
+        });
+    };
+
+    let snapshot = table
+        .snapshot()
+        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
+    let target_schema = table.schema();
+    let target_fields = target_schema.fields();
+    let source_schema = batch.schema();
+    let source_fields = source_schema.fields();
+    let compatibility = plan_merge_schema_compatibility(
+        target_fields,
+        source_fields,
+        enabled,
+        required_target_columns,
+        target_only_columns,
+    );
+
+    summary.added_columns = compatibility.added_columns;
+    summary.incompatible_changes_detected = !compatibility.incompatible_changes.is_empty();
+
+    if !compatibility.incompatible_changes.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} delta {error_context} failed: incompatible changes detected: {}",
+            entity.name,
+            compatibility.incompatible_changes.join("; ")
+        ))));
+    }
+
+    if summary.added_columns.is_empty() {
+        return Ok(PlannedSchemaEvolution {
+            summary,
+            write_schema_mode: None,
+            merge_schema: false,
+        });
+    }
+
+    let partition_columns = snapshot.metadata().partition_columns();
+    if !partition_columns.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} delta {error_context} failed: adding columns is unsupported for partitioned delta tables",
+            entity.name
+        ))));
+    }
+
+    summary.applied = true;
+    Ok(PlannedSchemaEvolution {
+        summary,
+        write_schema_mode: None,
+        merge_schema: true,
+    })
+}
+
+struct MergeSchemaCompatibility {
+    added_columns: Vec<String>,
+    incompatible_changes: Vec<String>,
+}
+
+fn plan_merge_schema_compatibility(
+    target_fields: &[FieldRef],
+    source_fields: &[FieldRef],
+    allow_additive_columns: bool,
+    required_target_columns: &[String],
+    target_only_columns: &[String],
+) -> MergeSchemaCompatibility {
+    let target_by_name = target_fields
+        .iter()
+        .map(|field| (field.name().as_str(), field))
+        .collect::<HashMap<_, _>>();
+    let source_by_name = source_fields
+        .iter()
+        .map(|field| (field.name().as_str(), field))
+        .collect::<HashMap<_, _>>();
+    let required_target_columns = required_target_columns
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let target_only_columns = target_only_columns
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut added_columns = Vec::new();
+    let mut incompatible_changes = Vec::new();
+
+    for required_column in &required_target_columns {
+        if !target_by_name.contains_key(required_column) {
+            incompatible_changes.push(format!(
+                "target schema missing required column {required_column}"
+            ));
+        }
+    }
+
+    for source_field in source_fields {
+        let source_name = source_field.name().as_str();
+        let Some(target_field) = target_by_name.get(source_name) else {
+            if required_target_columns.contains(source_name) {
+                incompatible_changes.push(format!(
+                    "target schema missing required column {source_name}"
+                ));
+            } else if allow_additive_columns {
+                added_columns.push(source_field.name().to_string());
+            } else {
+                incompatible_changes
+                    .push(format!("target schema missing source column {source_name}"));
+            }
+            continue;
+        };
+        if target_field.data_type() != source_field.data_type() {
+            incompatible_changes.push(format!(
+                "column {} type changed from {:?} to {:?}",
+                source_field.name(),
+                target_field.data_type(),
+                source_field.data_type()
+            ));
+        }
+        if !target_field.is_nullable() && source_field.is_nullable() {
+            incompatible_changes.push(format!(
+                "column {} nullability changed from non-nullable to nullable",
+                source_field.name()
+            ));
+        }
+    }
+
+    for target_field in target_fields {
+        let target_name = target_field.name().as_str();
+        if target_only_columns.contains(target_name) {
+            continue;
+        }
+        if !source_by_name.contains_key(target_name) {
+            incompatible_changes.push(format!("source schema missing target column {target_name}"));
+        }
+    }
+
+    MergeSchemaCompatibility {
+        added_columns,
+        incompatible_changes,
+    }
 }
 
 fn additive_columns(target_fields: &[FieldRef], source_fields: &[FieldRef]) -> Vec<String> {
@@ -402,103 +598,54 @@ pub(crate) fn resolve_scd2_system_columns(entity: &config::EntityConfig) -> Scd2
     }
 }
 
-pub(crate) fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>> {
-    let columns = table
-        .snapshot()
-        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?
-        .schema()
-        .fields()
-        .map(|field| field.name.clone())
-        .collect::<Vec<_>>();
-    Ok(columns)
-}
-
-pub(crate) fn validate_merge_schema_compatibility(
-    target_schema_columns: &[String],
-    source_df: &DataFrame,
-    entity_name: &str,
-) -> FloeResult<()> {
-    let source_columns = source_df
-        .get_column_names()
-        .iter()
-        .map(|name| name.as_str())
-        .collect::<HashSet<_>>();
-
-    for target_column in target_schema_columns {
-        if !source_columns.contains(target_column.as_str()) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge failed: source schema missing target column {}",
-                entity_name, target_column
-            ))));
-        }
-    }
-
-    let target_columns = target_schema_columns
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    for source_column in source_columns {
-        if !target_columns.contains(source_column) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge failed: target schema missing source column {}",
-                entity_name, source_column
-            ))));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_scd2_schema_compatibility(
-    target_schema_columns: &[String],
-    source_df: &DataFrame,
-    system_columns: &[&str],
-    entity_name: &str,
-) -> FloeResult<()> {
-    let source_columns = source_df
-        .get_column_names()
-        .iter()
-        .map(|name| name.as_str())
-        .collect::<HashSet<_>>();
-    let system_columns_set = system_columns.iter().copied().collect::<HashSet<_>>();
-    let target_columns = target_schema_columns
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    for source_column in &source_columns {
-        if !target_columns.contains(source_column) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: target schema missing source column {}",
-                entity_name, source_column
-            ))));
-        }
-    }
-    for system_column in system_columns {
-        if !target_columns.contains(system_column) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: target schema missing system column {}",
-                entity_name, system_column
-            ))));
-        }
-    }
-    for target_column in target_schema_columns {
-        if system_columns_set.contains(target_column.as_str()) {
-            continue;
-        }
-        if !source_columns.contains(target_column.as_str()) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: source schema missing target column {}",
-                entity_name, target_column
-            ))));
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn source_record_batch(
     source_df: &DataFrame,
     entity: &config::EntityConfig,
 ) -> FloeResult<RecordBatch> {
     crate::io::write::delta::record_batch::dataframe_to_record_batch(source_df, entity)
+}
+
+pub(crate) fn evolve_delta_table_columns(
+    runtime: &tokio::runtime::Runtime,
+    table: DeltaTable,
+    batch: &RecordBatch,
+    added_columns: &[String],
+    entity_name: &str,
+) -> FloeResult<DeltaTable> {
+    if added_columns.is_empty() {
+        return Ok(table);
+    }
+
+    let source_schema = batch.schema();
+    let source_fields = source_schema
+        .fields()
+        .iter()
+        .map(|field| (field.name().as_str(), field.as_ref()))
+        .collect::<HashMap<_, _>>();
+    let fields = added_columns
+        .iter()
+        .map(|column| {
+            let field = source_fields.get(column.as_str()).ok_or_else(|| {
+                Box::new(RunError(format!(
+                    "entity.name={entity_name} delta merge_scd2 failed: source schema missing evolved column {column}",
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            StructField::try_from_arrow(*field)
+                .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
+                    Box::new(RunError(format!(
+                        "entity.name={entity_name} delta merge_scd2 failed: could not convert evolved column {column}: {err}",
+                    )))
+                })
+        })
+        .collect::<FloeResult<Vec<_>>>()?;
+
+    Ok(runtime
+        .block_on(async move { table.add_columns().with_fields(fields).await })
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "entity.name={entity_name} delta merge_scd2 failed to evolve target schema: {err}",
+            )))
+        })?)
 }
 
 pub(crate) fn source_as_datafusion_df_from_batch(

@@ -20,7 +20,12 @@ pub(crate) fn execute_merge_scd1_with_runtime(
     entity: &config::EntityConfig,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
-) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+) -> FloeResult<(
+    i64,
+    AcceptedMergeMetrics,
+    crate::io::format::AcceptedSchemaEvolution,
+    shared::DeltaMergePerfBreakdown,
+)> {
     let ctx = MergeExecutionContext {
         runtime,
         target,
@@ -37,7 +42,12 @@ impl MergeBackend for DeltaMergeBackend {
         &self,
         source_df: &mut DataFrame,
         ctx: &MergeExecutionContext<'_>,
-    ) -> FloeResult<(i64, AcceptedMergeMetrics, shared::DeltaMergePerfBreakdown)> {
+    ) -> FloeResult<(
+        i64,
+        AcceptedMergeMetrics,
+        crate::io::format::AcceptedSchemaEvolution,
+        shared::DeltaMergePerfBreakdown,
+    )> {
         let merge_start = Instant::now();
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
@@ -82,20 +92,26 @@ impl MergeBackend for DeltaMergeBackend {
                     target_rows_after: source_df.height() as u64,
                     merge_elapsed_ms: merge_start.elapsed().as_millis() as u64,
                 },
+                outcome.schema_evolution,
                 perf,
             ));
         }
 
         let table = loaded_table.expect("checked is_some");
-        let target_schema_columns = shared::delta_schema_columns(&table)?;
-        shared::validate_merge_schema_compatibility(
-            &target_schema_columns,
-            source_df,
-            &ctx.entity.name,
-        )?;
         let conversion_start = Instant::now();
         let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
         perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
+        let schema_evolution = shared::plan_merge_delta_schema_evolution(
+            ctx.runtime,
+            &source_batch,
+            ctx.target,
+            ctx.resolver,
+            ctx.entity,
+            "merge",
+            &merge_key,
+            &[],
+        )?;
+        let merge_schema = schema_evolution.merge_schema;
         let source_df_build_start = Instant::now();
         let source = shared::source_as_datafusion_df_from_batch(source_batch, &ctx.entity.name)?;
         perf.source_df_build_ms = source_df_build_start.elapsed().as_millis() as u64;
@@ -119,25 +135,20 @@ impl MergeBackend for DeltaMergeBackend {
             let mut merge = table
                 .merge(source, predicate)
                 .with_source_alias("source")
-                .with_target_alias("target");
+                .with_target_alias("target")
+                .with_merge_schema(merge_schema);
             if !update_columns.is_empty() {
                 let update_cols = update_columns.clone();
                 merge = merge.when_matched_update(|update| {
                     update_cols.iter().fold(update, |builder, column| {
-                        builder.update(
-                            shared::qualified_column("target", column),
-                            shared::qualified_column("source", column),
-                        )
+                        builder.update(column, shared::qualified_column("source", column))
                     })
                 })?;
             }
             let insert_cols = source_columns.clone();
             merge = merge.when_not_matched_insert(|insert| {
                 insert_cols.iter().fold(insert, |builder, column| {
-                    builder.set(
-                        shared::qualified_column("target", column),
-                        shared::qualified_column("source", column),
-                    )
+                    builder.set(column, shared::qualified_column("source", column))
                 })
             })?;
             merge.await
@@ -155,6 +166,11 @@ impl MergeBackend for DeltaMergeBackend {
             &merge_metrics,
             merge_start.elapsed().as_millis() as u64,
         );
-        Ok((version, accepted_merge_metrics, perf))
+        Ok((
+            version,
+            accepted_merge_metrics,
+            schema_evolution.summary,
+            perf,
+        ))
     }
 }

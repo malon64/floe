@@ -93,7 +93,7 @@ fn write_delta_table_with_metrics(
             )
         }
         config::WriteMode::MergeScd1 => {
-            let (version, merge, perf) = scd1::execute_merge_scd1_with_runtime(
+            let (version, merge, schema_evolution, perf) = scd1::execute_merge_scd1_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -105,18 +105,7 @@ fn write_delta_table_with_metrics(
             (
                 version,
                 Some(merge),
-                crate::io::format::AcceptedSchemaEvolution {
-                    enabled: false,
-                    mode: entity
-                        .schema
-                        .resolved_schema_evolution()
-                        .mode
-                        .as_str()
-                        .to_string(),
-                    applied: false,
-                    added_columns: Vec::new(),
-                    incompatible_changes_detected: false,
-                },
+                schema_evolution,
                 AcceptedWritePerfBreakdown {
                     conversion_ms: Some(perf.conversion_ms),
                     source_df_build_ms: Some(perf.source_df_build_ms),
@@ -127,7 +116,7 @@ fn write_delta_table_with_metrics(
             )
         }
         config::WriteMode::MergeScd2 => {
-            let (version, merge, perf) = scd2::execute_merge_scd2_with_runtime(
+            let (version, merge, schema_evolution, perf) = scd2::execute_merge_scd2_with_runtime(
                 &runtime,
                 df,
                 target,
@@ -139,18 +128,7 @@ fn write_delta_table_with_metrics(
             (
                 version,
                 Some(merge),
-                crate::io::format::AcceptedSchemaEvolution {
-                    enabled: false,
-                    mode: entity
-                        .schema
-                        .resolved_schema_evolution()
-                        .mode
-                        .as_str()
-                        .to_string(),
-                    applied: false,
-                    added_columns: Vec::new(),
-                    incompatible_changes_detected: false,
-                },
+                schema_evolution,
                 AcceptedWritePerfBreakdown {
                     conversion_ms: Some(perf.conversion_ms),
                     source_df_build_ms: Some(perf.source_df_build_ms),

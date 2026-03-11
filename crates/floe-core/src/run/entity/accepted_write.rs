@@ -148,6 +148,9 @@ pub(super) fn run_accepted_write_phase(
     if let Some(start) = concat_start {
         phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
     }
+    if accepted_df.height() == 0 {
+        return Ok(accepted_write_report);
+    }
 
     let output_stem = io::storage::paths::build_part_stem(0);
     let accepted_adapter = runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;

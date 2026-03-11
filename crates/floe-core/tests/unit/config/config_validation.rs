@@ -54,8 +54,12 @@ fn base_entity(name: &str) -> String {
 }
 
 fn base_config(entities_yaml: &str) -> String {
+    base_config_with_version("0.1", entities_yaml)
+}
+
+fn base_config_with_version(version: &str, entities_yaml: &str) -> String {
     format!(
-        r#"version: "0.1"
+        r#"version: "{version}"
 report:
   path: "/tmp/reports"
 entities:
@@ -114,6 +118,37 @@ entities:
         base_entity("customer")
     );
     assert_validation_ok(&yaml);
+}
+
+#[test]
+fn config_version_0_2_is_valid() {
+    assert_validation_ok(&base_config_with_version("0.2", &base_entity("customer")));
+}
+
+#[test]
+fn config_version_0_3_is_valid() {
+    assert_validation_ok(&base_config_with_version("0.3", &base_entity("customer")));
+}
+
+#[test]
+fn malformed_config_version_errors() {
+    assert_validation_error(
+        &base_config_with_version("abc", &base_entity("customer")),
+        &["root.version=abc", "invalid", "major.minor"],
+    );
+}
+
+#[test]
+fn config_version_below_minimum_errors() {
+    assert_validation_error(
+        &base_config_with_version("0.0", &base_entity("customer")),
+        &[
+            "root.version=0.0",
+            "unsupported",
+            "minimum supported version",
+            "0.1",
+        ],
+    );
 }
 
 #[test]
@@ -286,6 +321,108 @@ fn delta_partition_by_unknown_column_errors() {
             "unknown schema column",
         ],
     );
+}
+
+#[test]
+fn schema_evolution_add_columns_requires_delta_sink() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config_with_version("0.2", entity),
+        &[
+            "entity.name=orders",
+            "schema.schema_evolution.mode=add_columns",
+            "sink.accepted.format=delta",
+        ],
+    );
+}
+
+#[test]
+fn schema_evolution_is_rejected_for_version_0_1() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "strict"
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_error(
+        &base_config(entity),
+        &[
+            "entity.name=orders",
+            "schema.schema_evolution",
+            "root.version >= \"0.2\"",
+        ],
+    );
+}
+
+#[test]
+fn schema_evolution_add_columns_is_valid_for_delta_on_version_0_2() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config_with_version("0.2", entity));
+}
+
+#[test]
+fn schema_evolution_add_columns_is_valid_for_delta_on_higher_version() {
+    let entity = r#"  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "order_id"
+          type: "string"
+"#;
+    assert_validation_ok(&base_config_with_version("0.3", entity));
 }
 
 #[test]

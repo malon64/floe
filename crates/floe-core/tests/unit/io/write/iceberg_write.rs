@@ -469,6 +469,7 @@ fn build_entity(
         schema: config::SchemaConfig {
             normalize_columns,
             mismatch: None,
+            schema_evolution: None,
             primary_key: None,
             unique_keys: None,
             columns,

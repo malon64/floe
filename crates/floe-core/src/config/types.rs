@@ -319,12 +319,17 @@ pub struct PolicyConfig {
 pub struct SchemaConfig {
     pub normalize_columns: Option<NormalizeColumnsConfig>,
     pub mismatch: Option<SchemaMismatchConfig>,
+    pub schema_evolution: Option<SchemaEvolutionConfig>,
     pub primary_key: Option<Vec<String>>,
     pub unique_keys: Option<Vec<Vec<String>>>,
     pub columns: Vec<ColumnConfig>,
 }
 
 impl SchemaConfig {
+    pub fn resolved_schema_evolution(&self) -> SchemaEvolutionConfig {
+        self.schema_evolution.unwrap_or_default()
+    }
+
     pub fn to_polars_schema(&self) -> FloeResult<Schema> {
         let mut schema = Schema::with_capacity(self.columns.len());
         for column in &self.columns {
@@ -360,6 +365,42 @@ impl SchemaConfig {
 pub struct NormalizeColumnsConfig {
     pub enabled: Option<bool>,
     pub strategy: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SchemaEvolutionConfig {
+    pub mode: SchemaEvolutionMode,
+    pub on_incompatible: SchemaEvolutionIncompatibleAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SchemaEvolutionMode {
+    #[default]
+    Strict,
+    AddColumns,
+}
+
+impl SchemaEvolutionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SchemaEvolutionMode::Strict => "strict",
+            SchemaEvolutionMode::AddColumns => "add_columns",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SchemaEvolutionIncompatibleAction {
+    #[default]
+    Fail,
+}
+
+impl SchemaEvolutionIncompatibleAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SchemaEvolutionIncompatibleAction::Fail => "fail",
+        }
+    }
 }
 
 #[derive(Debug)]

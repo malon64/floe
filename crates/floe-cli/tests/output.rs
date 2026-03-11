@@ -70,6 +70,13 @@ fn sample_outcome() -> RunOutcome {
             target_rows_after: None,
             merge_elapsed_ms: None,
         },
+        schema_evolution: report::SchemaEvolutionSummary {
+            enabled: false,
+            mode: "strict".to_string(),
+            applied: false,
+            added_columns: Vec::new(),
+            incompatible_changes_detected: false,
+        },
         unique_constraints: Vec::new(),
         results: report::ResultsTotals {
             files_total: 1,

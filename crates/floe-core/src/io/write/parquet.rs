@@ -165,6 +165,18 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             iceberg_table: None,
             metrics,
             merge: None,
+            schema_evolution: io::format::AcceptedSchemaEvolution {
+                enabled: false,
+                mode: entity
+                    .schema
+                    .resolved_schema_evolution()
+                    .mode
+                    .as_str()
+                    .to_string(),
+                applied: false,
+                added_columns: Vec::new(),
+                incompatible_changes_detected: false,
+            },
             perf: None,
         })
     }

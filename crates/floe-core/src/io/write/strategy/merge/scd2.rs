@@ -107,6 +107,7 @@ impl MergeBackend for DeltaMergeBackend {
                 SaveMode::Append,
                 ctx.partition_by.clone(),
                 ctx.target_file_size_bytes,
+                None,
             )?;
             perf.commit_ms = commit_start.elapsed().as_millis() as u64;
             return Ok((

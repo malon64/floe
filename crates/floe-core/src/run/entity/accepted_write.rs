@@ -8,6 +8,7 @@ use crate::{config, io, report, FloeResult};
 
 use super::super::output::{write_accepted_output, AcceptedOutputContext};
 use super::EntityPhaseTimings;
+use crate::run::events::{event_time_ms, RunEvent, RunObserver};
 use crate::run::RunContext;
 use io::storage::Target;
 
@@ -34,10 +35,30 @@ pub(super) struct AcceptedWriteReportState {
     pub(super) target_rows_before: Option<u64>,
     pub(super) target_rows_after: Option<u64>,
     pub(super) merge_elapsed_ms: Option<u64>,
+    pub(super) schema_evolution: io::format::AcceptedSchemaEvolution,
     pub(super) write_perf: Option<io::format::AcceptedWritePerfBreakdown>,
 }
 
 impl AcceptedWriteReportState {
+    pub(super) fn for_entity(entity: &config::EntityConfig) -> Self {
+        Self {
+            schema_evolution: io::format::AcceptedSchemaEvolution {
+                enabled: entity.schema.resolved_schema_evolution().mode
+                    == config::SchemaEvolutionMode::AddColumns,
+                mode: entity
+                    .schema
+                    .resolved_schema_evolution()
+                    .mode
+                    .as_str()
+                    .to_string(),
+                applied: false,
+                added_columns: Vec::new(),
+                incompatible_changes_detected: false,
+            },
+            ..Self::default()
+        }
+    }
+
     pub(super) fn from_write_output(output: io::format::AcceptedWriteOutput) -> Self {
         Self {
             parts_written: output.parts_written,
@@ -68,6 +89,7 @@ impl AcceptedWriteReportState {
             target_rows_before: output.merge.as_ref().map(|merge| merge.target_rows_before),
             target_rows_after: output.merge.as_ref().map(|merge| merge.target_rows_after),
             merge_elapsed_ms: output.merge.as_ref().map(|merge| merge.merge_elapsed_ms),
+            schema_evolution: output.schema_evolution,
             write_perf: output.perf,
         }
     }
@@ -89,6 +111,7 @@ impl AcceptedWriteReportState {
 
 pub(super) struct AcceptedWritePhaseContext<'a> {
     pub(super) run_context: &'a RunContext,
+    pub(super) observer: &'a dyn RunObserver,
     pub(super) runtime: &'a mut dyn crate::runtime::Runtime,
     pub(super) entity: &'a config::EntityConfig,
     pub(super) accepted_target: &'a Target,
@@ -104,6 +127,7 @@ pub(super) fn run_accepted_write_phase(
 ) -> FloeResult<AcceptedWriteReportState> {
     let AcceptedWritePhaseContext {
         run_context,
+        observer,
         runtime,
         entity,
         accepted_target,
@@ -114,7 +138,7 @@ pub(super) fn run_accepted_write_phase(
         accepted_accum,
     } = context;
 
-    let mut accepted_write_report = AcceptedWriteReportState::default();
+    let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity);
     if accepted_accum.is_empty() {
         return Ok(accepted_write_report);
     }
@@ -151,6 +175,15 @@ pub(super) fn run_accepted_write_phase(
     }
 
     accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);
+    if accepted_write_report.schema_evolution.applied {
+        observer.on_event(RunEvent::SchemaEvolutionApplied {
+            run_id: run_context.run_id.clone(),
+            entity: entity.name.clone(),
+            mode: accepted_write_report.schema_evolution.mode.clone(),
+            added_columns: accepted_write_report.schema_evolution.added_columns.clone(),
+            ts_ms: event_time_ms(),
+        });
+    }
     Ok(accepted_write_report)
 }
 

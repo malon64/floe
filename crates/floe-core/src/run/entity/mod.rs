@@ -241,6 +241,7 @@ pub(super) fn run_entity(
     let accepted_target_uri = accepted_target.target_uri().to_string();
     let accepted_write_report = run_accepted_write_phase(AcceptedWritePhaseContext {
         run_context: context,
+        observer,
         runtime,
         entity,
         accepted_target: &accepted_target,
@@ -289,6 +290,15 @@ pub(super) fn run_entity(
         accepted_target_rows_before: accepted_write_report.target_rows_before,
         accepted_target_rows_after: accepted_write_report.target_rows_after,
         accepted_merge_elapsed_ms: accepted_write_report.merge_elapsed_ms,
+        accepted_schema_evolution: report::SchemaEvolutionSummary {
+            enabled: accepted_write_report.schema_evolution.enabled,
+            mode: accepted_write_report.schema_evolution.mode,
+            applied: accepted_write_report.schema_evolution.applied,
+            added_columns: accepted_write_report.schema_evolution.added_columns,
+            incompatible_changes_detected: accepted_write_report
+                .schema_evolution
+                .incompatible_changes_detected,
+        },
         unique_constraints,
     });
 

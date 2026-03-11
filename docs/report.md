@@ -49,6 +49,7 @@ Golden example files live under `example/report/run_2026-01-19T10-23-45Z/`.
 - `sink`: Accepted/rejected/archive paths and formats.
 - `policy`: Severity.
 - `accepted_output`: Entity-level accepted output summary (path, row counts, write metadata, and file metrics).
+- `schema_evolution`: Entity-level schema-evolution summary for the accepted write path.
 - `results`: Totals for files, rows, accepted/rejected rows, warnings, errors.
 - `files`: Per-file outcomes and validation summary.
 
@@ -88,6 +89,19 @@ Merge-specific metrics (optional, Delta `merge_scd1` / `merge_scd2`):
 - `target_rows_before`
 - `target_rows_after`
 - `merge_elapsed_ms`
+
+### `schema_evolution` (entity report)
+
+- `enabled`: `true` when schema evolution is active for the entity write path
+- `mode`: resolved config mode (`strict` or `add_columns`)
+- `applied`: `true` when Floe actually added Delta columns during the write
+- `added_columns`: ordered list of Delta columns added in that write
+- `incompatible_changes_detected`: `true` when Floe detected non-additive changes and failed the write
+
+Notes:
+- Floe writes an explicit no-op shape (`applied=false`, empty `added_columns`) when
+  `mode=add_columns` is enabled but the target schema already matches the write schema.
+- This block is populated for entity reports even when the write path remains strict.
 
 Notes:
 - Metrics are populated when the writer can collect them cheaply and reliably.

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use arrow::datatypes::FieldRef;
+use arrow::datatypes::{DataType, FieldRef};
 use arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::operations::write::SchemaMode;
@@ -188,7 +188,7 @@ fn plan_delta_schema_evolution(
 
     if !incompatible_changes.is_empty() {
         return Err(Box::new(RunError(format!(
-            "entity.name={} delta schema evolution failed: incompatible changes detected: {}",
+            "entity.name={} delta schema evolution failed: add_columns supports additive changes only; incompatible changes detected: {}",
             entity.name,
             incompatible_changes.join("; ")
         ))));
@@ -225,7 +225,7 @@ fn plan_delta_schema_evolution(
     let partition_columns = snapshot.metadata().partition_columns();
     if !partition_columns.is_empty() {
         return Err(Box::new(RunError(format!(
-            "entity.name={} delta schema evolution failed: adding columns is unsupported for partitioned delta tables",
+            "entity.name={} delta schema evolution failed: add_columns is unsupported for partitioned delta tables in this phase",
             entity.name
         ))));
     }
@@ -275,7 +275,7 @@ fn incompatible_schema_changes(
             incompatible.push(format!("missing existing column {}", target_field.name()));
             continue;
         };
-        if target_field.data_type() != source_field.data_type() {
+        if !data_types_compatible(target_field.data_type(), source_field.data_type()) {
             incompatible.push(format!(
                 "column {} type changed from {:?} to {:?}",
                 target_field.name(),
@@ -291,6 +291,17 @@ fn incompatible_schema_changes(
         }
     }
     incompatible
+}
+
+fn data_types_compatible(target: &DataType, source: &DataType) -> bool {
+    normalize_data_type(target) == normalize_data_type(source)
+}
+
+fn normalize_data_type(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Dictionary(_, value_type) => normalize_data_type(value_type.as_ref()),
+        other => other.clone(),
+    }
 }
 
 pub(crate) fn load_delta_table(

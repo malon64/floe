@@ -99,9 +99,49 @@ Merge-specific metrics (optional, Delta `merge_scd1` / `merge_scd2`):
 - `incompatible_changes_detected`: `true` when Floe detected non-additive changes and failed the write
 
 Notes:
+- Current runtime support is Delta-only and additive-only.
 - Floe writes an explicit no-op shape (`applied=false`, empty `added_columns`) when
   `mode=add_columns` is enabled but the target schema already matches the write schema.
 - This block is populated for entity reports even when the write path remains strict.
+
+Example:
+
+```json
+{
+  "schema_evolution": {
+    "enabled": true,
+    "mode": "add_columns",
+    "applied": true,
+    "added_columns": ["email", "country_code"],
+    "incompatible_changes_detected": false
+  }
+}
+```
+
+## Lifecycle event for schema evolution
+
+When Floe adds Delta columns, it emits a structured `schema_evolution_applied` lifecycle event.
+
+JSON envelope example (`--log-format json`):
+
+```json
+{
+  "schema": "floe.log.v1",
+  "level": "info",
+  "event": "schema_evolution_applied",
+  "run_id": "2026-03-11T16-31-00Z",
+  "entity": "customer",
+  "mode": "add_columns",
+  "added_columns": ["email"],
+  "ts_ms": 1741710660000
+}
+```
+
+Text example (`--log-format text`):
+
+```text
+schema_evolution_applied entity=customer mode=add_columns added_columns=email
+```
 
 Notes:
 - Metrics are populated when the writer can collect them cheaply and reliably.

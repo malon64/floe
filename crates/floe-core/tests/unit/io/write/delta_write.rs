@@ -361,7 +361,66 @@ fn delta_add_columns_mode_rejects_incompatible_type_changes() -> FloeResult<()> 
     .expect_err("type change should fail");
     assert!(err
         .to_string()
-        .contains("delta schema evolution failed: incompatible changes detected"));
+        .contains("delta schema evolution failed: add_columns supports additive changes only; incompatible changes detected"));
+
+    Ok(())
+}
+
+#[test]
+fn delta_add_columns_mode_rejects_partitioned_tables() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![
+            column("id", "int64", Some(false)),
+            column("country", "string", Some(true)),
+        ],
+        None,
+    );
+    entity.sink.accepted.partition_by = Some(vec!["country".to_string()]);
+
+    let mut initial = df!(
+        "id" => &[1i64, 2],
+        "country" => &[Some("fr"), Some("us")]
+    )?;
+    write_delta_table(
+        &mut initial,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    entity
+        .schema
+        .columns
+        .push(column("email", "string", Some(true)));
+    entity.schema.schema_evolution = Some(add_columns_schema_evolution());
+    let mut evolved = df!(
+        "id" => &[3i64, 4],
+        "country" => &[Some("fr"), Some("us")],
+        "email" => &[Some("a@example.com"), Some("b@example.com")]
+    )?;
+    let err = write_delta_table(
+        &mut evolved,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )
+    .expect_err("partitioned delta add_columns should fail");
+
+    assert!(
+        err.to_string()
+            .contains("add_columns is unsupported for partitioned delta tables"),
+        "unexpected error: {err}"
+    );
 
     Ok(())
 }

@@ -831,7 +831,7 @@ fn validate_schema_evolution(
         && schema_evolution.mode == crate::config::SchemaEvolutionMode::AddColumns
     {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} schema.schema_evolution.mode={} requires sink.accepted.format=delta",
+            "entity.name={} schema.schema_evolution.mode={} requires sink.accepted.format=delta (Delta-only additive schema evolution in this phase)",
             entity.name,
             schema_evolution.mode.as_str()
         ))));

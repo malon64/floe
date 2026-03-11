@@ -21,6 +21,7 @@ For accepted Delta sinks, standard write modes stay strict by default.
   - When enabled and no new columns are present, Floe records a no-op schema-evolution report block.
   - When columns are added, Floe emits a structured `schema_evolution_applied` event and
     records the added column names in the entity run report.
+  - Adding columns to already partitioned Delta tables is rejected in this phase.
 
 ## `merge_scd1` semantics
 
@@ -31,7 +32,11 @@ For accepted Delta sinks, standard write modes stay strict by default.
 - On key match: update non-key columns from source.
 - `sink.accepted.merge.ignore_columns` can exclude additional business columns from SCD1 update sets.
 - On missing key: insert source row.
-- Merge modes still validate strict schema compatibility and do not perform schema evolution.
+- Strict remains the default behavior.
+- `schema.schema_evolution.mode: add_columns` enables additive-only Delta schema evolution for merge writes.
+  - New non-key business columns may be added before the merge commit.
+  - Existing columns must remain compatible; drop/rename/type-change flows are rejected.
+  - Merge-key columns cannot be introduced by schema evolution.
 - Merge execution uses Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 
@@ -58,7 +63,11 @@ For accepted Delta sinks, standard write modes stay strict by default.
 - Change detection columns are resolved as:
   - `sink.accepted.merge.compare_columns` when configured
   - otherwise all non-key business columns minus `sink.accepted.merge.ignore_columns`
-- Merge modes still validate strict schema compatibility and do not perform schema evolution.
+- Strict remains the default behavior.
+- `schema.schema_evolution.mode: add_columns` enables additive-only Delta schema evolution for merge writes.
+  - New business columns may be added while Floe preserves SCD2 system columns.
+  - Existing columns must remain compatible; drop/rename/type-change flows are rejected.
+  - Merge-key columns cannot be introduced by schema evolution.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 
 ## Rejected output behavior

@@ -31,8 +31,10 @@ Semantics:
 Schema evolution for standard Delta writes:
 - Default behavior remains strict.
 - `schema.schema_evolution.mode: add_columns` enables additive-only schema evolution for
-  accepted Delta `append` and `overwrite` writes.
+  accepted Delta `append`, `overwrite`, `merge_scd1`, and `merge_scd2` writes.
 - Existing columns must remain compatible; incompatible non-additive changes fail before commit.
+- Unsupported changes in this phase include drops, renames, type changes, nullable widening of existing non-nullable columns, and additive merge-key changes.
+- Adding columns to already partitioned Delta tables is rejected in this phase.
 - When evolution is applied, Floe emits a structured `schema_evolution_applied` event and
   populates the entity report `schema_evolution` block with `applied=true` and `added_columns`.
 - When evolution is enabled but no Delta schema change is needed, the entity report still
@@ -41,7 +43,11 @@ Schema evolution for standard Delta writes:
 Merge mode notes (`merge_scd1`, `merge_scd2`):
 - Requires `schema.primary_key` in config (non-empty, non-nullable columns).
 - Only supported on Delta accepted sinks.
-- Merge modes remain strict; this task does not change merge schema behavior.
+- Strict remains the default behavior.
+- `schema.schema_evolution.mode: add_columns` enables additive-only evolution for merge modes too.
+  - New non-key business columns may be added to the target Delta table before merge.
+  - Merge-key columns cannot be introduced by evolution.
+  - SCD2 system columns stay managed by Floe and are not treated as user-additive columns.
 - Source duplicates on merge key are handled during row checks before write.
 - Single-writer assumption applies; Delta commit conflicts surface as write errors.
 

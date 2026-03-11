@@ -911,6 +911,91 @@ entities:
 }
 
 #[test]
+fn local_delta_merge_add_columns_mode_reports_schema_evolution_disabled_when_all_rows_rejected() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let rejected_dir = root.join("out/rejected/customer_csv");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["id"]
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-schema-evolution-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;name\nx;carol\ny;dave\n");
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-schema-evolution-empty".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("merge run with zero accepted rows");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.rows_total, 2);
+    assert_eq!(report.results.accepted_total, 0);
+    assert_eq!(report.results.rejected_total, 2);
+    assert!(!report.schema_evolution.enabled);
+    assert_eq!(report.schema_evolution.mode, "add_columns");
+    assert!(!report.schema_evolution.applied);
+    assert!(report.schema_evolution.added_columns.is_empty());
+    assert!(!report.schema_evolution.incompatible_changes_detected);
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 2);
+}
+
+#[test]
 fn local_delta_merge_scd2_supports_custom_system_column_names() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

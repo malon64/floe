@@ -40,17 +40,17 @@ pub(super) struct AcceptedWriteReportState {
 }
 
 impl AcceptedWriteReportState {
-    pub(super) fn for_entity(entity: &config::EntityConfig) -> Self {
+    pub(super) fn for_entity(entity: &config::EntityConfig, write_mode: config::WriteMode) -> Self {
+        let schema_evolution = entity.schema.resolved_schema_evolution();
         Self {
             schema_evolution: io::format::AcceptedSchemaEvolution {
-                enabled: entity.schema.resolved_schema_evolution().mode
-                    == config::SchemaEvolutionMode::AddColumns,
-                mode: entity
-                    .schema
-                    .resolved_schema_evolution()
-                    .mode
-                    .as_str()
-                    .to_string(),
+                enabled: entity.sink.accepted.format == "delta"
+                    && schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
+                    && matches!(
+                        write_mode,
+                        config::WriteMode::Append | config::WriteMode::Overwrite
+                    ),
+                mode: schema_evolution.mode.as_str().to_string(),
                 applied: false,
                 added_columns: Vec::new(),
                 incompatible_changes_detected: false,
@@ -138,7 +138,7 @@ pub(super) fn run_accepted_write_phase(
         accepted_accum,
     } = context;
 
-    let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity);
+    let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
     if accepted_accum.is_empty() {
         return Ok(accepted_write_report);
     }

@@ -2,6 +2,13 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.2
+
+- Delta schema evolution rollout:
+  - added additive schema evolution support for Delta accepted writes across `append`, `overwrite`, `merge_scd1`, and `merge_scd2`
+  - enforced rollout guardrails: additive-only changes, partitioned-table limitations, and merge-key protection against schema-evolved columns
+  - added explicit observability via the entity report `schema_evolution` block and the `schema_evolution_applied` lifecycle event
+
 ## v0.3.1
 
 - Delta merge write modes:

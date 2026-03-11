@@ -507,6 +507,164 @@ entities:
 }
 
 #[test]
+fn local_delta_overwrite_clears_existing_rows_when_all_rows_are_rejected() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let rejected_dir = root.join("out/rejected/customer_csv");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-overwrite-empty-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial overwrite run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;name\nx;carol\ny;dave\n");
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-overwrite-empty-second".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("overwrite run with zero accepted rows");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.accepted_total, 0);
+    assert_eq!(report.results.rejected_total, 2);
+    assert_eq!(
+        report.accepted_output.write_mode.as_deref(),
+        Some("overwrite")
+    );
+    assert!(report.accepted_output.table_version.is_some());
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 0);
+}
+
+#[test]
+fn local_delta_append_does_not_clear_existing_rows_when_all_rows_are_rejected() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let rejected_dir = root.join("out/rejected/customer_csv");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-append-empty-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial append run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;name\nx;carol\ny;dave\n");
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-append-empty-second".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("append run with zero accepted rows");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.accepted_total, 0);
+    assert_eq!(report.results.rejected_total, 2);
+    assert_eq!(report.accepted_output.write_mode.as_deref(), Some("append"));
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 2);
+}
+
+#[test]
 fn local_delta_strict_mode_rejects_added_columns() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

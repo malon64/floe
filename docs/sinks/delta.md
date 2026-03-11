@@ -28,10 +28,20 @@ Semantics:
       `__floe_is_current`, `__floe_valid_from`, `__floe_valid_to`
 - Local, S3, ADLS, and GCS storage are supported for delta output.
 
+Schema evolution for standard Delta writes:
+- Default behavior remains strict.
+- `schema.schema_evolution.mode: add_columns` enables additive-only schema evolution for
+  accepted Delta `append` and `overwrite` writes.
+- Existing columns must remain compatible; incompatible non-additive changes fail before commit.
+- When evolution is applied, Floe emits a structured `schema_evolution_applied` event and
+  populates the entity report `schema_evolution` block with `applied=true` and `added_columns`.
+- When evolution is enabled but no Delta schema change is needed, the entity report still
+  includes `schema_evolution` with `applied=false`.
+
 Merge mode notes (`merge_scd1`, `merge_scd2`):
 - Requires `schema.primary_key` in config (non-empty, non-nullable columns).
 - Only supported on Delta accepted sinks.
-- Current implementation validates strict schema compatibility; no schema evolution.
+- Merge modes remain strict; this task does not change merge schema behavior.
 - Source duplicates on merge key are handled during row checks before write.
 - Single-writer assumption applies; Delta commit conflicts surface as write errors.
 

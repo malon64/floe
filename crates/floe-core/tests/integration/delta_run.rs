@@ -1,10 +1,81 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use deltalake::table::builder::DeltaTableBuilder;
-use floe_core::{run, validate, RunOptions, ValidateOptions};
+use floe_core::{run, set_observer, validate, RunEvent, RunObserver, RunOptions, ValidateOptions};
 use polars::prelude::DataFrame;
 use url::Url;
+
+#[derive(Default)]
+struct TestObserver {
+    events: Mutex<Vec<RunEvent>>,
+}
+
+impl TestObserver {
+    fn reset(&self) {
+        self.events.lock().expect("observer lock").clear();
+    }
+
+    fn events_for_run(&self, run_id: &str) -> Vec<RunEvent> {
+        self.events
+            .lock()
+            .expect("observer lock")
+            .iter()
+            .filter(|event| match event {
+                RunEvent::Log {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::RunStarted {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::EntityStarted {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::FileStarted {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::FileFinished {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::SchemaEvolutionApplied {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::EntityFinished {
+                    run_id: event_run_id,
+                    ..
+                }
+                | RunEvent::RunFinished {
+                    run_id: event_run_id,
+                    ..
+                } => event_run_id == run_id,
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+impl RunObserver for TestObserver {
+    fn on_event(&self, event: RunEvent) {
+        self.events.lock().expect("observer lock").push(event);
+    }
+}
+
+fn test_observer() -> &'static TestObserver {
+    static OBSERVER: OnceLock<Arc<TestObserver>> = OnceLock::new();
+    let observer = OBSERVER.get_or_init(|| {
+        let observer = Arc::new(TestObserver::default());
+        let _ = set_observer(observer.clone());
+        observer
+    });
+    observer.as_ref()
+}
 
 fn write_csv(dir: &Path, name: &str, contents: &str) -> PathBuf {
     let path = dir.join(name);
@@ -133,7 +204,7 @@ fn local_delta_run_without_partitioning_preserves_existing_behavior() {
     fs::create_dir_all(&input_dir).expect("create input dir");
     write_csv(&input_dir, "orders.csv", "id;country\n1;us\n2;ca\n");
 
-    let yaml = format!(
+    let initial_yaml = format!(
         r#"version: "0.1"
 report:
   path: "{report_dir}"
@@ -159,7 +230,7 @@ entities:
         input_dir = input_dir.display(),
         accepted_dir = accepted_dir.display(),
     );
-    let config_path = write_config(root, &yaml);
+    let config_path = write_config(root, &initial_yaml);
 
     let outcome = run(
         &config_path,
@@ -182,6 +253,315 @@ entities:
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.sink.accepted.format, "delta");
     assert!(report.accepted_output.files_written > 0);
+}
+
+#[test]
+fn local_delta_append_add_columns_mode_reports_schema_evolution_and_event() {
+    let observer = test_observer();
+    observer.reset();
+
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/orders_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id\n1\n2\n");
+
+    let initial_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "int64"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &initial_yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-schema-evolution-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;email\n3;a@example.com\n4;\n");
+    let evolved_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "email"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    write_config(root, &evolved_yaml);
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-schema-evolution-append".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("schema evolution append run");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert!(report.schema_evolution.enabled);
+    assert_eq!(report.schema_evolution.mode, "add_columns");
+    assert!(report.schema_evolution.applied);
+    assert_eq!(
+        report.schema_evolution.added_columns,
+        vec!["email".to_string()]
+    );
+    assert!(!report.schema_evolution.incompatible_changes_detected);
+
+    let events = observer.events_for_run("it-delta-schema-evolution-append");
+    let event = events
+        .iter()
+        .find_map(|event| match event {
+            RunEvent::SchemaEvolutionApplied {
+                entity,
+                mode,
+                added_columns,
+                ..
+            } => Some((entity, mode, added_columns)),
+            _ => None,
+        })
+        .expect("schema evolution event");
+    assert_eq!(event.0, "orders");
+    assert_eq!(event.1, "add_columns");
+    assert_eq!(event.2, &vec!["email".to_string()]);
+
+    let url = Url::from_directory_path(&accepted_dir).expect("delta table path url");
+    let builder = DeltaTableBuilder::from_url(url)
+        .expect("delta table builder")
+        .with_storage_options(std::collections::HashMap::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("delta runtime");
+    let table = runtime
+        .block_on(async move { builder.load().await })
+        .expect("load delta table");
+    let field_names = table
+        .snapshot()
+        .expect("table snapshot")
+        .schema()
+        .fields()
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    assert!(field_names.contains(&"email".to_string()));
+}
+
+#[test]
+fn local_delta_overwrite_add_columns_mode_reports_noop_when_unchanged() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/orders_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(
+        &input_dir,
+        "orders.csv",
+        "id;email\n1;a@example.com\n2;b@example.com\n",
+    );
+
+    let initial_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "email"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &initial_yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-schema-evolution-overwrite-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial overwrite run");
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-schema-evolution-overwrite-noop".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("overwrite no-op run");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert!(report.schema_evolution.enabled);
+    assert_eq!(report.schema_evolution.mode, "add_columns");
+    assert!(!report.schema_evolution.applied);
+    assert!(report.schema_evolution.added_columns.is_empty());
+    assert!(!report.schema_evolution.incompatible_changes_detected);
+}
+
+#[test]
+fn local_delta_strict_mode_rejects_added_columns() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/orders_delta");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id\n1\n2\n");
+
+    let initial_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "int64"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(root, &initial_yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-strict-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial strict run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;email\n3;a@example.com\n");
+    let evolved_yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "email"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    write_config(root, &evolved_yaml);
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-strict-extra-column".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect_err("strict mode should reject added columns");
+    assert!(err.to_string().contains("delta write failed"));
 }
 
 #[test]
@@ -528,6 +908,91 @@ entities:
     )));
     assert!(rows.contains(&("2".to_string(), "ca".to_string(), "bob".to_string(), true)));
     assert!(rows.contains(&("3".to_string(), "us".to_string(), "carol".to_string(), true)));
+}
+
+#[test]
+fn local_delta_merge_add_columns_mode_reports_schema_evolution_disabled_when_all_rows_rejected() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer_delta");
+    let rejected_dir = root.join("out/rejected/customer_csv");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "batch1.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.2"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["id"]
+      schema_evolution:
+        mode: "add_columns"
+      columns:
+        - name: "id"
+          type: "int64"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-schema-evolution-init".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("initial merge run");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(&input_dir, "batch2.csv", "id;name\nx;carol\ny;dave\n");
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("it-delta-merge-schema-evolution-empty".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("merge run with zero accepted rows");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.rows_total, 2);
+    assert_eq!(report.results.accepted_total, 0);
+    assert_eq!(report.results.rejected_total, 2);
+    assert!(!report.schema_evolution.enabled);
+    assert_eq!(report.schema_evolution.mode, "add_columns");
+    assert!(!report.schema_evolution.applied);
+    assert!(report.schema_evolution.added_columns.is_empty());
+    assert!(!report.schema_evolution.incompatible_changes_detected);
+
+    let df = read_local_delta_table(&accepted_dir);
+    assert_eq!(df.height(), 2);
 }
 
 #[test]

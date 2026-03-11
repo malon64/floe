@@ -165,6 +165,18 @@ fn write_iceberg_table_with_remote_context(
         iceberg_table: result.iceberg_table,
         metrics: result.metrics,
         merge: None,
+        schema_evolution: crate::io::format::AcceptedSchemaEvolution {
+            enabled: false,
+            mode: entity
+                .schema
+                .resolved_schema_evolution()
+                .mode
+                .as_str()
+                .to_string(),
+            applied: false,
+            added_columns: Vec::new(),
+            incompatible_changes_detected: false,
+        },
         perf: Some(result.perf),
     })
 }

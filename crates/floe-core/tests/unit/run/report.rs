@@ -71,6 +71,13 @@ fn sample_report() -> RunReport {
             target_rows_after: None,
             merge_elapsed_ms: None,
         },
+        schema_evolution: SchemaEvolutionSummary {
+            enabled: false,
+            mode: "strict".to_string(),
+            applied: false,
+            added_columns: Vec::new(),
+            incompatible_changes_detected: false,
+        },
         unique_constraints: Vec::new(),
         results: ResultsTotals {
             files_total: 1,
@@ -170,6 +177,7 @@ fn report_serializes_expected_keys() {
     assert!(object.contains_key("sink"));
     assert!(object.contains_key("policy"));
     assert!(object.contains_key("accepted_output"));
+    assert!(object.contains_key("schema_evolution"));
     assert!(object.contains_key("results"));
     assert!(object.contains_key("files"));
 }

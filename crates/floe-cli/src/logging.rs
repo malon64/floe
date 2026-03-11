@@ -129,7 +129,8 @@ fn level_for_event(event: &RunEvent) -> Level {
         },
         RunEvent::RunStarted { .. }
         | RunEvent::EntityStarted { .. }
-        | RunEvent::FileStarted { .. } => Level::Info,
+        | RunEvent::FileStarted { .. }
+        | RunEvent::SchemaEvolutionApplied { .. } => Level::Info,
         RunEvent::FileFinished { status, .. } => match status.as_str() {
             "success" => Level::Info,
             "rejected" => Level::Warn,
@@ -232,6 +233,17 @@ pub fn format_event_text(event: &RunEvent) -> String {
         } => format!(
             "entity_finished name={} status={} files={} rows={} accepted={} rejected={} warnings={} errors={}",
             name, status, files, rows, accepted, rejected, warnings, errors
+        ),
+        RunEvent::SchemaEvolutionApplied {
+            entity,
+            mode,
+            added_columns,
+            ..
+        } => format!(
+            "schema_evolution_applied entity={} mode={} added_columns={}",
+            entity,
+            mode,
+            added_columns.join(",")
         ),
         RunEvent::RunFinished {
             status,

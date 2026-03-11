@@ -8,6 +8,20 @@ Supported values:
 - `merge_scd1` (Delta accepted sink only): SCD1 upsert keyed by `schema.primary_key`.
 - `merge_scd2` (Delta accepted sink only): SCD2 merge keyed by `schema.primary_key`.
 
+## Standard Delta writes (`append`, `overwrite`)
+
+For accepted Delta sinks, standard write modes stay strict by default.
+
+- `schema.schema_evolution.mode: strict` preserves the previous behavior:
+  source and target Delta schemas must already be compatible.
+- `schema.schema_evolution.mode: add_columns` enables additive-only Delta schema evolution
+  for `append` and `overwrite`.
+  - Only new columns present in the source schema may be added to the target Delta table.
+  - Existing columns must remain compatible; drop/rename/type-change flows are rejected.
+  - When enabled and no new columns are present, Floe records a no-op schema-evolution report block.
+  - When columns are added, Floe emits a structured `schema_evolution_applied` event and
+    records the added column names in the entity run report.
+
 ## `merge_scd1` semantics
 
 - Accepted sink format must be `delta`.
@@ -17,7 +31,7 @@ Supported values:
 - On key match: update non-key columns from source.
 - `sink.accepted.merge.ignore_columns` can exclude additional business columns from SCD1 update sets.
 - On missing key: insert source row.
-- Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
+- Merge modes still validate strict schema compatibility and do not perform schema evolution.
 - Merge execution uses Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 
@@ -44,7 +58,7 @@ Supported values:
 - Change detection columns are resolved as:
   - `sink.accepted.merge.compare_columns` when configured
   - otherwise all non-key business columns minus `sink.accepted.merge.ignore_columns`
-- Current v1 behavior validates strict schema compatibility and does not perform schema evolution.
+- Merge modes still validate strict schema compatibility and do not perform schema evolution.
 - Single-writer assumption: Delta commit conflicts are returned as clear write errors.
 
 ## Rejected output behavior

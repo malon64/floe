@@ -19,6 +19,7 @@ pub struct RunReport {
     pub sink: SinkEcho,
     pub policy: PolicyEcho,
     pub accepted_output: AcceptedOutputSummary,
+    pub schema_evolution: SchemaEvolutionSummary,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unique_constraints: Vec<UniqueConstraintReport>,
@@ -189,6 +190,18 @@ pub struct AcceptedOutputSummary {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge_elapsed_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct SchemaEvolutionSummary {
+    pub enabled: bool,
+    pub mode: String,
+    pub applied: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub added_columns: Vec<String>,
+    pub incompatible_changes_detected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

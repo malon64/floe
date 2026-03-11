@@ -33,6 +33,7 @@ struct DeltaWriteResult {
     part_files: Vec<String>,
     metrics: AcceptedWriteMetrics,
     merge: Option<AcceptedMergeMetrics>,
+    schema_evolution: crate::io::format::AcceptedSchemaEvolution,
     perf: AcceptedWritePerfBreakdown,
 }
 
@@ -68,7 +69,7 @@ fn write_delta_table_with_metrics(
         .enable_all()
         .build()
         .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
-    let (version, merge, mut perf_breakdown) = match mode {
+    let (version, merge, schema_evolution, mut perf_breakdown) = match mode {
         config::WriteMode::Overwrite | config::WriteMode::Append => {
             let outcome = shared::write_standard_delta_version_with_perf(
                 &runtime,
@@ -83,6 +84,7 @@ fn write_delta_table_with_metrics(
             (
                 outcome.version,
                 None,
+                outcome.schema_evolution,
                 AcceptedWritePerfBreakdown {
                     conversion_ms: Some(outcome.perf.conversion_ms),
                     commit_ms: Some(outcome.perf.commit_ms),
@@ -103,6 +105,18 @@ fn write_delta_table_with_metrics(
             (
                 version,
                 Some(merge),
+                crate::io::format::AcceptedSchemaEvolution {
+                    enabled: false,
+                    mode: entity
+                        .schema
+                        .resolved_schema_evolution()
+                        .mode
+                        .as_str()
+                        .to_string(),
+                    applied: false,
+                    added_columns: Vec::new(),
+                    incompatible_changes_detected: false,
+                },
                 AcceptedWritePerfBreakdown {
                     conversion_ms: Some(perf.conversion_ms),
                     source_df_build_ms: Some(perf.source_df_build_ms),
@@ -125,6 +139,18 @@ fn write_delta_table_with_metrics(
             (
                 version,
                 Some(merge),
+                crate::io::format::AcceptedSchemaEvolution {
+                    enabled: false,
+                    mode: entity
+                        .schema
+                        .resolved_schema_evolution()
+                        .mode
+                        .as_str()
+                        .to_string(),
+                    applied: false,
+                    added_columns: Vec::new(),
+                    incompatible_changes_detected: false,
+                },
                 AcceptedWritePerfBreakdown {
                     conversion_ms: Some(perf.conversion_ms),
                     source_df_build_ms: Some(perf.source_df_build_ms),
@@ -153,6 +179,7 @@ fn write_delta_table_with_metrics(
         part_files,
         metrics,
         merge,
+        schema_evolution,
         perf: perf_breakdown,
     })
 }
@@ -184,6 +211,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             iceberg_table: None,
             metrics: result.metrics,
             merge: result.merge,
+            schema_evolution: result.schema_evolution,
             perf: Some(result.perf),
         })
     }

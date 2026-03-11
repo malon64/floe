@@ -218,6 +218,155 @@ fn delta_append_rejects_nulls_for_non_nullable_columns() -> FloeResult<()> {
 }
 
 #[test]
+fn delta_append_add_columns_mode_evolves_schema() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![column("id", "int64", Some(false))],
+        None,
+    );
+    let mut initial = df!("id" => &[1i64, 2])?;
+    write_delta_table(
+        &mut initial,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    entity
+        .schema
+        .columns
+        .push(column("email", "string", Some(true)));
+    entity.schema.schema_evolution = Some(add_columns_schema_evolution());
+    let mut evolved = df!(
+        "id" => &[3i64, 4],
+        "email" => &[Some("a@example.com"), None]
+    )?;
+    write_delta_table(
+        &mut evolved,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    let field_names = table
+        .snapshot()?
+        .schema()
+        .fields()
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    assert!(field_names.contains(&"email".to_string()));
+    assert_eq!(row_count(&table)?, 4);
+
+    Ok(())
+}
+
+#[test]
+fn delta_overwrite_add_columns_mode_evolves_schema() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Overwrite,
+        vec![column("id", "int64", Some(false))],
+        None,
+    );
+    let mut initial = df!("id" => &[1i64, 2])?;
+    write_delta_table(
+        &mut initial,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Overwrite,
+    )?;
+
+    entity
+        .schema
+        .columns
+        .push(column("email", "string", Some(true)));
+    entity.schema.schema_evolution = Some(add_columns_schema_evolution());
+    let mut evolved = df!(
+        "id" => &[3i64, 4],
+        "email" => &[Some("a@example.com"), Some("b@example.com")]
+    )?;
+    write_delta_table(
+        &mut evolved,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Overwrite,
+    )?;
+
+    let runtime = runtime()?;
+    let table = open_table(&runtime, &table_path)?;
+    let field_names = table
+        .snapshot()?
+        .schema()
+        .fields()
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    assert!(field_names.contains(&"email".to_string()));
+    assert_eq!(row_count(&table)?, 2);
+
+    Ok(())
+}
+
+#[test]
+fn delta_add_columns_mode_rejects_incompatible_type_changes() -> FloeResult<()> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let table_path = temp_dir.path().join("delta_table");
+    let config = empty_root_config();
+    let resolver = config::StorageResolver::from_path(&config, temp_dir.path())?;
+    let target = resolve_local_target(&resolver, &table_path)?;
+
+    let mut entity = build_entity(
+        &table_path,
+        config::WriteMode::Append,
+        vec![column("id", "int64", Some(false))],
+        None,
+    );
+    let mut initial = df!("id" => &[1i64, 2])?;
+    write_delta_table(
+        &mut initial,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )?;
+
+    entity.schema.columns = vec![column("id", "string", Some(false))];
+    entity.schema.schema_evolution = Some(add_columns_schema_evolution());
+    let mut incompatible = df!("id" => &["3", "4"])?;
+    let err = write_delta_table(
+        &mut incompatible,
+        &target,
+        &resolver,
+        &entity,
+        config::WriteMode::Append,
+    )
+    .expect_err("type change should fail");
+    assert!(err
+        .to_string()
+        .contains("delta schema evolution failed: incompatible changes detected"));
+
+    Ok(())
+}
+
+#[test]
 fn delta_write_uses_normalized_schema_names() -> FloeResult<()> {
     let temp_dir = tempfile::TempDir::new()?;
     let table_path = temp_dir.path().join("delta_table");
@@ -469,6 +618,13 @@ fn normalize_config(strategy: &str) -> config::NormalizeColumnsConfig {
     config::NormalizeColumnsConfig {
         enabled: Some(true),
         strategy: Some(strategy.to_string()),
+    }
+}
+
+fn add_columns_schema_evolution() -> config::SchemaEvolutionConfig {
+    config::SchemaEvolutionConfig {
+        mode: config::SchemaEvolutionMode::AddColumns,
+        on_incompatible: config::SchemaEvolutionIncompatibleAction::Fail,
     }
 }
 

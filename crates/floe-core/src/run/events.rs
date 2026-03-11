@@ -43,6 +43,13 @@ pub enum RunEvent {
         elapsed_ms: u64,
         ts_ms: u128,
     },
+    SchemaEvolutionApplied {
+        run_id: String,
+        entity: String,
+        mode: String,
+        added_columns: Vec<String>,
+        ts_ms: u128,
+    },
     EntityFinished {
         run_id: String,
         name: String,

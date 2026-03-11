@@ -37,6 +37,7 @@ pub(crate) struct RunReportContext<'a> {
     pub accepted_target_rows_before: Option<u64>,
     pub accepted_target_rows_after: Option<u64>,
     pub accepted_merge_elapsed_ms: Option<u64>,
+    pub accepted_schema_evolution: report::SchemaEvolutionSummary,
     pub unique_constraints: Vec<check::UniqueConstraintResult>,
 }
 
@@ -119,6 +120,7 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
             target_rows_after: ctx.accepted_target_rows_after,
             merge_elapsed_ms: ctx.accepted_merge_elapsed_ms,
         },
+        schema_evolution: ctx.accepted_schema_evolution,
         unique_constraints: build_unique_constraint_reports(ctx.severity, &ctx.unique_constraints),
         results: ctx.totals,
         files: ctx.file_reports,

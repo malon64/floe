@@ -41,6 +41,15 @@ pub struct AcceptedWriteMetrics {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct AcceptedSchemaEvolution {
+    pub enabled: bool,
+    pub mode: String,
+    pub applied: bool,
+    pub added_columns: Vec<String>,
+    pub incompatible_changes_detected: bool,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct AcceptedWritePerfBreakdown {
     pub conversion_ms: Option<u64>,
     pub source_df_build_ms: Option<u64>,
@@ -76,6 +85,7 @@ pub struct AcceptedWriteOutput {
     pub iceberg_table: Option<String>,
     pub metrics: AcceptedWriteMetrics,
     pub merge: Option<AcceptedMergeMetrics>,
+    pub schema_evolution: AcceptedSchemaEvolution,
     pub perf: Option<AcceptedWritePerfBreakdown>,
 }
 

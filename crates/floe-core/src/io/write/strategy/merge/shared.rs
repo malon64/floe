@@ -1,6 +1,9 @@
 use std::time::Instant;
 
+use arrow::datatypes::FieldRef;
 use arrow::record_batch::RecordBatch;
+use deltalake::datafusion::datasource::TableProvider;
+use deltalake::operations::write::SchemaMode;
 use deltalake::protocol::SaveMode;
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
@@ -18,10 +21,11 @@ pub(crate) struct DeltaStandardWritePerf {
     pub(crate) commit_ms: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct DeltaVersionWriteOutcome {
     pub(crate) version: i64,
     pub(crate) perf: DeltaStandardWritePerf,
+    pub(crate) schema_evolution: crate::io::format::AcceptedSchemaEvolution,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -51,6 +55,8 @@ pub(crate) fn write_standard_delta_version_with_perf(
 ) -> FloeResult<DeltaVersionWriteOutcome> {
     let conversion_start = Instant::now();
     let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch(df, entity)?;
+    let schema_evolution =
+        plan_standard_delta_schema_evolution(runtime, &batch, target, resolver, entity, mode)?;
     let conversion_ms = conversion_start.elapsed().as_millis() as u64;
     let commit_start = Instant::now();
     let version = write_delta_batch_version(
@@ -62,10 +68,12 @@ pub(crate) fn write_standard_delta_version_with_perf(
         save_mode_for_write_mode(mode),
         partition_by,
         target_file_size_bytes,
+        schema_evolution.write_schema_mode,
     )?;
     let commit_ms = commit_start.elapsed().as_millis() as u64;
     Ok(DeltaVersionWriteOutcome {
         version,
+        schema_evolution: schema_evolution.summary,
         perf: DeltaStandardWritePerf {
             conversion_ms,
             commit_ms,
@@ -73,6 +81,151 @@ pub(crate) fn write_standard_delta_version_with_perf(
     })
 }
 
+struct PlannedSchemaEvolution {
+    summary: crate::io::format::AcceptedSchemaEvolution,
+    write_schema_mode: Option<SchemaMode>,
+}
+
+fn plan_standard_delta_schema_evolution(
+    runtime: &tokio::runtime::Runtime,
+    batch: &RecordBatch,
+    target: &Target,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    mode: config::WriteMode,
+) -> FloeResult<PlannedSchemaEvolution> {
+    let schema_evolution = entity.schema.resolved_schema_evolution();
+    let enabled = schema_evolution.mode == config::SchemaEvolutionMode::AddColumns
+        && matches!(
+            mode,
+            config::WriteMode::Append | config::WriteMode::Overwrite
+        );
+    let mut summary = crate::io::format::AcceptedSchemaEvolution {
+        enabled,
+        mode: schema_evolution.mode.as_str().to_string(),
+        applied: false,
+        added_columns: Vec::new(),
+        incompatible_changes_detected: false,
+    };
+    if !enabled {
+        return Ok(PlannedSchemaEvolution {
+            summary,
+            write_schema_mode: None,
+        });
+    }
+
+    let store = object_store::delta_store_config(target, resolver, entity)?;
+    let table_url = store.table_url;
+    let storage_options = store.storage_options;
+    let builder = DeltaTableBuilder::from_url(table_url.clone())
+        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .with_storage_options(storage_options.clone());
+
+    let maybe_table = runtime
+        .block_on(async move {
+            match builder.load().await {
+                Ok(table) => Ok(Some(table)),
+                Err(deltalake::DeltaTableError::NotATable(_)) => Ok(None),
+                Err(err) => Err(err),
+            }
+        })
+        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
+
+    let Some(table) = maybe_table else {
+        return Ok(PlannedSchemaEvolution {
+            summary,
+            write_schema_mode: None,
+        });
+    };
+
+    let snapshot = table
+        .snapshot()
+        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
+    let target_schema = table.schema();
+    let target_fields = target_schema.fields();
+    let source_schema = batch.schema();
+    let source_fields = source_schema.fields();
+    let added_columns = additive_columns(target_fields, source_fields);
+    let incompatible_changes = incompatible_schema_changes(target_fields, source_fields);
+
+    summary.added_columns = added_columns;
+    summary.incompatible_changes_detected = !incompatible_changes.is_empty();
+
+    if !incompatible_changes.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} delta schema evolution failed: incompatible changes detected: {}",
+            entity.name,
+            incompatible_changes.join("; ")
+        ))));
+    }
+
+    if summary.added_columns.is_empty() {
+        return Ok(PlannedSchemaEvolution {
+            summary,
+            write_schema_mode: None,
+        });
+    }
+
+    let partition_columns = snapshot.metadata().partition_columns();
+    if !partition_columns.is_empty() {
+        return Err(Box::new(RunError(format!(
+            "entity.name={} delta schema evolution failed: adding columns is unsupported for partitioned delta tables",
+            entity.name
+        ))));
+    }
+
+    summary.applied = true;
+    Ok(PlannedSchemaEvolution {
+        summary,
+        write_schema_mode: Some(SchemaMode::Merge),
+    })
+}
+
+fn additive_columns(target_fields: &[FieldRef], source_fields: &[FieldRef]) -> Vec<String> {
+    let target_names = target_fields
+        .iter()
+        .map(|field| field.name().to_string())
+        .collect::<HashSet<_>>();
+    source_fields
+        .iter()
+        .filter(|field| !target_names.contains(field.name()))
+        .map(|field| field.name().to_string())
+        .collect()
+}
+
+fn incompatible_schema_changes(
+    target_fields: &[FieldRef],
+    source_fields: &[FieldRef],
+) -> Vec<String> {
+    let source_by_name = source_fields
+        .iter()
+        .map(|field| (field.name(), field))
+        .collect::<HashMap<_, _>>();
+    let mut incompatible = Vec::new();
+    for target_field in target_fields {
+        let Some(source_field) = source_by_name.get(target_field.name()) else {
+            incompatible.push(format!("missing existing column {}", target_field.name()));
+            continue;
+        };
+        if target_field.data_type() != source_field.data_type() {
+            incompatible.push(format!(
+                "column {} type changed from {:?} to {:?}",
+                target_field.name(),
+                target_field.data_type(),
+                source_field.data_type()
+            ));
+        }
+        if !target_field.is_nullable() && source_field.is_nullable() {
+            incompatible.push(format!(
+                "column {} nullability changed from non-nullable to nullable",
+                target_field.name()
+            ));
+        }
+    }
+    incompatible
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_delta_batch_version(
     runtime: &tokio::runtime::Runtime,
     batch: deltalake::arrow::record_batch::RecordBatch,
@@ -82,6 +235,7 @@ pub(crate) fn write_delta_batch_version(
     save_mode: SaveMode,
     partition_by: Option<Vec<String>>,
     target_file_size_bytes: Option<usize>,
+    schema_mode: Option<SchemaMode>,
 ) -> FloeResult<i64> {
     let store = object_store::delta_store_config(target, resolver, entity)?;
     let table_url = store.table_url;
@@ -103,6 +257,9 @@ pub(crate) fn write_delta_batch_version(
                 },
             };
             let mut write = table.write(vec![batch]).with_save_mode(save_mode);
+            if let Some(schema_mode) = schema_mode {
+                write = write.with_schema_mode(schema_mode);
+            }
             if let Some(partition_by) = partition_by {
                 write = write.with_partition_columns(partition_by);
             }

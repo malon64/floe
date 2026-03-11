@@ -22,6 +22,19 @@ Each JSON line includes:
 
 The final line on stdout is always the `run_finished` event.
 
+## Event types
+
+- `run_started`: run metadata (`run_id`, `config`, `report_base`, `ts_ms`)
+- `entity_started`: entity name (`name`, `ts_ms`)
+- `file_started`: entity/input pair (`entity`, `input`, `ts_ms`)
+- `file_finished`: file outcome and counts (`status`, `rows`, `accepted`, `rejected`, `elapsed_ms`, `ts_ms`)
+- `schema_evolution_applied`: Delta additive schema-evolution audit event (`entity`, `mode`, `added_columns`, `ts_ms`)
+- `entity_finished`: entity totals (`status`, `files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`, `ts_ms`)
+- `run_finished`: final run totals and exit code (`status`, `exit_code`, `files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`, `summary_uri`, `ts_ms`)
+- `log`: structured warning/error line (`log_level`, `code`, `message`, optional `entity`, optional `input`, `ts_ms`)
+
+`schema_evolution_applied` is emitted only when Floe actually adds columns to a Delta table. No event is emitted for strict mode, non-Delta sinks, or no-op `add_columns` runs.
+
 ### `--log-format text`
 
 - Prints the same lifecycle events as plain text lines.
@@ -45,3 +58,8 @@ floe run -c config.yml --log-format json > events.ndjson
 floe run -c config.yml --log-format json 2> run.log
 ```
 
+### Schema evolution event
+
+```json
+{"schema":"floe.log.v1","level":"info","event":"schema_evolution_applied","run_id":"2026-03-11T16-31-00Z","entity":"customer","mode":"add_columns","added_columns":["email"],"ts_ms":1741710660000}
+```

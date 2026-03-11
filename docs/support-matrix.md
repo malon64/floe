@@ -35,7 +35,7 @@ Notes:
 | Output | Local | S3 | ADLS | GCS | Notes |
 |---|---|---|---|---|---|
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
-| Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log` |
+| Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log`; additive schema evolution for Delta only |
 | Accepted: Iceberg | ✅ | ✅ (filesystem catalog or Glue catalog over object_store) | ❌ | ✅ (filesystem catalog over object_store) | `metadata/` + `data/`; append/overwrite; partition spec runtime supported; no schema evolution/GC |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
@@ -44,6 +44,9 @@ Notes:
 - Parquet outputs to cloud are written locally then uploaded.
 - Delta outputs to cloud are **direct** via object_store (no temp upload).
 - Delta `partition_by` is runtime-supported on local/S3/ADLS/GCS accepted sinks.
+- Delta schema evolution is currently Delta-only and additive-only (`schema.schema_evolution.mode=add_columns`).
+- Delta additive evolution is implemented for `append`, `overwrite`, `merge_scd1`, and `merge_scd2`.
+- Non-additive schema changes and additive changes against partitioned Delta tables fail fast.
 - Delta accepted-output report metrics use committed Delta log `add` actions; remote metrics are best-effort and remain nullable on post-write collection failure.
 - Iceberg on S3 supports filesystem-catalog semantics and AWS Glue catalog registration (S3 data location).
 - Iceberg `partition_spec` is runtime-supported (validated subset: `identity`, `year`, `month`, `day`, `hour`).

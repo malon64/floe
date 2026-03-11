@@ -271,9 +271,11 @@ is available for templating within that entity.
   - `table_version` / `snapshot_id` in reports are sink-format specific (for example Delta table version, Iceberg metadata version + snapshot ID).
   - Compaction/optimization/maintenance remains external to Floe (for Parquet/Delta/Iceberg datasets).
     - Examples: Delta optimize/vacuum, Iceberg compaction/maintenance jobs.
-  - `schema.schema_evolution` is scaffolding only in this release.
-    - Validation is version-aware and `mode: add_columns` is Delta-only.
-    - Accepted sink runtime behavior does not apply schema evolution yet.
+  - `schema.schema_evolution` is strict by default.
+    - Runtime support in this phase is Delta-only and additive-only.
+    - `mode: add_columns` is implemented for Delta `append`, `overwrite`, `merge_scd1`, and `merge_scd2`.
+    - Unsupported changes such as drops, renames, type changes, and non-nullable-to-nullable drift still fail the write.
+    - When enabled, Floe audits the outcome in the entity report `schema_evolution` block and emits a `schema_evolution_applied` lifecycle event when columns are added.
 - `rejected` (required when `policy.severity: reject`)
   - `format`: `csv` (v0.1).
 - `path`: output directory for rejected rows.
@@ -303,7 +305,11 @@ is available for templating within that entity.
   - `mode`: `strict` or `add_columns`.
   - `on_incompatible`: `fail`.
   - `mode: add_columns` requires `sink.accepted.format: delta`.
-  - Current scope is config parsing and validation only; accepted-write runtime behavior remains strict.
+  - Current implementation is additive-only:
+    - new columns may be appended to existing Delta schemas
+    - existing columns must remain compatible
+    - merge-key columns cannot be introduced by evolution during Delta merge modes
+    - adding columns to already partitioned Delta tables is rejected in this phase
 - `primary_key` (optional)
   - Array of schema column names.
   - Primary key columns are always treated as required (`not_null`) at runtime.

@@ -149,11 +149,12 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
 
         let metrics = metrics::summarize_written_file_sizes(
             &file_sizes,
+            parts_written,
             runtime_options.small_file_threshold_bytes,
         );
 
         Ok(AcceptedWriteOutput {
-            files_written: parts_written,
+            files_written: Some(parts_written),
             parts_written,
             part_files,
             table_version: None,

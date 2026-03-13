@@ -74,7 +74,7 @@ Current status:
 - Remote metrics collection is best-effort after a successful write:
   - if commit-log read/parse succeeds, metrics are exact for the committed version
   - if commit-log read/parse fails, the write still succeeds and the report falls back to
-    `files_written=0`, `part_files=[]`, and nullable size metrics (no fake size values)
+    `files_written=null`, `part_files=[]`, and nullable size metrics
 - `files_written` counts `add` actions in the committed version file (not Delta log files).
 - `part_files` in the report is a capped list of data-file basenames from `add.path`.
 - Compaction/optimization remains external to Floe.

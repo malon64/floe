@@ -29,7 +29,7 @@ static DELTA_ACCEPTED_ADAPTER: DeltaAcceptedAdapter = DeltaAcceptedAdapter;
 #[derive(Debug)]
 struct DeltaWriteResult {
     version: i64,
-    files_written: u64,
+    files_written: Option<u64>,
     part_files: Vec<String>,
     metrics: AcceptedWriteMetrics,
     merge: Option<AcceptedMergeMetrics>,

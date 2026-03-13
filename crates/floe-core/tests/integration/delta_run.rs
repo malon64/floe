@@ -219,7 +219,10 @@ entities:
 
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.sink.accepted.format, "delta");
-    assert!(report.accepted_output.files_written > 0);
+    assert!(report
+        .accepted_output
+        .files_written
+        .is_some_and(|value| value > 0));
     assert_eq!(report.accepted_output.parts_written, 1);
     assert!(report.accepted_output.total_bytes_written.is_some());
     assert!(report.accepted_output.avg_file_size_mb.is_some());
@@ -285,7 +288,10 @@ entities:
 
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.sink.accepted.format, "delta");
-    assert!(report.accepted_output.files_written > 0);
+    assert!(report
+        .accepted_output
+        .files_written
+        .is_some_and(|value| value > 0));
 }
 
 #[test]

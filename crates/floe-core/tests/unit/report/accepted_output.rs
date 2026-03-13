@@ -14,7 +14,7 @@ fn accepted_output_summary_deserializes_legacy_payload_without_new_metrics() {
 
     assert_eq!(summary.path, "/tmp/out");
     assert_eq!(summary.accepted_rows, 10);
-    assert_eq!(summary.files_written, 1);
+    assert_eq!(summary.files_written, Some(1));
     assert_eq!(summary.parts_written, 1);
     assert_eq!(summary.total_bytes_written, None);
     assert_eq!(summary.avg_file_size_mb, None);
@@ -30,7 +30,7 @@ fn accepted_output_summary_serializes_new_metrics_when_present() {
         table_root_uri: Some("/tmp/out".to_string()),
         write_mode: Some("append".to_string()),
         accepted_rows: 10,
-        files_written: 2,
+        files_written: Some(2),
         parts_written: 2,
         part_files: vec![
             "part-00000.parquet".to_string(),
@@ -76,13 +76,57 @@ fn accepted_output_summary_serializes_new_metrics_when_present() {
 }
 
 #[test]
-fn accepted_output_summary_omits_new_metrics_when_absent() {
+fn accepted_output_summary_serializes_exact_zero_metrics_as_zero() {
+    let summary = AcceptedOutputSummary {
+        path: "/tmp/out".to_string(),
+        table_root_uri: None,
+        write_mode: Some("overwrite".to_string()),
+        accepted_rows: 0,
+        files_written: Some(0),
+        parts_written: 0,
+        part_files: Vec::new(),
+        table_version: None,
+        snapshot_id: None,
+        iceberg_catalog_name: None,
+        iceberg_database: None,
+        iceberg_namespace: None,
+        iceberg_table: None,
+        total_bytes_written: Some(0),
+        avg_file_size_mb: None,
+        small_files_count: Some(0),
+        merge_key: Vec::new(),
+        inserted_count: None,
+        updated_count: None,
+        closed_count: None,
+        unchanged_count: None,
+        target_rows_before: None,
+        target_rows_after: None,
+        merge_elapsed_ms: None,
+    };
+
+    let value = serde_json::to_value(summary).expect("serialize");
+    let obj = value.as_object().expect("object");
+
+    assert_eq!(obj.get("files_written").and_then(|v| v.as_u64()), Some(0));
+    assert_eq!(
+        obj.get("total_bytes_written").and_then(|v| v.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        obj.get("small_files_count").and_then(|v| v.as_u64()),
+        Some(0)
+    );
+    assert!(obj.get("avg_file_size_mb").is_some_and(|v| v.is_null()));
+}
+
+#[test]
+fn accepted_output_summary_serializes_unknown_metrics_as_null() {
     let summary = AcceptedOutputSummary {
         path: "/tmp/out".to_string(),
         table_root_uri: None,
         write_mode: None,
         accepted_rows: 10,
-        files_written: 0,
+        files_written: None,
         parts_written: 0,
         part_files: Vec::new(),
         table_version: None,
@@ -107,9 +151,10 @@ fn accepted_output_summary_omits_new_metrics_when_absent() {
     let value = serde_json::to_value(summary).expect("serialize");
     let obj = value.as_object().expect("object");
 
-    assert!(!obj.contains_key("total_bytes_written"));
-    assert!(!obj.contains_key("avg_file_size_mb"));
-    assert!(!obj.contains_key("small_files_count"));
+    assert!(obj.get("files_written").is_some_and(|v| v.is_null()));
+    assert!(obj.get("total_bytes_written").is_some_and(|v| v.is_null()));
+    assert!(obj.get("avg_file_size_mb").is_some_and(|v| v.is_null()));
+    assert!(obj.get("small_files_count").is_some_and(|v| v.is_null()));
     assert!(!obj.contains_key("merge_key"));
     assert!(!obj.contains_key("inserted_count"));
     assert!(!obj.contains_key("updated_count"));

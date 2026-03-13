@@ -96,7 +96,7 @@ entities:
     let report = &outcome.entity_outcomes[0].report;
     assert_eq!(report.sink.accepted.format, "parquet");
     assert_eq!(
-        report.accepted_output.files_written as usize,
+        report.accepted_output.files_written.expect("files_written") as usize,
         parquet_files.len()
     );
     assert_eq!(
@@ -175,7 +175,10 @@ entities:
     assert!(parquet_files > 1, "expected chunked parquet output");
 
     let report = &outcome.entity_outcomes[0].report;
-    assert_eq!(report.accepted_output.files_written as usize, parquet_files);
+    assert_eq!(
+        report.accepted_output.files_written.expect("files_written") as usize,
+        parquet_files
+    );
     assert_eq!(report.accepted_output.parts_written as usize, parquet_files);
     let total_bytes = report
         .accepted_output

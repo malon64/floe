@@ -73,7 +73,7 @@ pub struct AcceptedMergeMetrics {
 
 #[derive(Debug, Clone)]
 pub struct AcceptedWriteOutput {
-    pub files_written: u64,
+    pub files_written: Option<u64>,
     pub parts_written: u64,
     pub part_files: Vec<String>,
     pub table_version: Option<i64>,

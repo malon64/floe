@@ -134,7 +134,7 @@ pub struct AcceptedOutputSummary {
     pub write_mode: Option<String>,
     pub accepted_rows: u64,
     #[serde(default)]
-    pub files_written: u64,
+    pub files_written: Option<u64>,
     pub parts_written: u64,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -158,13 +158,10 @@ pub struct AcceptedOutputSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iceberg_table: Option<String>,
     #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_bytes_written: Option<u64>,
     #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub avg_file_size_mb: Option<f64>,
     #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub small_files_count: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]

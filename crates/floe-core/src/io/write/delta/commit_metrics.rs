@@ -5,7 +5,6 @@ use deltalake::table::builder::DeltaTableBuilder;
 use serde_json::Value;
 
 use crate::errors::RunError;
-use crate::io::format::AcceptedWriteMetrics;
 use crate::io::storage::{object_store, Target};
 use crate::io::write::metrics;
 use crate::{config, FloeResult};
@@ -17,7 +16,11 @@ pub(super) fn delta_commit_metrics_for_target(
     entity: &config::EntityConfig,
     version: i64,
     small_file_threshold_bytes: u64,
-) -> FloeResult<(u64, Vec<String>, AcceptedWriteMetrics)> {
+) -> FloeResult<(
+    Option<u64>,
+    Vec<String>,
+    crate::io::format::AcceptedWriteMetrics,
+)> {
     match target {
         Target::Local { base_path, .. } => {
             let stats = delta_commit_add_stats(Path::new(base_path), version)?;
@@ -138,7 +141,11 @@ fn parse_delta_commit_add_stats_bytes_with_context(
 pub fn delta_commit_metrics_from_log_bytes(
     bytes: &[u8],
     small_file_threshold_bytes: u64,
-) -> FloeResult<(u64, Vec<String>, AcceptedWriteMetrics)> {
+) -> FloeResult<(
+    Option<u64>,
+    Vec<String>,
+    crate::io::format::AcceptedWriteMetrics,
+)> {
     let stats = parse_delta_commit_add_stats_bytes(bytes)?;
     Ok(delta_commit_stats_to_output(
         stats,
@@ -150,7 +157,11 @@ pub fn delta_commit_metrics_from_log_bytes(
 pub fn delta_commit_metrics_from_log_bytes_best_effort(
     bytes: &[u8],
     small_file_threshold_bytes: u64,
-) -> (u64, Vec<String>, AcceptedWriteMetrics) {
+) -> (
+    Option<u64>,
+    Vec<String>,
+    crate::io::format::AcceptedWriteMetrics,
+) {
     match delta_commit_metrics_from_log_bytes(bytes, small_file_threshold_bytes) {
         Ok(output) => output,
         Err(_) => delta_commit_metrics_fallback_unknown(),
@@ -160,23 +171,23 @@ pub fn delta_commit_metrics_from_log_bytes_best_effort(
 fn delta_commit_stats_to_output(
     stats: DeltaCommitAddStats,
     small_file_threshold_bytes: u64,
-) -> (u64, Vec<String>, AcceptedWriteMetrics) {
-    let metrics = if stats.file_sizes.len() == stats.files_written as usize {
-        metrics::summarize_written_file_sizes(&stats.file_sizes, small_file_threshold_bytes)
-    } else {
-        null_accepted_write_metrics()
-    };
-    (stats.files_written, stats.part_files, metrics)
+) -> (
+    Option<u64>,
+    Vec<String>,
+    crate::io::format::AcceptedWriteMetrics,
+) {
+    let metrics = metrics::summarize_written_file_sizes(
+        &stats.file_sizes,
+        stats.files_written,
+        small_file_threshold_bytes,
+    );
+    (Some(stats.files_written), stats.part_files, metrics)
 }
 
-fn delta_commit_metrics_fallback_unknown() -> (u64, Vec<String>, AcceptedWriteMetrics) {
-    (0, Vec::new(), null_accepted_write_metrics())
-}
-
-fn null_accepted_write_metrics() -> AcceptedWriteMetrics {
-    AcceptedWriteMetrics {
-        total_bytes_written: None,
-        avg_file_size_mb: None,
-        small_files_count: None,
-    }
+fn delta_commit_metrics_fallback_unknown() -> (
+    Option<u64>,
+    Vec<String>,
+    crate::io::format::AcceptedWriteMetrics,
+) {
+    (None, Vec::new(), metrics::null_accepted_write_metrics())
 }

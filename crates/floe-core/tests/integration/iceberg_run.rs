@@ -80,7 +80,7 @@ entities:
         Some(report.sink.accepted.path.as_str())
     );
     assert_eq!(report.accepted_output.write_mode.as_deref(), Some("append"));
-    assert_eq!(report.accepted_output.files_written, 1);
+    assert_eq!(report.accepted_output.files_written, Some(1));
     assert_eq!(report.accepted_output.parts_written, 1);
     assert!(report.accepted_output.snapshot_id.is_some());
     assert!(report.accepted_output.total_bytes_written.is_some());
@@ -89,7 +89,7 @@ entities:
 
     let (data_file_count, data_total_bytes) =
         collect_file_stats(&accepted_dir.join("data")).expect("collect iceberg data stats");
-    assert_eq!(report.accepted_output.files_written, data_file_count);
+    assert_eq!(report.accepted_output.files_written, Some(data_file_count));
     assert_eq!(
         report.accepted_output.total_bytes_written,
         Some(data_total_bytes)

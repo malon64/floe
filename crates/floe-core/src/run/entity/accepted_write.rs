@@ -15,7 +15,7 @@ use io::storage::Target;
 #[derive(Debug, Default)]
 pub(super) struct AcceptedWriteReportState {
     pub(super) parts_written: u64,
-    pub(super) files_written: u64,
+    pub(super) files_written: Option<u64>,
     pub(super) part_files: Vec<String>,
     pub(super) table_version: Option<i64>,
     pub(super) snapshot_id: Option<i64>,

@@ -150,7 +150,7 @@ fn write_iceberg_table_with_remote_context(
     ))?;
     result.perf.conversion_ms = Some(conversion_ms);
     Ok(AcceptedWriteOutput {
-        files_written: result.files_written,
+        files_written: Some(result.files_written),
         parts_written: result.files_written,
         part_files: result.file_paths,
         table_version: result.metadata_version,
@@ -356,7 +356,11 @@ async fn write_iceberg_table_async(
         .await?;
     }
     let metrics_start = Instant::now();
-    let metrics = metrics::summarize_written_file_sizes(&file_sizes, small_file_threshold_bytes);
+    let metrics = metrics::summarize_written_file_sizes(
+        &file_sizes,
+        files_written,
+        small_file_threshold_bytes,
+    );
     perf.metrics_read_ms = Some(metrics_start.elapsed().as_millis() as u64);
 
     Ok(IcebergWriteResult {

@@ -131,6 +131,7 @@ pub(super) fn run_accepted_write_phase(
 
     let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
     if accepted_accum.is_empty() && write_mode != config::WriteMode::Overwrite {
+        accepted_write_report.files_written = Some(0);
         return Ok(accepted_write_report);
     }
 

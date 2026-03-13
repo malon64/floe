@@ -17,7 +17,7 @@ pub(crate) struct RunReportContext<'a> {
     pub severity: report::Severity,
     pub accepted_write_mode: config::WriteMode,
     pub accepted_parts_written: u64,
-    pub accepted_files_written: u64,
+    pub accepted_files_written: Option<u64>,
     pub accepted_part_files: Vec<String>,
     pub accepted_table_version: Option<i64>,
     pub accepted_snapshot_id: Option<i64>,

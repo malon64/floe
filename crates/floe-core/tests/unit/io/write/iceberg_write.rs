@@ -125,9 +125,10 @@ fn write_iceberg_table_empty_dataframe_creates_table_without_snapshot() -> FloeR
     let out = write_iceberg_table(&mut df, &target, &entity, config::WriteMode::Overwrite)?;
     assert_eq!(out.parts_written, 0);
     assert!(out.snapshot_id.is_none());
-    assert_eq!(out.metrics.total_bytes_written, None);
+    assert_eq!(out.files_written, Some(0));
+    assert_eq!(out.metrics.total_bytes_written, Some(0));
     assert_eq!(out.metrics.avg_file_size_mb, None);
-    assert_eq!(out.metrics.small_files_count, None);
+    assert_eq!(out.metrics.small_files_count, Some(0));
     assert!(table_path.join("metadata").exists());
     assert!(!table_path.join("data").exists());
     assert_eq!(metadata_json_count(&table_path)?, 1);
@@ -154,7 +155,7 @@ fn write_iceberg_table_local_metrics_count_data_files_not_metadata() -> FloeResu
     let (_metadata_file_count, metadata_total_bytes) =
         collect_file_stats(&table_path.join("metadata"))?;
 
-    assert_eq!(out.files_written, data_file_count);
+    assert_eq!(out.files_written, Some(data_file_count));
     assert_eq!(out.parts_written, data_file_count);
     assert_eq!(out.metrics.total_bytes_written, Some(data_total_bytes));
     assert!(out.metrics.avg_file_size_mb.is_some());

@@ -63,7 +63,7 @@ Common fields:
 - `write_mode`: resolved write mode (`overwrite` or `append`)
   - possible values: `overwrite`, `append`, `merge_scd1`, `merge_scd2`
 - `accepted_rows`: total accepted rows written for the entity
-- `files_written`: number of accepted data files written (format-specific semantics)
+- `files_written`: number of accepted data files written (format-specific semantics; `null` when unknown)
 - `parts_written`: writer part count (may differ from `files_written`, especially for table formats)
 - `part_files`: capped list of output data-file basenames (when collected)
 
@@ -79,6 +79,17 @@ Write-time file sizing metrics (optional):
 - `total_bytes_written`
 - `avg_file_size_mb`
 - `small_files_count`
+
+Accepted-output metrics contract:
+
+| Report value | Meaning |
+| --- | --- |
+| `null` | Unknown or not computable |
+| `0` | Computed exactly and the exact value is zero |
+| `> 0` | Computed exactly and the exact value is non-zero |
+
+This applies to `files_written`, `total_bytes_written`, `avg_file_size_mb`, and
+`small_files_count`. Floe does not use sentinel values such as `-1`.
 
 Merge-specific metrics (optional, Delta `merge_scd1` / `merge_scd2`):
 - `merge_key`: merge key columns (`schema.primary_key`)
@@ -147,8 +158,7 @@ Notes:
 - Metrics are populated when the writer can collect them cheaply and reliably.
 - Delta metrics are derived from committed Delta log `add` actions for the committed version.
 - Remote Delta metrics are collected best-effort after the write; if collection fails,
-  the run still succeeds; `part_files` may be empty and size metrics remain `null`
-  (Delta `files_written` falls back to `0` when exact post-write commit metrics are unavailable).
+  the run still succeeds; `part_files` may be empty and accepted-output metrics remain `null`.
 - Iceberg file sizing metrics count Iceberg data files only (not metadata/manifests).
 
 

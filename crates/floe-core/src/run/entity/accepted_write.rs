@@ -15,7 +15,7 @@ use io::storage::Target;
 #[derive(Debug, Default)]
 pub(super) struct AcceptedWriteReportState {
     pub(super) parts_written: u64,
-    pub(super) files_written: u64,
+    pub(super) files_written: Option<u64>,
     pub(super) part_files: Vec<String>,
     pub(super) table_version: Option<i64>,
     pub(super) snapshot_id: Option<i64>,
@@ -131,6 +131,7 @@ pub(super) fn run_accepted_write_phase(
 
     let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
     if accepted_accum.is_empty() && write_mode != config::WriteMode::Overwrite {
+        accepted_write_report.files_written = Some(0);
         return Ok(accepted_write_report);
     }
 

@@ -11,20 +11,33 @@ pub fn default_small_file_threshold_bytes(target_file_size_bytes: Option<u64>) -
     }
 }
 
+pub fn null_accepted_write_metrics() -> AcceptedWriteMetrics {
+    AcceptedWriteMetrics {
+        total_bytes_written: None,
+        avg_file_size_mb: None,
+        small_files_count: None,
+    }
+}
+
 pub fn summarize_written_file_sizes(
     file_sizes: &[u64],
+    files_written: u64,
     small_file_threshold_bytes: u64,
 ) -> AcceptedWriteMetrics {
-    if file_sizes.is_empty() {
+    if files_written == 0 {
         return AcceptedWriteMetrics {
-            total_bytes_written: None,
+            total_bytes_written: Some(0),
             avg_file_size_mb: None,
-            small_files_count: None,
+            small_files_count: Some(0),
         };
     }
 
+    if file_sizes.len() != files_written as usize {
+        return null_accepted_write_metrics();
+    }
+
     let total_bytes_written = file_sizes.iter().copied().sum::<u64>();
-    let avg_file_size_mb = (total_bytes_written as f64 / file_sizes.len() as f64) / BYTES_PER_MIB;
+    let avg_file_size_mb = (total_bytes_written as f64 / files_written as f64) / BYTES_PER_MIB;
     let small_files_count = file_sizes
         .iter()
         .filter(|size| **size < small_file_threshold_bytes)

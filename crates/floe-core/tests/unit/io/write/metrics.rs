@@ -5,7 +5,7 @@ use floe_core::io::write::metrics::{
 
 #[test]
 fn summarize_written_file_sizes_computes_totals_average_and_small_count() {
-    let metrics = summarize_written_file_sizes(&[4, 10, 20], 10);
+    let metrics = summarize_written_file_sizes(&[4, 10, 20], 3, 10);
     assert_eq!(metrics.total_bytes_written, Some(34));
     assert_eq!(metrics.small_files_count, Some(1));
     let avg = metrics.avg_file_size_mb.expect("avg_file_size_mb");
@@ -14,8 +14,16 @@ fn summarize_written_file_sizes_computes_totals_average_and_small_count() {
 }
 
 #[test]
-fn summarize_written_file_sizes_empty_is_unset() {
-    let metrics = summarize_written_file_sizes(&[], 1024);
+fn summarize_written_file_sizes_empty_preserves_exact_zero_counts() {
+    let metrics = summarize_written_file_sizes(&[], 0, 1024);
+    assert_eq!(metrics.total_bytes_written, Some(0));
+    assert_eq!(metrics.avg_file_size_mb, None);
+    assert_eq!(metrics.small_files_count, Some(0));
+}
+
+#[test]
+fn summarize_written_file_sizes_incomplete_sizes_are_unknown() {
+    let metrics = summarize_written_file_sizes(&[4], 2, 10);
     assert_eq!(metrics.total_bytes_written, None);
     assert_eq!(metrics.avg_file_size_mb, None);
     assert_eq!(metrics.small_files_count, None);

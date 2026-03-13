@@ -49,7 +49,7 @@ fn sample_outcome() -> RunOutcome {
             table_root_uri: Some("/tmp/out/accepted".to_string()),
             write_mode: Some("overwrite".to_string()),
             accepted_rows: 8,
-            files_written: 1,
+            files_written: Some(1),
             parts_written: 1,
             part_files: vec!["part-00000.parquet".to_string()],
             table_version: None,

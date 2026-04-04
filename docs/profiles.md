@@ -6,6 +6,18 @@ Profile variables feed into the same `{{VAR}}` placeholder substitution used in
 Floe config files, giving you a clean separation between logic (the config) and
 environment-specific values (the profile).
 
+## Machine-readable schema
+
+A JSON-Schema-compatible YAML schema is provided at [`profile.schema.yaml`](../profile.schema.yaml)
+in the repository root.  It covers every field defined in this document with
+types, `required` / `additionalProperties` constraints, and inline descriptions.
+
+**AI-assisted authoring** — paste the contents of `profile.schema.yaml` into
+your AI assistant (or point it at the file) and ask it to generate a valid
+profile for your environment.  The schema enumerates all allowed values (e.g.
+`runner.type: local`) and marks required fields, so generated output can be
+validated immediately with `cargo test` or a JSON Schema validator.
+
 ## Schema v1
 
 ```yaml
@@ -186,3 +198,4 @@ my-project/
 ```
 
 See `example/profiles/` in this repository for ready-to-use templates.
+The machine-readable field reference is in `profile.schema.yaml` at the repo root.

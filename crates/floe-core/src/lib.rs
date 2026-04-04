@@ -10,6 +10,7 @@ pub mod profile;
 pub mod report;
 pub mod run;
 pub mod runtime;
+pub mod vars;
 pub mod warnings;
 
 pub use add_entity::{add_entity_to_config, AddEntityOptions, AddEntityOutcome};
@@ -24,6 +25,7 @@ pub use profile::{
 pub use run::events::{set_observer, RunEvent, RunObserver};
 pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
 pub use runtime::{DefaultRuntime, Runtime};
+pub use vars::{resolve_vars, VarSources};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

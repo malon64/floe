@@ -49,7 +49,7 @@ All other fields are optional.
 
 ---
 
-## Variable precedence
+## Variable precedence and resolution
 
 When variable sources are merged at runtime the following precedence applies
 (highest wins):
@@ -62,8 +62,13 @@ config variables  >  CLI overrides  >  profile variables
 - **CLI overrides** – supplied via `--var KEY=VALUE` (future CLI flag).
 - **Config variables** – defined in `env.vars:` of the main Floe YAML config.
 
-Unresolved `${VAR}` placeholders in variable values are detected at parse/
-validation time and produce an immediate error.
+Variable values may themselves contain `${VAR}` references that are
+expanded recursively (nested resolution).  Unresolved placeholders and
+circular references both produce an immediate, actionable error before
+the run begins.
+
+For the full resolution rules, nested reference examples, and the Rust
+API see **[`docs/variables.md`](variables.md)**.
 
 ---
 

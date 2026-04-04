@@ -18,6 +18,7 @@ fn valid_config() -> KubernetesConfig {
         poll_interval_secs: 1,
         service_account: None,
         dashboard_url_template: None,
+        config_uri: "s3://my-bucket/floe/config.yml".to_string(),
     }
 }
 
@@ -64,6 +65,40 @@ fn zero_poll_interval_fails() {
     cfg.poll_interval_secs = 0;
     let err = cfg.validate().unwrap_err();
     assert!(err.to_string().contains("poll_interval_secs"), "got: {err}");
+}
+
+#[test]
+fn empty_config_uri_fails() {
+    let mut cfg = valid_config();
+    cfg.config_uri = String::new();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.to_string().contains("config_uri"), "got: {err}");
+}
+
+#[test]
+fn local_path_config_uri_fails() {
+    let mut cfg = valid_config();
+    cfg.config_uri = "/local/path/config.yml".to_string();
+    let err = cfg.validate().unwrap_err();
+    assert!(err.to_string().contains("config_uri"), "got: {err}");
+    assert!(
+        err.to_string().contains("remote URI"),
+        "error should mention remote URI; got: {err}"
+    );
+}
+
+#[test]
+fn remote_config_uri_passes() {
+    for uri in &[
+        "s3://bucket/path/config.yml",
+        "gs://bucket/path/config.yml",
+        "https://storage.example.com/config.yml",
+    ] {
+        let mut cfg = valid_config();
+        cfg.config_uri = uri.to_string();
+        cfg.validate()
+            .unwrap_or_else(|e| panic!("expected valid URI {uri} to pass; got: {e}"));
+    }
 }
 
 #[test]

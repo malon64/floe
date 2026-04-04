@@ -34,6 +34,13 @@ pub struct KubernetesConfig {
     /// Optional dashboard URL pattern (e.g. `https://k8s.internal/jobs/{job}`).
     /// The literal `{job}` token is replaced with the actual job name.
     pub dashboard_url_template: Option<String>,
+    /// Remote URI pointing to the Floe config file that the pod will fetch
+    /// (e.g. `s3://my-bucket/floe/config.yml`).  Must contain `://`.
+    ///
+    /// The host-local `config_path` passed to `execute()` is **not** available
+    /// inside the pod; callers must stage the config to object storage and
+    /// supply the resulting URI here.
+    pub config_uri: String,
 }
 
 impl KubernetesConfig {
@@ -65,6 +72,17 @@ impl KubernetesConfig {
                 "kubernetes runner: poll_interval_secs must be greater than zero".to_string(),
             )));
         }
+        if self.config_uri.trim().is_empty() {
+            return Err(Box::new(ConfigError(
+                "kubernetes runner: config_uri must not be empty".to_string(),
+            )));
+        }
+        if !self.config_uri.contains("://") {
+            return Err(Box::new(ConfigError(format!(
+                "kubernetes runner: config_uri must be a remote URI (e.g. s3://…), got \"{}\"",
+                self.config_uri
+            ))));
+        }
         Ok(())
     }
 
@@ -85,6 +103,7 @@ impl Default for KubernetesConfig {
             poll_interval_secs: 10,
             service_account: None,
             dashboard_url_template: None,
+            config_uri: String::new(),
         }
     }
 }
@@ -265,12 +284,10 @@ fn parse_kubectl_status(raw: &str) -> K8sJobPhase {
 fn build_job_spec(
     config: &KubernetesConfig,
     job_name: &str,
-    config_path: &Path,
     options: &RunOptions,
 ) -> serde_json::Value {
     let mut cmd = vec!["floe", "run", "--config"];
-    let config_path_str = config_path.display().to_string();
-    cmd.push(&config_path_str);
+    cmd.push(&config.config_uri);
 
     let mut extra_args: Vec<String> = Vec::new();
     for entity in &options.entities {
@@ -362,7 +379,6 @@ impl KubernetesRunnerAdapter {
     /// populated with the information available from the k8s control plane.
     fn run_job(
         &self,
-        config_path: &Path,
         options: &RunOptions,
     ) -> FloeResult<(String, KubernetesRunStatus, String, String)> {
         let started_at = report::now_rfc3339();
@@ -382,7 +398,7 @@ impl KubernetesRunnerAdapter {
         let job_name = format!("{}-{safe_id}", self.config.job_name_prefix);
 
         // 1. Submit.
-        let spec = build_job_spec(&self.config, &job_name, config_path, options);
+        let spec = build_job_spec(&self.config, &job_name, options);
         let actual_job_name = self.client.submit_job(&self.config.namespace, &spec)?;
 
         // 2. Poll until terminal or timeout.
@@ -422,8 +438,7 @@ impl RunnerAdapter for KubernetesRunnerAdapter {
         _config_base: ConfigBase,
         options: RunOptions,
     ) -> FloeResult<RunOutcome> {
-        let (job_name, k8s_status, started_at, finished_at) =
-            self.run_job(config_path, &options)?;
+        let (job_name, k8s_status, started_at, finished_at) = self.run_job(&options)?;
 
         let run_status = k8s_status.to_run_status();
         let exit_code = match run_status {
@@ -571,6 +586,7 @@ mod tests {
             poll_interval_secs: 1, // minimum valid; mock responds instantly
             service_account: None,
             dashboard_url_template: None,
+            config_uri: "s3://my-bucket/floe/config.yml".to_string(),
         }
     }
 
@@ -585,7 +601,7 @@ mod tests {
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
         let (job_name, status, _, _) = adapter
-            .run_job(std::path::Path::new("/cfg/config.yml"), &Default::default())
+            .run_job(&Default::default())
             .expect("run_job");
         assert_eq!(job_name, "floe-test-abc");
         assert_eq!(status, KubernetesRunStatus::Succeeded);
@@ -602,7 +618,7 @@ mod tests {
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
         let (_, status, _, _) = adapter
-            .run_job(std::path::Path::new("/cfg/config.yml"), &Default::default())
+            .run_job(&Default::default())
             .expect("run_job");
         assert_eq!(status, KubernetesRunStatus::Failed);
     }
@@ -619,7 +635,7 @@ mod tests {
         cfg.poll_interval_secs = 1;
         let adapter = KubernetesRunnerAdapter::with_client(cfg, client).expect("construct");
         let (_, status, _, _) = adapter
-            .run_job(std::path::Path::new("/cfg/config.yml"), &Default::default())
+            .run_job(&Default::default())
             .expect("run_job");
         assert_eq!(status, KubernetesRunStatus::Timeout);
     }
@@ -644,7 +660,7 @@ mod tests {
         let adapter = KubernetesRunnerAdapter::with_client(test_config(), Box::new(FailingClient))
             .expect("construct");
         let err = adapter
-            .run_job(std::path::Path::new("/cfg/config.yml"), &Default::default())
+            .run_job(&Default::default())
             .unwrap_err();
         assert!(err.to_string().contains("submit failed"), "got: {err}");
     }

@@ -73,7 +73,7 @@ fn profile_runner_type_maps_to_local() {
 
 #[test]
 fn select_runner_local_returns_adapter_with_local_meta() {
-    let adapter = select_runner(RunnerKind::Local);
+    let adapter = select_runner(RunnerKind::Local).expect("local runner");
     let meta: RunnerMeta = adapter.meta(std::path::Path::new("/tmp/config.yml"));
     assert_eq!(meta.kind, RunnerKind::Local);
     assert!(
@@ -89,9 +89,20 @@ fn select_runner_local_returns_adapter_with_local_meta() {
 
 #[test]
 fn select_runner_default_produces_local_adapter() {
-    let adapter = select_runner(RunnerKind::default());
+    let adapter = select_runner(RunnerKind::default()).expect("default runner");
     let meta = adapter.meta(std::path::Path::new("/any/path.yml"));
     assert_eq!(meta.kind, RunnerKind::Local);
+}
+
+#[test]
+fn select_runner_kubernetes_returns_error_not_panic() {
+    let err = select_runner(RunnerKind::Kubernetes)
+        .err()
+        .expect("should fail for Kubernetes without config");
+    assert!(
+        err.to_string().contains("select_kubernetes_runner"),
+        "error should mention select_kubernetes_runner; got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------

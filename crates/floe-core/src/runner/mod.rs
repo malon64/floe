@@ -132,15 +132,17 @@ pub trait RunnerAdapter {
 /// For [`RunnerKind::Kubernetes`] use [`select_kubernetes_runner`] instead,
 /// which requires a [`KubernetesConfig`].
 ///
-/// # Panics
-/// Panics if called with `RunnerKind::Kubernetes` (use the dedicated factory).
-pub fn select_runner(kind: RunnerKind) -> Box<dyn RunnerAdapter> {
+/// # Errors
+/// Returns an error if called with `RunnerKind::Kubernetes` — use
+/// [`select_kubernetes_runner`] with a [`KubernetesConfig`] instead.
+pub fn select_runner(kind: RunnerKind) -> FloeResult<Box<dyn RunnerAdapter>> {
     match kind {
-        RunnerKind::Local => Box::new(LocalRunnerAdapter),
+        RunnerKind::Local => Ok(Box::new(LocalRunnerAdapter)),
         // #[non_exhaustive] only affects external crates; match is exhaustive here.
-        RunnerKind::Kubernetes => {
-            panic!("select_runner: use select_kubernetes_runner(config) for the Kubernetes runner")
-        }
+        RunnerKind::Kubernetes => Err(Box::new(ConfigError(
+            "select_runner: use select_kubernetes_runner(config) for the Kubernetes runner"
+                .to_string(),
+        ))),
     }
 }
 

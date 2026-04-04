@@ -1,0 +1,121 @@
+$schema: https://yaml-schema.net/yaml-config.schema.yaml
+$id: https://floe.local/schema/profile-v1
+
+title: Floe Environment Profile v1
+
+description: >
+  Machine-readable schema for Floe Environment Profile files (kind: EnvironmentProfile).
+  Place one profile per environment (e.g. profiles/dev.yml, profiles/prod.yml).
+  Profile variables feed into the {{VAR}} placeholder substitution in Floe config files.
+
+type: object
+additionalProperties: false
+required:
+  - apiVersion
+  - kind
+  - metadata
+
+properties:
+  apiVersion:
+    type: string
+    const: floe/v1
+    description: >
+      Schema version discriminator. Must be exactly "floe/v1".
+
+  kind:
+    type: string
+    const: EnvironmentProfile
+    description: >
+      Document kind discriminator. Must be exactly "EnvironmentProfile".
+
+  metadata:
+    $ref: "#/$defs/profile_metadata"
+
+  execution:
+    $ref: "#/$defs/profile_execution"
+
+  variables:
+    $ref: "#/$defs/variables"
+
+  validation:
+    $ref: "#/$defs/profile_validation"
+
+$defs:
+  profile_metadata:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+    description: Identifying information for this profile.
+    properties:
+      name:
+        type: string
+        minLength: 1
+        description: >
+          Short identifier for this profile (e.g. "dev", "uat", "prod").
+          Must be a non-empty string.
+      description:
+        type: string
+        description: Human-readable description of this environment profile.
+      env:
+        type: string
+        description: >
+          Free-form environment label (e.g. "dev", "staging", "production").
+          Used for documentation and observability; not validated by the engine.
+      tags:
+        type: array
+        items:
+          type: string
+        description: Optional list of string tags for grouping or filtering profiles.
+
+  profile_execution:
+    type: object
+    additionalProperties: false
+    required:
+      - runner
+    description: Execution settings for this environment.
+    properties:
+      runner:
+        $ref: "#/$defs/profile_runner"
+
+  profile_runner:
+    type: object
+    additionalProperties: false
+    required:
+      - type
+    description: Runner configuration. Determines where Floe executes.
+    properties:
+      type:
+        type: string
+        enum:
+          - local
+        description: >
+          Runner kind. Currently only "local" is supported.
+          Future values: "kubernetes", "databricks", "snowflake" (not yet implemented).
+
+  variables:
+    type: object
+    additionalProperties:
+      type: string
+    description: >
+      Flat map of string → string variables injected into the Floe config at
+      runtime via {{VAR}} placeholder substitution.
+
+      Precedence (highest wins):
+        config variables  >  CLI overrides  >  profile variables
+
+      Variable values must not contain unresolved ${VAR} placeholders —
+      the validator will fail fast if any are detected.
+
+  profile_validation:
+    type: object
+    additionalProperties: false
+    description: Validation behaviour overrides for this environment.
+    properties:
+      strict:
+        type: boolean
+        description: >
+          When true, the engine applies strict validation rules (e.g. all
+          schema columns must be present, no extra columns allowed).
+          When false or absent, validation follows the default behaviour
+          defined in the main Floe config.

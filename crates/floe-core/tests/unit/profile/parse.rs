@@ -203,6 +203,50 @@ unknownField: oops
     );
 }
 
+// P1: non-string optional metadata fields must fail, not silently become None
+#[test]
+fn parse_metadata_description_non_string_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+  description: 123
+"#;
+    let err = parse_profile_from_str(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("description"),
+        "expected description type error, got: {err}"
+    );
+}
+
+#[test]
+fn parse_metadata_env_non_string_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+  env: true
+"#;
+    let err = parse_profile_from_str(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("env"),
+        "expected env type error, got: {err}"
+    );
+}
+
+// P2: parse_profile_from_str must reject multi-document YAML
+#[test]
+fn parse_multi_document_yaml_fails() {
+    let yaml = "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: dev\n---\napiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod\n";
+    let err = parse_profile_from_str(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("multiple documents"),
+        "expected multi-document error, got: {err}"
+    );
+}
+
 #[test]
 fn parse_missing_runner_type_fails() {
     let yaml = r#"

@@ -35,6 +35,11 @@ pub fn parse_profile_from_str(contents: &str) -> FloeResult<ProfileConfig> {
     if docs.is_empty() {
         return Err(Box::new(ConfigError("profile YAML is empty".to_string())));
     }
+    if docs.len() > 1 {
+        return Err(Box::new(ConfigError(
+            "profile YAML contains multiple documents; expected one".to_string(),
+        )));
+    }
     parse_profile_doc(&docs[0])
 }
 
@@ -107,8 +112,8 @@ fn parse_metadata(value: &Yaml) -> FloeResult<ProfileMetadata> {
     )?;
 
     let name = get_required_string(hash, "name", "profile.metadata")?;
-    let description = get_optional_string(hash, "description");
-    let env = get_optional_string(hash, "env");
+    let description = get_optional_string(hash, "description", "profile.metadata")?;
+    let env = get_optional_string(hash, "env", "profile.metadata")?;
 
     let tags = match hash_get(hash, "tags") {
         Some(value) => {
@@ -183,8 +188,11 @@ fn get_required_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<String> 
     yaml_string(value, &format!("{ctx}.{key}"))
 }
 
-fn get_optional_string(hash: &Hash, key: &str) -> Option<String> {
-    hash_get(hash, key).and_then(|v| yaml_string(v, key).ok())
+fn get_optional_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<String>> {
+    match hash_get(hash, key) {
+        None => Ok(None),
+        Some(value) => yaml_string(value, &format!("{ctx}.{key}")).map(Some),
+    }
 }
 
 fn extract_string_map(hash: &Hash, context: &str) -> FloeResult<HashMap<String, String>> {

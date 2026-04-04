@@ -313,10 +313,13 @@ fn parse_kubectl_status(raw: &str) -> K8sJobPhase {
 
 /// Try to parse a [`report::RunStatus`] from Floe pod logs.
 ///
-/// The Floe CLI writes a JSON summary to stdout on completion.  This function
-/// scans each line (last to first) looking for a JSON object that contains the
-/// path `run.status` (the `RunSummaryReport` shape).  Returns `None` if the
-/// log is empty, unparseable, or does not contain a recognised status string.
+/// When the pod command includes `--log-format json`, the Floe CLI emits a
+/// structured `run_finished` event to stdout:
+/// ```json
+/// {"schema":"floe/v0/log","level":"info","event":"run_finished","status":"rejected",...}
+/// ```
+/// This function scans lines last-to-first to find that event and extract the
+/// `status` field.  Returns `None` if no `run_finished` event is found.
 fn parse_run_status_from_logs(logs: &str) -> Option<report::RunStatus> {
     for line in logs.lines().rev() {
         let line = line.trim();
@@ -324,10 +327,11 @@ fn parse_run_status_from_logs(logs: &str) -> Option<report::RunStatus> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-            let status_str = v
-                .get("run")
-                .and_then(|r| r.get("status"))
-                .and_then(|s| s.as_str())?;
+            // Only consider the run_finished event emitted by --log-format json.
+            if v.get("event").and_then(|e| e.as_str()) != Some("run_finished") {
+                continue;
+            }
+            let status_str = v.get("status").and_then(|s| s.as_str())?;
             return match status_str {
                 "success" => Some(report::RunStatus::Success),
                 "success_with_warnings" => Some(report::RunStatus::SuccessWithWarnings),
@@ -350,23 +354,26 @@ fn build_job_spec(
     job_name: &str,
     options: &RunOptions,
 ) -> serde_json::Value {
-    let mut cmd = vec!["floe", "run", "--config"];
-    cmd.push(&config.config_uri);
-
-    let mut extra_args: Vec<String> = Vec::new();
-    for entity in &options.entities {
-        extra_args.push("--entity".to_string());
-        extra_args.push(entity.clone());
+    // --log-format json causes the Floe CLI to emit structured `run_finished`
+    // events to stdout, which the adapter reads back via `kubectl logs` to
+    // determine the true run outcome (e.g. distinguish Rejected from Success).
+    let mut parts: Vec<serde_json::Value> = vec![
+        json!("floe"),
+        json!("run"),
+        json!("--config"),
+        json!(&config.config_uri),
+        json!("--log-format"),
+        json!("json"),
+    ];
+    // --entities takes a single comma-separated argument; --entity does not exist.
+    if !options.entities.is_empty() {
+        parts.push(json!("--entities"));
+        parts.push(json!(options.entities.join(",")));
     }
     if options.dry_run {
-        extra_args.push("--dry-run".to_string());
+        parts.push(json!("--dry-run"));
     }
-
-    let full_cmd: Vec<serde_json::Value> = cmd
-        .iter()
-        .map(|s| json!(s))
-        .chain(extra_args.iter().map(|s| json!(s)))
-        .collect();
+    let full_cmd = parts;
 
     let mut pod_spec = json!({
         "containers": [{
@@ -512,15 +519,27 @@ impl RunnerAdapter for KubernetesRunnerAdapter {
 
         // For jobs that K8s reports as "Succeeded" the pod exited 0 — which
         // covers both RunStatus::Success *and* RunStatus::Rejected (Floe uses
-        // exit 0 for both).  Fetch pod logs and parse the Floe JSON summary to
-        // discover the true outcome.  Graceful fallback to Success if logs are
-        // unavailable or unparseable.
+        // exit 0 for both).  The pod command includes --log-format json, which
+        // causes the Floe CLI to emit a structured `run_finished` event to
+        // stdout.  Parse that event to recover the true outcome.
+        //
+        // No fallback: if the event is missing the job outcome is genuinely
+        // unknown and silently reporting Success would mask real failures.
         let run_status = if k8s_status == KubernetesRunStatus::Succeeded {
-            self.client
+            let logs = self
+                .client
                 .get_pod_logs(&self.config.namespace, &job_name)
-                .ok()
-                .and_then(|logs| parse_run_status_from_logs(&logs))
-                .unwrap_or(RunStatus::Success)
+                .map_err(|e| {
+                    Box::new(ConfigError(format!(
+                        "kubernetes job \"{job_name}\" succeeded but pod logs unavailable: {e}"
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            parse_run_status_from_logs(&logs).ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "kubernetes job \"{job_name}\" succeeded but `run_finished` status not found \
+                     in pod logs; ensure the pod command includes --log-format json"
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?
         } else {
             k8s_status.to_run_status()
         };
@@ -787,10 +806,20 @@ mod tests {
 
     // ---- P2: log-based outcome mapping --------------------------------------
 
-    fn make_floe_summary_json(status: &str) -> String {
+    /// Build a minimal `run_finished` JSON event line as emitted by
+    /// `floe run --log-format json`.
+    fn make_run_finished_log(status: &str) -> String {
         format!(
-            r#"{{"spec_version":"0.1","tool":{{"name":"floe","version":"0.0.0"}},"run":{{"run_id":"x","started_at":"","finished_at":"","duration_ms":0,"status":"{status}","exit_code":0}},"config":{{"path":"s3://b/c.yml","version":"unknown"}},"report":{{"path":"remote","report_file":"remote"}},"results":{{"files_total":1,"rows_total":10,"accepted_total":8,"rejected_total":2,"warnings_total":0,"errors_total":0}},"entities":[]}}"#
+            r#"{{"schema":"floe/v0/log","level":"info","event":"run_finished","run_id":"x","status":"{status}","exit_code":0,"files":1,"rows":10,"accepted":8,"rejected":2,"warnings":0,"errors":0,"summary_uri":null,"ts_ms":0}}"#
         )
+    }
+
+    fn cfg_path() -> &'static std::path::Path {
+        std::path::Path::new("/cfg/config.yml")
+    }
+
+    fn config_base() -> crate::config::ConfigBase {
+        crate::config::ConfigBase::local_from_path(cfg_path())
     }
 
     #[test]
@@ -800,16 +829,12 @@ mod tests {
         let client = Box::new(MockK8sClient {
             job_name: "floe-test-rej".to_string(),
             phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
-            logs: Some(make_floe_summary_json("rejected")),
+            logs: Some(make_run_finished_log("rejected")),
         });
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
         let outcome = adapter
-            .execute(
-                std::path::Path::new("/cfg/config.yml"),
-                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
-                Default::default(),
-            )
+            .execute(cfg_path(), config_base(), Default::default())
             .expect("execute should return Ok for Rejected");
         assert_eq!(
             outcome.summary.run.status,
@@ -823,16 +848,12 @@ mod tests {
         let client = Box::new(MockK8sClient {
             job_name: "floe-test-ok".to_string(),
             phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
-            logs: Some(make_floe_summary_json("success")),
+            logs: Some(make_run_finished_log("success")),
         });
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
         let outcome = adapter
-            .execute(
-                std::path::Path::new("/cfg/config.yml"),
-                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
-                Default::default(),
-            )
+            .execute(cfg_path(), config_base(), Default::default())
             .expect("execute should return Ok");
         assert_eq!(
             outcome.summary.run.status,
@@ -842,8 +863,9 @@ mod tests {
     }
 
     #[test]
-    fn execute_falls_back_to_success_when_logs_unavailable() {
-        // No logs (None) → graceful fallback, not a hard error.
+    fn execute_errors_when_pod_logs_unavailable_after_success() {
+        // No logs → status is genuinely unknown; silently reporting Success
+        // would mask real failures, so the adapter must return an error.
         let client = Box::new(MockK8sClient {
             job_name: "floe-test-nologs".to_string(),
             phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
@@ -851,16 +873,32 @@ mod tests {
         });
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
-        let outcome = adapter
-            .execute(
-                std::path::Path::new("/cfg/config.yml"),
-                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
-                Default::default(),
-            )
-            .expect("should return Ok even without logs");
-        assert_eq!(
-            outcome.summary.run.status,
-            crate::report::RunStatus::Success
+        let err = adapter
+            .execute(cfg_path(), config_base(), Default::default())
+            .expect_err("should error when pod logs are unavailable");
+        assert!(
+            err.to_string().contains("pod logs"),
+            "error should mention pod logs; got: {err}"
+        );
+    }
+
+    #[test]
+    fn execute_errors_when_run_finished_event_absent_in_logs() {
+        // Logs present but contain no run_finished event (e.g. pod crashed
+        // before Floe emitted its final event).
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-noevent".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
+            logs: Some("some unrelated output\nnot json at all".to_string()),
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let err = adapter
+            .execute(cfg_path(), config_base(), Default::default())
+            .expect_err("should error when run_finished is absent");
+        assert!(
+            err.to_string().contains("run_finished"),
+            "error should mention run_finished; got: {err}"
         );
     }
 
@@ -868,26 +906,79 @@ mod tests {
 
     #[test]
     fn parse_run_status_from_logs_extracts_rejected() {
-        let logs = make_floe_summary_json("rejected");
         assert_eq!(
-            parse_run_status_from_logs(&logs),
+            parse_run_status_from_logs(&make_run_finished_log("rejected")),
             Some(crate::report::RunStatus::Rejected)
         );
     }
 
     #[test]
     fn parse_run_status_from_logs_extracts_success() {
-        let logs = make_floe_summary_json("success");
         assert_eq!(
-            parse_run_status_from_logs(&logs),
+            parse_run_status_from_logs(&make_run_finished_log("success")),
             Some(crate::report::RunStatus::Success)
         );
+    }
+
+    #[test]
+    fn parse_run_status_from_logs_ignores_non_run_finished_events() {
+        // A JSON line that has a "status" but is not a run_finished event must
+        // not be misinterpreted.
+        let noise = r#"{"schema":"floe/v0/log","level":"info","event":"entity_finished","name":"foo","status":"rejected","files":1,"rows":10,"accepted":8,"rejected":2,"warnings":0,"errors":0,"ts_ms":0}"#;
+        assert_eq!(parse_run_status_from_logs(noise), None);
     }
 
     #[test]
     fn parse_run_status_from_logs_returns_none_for_empty() {
         assert_eq!(parse_run_status_from_logs(""), None);
         assert_eq!(parse_run_status_from_logs("not json"), None);
+    }
+
+    // ---- build_job_spec command args ----------------------------------------
+
+    fn spec_cmd_args(options: crate::RunOptions) -> Vec<String> {
+        let spec = build_job_spec(&test_config(), "test-job", &options);
+        spec["spec"]["template"]["spec"]["containers"][0]["command"]
+            .as_array()
+            .expect("command array")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn build_job_spec_includes_log_format_json() {
+        let args = spec_cmd_args(Default::default());
+        let idx = args
+            .iter()
+            .position(|a| a == "--log-format")
+            .expect("--log-format flag");
+        assert_eq!(args[idx + 1], "json");
+    }
+
+    #[test]
+    fn build_job_spec_uses_entities_flag_with_comma_list() {
+        let options = crate::RunOptions {
+            entities: vec!["foo".to_string(), "bar".to_string()],
+            ..Default::default()
+        };
+        let args = spec_cmd_args(options);
+        assert!(
+            !args.contains(&"--entity".to_string()),
+            "must not use deprecated --entity"
+        );
+        let idx = args
+            .iter()
+            .position(|a| a == "--entities")
+            .expect("--entities flag");
+        assert_eq!(args[idx + 1], "foo,bar");
+    }
+
+    #[test]
+    fn build_job_spec_empty_entities_omits_entities_flag() {
+        let args = spec_cmd_args(Default::default());
+        assert!(!args.contains(&"--entities".to_string()));
+        assert!(!args.contains(&"--entity".to_string()));
     }
 
     // ---- parse_kubectl_status -----------------------------------------------

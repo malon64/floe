@@ -4,3 +4,4 @@ pub mod manifest;
 pub mod profile;
 pub mod report;
 pub mod run;
+pub mod vars;

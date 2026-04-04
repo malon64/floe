@@ -27,6 +27,7 @@ impl RunnerAdapter for LocalRunnerAdapter {
         RunnerMeta {
             kind: RunnerKind::Local,
             config_path: config_path.display().to_string(),
+            backend: None,
         }
     }
 }

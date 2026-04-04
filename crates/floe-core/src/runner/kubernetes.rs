@@ -174,6 +174,10 @@ pub(crate) trait KubernetesClient: Send + Sync {
     fn submit_job(&self, namespace: &str, spec: &serde_json::Value) -> FloeResult<String>;
     /// Return the current phase of the named Job.
     fn get_job_phase(&self, namespace: &str, job_name: &str) -> FloeResult<K8sJobPhase>;
+    /// Fetch the combined stdout logs for all pods belonging to the Job.
+    ///
+    /// Used to parse the Floe run summary JSON written by the pod process.
+    fn get_pod_logs(&self, namespace: &str, job_name: &str) -> FloeResult<String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +233,32 @@ impl KubernetesClient for KubectlClient {
         Ok(job_name)
     }
 
+    fn get_pod_logs(&self, namespace: &str, job_name: &str) -> FloeResult<String> {
+        let output = std::process::Command::new("kubectl")
+            .args([
+                "logs",
+                &format!("job/{job_name}"),
+                "-n",
+                namespace,
+                "--tail=-1",
+            ])
+            .output()
+            .map_err(|e| {
+                Box::new(ConfigError(format!("kubectl logs failed: {e}")))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Box::new(ConfigError(format!(
+                "kubectl logs failed (exit {}): {stderr}",
+                output.status.code().unwrap_or(-1)
+            ))));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
     fn get_job_phase(&self, namespace: &str, job_name: &str) -> FloeResult<K8sJobPhase> {
         let output = std::process::Command::new("kubectl")
             .args([
@@ -275,6 +305,40 @@ fn parse_kubectl_status(raw: &str) -> K8sJobPhase {
     } else {
         K8sJobPhase::Unknown(raw.trim().to_string())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Log-based outcome parsing
+// ---------------------------------------------------------------------------
+
+/// Try to parse a [`report::RunStatus`] from Floe pod logs.
+///
+/// The Floe CLI writes a JSON summary to stdout on completion.  This function
+/// scans each line (last to first) looking for a JSON object that contains the
+/// path `run.status` (the `RunSummaryReport` shape).  Returns `None` if the
+/// log is empty, unparseable, or does not contain a recognised status string.
+fn parse_run_status_from_logs(logs: &str) -> Option<report::RunStatus> {
+    for line in logs.lines().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            let status_str = v
+                .get("run")
+                .and_then(|r| r.get("status"))
+                .and_then(|s| s.as_str())?;
+            return match status_str {
+                "success" => Some(report::RunStatus::Success),
+                "success_with_warnings" => Some(report::RunStatus::SuccessWithWarnings),
+                "rejected" => Some(report::RunStatus::Rejected),
+                "aborted" => Some(report::RunStatus::Aborted),
+                "failed" => Some(report::RunStatus::Failed),
+                _ => None,
+            };
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -411,10 +475,16 @@ impl KubernetesRunnerAdapter {
             match &phase {
                 K8sJobPhase::Succeeded | K8sJobPhase::Failed => break phase,
                 K8sJobPhase::Active | K8sJobPhase::Unknown(_) => {
-                    if Instant::now() >= deadline {
+                    let now = Instant::now();
+                    if now >= deadline {
                         break K8sJobPhase::Unknown("timeout".to_string());
                     }
-                    std::thread::sleep(Duration::from_secs(self.config.poll_interval_secs));
+                    // Cap sleep to the remaining window so the timeout contract
+                    // is honoured precisely even when poll_interval > remaining.
+                    let remaining = deadline - now;
+                    let sleep_dur =
+                        remaining.min(Duration::from_secs(self.config.poll_interval_secs));
+                    std::thread::sleep(sleep_dur);
                 }
             }
         };
@@ -440,10 +510,26 @@ impl RunnerAdapter for KubernetesRunnerAdapter {
     ) -> FloeResult<RunOutcome> {
         let (job_name, k8s_status, started_at, finished_at) = self.run_job(&options)?;
 
-        let run_status = k8s_status.to_run_status();
+        // For jobs that K8s reports as "Succeeded" the pod exited 0 — which
+        // covers both RunStatus::Success *and* RunStatus::Rejected (Floe uses
+        // exit 0 for both).  Fetch pod logs and parse the Floe JSON summary to
+        // discover the true outcome.  Graceful fallback to Success if logs are
+        // unavailable or unparseable.
+        let run_status = if k8s_status == KubernetesRunStatus::Succeeded {
+            self.client
+                .get_pod_logs(&self.config.namespace, &job_name)
+                .ok()
+                .and_then(|logs| parse_run_status_from_logs(&logs))
+                .unwrap_or(RunStatus::Success)
+        } else {
+            k8s_status.to_run_status()
+        };
+
+        // Mirror Floe's own exit-code convention from compute_run_outcome.
         let exit_code = match run_status {
-            RunStatus::Success | RunStatus::SuccessWithWarnings => 0,
-            _ => 1,
+            RunStatus::Success | RunStatus::SuccessWithWarnings | RunStatus::Rejected => 0,
+            RunStatus::Aborted => 2,
+            RunStatus::Failed => 1,
         };
 
         // Minimal summary — detailed row counts require reading the remote
@@ -554,6 +640,9 @@ mod tests {
     struct MockK8sClient {
         job_name: String,
         phases: Mutex<VecDeque<K8sJobPhase>>,
+        /// Optional pod logs returned by `get_pod_logs`.  `None` simulates a
+        /// failure to fetch logs (triggering the graceful-fallback path).
+        logs: Option<String>,
     }
 
     impl MockK8sClient {
@@ -561,6 +650,7 @@ mod tests {
             Self {
                 job_name: job_name.to_string(),
                 phases: Mutex::new(phases.into()),
+                logs: None,
             }
         }
     }
@@ -574,6 +664,13 @@ mod tests {
             let mut q = self.phases.lock().unwrap();
             Ok(q.pop_front()
                 .unwrap_or(K8sJobPhase::Unknown("empty".to_string())))
+        }
+
+        fn get_pod_logs(&self, _namespace: &str, _job_name: &str) -> FloeResult<String> {
+            match &self.logs {
+                Some(logs) => Ok(logs.clone()),
+                None => Err(Box::new(crate::ConfigError("no logs in mock".to_string()))),
+            }
         }
     }
 
@@ -600,9 +697,7 @@ mod tests {
         ));
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
-        let (job_name, status, _, _) = adapter
-            .run_job(&Default::default())
-            .expect("run_job");
+        let (job_name, status, _, _) = adapter.run_job(&Default::default()).expect("run_job");
         assert_eq!(job_name, "floe-test-abc");
         assert_eq!(status, KubernetesRunStatus::Succeeded);
     }
@@ -617,9 +712,7 @@ mod tests {
         ));
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
-        let (_, status, _, _) = adapter
-            .run_job(&Default::default())
-            .expect("run_job");
+        let (_, status, _, _) = adapter.run_job(&Default::default()).expect("run_job");
         assert_eq!(status, KubernetesRunStatus::Failed);
     }
 
@@ -634,9 +727,7 @@ mod tests {
         cfg.timeout_secs = 1;
         cfg.poll_interval_secs = 1;
         let adapter = KubernetesRunnerAdapter::with_client(cfg, client).expect("construct");
-        let (_, status, _, _) = adapter
-            .run_job(&Default::default())
-            .expect("run_job");
+        let (_, status, _, _) = adapter.run_job(&Default::default()).expect("run_job");
         assert_eq!(status, KubernetesRunStatus::Timeout);
     }
 
@@ -656,13 +747,147 @@ mod tests {
             fn get_job_phase(&self, _namespace: &str, _job_name: &str) -> FloeResult<K8sJobPhase> {
                 unreachable!()
             }
+            fn get_pod_logs(&self, _namespace: &str, _job_name: &str) -> FloeResult<String> {
+                unreachable!()
+            }
         }
         let adapter = KubernetesRunnerAdapter::with_client(test_config(), Box::new(FailingClient))
             .expect("construct");
-        let err = adapter
-            .run_job(&Default::default())
-            .unwrap_err();
+        let err = adapter.run_job(&Default::default()).unwrap_err();
         assert!(err.to_string().contains("submit failed"), "got: {err}");
+    }
+
+    // ---- P1: timeout sleep capping ------------------------------------------
+
+    #[test]
+    fn poll_sleep_capped_to_remaining_time() {
+        // poll_interval_secs >> timeout_secs.  Without the cap the test would
+        // sleep for 60 s; with it the loop must finish in under 5 s.
+        let phases: Vec<K8sJobPhase> = (0..10).map(|_| K8sJobPhase::Active).collect();
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-cap".to_string(),
+            phases: Mutex::new(phases.into()),
+            logs: None,
+        });
+        let mut cfg = test_config();
+        cfg.timeout_secs = 1;
+        cfg.poll_interval_secs = 60;
+        let adapter = KubernetesRunnerAdapter::with_client(cfg, client).expect("construct");
+
+        let start = Instant::now();
+        let (_, status, _, _) = adapter.run_job(&Default::default()).expect("run_job");
+        let elapsed = start.elapsed();
+
+        assert_eq!(status, KubernetesRunStatus::Timeout);
+        assert!(
+            elapsed.as_secs() < 5,
+            "poll loop overslept (elapsed: {elapsed:?})"
+        );
+    }
+
+    // ---- P2: log-based outcome mapping --------------------------------------
+
+    fn make_floe_summary_json(status: &str) -> String {
+        format!(
+            r#"{{"spec_version":"0.1","tool":{{"name":"floe","version":"0.0.0"}},"run":{{"run_id":"x","started_at":"","finished_at":"","duration_ms":0,"status":"{status}","exit_code":0}},"config":{{"path":"s3://b/c.yml","version":"unknown"}},"report":{{"path":"remote","report_file":"remote"}},"results":{{"files_total":1,"rows_total":10,"accepted_total":8,"rejected_total":2,"warnings_total":0,"errors_total":0}},"entities":[]}}"#
+        )
+    }
+
+    #[test]
+    fn execute_maps_succeeded_job_to_rejected_when_logs_say_rejected() {
+        // Pod exits 0 (Rejected) → K8s phase = Succeeded → without log parsing
+        // this would silently report Success.
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-rej".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
+            logs: Some(make_floe_summary_json("rejected")),
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let outcome = adapter
+            .execute(
+                std::path::Path::new("/cfg/config.yml"),
+                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
+                Default::default(),
+            )
+            .expect("execute should return Ok for Rejected");
+        assert_eq!(
+            outcome.summary.run.status,
+            crate::report::RunStatus::Rejected
+        );
+        assert_eq!(outcome.summary.run.exit_code, 0);
+    }
+
+    #[test]
+    fn execute_maps_succeeded_job_to_success_when_logs_say_success() {
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-ok".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
+            logs: Some(make_floe_summary_json("success")),
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let outcome = adapter
+            .execute(
+                std::path::Path::new("/cfg/config.yml"),
+                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
+                Default::default(),
+            )
+            .expect("execute should return Ok");
+        assert_eq!(
+            outcome.summary.run.status,
+            crate::report::RunStatus::Success
+        );
+        assert_eq!(outcome.summary.run.exit_code, 0);
+    }
+
+    #[test]
+    fn execute_falls_back_to_success_when_logs_unavailable() {
+        // No logs (None) → graceful fallback, not a hard error.
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-nologs".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Succeeded].into()),
+            logs: None,
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let outcome = adapter
+            .execute(
+                std::path::Path::new("/cfg/config.yml"),
+                crate::config::ConfigBase::local_from_path(std::path::Path::new("/cfg/config.yml")),
+                Default::default(),
+            )
+            .expect("should return Ok even without logs");
+        assert_eq!(
+            outcome.summary.run.status,
+            crate::report::RunStatus::Success
+        );
+    }
+
+    // ---- parse_run_status_from_logs unit tests ------------------------------
+
+    #[test]
+    fn parse_run_status_from_logs_extracts_rejected() {
+        let logs = make_floe_summary_json("rejected");
+        assert_eq!(
+            parse_run_status_from_logs(&logs),
+            Some(crate::report::RunStatus::Rejected)
+        );
+    }
+
+    #[test]
+    fn parse_run_status_from_logs_extracts_success() {
+        let logs = make_floe_summary_json("success");
+        assert_eq!(
+            parse_run_status_from_logs(&logs),
+            Some(crate::report::RunStatus::Success)
+        );
+    }
+
+    #[test]
+    fn parse_run_status_from_logs_returns_none_for_empty() {
+        assert_eq!(parse_run_status_from_logs(""), None);
+        assert_eq!(parse_run_status_from_logs("not json"), None);
     }
 
     // ---- parse_kubectl_status -----------------------------------------------

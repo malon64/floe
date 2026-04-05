@@ -21,7 +21,19 @@ def load_manifest_context(
 
 
 class FloeManifestHook:
-    """Resolve connector runtime context from a Floe Airflow manifest."""
+    """Resolve connector runtime context from a Floe Airflow manifest.
+
+    Example::
+
+        hook = FloeManifestHook(manifest_path)
+        context = hook.get_context()
+
+        run_task = FloeRunOperator(
+            task_id="floe_run",
+            config_path=hook.get_config_path(),
+            manifest_context=context,
+        )
+    """
 
     def __init__(
         self,

@@ -326,6 +326,122 @@ class HookAndOperatorTests(unittest.TestCase):
             )
 
 
+class ManifestRoutingTests(unittest.TestCase):
+    """Tests for manifest-driven execution routing in FloeRunOperator / FloeManifestHook."""
+
+    def _write_manifest_with_runner_type(
+        self, base: Path, config_path: Path, runner_type: str
+    ) -> Path:
+        manifest_path = base / "manifest.airflow.json"
+        payload = {
+            "schema": "floe.manifest.v1",
+            "generated_at_ts_ms": 1739500000000,
+            "floe_version": "0.2.4",
+            "config_uri": str(config_path),
+            "config_checksum": None,
+            "entities": [
+                {
+                    "name": "orders",
+                    "domain": "sales",
+                    "group_name": "sales",
+                    "source_format": "csv",
+                    "accepted_sink_uri": f"local://{base}/out/accepted/orders",
+                    "rejected_sink_uri": None,
+                    "asset_key": ["sales", "orders"],
+                    "runner": None,
+                }
+            ],
+            "execution": {
+                "entrypoint": "floe",
+                "base_args": ["run", "-c", "{config_uri}", "--log-format", "json"],
+                "per_entity_args": ["--entities", "{entity_name}"],
+                "log_format": "json",
+                "result_contract": {
+                    "run_finished_event": True,
+                    "summary_uri_field": "summary_uri",
+                    "exit_codes": {"0": "success_or_rejected", "1": "technical_failure"},
+                },
+                "defaults": {"env": {}, "workdir": None},
+            },
+            "runners": {
+                "default": "primary",
+                "definitions": {
+                    "primary": {
+                        "type": runner_type,
+                        "image": None,
+                        "namespace": None,
+                        "service_account": None,
+                        "resources": None,
+                        "env": None,
+                    }
+                },
+            },
+        }
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        return manifest_path
+
+    def test_run_operator_no_manifest_defaults_to_local(self) -> None:
+        """No manifest_context → backward-compatible local subprocess path."""
+        operator = FloeRunOperator(
+            task_id="run_floe",
+            config_path="/tmp/config.yml",
+            floe_cmd="floe",
+        )
+        expected = {"schema": "floe.airflow.run.v1", "run_id": "run-1"}
+        with patch("airflow_floe.operators.FloeRunHook.run", return_value=expected) as run_mock:
+            result = operator.execute({})
+        run_mock.assert_called_once()
+        self.assertEqual(result, expected)
+
+    def test_run_operator_local_process_manifest_routes_to_local(self) -> None:
+        """manifest runner type=local_process → FloeRunHook subprocess path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            manifest_path = self._write_manifest_with_runner_type(base, config_path, "local_process")
+
+            from airflow_floe.runtime import build_dag_manifest_context
+            manifest_context = build_dag_manifest_context(str(manifest_path))
+
+            operator = FloeRunOperator(
+                task_id="run_floe",
+                config_path=str(config_path),
+                floe_cmd="floe",
+                manifest_context=manifest_context,
+            )
+            expected = {"schema": "floe.airflow.run.v1", "run_id": "run-2"}
+            with patch("airflow_floe.operators.FloeRunHook.run", return_value=expected) as run_mock:
+                result = operator.execute({})
+            run_mock.assert_called_once()
+            self.assertEqual(result, expected)
+
+    def test_run_operator_kubernetes_manifest_raises_not_implemented(self) -> None:
+        """manifest runner type=kubernetes → NotImplementedError (no K8s adapter yet)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_path = base / "config.yml"
+            config_path.write_text("version: v1\n", encoding="utf-8")
+            manifest_path = self._write_manifest_with_runner_type(base, config_path, "kubernetes")
+
+            from airflow_floe.runtime import build_dag_manifest_context
+            manifest_context = build_dag_manifest_context(str(manifest_path))
+
+            operator = FloeRunOperator(
+                task_id="run_floe",
+                config_path=str(config_path),
+                floe_cmd="floe",
+                manifest_context=manifest_context,
+            )
+            with self.assertRaises(NotImplementedError) as cm:
+                operator.execute({})
+            self.assertIn("kubernetes", str(cm.exception).lower())
+
+    def test_profile_path_not_in_template_fields(self) -> None:
+        """profile_path must NOT be in FloeRunOperator.template_fields."""
+        self.assertNotIn("profile_path", FloeRunOperator.template_fields)
+
+
 if __name__ == "__main__":
     unittest.main()
 

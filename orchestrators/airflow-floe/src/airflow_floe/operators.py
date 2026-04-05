@@ -72,9 +72,10 @@ class FloeRunHook:
         log_stderr: Any | None = None,
     ) -> dict[str, Any]:
         if runner_definition is not None and runner_definition.runner_type != "local_process":
-            raise ValueError(
+            raise NotImplementedError(
                 "unsupported runner type for Airflow FloeRunOperator: "
-                f"{runner_definition.runner_type}"
+                f"{runner_definition.runner_type!r} — wire in a connector-layer "
+                "adapter before using non-local runner types"
             )
         if execution is not None and execution.log_format != "json":
             raise ValueError(
@@ -132,7 +133,18 @@ class FloeRunHook:
 
 
 class FloeRunOperator(BaseOperator):
-    """Run Floe CLI and push normalized run payload to XCom."""
+    """Run Floe CLI and push normalized run payload to XCom.
+
+    Manifest-driven routing
+    -----------------------
+    The operator reads ``runners`` from the Airflow manifest and routes
+    accordingly:
+
+    * ``"local_process"`` (or no manifest) — subprocess path via
+      :class:`FloeRunHook` (default; backward-compatible).
+    * Any other runner type — raises :exc:`NotImplementedError`; wire in a
+      connector-layer adapter before using non-local runner types.
+    """
 
     template_fields = ("config_path", "entities")
 

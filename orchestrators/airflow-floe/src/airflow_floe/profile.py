@@ -54,14 +54,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:
-    import yaml as _yaml
-except ImportError as _exc:  # pragma: no cover
-    raise ImportError(
-        "PyYAML is required for Floe profile parsing. "
-        "Install it with: pip install pyyaml"
-    ) from _exc
-
 #: Expected ``apiVersion`` value for environment profiles.
 PROFILE_API_VERSION = "floe/v1"
 
@@ -123,6 +115,14 @@ def load_profile(path: str) -> FloeProfile:
             an unrecognized ``apiVersion``/``kind``, or specifies an unknown
             runner type.
     """
+    try:
+        import yaml as _yaml  # pyyaml — declared dep, lazy to avoid import-time crash
+    except ImportError as exc:
+        raise ImportError(
+            "PyYAML is required for Floe profile parsing. "
+            "Install it with: pip install pyyaml"
+        ) from exc
+
     profile_path = Path(path)
     if not profile_path.exists():
         raise FileNotFoundError(f"profile file not found: {path}")

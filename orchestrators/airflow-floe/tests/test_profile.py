@@ -8,6 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+try:
+    import yaml as _yaml_check  # noqa: F401
+
+    _PYYAML_AVAILABLE = True
+except ImportError:
+    _PYYAML_AVAILABLE = False
+
 from airflow_floe.profile import FloeProfile, load_profile  # noqa: E402
 
 
@@ -17,6 +24,7 @@ def _write_profile(tmp: Path, content: str) -> str:
     return str(p)
 
 
+@unittest.skipUnless(_PYYAML_AVAILABLE, "PyYAML not installed — skipping profile parse tests")
 class FloeProfileTests(unittest.TestCase):
     # ------------------------------------------------------------------
     # load_profile — happy paths

@@ -10,6 +10,13 @@ import types
 import unittest
 from unittest.mock import patch
 
+try:
+    import yaml as _yaml_check  # noqa: F401
+
+    _PYYAML_AVAILABLE = True
+except ImportError:
+    _PYYAML_AVAILABLE = False
+
 
 def _install_airflow_stub() -> None:
     if "airflow.sdk" in sys.modules:
@@ -326,6 +333,7 @@ class HookAndOperatorTests(unittest.TestCase):
             )
 
 
+@unittest.skipUnless(_PYYAML_AVAILABLE, "PyYAML not installed — skipping profile routing tests")
 class ProfileRoutingTests(unittest.TestCase):
     """Tests for profile-driven execution routing in FloeRunOperator / FloeManifestHook."""
 

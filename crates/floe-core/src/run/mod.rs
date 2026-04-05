@@ -81,7 +81,7 @@ pub(crate) fn validate_entities(
 
 pub fn run(config_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     let config_base = config::ConfigBase::local_from_path(config_path);
-    let adapter = crate::runner::select_runner(crate::runner::RunnerKind::default());
+    let adapter = crate::runner::select_runner(crate::runner::RunnerKind::default())?;
     adapter.execute(config_path, config_base, options)
 }
 

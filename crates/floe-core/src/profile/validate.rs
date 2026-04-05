@@ -7,7 +7,7 @@ use crate::{ConfigError, FloeResult};
 ///
 /// Checks performed:
 /// - `metadata.name` is non-empty (guaranteed by parser, double-checked here).
-/// - `execution.runner.type` is a known runner kind when present.
+/// - `execution.runner.type` is a recognized runner kind (`local`, `kubernetes`) when present.
 /// - No variable value contains an unresolved `${...}` placeholder.
 pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
     if profile.metadata.name.trim().is_empty() {
@@ -80,7 +80,7 @@ fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()>
 }
 
 fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
-    const KNOWN_RUNNERS: &[&str] = &["local"];
+    const KNOWN_RUNNERS: &[&str] = &["local", "kubernetes"];
     if !KNOWN_RUNNERS.contains(&runner_type) {
         return Err(Box::new(ConfigError(format!(
             "profile.execution.runner.type: unknown runner \"{runner_type}\"; \

@@ -90,3 +90,26 @@ def test_manifest_schema_rejects_missing_entity_source(tmp_path: Path):
 
     with pytest.raises(ValueError, match="manifest schema validation failed"):
         load_manifest(manifest_path)
+
+
+def test_manifest_schema_accepts_extended_k8_runner_fields(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload["runners"]["definitions"]["k8s"].update(
+        {
+            "command": ["floe"],
+            "args": ["run", "-c", "{config_uri}", "--entities", "{entity_name}"],
+            "timeout_seconds": 120,
+            "ttl_seconds_after_finished": 60,
+            "poll_interval_seconds": 5,
+            "secrets": [{"name": "API_TOKEN", "secret_name": "floe-secrets", "key": "token"}],
+        }
+    )
+    manifest_path = tmp_path / "manifest.k8.extended.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    manifest = load_manifest(manifest_path)
+    k8s_runner = manifest.runners.definitions["k8s"]
+    assert k8s_runner.command == ["floe"]
+    assert k8s_runner.poll_interval_seconds == 5
+    assert k8s_runner.secrets is not None and k8s_runner.secrets[0]["name"] == "API_TOKEN"

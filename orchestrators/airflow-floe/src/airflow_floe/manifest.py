@@ -135,6 +135,13 @@ class ManifestRunnerDefinition:
     service_account: str | None
     resources: ManifestRunnerResources | None
     env: dict[str, str] | None
+    # Kubernetes-specific optional fields
+    command: list[str] | None
+    args: list[str] | None
+    timeout_seconds: int | None
+    ttl_seconds_after_finished: int | None
+    poll_interval_seconds: int | None
+    secrets: list[dict[str, Any]] | None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestRunnerDefinition":
@@ -155,6 +162,33 @@ class ManifestRunnerDefinition:
                 raise ValueError("runners.definitions.*.env must be map<string,string> or null")
             env = env_obj
 
+        command_raw = data.get("command")
+        command: list[str] | None = None
+        if command_raw is not None:
+            if not isinstance(command_raw, list) or not all(isinstance(s, str) for s in command_raw):
+                raise ValueError("runners.definitions.*.command must be list[str] or null")
+            command = command_raw
+
+        args_raw = data.get("args")
+        args: list[str] | None = None
+        if args_raw is not None:
+            if not isinstance(args_raw, list) or not all(isinstance(s, str) for s in args_raw):
+                raise ValueError("runners.definitions.*.args must be list[str] or null")
+            args = args_raw
+
+        timeout_seconds = _optional_int(data, "timeout_seconds")
+        ttl_seconds_after_finished = _optional_int(data, "ttl_seconds_after_finished")
+        poll_interval_seconds = _optional_int(data, "poll_interval_seconds")
+
+        secrets_raw = data.get("secrets")
+        secrets: list[dict[str, Any]] | None = None
+        if secrets_raw is not None:
+            if not isinstance(secrets_raw, list) or not all(
+                isinstance(s, dict) for s in secrets_raw
+            ):
+                raise ValueError("runners.definitions.*.secrets must be list[object] or null")
+            secrets = secrets_raw
+
         return ManifestRunnerDefinition(
             runner_type=_required_str(data, "type"),
             image=_optional_str(data, "image"),
@@ -162,6 +196,12 @@ class ManifestRunnerDefinition:
             service_account=_optional_str(data, "service_account"),
             resources=resources,
             env=env,
+            command=command,
+            args=args,
+            timeout_seconds=timeout_seconds,
+            ttl_seconds_after_finished=ttl_seconds_after_finished,
+            poll_interval_seconds=poll_interval_seconds,
+            secrets=secrets,
         )
 
 
@@ -260,6 +300,12 @@ class AirflowManifest:
                             }
                         ),
                         "env": definition.env,
+                        "command": definition.command,
+                        "args": definition.args,
+                        "timeout_seconds": definition.timeout_seconds,
+                        "ttl_seconds_after_finished": definition.ttl_seconds_after_finished,
+                        "poll_interval_seconds": definition.poll_interval_seconds,
+                        "secrets": definition.secrets,
                     }
                     for name, definition in self.runners.definitions.items()
                 },
@@ -426,6 +472,15 @@ def _required_string_list(data: dict[str, Any], key: str) -> list[str]:
     return value
 
 
+def _optional_int(data: dict[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer when provided")
+    return value
+
+
 def _required_string_map(data: dict[str, Any], key: str) -> dict[str, str]:
     value = data.get(key)
     if not isinstance(value, dict) or not all(
@@ -466,6 +521,12 @@ def default_runners_contract() -> ManifestRunners:
                 service_account=None,
                 resources=None,
                 env=None,
+                command=None,
+                args=None,
+                timeout_seconds=None,
+                ttl_seconds_after_finished=None,
+                poll_interval_seconds=None,
+                secrets=None,
             )
         },
     )

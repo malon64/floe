@@ -43,9 +43,10 @@ class LocalRunner(Runner):
         runner_definition: ManifestRunnerDefinition | None = None,
     ) -> RunResult:
         if runner_definition is not None and runner_definition.runner_type != "local_process":
-            raise ValueError(
-                "unsupported runner type for LocalRunner: "
-                f"{runner_definition.runner_type}"
+            raise NotImplementedError(
+                "unsupported runner type for dagster-floe LocalRunner: "
+                f"{runner_definition.runner_type!r} — wire in a connector-layer "
+                "adapter before using non-local runner types"
             )
 
         if execution is not None:

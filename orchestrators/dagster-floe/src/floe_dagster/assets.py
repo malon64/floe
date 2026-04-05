@@ -46,11 +46,6 @@ def build_floe_asset_defs(
     assets_defs = []
     for entity in entity_items:
         runner_definition = resolve_entity_runner(manifest, entity)
-        if runner_definition.runner_type != "local_process":
-            raise ValueError(
-                f"unsupported runner type for dagster-floe: {runner_definition.runner_type}"
-            )
-
         assets_defs.append(
             _make_entity_asset(
                 key_prefix=list(entity.asset_key[:-1]),

@@ -11,6 +11,7 @@ from .manifest import (
 )
 from .manifest_discovery import ManifestDagSpec, discover_manifest_dag_specs
 from .operators import FloeRunHook, FloeRunOperator
+from .profile import FloeProfile, load_profile
 from .runtime import (
     DagManifestContext,
     build_asset_event_extra,
@@ -27,6 +28,7 @@ __all__ = [
     "AirflowManifest",
     "DagManifestContext",
     "FloeManifestHook",
+    "FloeProfile",
     "FloeRunHook",
     "FloeRunOperator",
     "MANIFEST_SCHEMA",
@@ -41,6 +43,7 @@ __all__ = [
     "discover_manifest_dag_specs",
     "load_manifest",
     "load_manifest_context",
+    "load_profile",
     "load_run_summary",
     "parse_run_finished",
     "resolve_config_path",

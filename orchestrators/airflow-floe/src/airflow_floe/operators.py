@@ -132,9 +132,24 @@ class FloeRunHook:
 
 
 class FloeRunOperator(BaseOperator):
-    """Run Floe CLI and push normalized run payload to XCom."""
+    """Run Floe CLI and push normalized run payload to XCom.
 
-    template_fields = ("config_path", "entities")
+    Profile-driven routing
+    ----------------------
+    Supply *profile_path* to enable profile-driven execution routing.
+    The operator reads ``execution.runner.type`` from the profile and
+    routes accordingly:
+
+    * ``"local"`` (or no profile) — existing subprocess path via
+      :class:`FloeRunHook` (default; backward-compatible).
+    * ``"kubernetes"`` — raises :exc:`NotImplementedError`; wire in a
+      connector-layer Kubernetes adapter before using this runner type.
+
+    Profile variables are loaded and available for future CLI forwarding
+    (requires ``--profile`` support in the ``floe`` binary).
+    """
+
+    template_fields = ("config_path", "entities", "profile_path")
 
     def __init__(
         self,
@@ -143,6 +158,7 @@ class FloeRunOperator(BaseOperator):
         entities: list[str] | None = None,
         floe_cmd: str | None = None,
         manifest_context: DagManifestContext | None = None,
+        profile_path: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -150,8 +166,10 @@ class FloeRunOperator(BaseOperator):
         self.entities = entities or []
         self.floe_cmd = floe_cmd
         self.manifest_context = manifest_context
+        self.profile_path = profile_path
 
     def execute(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        self._check_profile_routing()
         hook = FloeRunHook(floe_cmd=self.floe_cmd)
         execution, runner_definition = self._resolve_execution_contract()
         logger = getattr(self, "log", None)
@@ -167,6 +185,27 @@ class FloeRunOperator(BaseOperator):
         )
         self._emit_asset_events(payload, context)
         return payload
+
+    def _check_profile_routing(self) -> None:
+        """Load the profile (if any) and fail fast for unsupported runner types.
+
+        * No profile → default local execution (backward-compatible).
+        * ``runner_type == "local"`` → fall through to :class:`FloeRunHook`.
+        * ``runner_type == "kubernetes"`` → :exc:`NotImplementedError`.
+        """
+        if self.profile_path is None:
+            return
+        from .profile import load_profile
+
+        profile = load_profile(self.profile_path)
+        if profile.is_kubernetes():
+            raise NotImplementedError(
+                "The kubernetes runner type requires a connector-layer Kubernetes "
+                "adapter and cannot be dispatched via FloeRunOperator's local "
+                f"subprocess path. Profile: {self.profile_path}. "
+                "Wire in a Kubernetes adapter (T6) before using this runner type."
+            )
+        # runner_type == "local" or None → fall through to FloeRunHook
 
     def _resolve_execution_contract(
         self,

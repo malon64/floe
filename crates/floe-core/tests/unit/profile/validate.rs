@@ -124,8 +124,25 @@ variables:
 }
 
 // ---------------------------------------------------------------------------
-// validate_profile – failure: unknown runner
+// validate_profile – runner type acceptance
 // ---------------------------------------------------------------------------
+
+#[test]
+fn validate_kubernetes_runner_type_is_accepted() {
+    // "kubernetes" must be recognized at the profile validation layer so that
+    // connector-side profiles are valid without requiring the adapter in floe-core.
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: k8s-prod
+execution:
+  runner:
+    type: kubernetes
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("kubernetes runner type must pass profile validation");
+}
 
 #[test]
 fn validate_unknown_runner_fails() {
@@ -136,12 +153,12 @@ metadata:
   name: dev
 execution:
   runner:
-    type: kubernetes
+    type: databricks
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
     let err = validate_profile(&profile).unwrap_err();
     assert!(
-        err.to_string().contains("kubernetes") || err.to_string().contains("runner"),
+        err.to_string().contains("databricks") || err.to_string().contains("runner"),
         "got: {err}"
     );
 }

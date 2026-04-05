@@ -25,7 +25,7 @@ pub use profile::{
 };
 pub use run::events::{set_observer, RunEvent, RunObserver};
 pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
-pub use runner::{select_runner, LocalRunnerAdapter, RunnerAdapter, RunnerKind, RunnerMeta};
+pub use runner::{parse_run_status_from_logs, ConnectorRunStatus};
 pub use runtime::{DefaultRuntime, Runtime};
 pub use vars::{resolve_vars, VarSources};
 

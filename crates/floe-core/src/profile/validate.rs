@@ -7,7 +7,8 @@ use crate::{ConfigError, FloeResult};
 ///
 /// Checks performed:
 /// - `metadata.name` is non-empty (guaranteed by parser, double-checked here).
-/// - `execution.runner.type` is a recognized runner kind (`local`, `kubernetes`) when present.
+/// - `execution.runner.type` is one of the recognized values (`local`, `kubernetes`) when present.
+///   Orchestration/job-submission for each runner type belongs to connector crates, not floe-core.
 /// - No variable value contains an unresolved `${...}` placeholder.
 pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
     if profile.metadata.name.trim().is_empty() {

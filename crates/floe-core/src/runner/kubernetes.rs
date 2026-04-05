@@ -588,13 +588,6 @@ impl RunnerAdapter for KubernetesRunnerAdapter {
             entities: Vec::new(),
         };
 
-        if run_status == RunStatus::Failed {
-            return Err(Box::new(ConfigError(format!(
-                "kubernetes job \"{job_name}\" finished with status: {}",
-                k8s_status.as_str()
-            ))));
-        }
-
         Ok(RunOutcome {
             run_id: job_name,
             report_base_path: None,
@@ -841,6 +834,46 @@ mod tests {
             crate::report::RunStatus::Rejected
         );
         assert_eq!(outcome.summary.run.exit_code, 0);
+    }
+
+    #[test]
+    fn execute_returns_structured_outcome_when_job_fails() {
+        // K8s phase = Failed → RunStatus::Failed in RunOutcome, not an Err.
+        // The caller (CLI) inspects outcome.summary.run.status for normal
+        // run failures; Err is reserved for transport/setup problems.
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-fail".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Failed].into()),
+            logs: None, // logs not fetched for K8s-Failed jobs
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let outcome = adapter
+            .execute(cfg_path(), config_base(), Default::default())
+            .expect("execute should return Ok even for a failed run");
+        assert_eq!(outcome.summary.run.status, crate::report::RunStatus::Failed);
+        assert_eq!(outcome.summary.run.exit_code, 1);
+    }
+
+    #[test]
+    fn execute_returns_structured_outcome_when_job_times_out() {
+        // All polls return Active → deadline exceeded → RunStatus::Failed in
+        // RunOutcome (mapped from KubernetesRunStatus::Timeout), not an Err.
+        let phases: Vec<K8sJobPhase> = (0..5).map(|_| K8sJobPhase::Active).collect();
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-timeout".to_string(),
+            phases: Mutex::new(phases.into()),
+            logs: None,
+        });
+        let mut cfg = test_config();
+        cfg.timeout_secs = 1;
+        cfg.poll_interval_secs = 1;
+        let adapter = KubernetesRunnerAdapter::with_client(cfg, client).expect("construct");
+        let outcome = adapter
+            .execute(cfg_path(), config_base(), Default::default())
+            .expect("execute should return Ok even for a timed-out run");
+        assert_eq!(outcome.summary.run.status, crate::report::RunStatus::Failed);
+        assert_eq!(outcome.summary.run.exit_code, 1);
     }
 
     #[test]

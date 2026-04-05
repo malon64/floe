@@ -124,11 +124,13 @@ variables:
 }
 
 // ---------------------------------------------------------------------------
-// validate_profile – failure: unknown runner
+// validate_profile – runner type
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validate_unknown_runner_fails() {
+fn validate_kubernetes_runner_type_passes() {
+    // RunnerKind::from_profile_str accepts "kubernetes"; profile validation
+    // must accept it too (single source of truth).
     let yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
@@ -139,9 +141,40 @@ execution:
     type: kubernetes
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("kubernetes runner should be valid");
+}
+
+#[test]
+fn validate_local_runner_type_passes() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+execution:
+  runner:
+    type: local
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("local runner should be valid");
+}
+
+#[test]
+fn validate_unknown_runner_fails() {
+    // A name that is not registered in RunnerKind must still be rejected.
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+execution:
+  runner:
+    type: databricks
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
     let err = validate_profile(&profile).unwrap_err();
     assert!(
-        err.to_string().contains("kubernetes") || err.to_string().contains("runner"),
+        err.to_string().contains("databricks") || err.to_string().contains("runner"),
         "got: {err}"
     );
 }

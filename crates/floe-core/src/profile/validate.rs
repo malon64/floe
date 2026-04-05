@@ -80,15 +80,14 @@ fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()>
 }
 
 fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
-    const KNOWN_RUNNERS: &[&str] = &["local"];
-    if !KNOWN_RUNNERS.contains(&runner_type) {
-        return Err(Box::new(ConfigError(format!(
-            "profile.execution.runner.type: unknown runner \"{runner_type}\"; \
-             known runners: {}",
-            KNOWN_RUNNERS.join(", ")
-        ))));
-    }
-    Ok(())
+    // Delegate to RunnerKind::from_profile_str so the accepted set of runner
+    // names is defined in a single place and profile validation stays in sync
+    // automatically whenever a new runner variant is added.
+    crate::runner::RunnerKind::from_profile_str(runner_type)
+        .map(|_| ())
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            Box::new(ConfigError(format!("profile.execution.runner.type: {e}")))
+        })
 }
 
 #[cfg(test)]

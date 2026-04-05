@@ -69,6 +69,12 @@ def test_local_runner_accepts_local_process_definition() -> None:
         namespace=None,
         service_account=None,
         env=None,
+        command=None,
+        args=None,
+        timeout_seconds=None,
+        ttl_seconds_after_finished=None,
+        poll_interval_seconds=None,
+        secrets=None,
     )
     fake_result = subprocess.CompletedProcess(
         args=[], returncode=0, stdout="", stderr=""
@@ -92,6 +98,12 @@ def test_local_runner_raises_not_implemented_for_kubernetes_runner() -> None:
         namespace=None,
         service_account=None,
         env=None,
+        command=None,
+        args=None,
+        timeout_seconds=None,
+        ttl_seconds_after_finished=None,
+        poll_interval_seconds=None,
+        secrets=None,
     )
     with pytest.raises(NotImplementedError) as exc_info:
         runner.run_floe_entity(

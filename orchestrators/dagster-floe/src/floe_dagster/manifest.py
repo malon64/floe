@@ -105,16 +105,34 @@ class ManifestRunnerDefinition:
     namespace: str | None
     service_account: str | None
     env: dict[str, str] | None
+    command: list[str] | None
+    args: list[str] | None
+    timeout_seconds: int | None
+    ttl_seconds_after_finished: int | None
+    poll_interval_seconds: int | None
+    secrets: list[dict[str, Any]] | None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestRunnerDefinition":
         env = _optional_string_map(data, "env")
+        command = _optional_string_list(data, "command")
+        args = _optional_string_list(data, "args")
+        timeout_seconds = _optional_int(data, "timeout_seconds")
+        ttl_seconds_after_finished = _optional_int(data, "ttl_seconds_after_finished")
+        poll_interval_seconds = _optional_int(data, "poll_interval_seconds")
+        secrets = _optional_object_list(data, "secrets")
         return ManifestRunnerDefinition(
             runner_type=_required_str(data, "type"),
             image=_optional_str(data, "image"),
             namespace=_optional_str(data, "namespace"),
             service_account=_optional_str(data, "service_account"),
             env=env,
+            command=command,
+            args=args,
+            timeout_seconds=timeout_seconds,
+            ttl_seconds_after_finished=ttl_seconds_after_finished,
+            poll_interval_seconds=poll_interval_seconds,
+            secrets=secrets,
         )
 
 
@@ -316,6 +334,33 @@ def _optional_string_map(data: dict[str, Any], key: str) -> dict[str, str] | Non
         for item_key, item_value in value.items()
     ):
         raise ValueError(f"{key} must be a map<string,string> when provided")
+    return value
+
+
+def _optional_string_list(data: dict[str, Any], key: str) -> list[str] | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{key} must be an array of strings when provided")
+    return value
+
+
+def _optional_int(data: dict[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer when provided")
+    return value
+
+
+def _optional_object_list(data: dict[str, Any], key: str) -> list[dict[str, Any]] | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"{key} must be a list of objects when provided")
     return value
 
 

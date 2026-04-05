@@ -1,4 +1,6 @@
-use floe_core::{build_common_manifest_json, load_config, resolve_config_location};
+use floe_core::{
+    build_common_manifest_json, load_config, parse_profile_from_str, resolve_config_location,
+};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -24,8 +26,8 @@ fn manifest_uses_local_uri_for_local_config() {
     .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
 
-    let payload =
-        build_common_manifest_json(&config_location, &config, &[]).expect("build common manifest");
+    let payload = build_common_manifest_json(&config_location, &config, &[], None)
+        .expect("build common manifest");
     let value: Value = serde_json::from_str(&payload).expect("manifest is valid json");
 
     assert_eq!(value["schema"], "floe.manifest.v1");
@@ -43,8 +45,9 @@ fn manifest_id_is_stable_for_same_config() {
     .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
 
-    let first = build_common_manifest_json(&config_location, &config, &[]).expect("manifest");
-    let second = build_common_manifest_json(&config_location, &config, &[]).expect("manifest");
+    let first = build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
+    let second =
+        build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
 
     let first_value: Value = serde_json::from_str(&first).expect("valid json");
     let second_value: Value = serde_json::from_str(&second).expect("valid json");
@@ -93,8 +96,8 @@ entities:
     let config_location = resolve_config_location(config_path.to_str().expect("config path utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload =
-        build_common_manifest_json(&config_location, &config, &[]).expect("build common manifest");
+    let payload = build_common_manifest_json(&config_location, &config, &[], None)
+        .expect("build common manifest");
     let value: Value = serde_json::from_str(&payload).expect("manifest json");
 
     let cfg_base = std::fs::canonicalize(&cfg_dir).expect("canonicalize cfg dir");
@@ -110,5 +113,76 @@ entities:
     assert_eq!(
         entity["accepted_sink_uri"],
         format!("local://{}/out_norm/accepted/customer", cfg_base.display())
+    );
+}
+
+#[test]
+fn manifest_without_profile_has_local_runner() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["runners"]["default"], "local");
+    assert_eq!(
+        value["runners"]["definitions"]["local"]["type"],
+        "local_process"
+    );
+}
+
+#[test]
+fn manifest_with_local_profile_has_local_runner() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+execution:
+  runner:
+    type: local
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
+        .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["runners"]["default"], "local");
+    assert_eq!(
+        value["runners"]["definitions"]["local"]["type"],
+        "local_process"
+    );
+}
+
+#[test]
+fn manifest_with_kubernetes_profile_has_kubernetes_runner() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-k8s
+execution:
+  runner:
+    type: kubernetes
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
+        .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["runners"]["default"], "default");
+    assert_eq!(
+        value["runners"]["definitions"]["default"]["type"],
+        "kubernetes"
     );
 }

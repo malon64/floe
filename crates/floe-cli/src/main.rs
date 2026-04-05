@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, load_config, resolve_config_location,
-    run_with_base, validate_with_base, AddEntityOptions, FloeResult, RunOptions, ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, load_config, parse_profile,
+    resolve_config_location, run_with_base, validate_profile, validate_with_base, AddEntityOptions,
+    FloeResult, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -193,6 +194,8 @@ enum ManifestCommand {
             help = "Optional comma-separated list of entity names"
         )]
         entities: Vec<String>,
+        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        profile: Option<String>,
     },
 }
 
@@ -351,6 +354,7 @@ fn main() -> FloeResult<()> {
                 config,
                 output,
                 entities,
+                profile,
             } => {
                 let config_location = match resolve_config_location(&config) {
                     Ok(location) => location,
@@ -374,9 +378,35 @@ fn main() -> FloeResult<()> {
                     std::process::exit(1);
                 }
 
+                let profile_config = if let Some(ref profile_path) = profile {
+                    let path = std::path::Path::new(profile_path);
+                    let parsed = match parse_profile(path) {
+                        Ok(p) => p,
+                        Err(err) => {
+                            let mut err_out = std::io::stderr().lock();
+                            let _ = writeln!(err_out, "Error: {err}");
+                            let _ = err_out.flush();
+                            std::process::exit(1);
+                        }
+                    };
+                    if let Err(err) = validate_profile(&parsed) {
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                    Some(parsed)
+                } else {
+                    None
+                };
+
                 let config = load_config(&config_location.path)?;
-                let manifest_json =
-                    build_common_manifest_json(&config_location, &config, &entities)?;
+                let manifest_json = build_common_manifest_json(
+                    &config_location,
+                    &config,
+                    &entities,
+                    profile_config.as_ref(),
+                )?;
                 manifest_output::write_manifest(&output, &manifest_json)?;
                 if output != "-" {
                     let mut out = std::io::stdout().lock();

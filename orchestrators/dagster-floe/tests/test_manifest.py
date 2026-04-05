@@ -92,6 +92,66 @@ def test_manifest_schema_rejects_missing_entity_source(tmp_path: Path):
         load_manifest(manifest_path)
 
 
+def test_env_matrix_manifest_runner_and_paths() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    base = json.loads(fixture.read_text(encoding="utf-8"))
+
+    matrix = [
+        (
+            "dev",
+            "local",
+            "local_process",
+            "local:///workspace/dev/in/orders.csv",
+            "local:///workspace/dev/out/accepted/orders",
+        ),
+        (
+            "uat",
+            "k8s",
+            "kubernetes_job",
+            "s3://bucket-uat/in/orders.csv",
+            "s3://bucket-uat/out/accepted/orders",
+        ),
+        (
+            "prod",
+            "k8s",
+            "kubernetes_job",
+            "s3://bucket-prod/in/orders.csv",
+            "s3://bucket-prod/out/accepted/orders",
+        ),
+    ]
+
+    for env, runner_name, runner_type, source_uri, accepted_uri in matrix:
+        payload = json.loads(json.dumps(base))
+        payload["runners"]["default"] = runner_name
+        payload["runners"]["definitions"] = {
+            runner_name: {
+                "type": runner_type,
+                "image": "ghcr.io/malon64/floe:latest" if runner_type == "kubernetes_job" else None,
+                "namespace": "floe" if runner_type == "kubernetes_job" else None,
+                "service_account": "floe" if runner_type == "kubernetes_job" else None,
+                "resources": None,
+                "env": {"ENV": env},
+                "command": None,
+                "args": None,
+                "timeout_seconds": 600 if runner_type == "kubernetes_job" else None,
+                "ttl_seconds_after_finished": 120 if runner_type == "kubernetes_job" else None,
+                "poll_interval_seconds": 5 if runner_type == "kubernetes_job" else None,
+                "secrets": None,
+            }
+        }
+        payload["entities"][1]["source"]["uri"] = source_uri
+        payload["entities"][1]["accepted_sink_uri"] = accepted_uri
+        payload["entities"][1]["runner"] = None
+
+        manifest = DagsterManifest.from_dict(payload)
+        orders = next(e for e in manifest.entities if e.name == "orders")
+        runner = resolve_entity_runner(manifest, orders)
+
+        assert runner.runner_type == runner_type
+        assert runner.env is not None and runner.env["ENV"] == env
+        assert orders.accepted_sink_uri == accepted_uri
+
+
 def test_manifest_schema_accepts_extended_k8_runner_fields(tmp_path: Path):
     fixture = Path(__file__).parent / "fixtures" / "manifest.json"
     payload = json.loads(fixture.read_text(encoding="utf-8"))

@@ -118,6 +118,90 @@ class ManifestLoaderTests(unittest.TestCase):
         ):
             build_manifest_from_validate_payload(payload)
 
+    def test_env_matrix_manifest_preserves_runner_and_paths(self) -> None:
+        """Integration-style matrix: dev(local) + uat/prod(k8) with env-specific paths."""
+
+        def native_manifest(*, env: str, runner_type: str, source_uri: str, accepted_uri: str) -> dict:
+            runner_name = "local" if runner_type == "local_process" else "k8s"
+            return {
+                "schema": MANIFEST_SCHEMA,
+                "generated_at_ts_ms": 1739500000000,
+                "floe_version": "0.3.0",
+                "config_uri": "./config.yml",
+                "config_checksum": None,
+                "execution": {
+                    "entrypoint": "floe",
+                    "base_args": ["run", "-c", "{config_uri}", "--log-format", "json"],
+                    "per_entity_args": ["--entities", "{entity_name}"],
+                    "log_format": "json",
+                    "result_contract": {
+                        "run_finished_event": True,
+                        "summary_uri_field": "summary_uri",
+                        "exit_codes": {"0": "success_or_rejected", "1": "technical_failure"},
+                    },
+                    "defaults": {"env": {"ENV": env}, "workdir": None},
+                },
+                "runners": {
+                    "default": runner_name,
+                    "definitions": {
+                        runner_name: {
+                            "type": runner_type,
+                            "image": "ghcr.io/malon64/floe:latest" if runner_type == "kubernetes_job" else None,
+                            "namespace": "floe" if runner_type == "kubernetes_job" else None,
+                            "service_account": "floe" if runner_type == "kubernetes_job" else None,
+                            "resources": None,
+                            "env": None,
+                            "command": None,
+                            "args": None,
+                            "timeout_seconds": 600 if runner_type == "kubernetes_job" else None,
+                            "ttl_seconds_after_finished": 120 if runner_type == "kubernetes_job" else None,
+                            "poll_interval_seconds": 5 if runner_type == "kubernetes_job" else None,
+                            "secrets": None,
+                        }
+                    },
+                },
+                "entities": [
+                    {
+                        "name": "orders",
+                        "domain": "sales",
+                        "group_name": "sales",
+                        "source_format": "csv",
+                        "accepted_sink_uri": accepted_uri,
+                        "rejected_sink_uri": None,
+                        "asset_key": ["sales", "orders"],
+                        "runner": None,
+                    }
+                ],
+            }
+
+        matrix = [
+            ("dev", "local_process", "local:///workspace/dev/in/orders.csv", "local:///workspace/dev/out/accepted/orders"),
+            ("uat", "kubernetes_job", "s3://bucket-uat/in/orders.csv", "s3://bucket-uat/out/accepted/orders"),
+            ("prod", "kubernetes_job", "s3://bucket-prod/in/orders.csv", "s3://bucket-prod/out/accepted/orders"),
+        ]
+
+        for env, runner_type, source_uri, accepted_uri in matrix:
+            payload = native_manifest(
+                env=env,
+                runner_type=runner_type,
+                source_uri=source_uri,
+                accepted_uri=accepted_uri,
+            )
+            # keep source_uri tracked through env defaults (for matrix readability) and entity sink URI contract
+            payload["execution"]["defaults"]["env"]["SOURCE_URI"] = source_uri
+
+            with tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / f"manifest.{env}.json"
+                target.write_text(json.dumps(payload), encoding="utf-8")
+                loaded = load_manifest(target)
+
+            runner_name = loaded.runners.default
+            definition = loaded.runners.definitions[runner_name]
+            self.assertEqual(definition.runner_type, runner_type)
+            self.assertEqual(loaded.execution.defaults.env["ENV"], env)
+            self.assertEqual(loaded.execution.defaults.env["SOURCE_URI"], source_uri)
+            self.assertEqual(loaded.entities[0].accepted_sink_uri, accepted_uri)
+
 
 if __name__ == "__main__":
     unittest.main()

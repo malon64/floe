@@ -81,15 +81,17 @@ pub fn parse_run_status_from_logs(logs: &str) -> Option<RunStatus> {
         if obj.get("event").and_then(|v| v.as_str()) != Some("run_finished") {
             continue;
         }
-        let status_str = obj.get("status").and_then(|v| v.as_str())?;
-        return match status_str {
-            "success" => Some(RunStatus::Success),
-            "success_with_warnings" => Some(RunStatus::SuccessWithWarnings),
-            "rejected" => Some(RunStatus::Rejected),
-            "aborted" => Some(RunStatus::Aborted),
-            "failed" => Some(RunStatus::Failed),
-            _ => None,
+        let Some(status_str) = obj.get("status").and_then(|v| v.as_str()) else {
+            continue;
         };
+        match status_str {
+            "success" => return Some(RunStatus::Success),
+            "success_with_warnings" => return Some(RunStatus::SuccessWithWarnings),
+            "rejected" => return Some(RunStatus::Rejected),
+            "aborted" => return Some(RunStatus::Aborted),
+            "failed" => return Some(RunStatus::Failed),
+            _ => continue,
+        }
     }
     None
 }
@@ -216,6 +218,47 @@ mod tests {
         assert_eq!(
             parse_run_status_from_logs(&make_run_finished_log("unknown_future_status")),
             None
+        );
+    }
+
+    #[test]
+    fn malformed_run_finished_missing_status_followed_by_valid_returns_valid() {
+        // A run_finished record with no "status" field must be skipped, not
+        // treated as a terminal None that hides the valid record below it.
+        let malformed = r#"{"schema":"floe/v0/log","event":"run_finished","run_id":"x","ts_ms":0}"#;
+        let valid = make_run_finished_log("rejected");
+        let logs = format!("{malformed}\n{valid}");
+        assert_eq!(
+            parse_run_status_from_logs(&logs),
+            Some(RunStatus::Rejected),
+            "valid run_finished after malformed one must be found"
+        );
+    }
+
+    #[test]
+    fn malformed_run_finished_non_string_status_followed_by_valid_returns_valid() {
+        // "status" present but not a string (e.g. a number) — still malformed.
+        let malformed = r#"{"schema":"floe/v0/log","event":"run_finished","status":42,"ts_ms":0}"#;
+        let valid = make_run_finished_log("success");
+        let logs = format!("{malformed}\n{valid}");
+        assert_eq!(
+            parse_run_status_from_logs(&logs),
+            Some(RunStatus::Success),
+            "valid run_finished after non-string status must be found"
+        );
+    }
+
+    #[test]
+    fn only_malformed_run_finished_records_returns_none() {
+        let malformed1 =
+            r#"{"schema":"floe/v0/log","event":"run_finished","run_id":"x","ts_ms":0}"#;
+        let malformed2 =
+            r#"{"schema":"floe/v0/log","event":"run_finished","status":null,"ts_ms":0}"#;
+        let logs = format!("{malformed1}\n{malformed2}");
+        assert_eq!(
+            parse_run_status_from_logs(&logs),
+            None,
+            "no valid run_finished => None"
         );
     }
 

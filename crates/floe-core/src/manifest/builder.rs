@@ -7,6 +7,7 @@ use crate::manifest::model::{
     ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerDefinition, ManifestRunners,
     ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
+use crate::profile::ProfileConfig;
 use crate::FloeResult;
 
 #[derive(Debug)]
@@ -20,9 +21,16 @@ pub fn build_common_manifest_json(
     config_location: &ConfigLocation,
     config: &RootConfig,
     selected_entities: &[String],
+    profile: Option<&ProfileConfig>,
 ) -> FloeResult<String> {
     let resolver = StorageResolver::new(config, config_location.base.clone())?;
-    let manifest = build_common_manifest(config_location, config, selected_entities, &resolver);
+    let manifest = build_common_manifest(
+        config_location,
+        config,
+        selected_entities,
+        &resolver,
+        profile,
+    );
     Ok(serde_json::to_string_pretty(&manifest)?)
 }
 
@@ -31,6 +39,7 @@ fn build_common_manifest(
     config: &RootConfig,
     selected_entities: &[String],
     resolver: &StorageResolver,
+    profile: Option<&ProfileConfig>,
 ) -> CommonManifest {
     let mut entities: Vec<_> = if selected_entities.is_empty() {
         config.entities.iter().collect()
@@ -201,7 +210,7 @@ fn build_common_manifest(
             })
             .collect(),
         execution: default_execution_contract(),
-        runners: default_runners_contract(),
+        runners: runners_contract(profile),
         entities: manifest_entities,
     }
 }
@@ -325,23 +334,49 @@ fn default_execution_contract() -> ManifestExecution {
     }
 }
 
-fn default_runners_contract() -> ManifestRunners {
-    let mut definitions = HashMap::new();
-    definitions.insert(
-        "local",
-        ManifestRunnerDefinition {
-            runner_type: "local_process",
-            image: None,
-            namespace: None,
-            service_account: None,
-            resources: None,
-            env: None,
-        },
-    );
+fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
+    let profile_runner_type = profile
+        .and_then(|p| p.execution.as_ref())
+        .map(|e| e.runner.runner_type.as_str());
 
-    ManifestRunners {
-        default: "local",
-        definitions,
+    match profile_runner_type {
+        Some("kubernetes") => {
+            let mut definitions = HashMap::new();
+            definitions.insert(
+                "default",
+                ManifestRunnerDefinition {
+                    runner_type: "kubernetes",
+                    image: None,
+                    namespace: None,
+                    service_account: None,
+                    resources: None,
+                    env: None,
+                },
+            );
+            ManifestRunners {
+                default: "default",
+                definitions,
+            }
+        }
+        // "local" or absent → local_process (backward-compatible default)
+        _ => {
+            let mut definitions = HashMap::new();
+            definitions.insert(
+                "local",
+                ManifestRunnerDefinition {
+                    runner_type: "local_process",
+                    image: None,
+                    namespace: None,
+                    service_account: None,
+                    resources: None,
+                    env: None,
+                },
+            );
+            ManifestRunners {
+                default: "local",
+                definitions,
+            }
+        }
     }
 }
 

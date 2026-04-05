@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -94,6 +95,77 @@ fn manifest_generate_invalid_config_fails() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
     cmd.args(["manifest", "generate", "-c"])
         .arg(&fixture_path)
+        .args(["--output", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error:"));
+}
+
+#[test]
+fn manifest_generate_with_local_profile_has_local_runner() {
+    let config_path = repo_root().join("example/config.yml");
+    let profile_path = repo_root().join("example/profiles/dev.yml");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg(&profile_path)
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+    assert_eq!(value["runners"]["default"], "local");
+    assert_eq!(
+        value["runners"]["definitions"]["local"]["type"],
+        "local_process"
+    );
+}
+
+#[test]
+fn manifest_generate_with_kubernetes_profile_has_kubernetes_runner() {
+    let config_path = repo_root().join("example/config.yml");
+    let tmp = tempdir().expect("create temp dir");
+    let profile_path = tmp.path().join("k8s.yml");
+
+    let mut f = fs::File::create(&profile_path).expect("create profile file");
+    writeln!(
+        f,
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes"
+    )
+    .expect("write profile");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg(&profile_path)
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+    assert_eq!(value["runners"]["default"], "default");
+    assert_eq!(
+        value["runners"]["definitions"]["default"]["type"],
+        "kubernetes"
+    );
+}
+
+#[test]
+fn manifest_generate_with_missing_profile_fails() {
+    let config_path = repo_root().join("example/config.yml");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg("/nonexistent/path/profile.yml")
         .args(["--output", "-"])
         .assert()
         .failure()

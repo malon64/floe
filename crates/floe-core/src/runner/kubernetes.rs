@@ -365,6 +365,11 @@ fn build_job_spec(
         json!("--log-format"),
         json!("json"),
     ];
+    // Forward the caller-supplied run-id so the pod run is traceable.
+    if let Some(run_id) = &options.run_id {
+        parts.push(json!("--run-id"));
+        parts.push(json!(run_id));
+    }
     // --entities takes a single comma-separated argument; --entity does not exist.
     if !options.entities.is_empty() {
         parts.push(json!("--entities"));
@@ -517,31 +522,41 @@ impl RunnerAdapter for KubernetesRunnerAdapter {
     ) -> FloeResult<RunOutcome> {
         let (job_name, k8s_status, started_at, finished_at) = self.run_job(&options)?;
 
-        // For jobs that K8s reports as "Succeeded" the pod exited 0 — which
-        // covers both RunStatus::Success *and* RunStatus::Rejected (Floe uses
-        // exit 0 for both).  The pod command includes --log-format json, which
-        // causes the Floe CLI to emit a structured `run_finished` event to
-        // stdout.  Parse that event to recover the true outcome.
+        // Recover the precise Floe run status from pod logs in all terminal
+        // states.  The pod command includes --log-format json so the Floe CLI
+        // emits a structured `run_finished` event to stdout.
         //
-        // No fallback: if the event is missing the job outcome is genuinely
-        // unknown and silently reporting Success would mask real failures.
-        let run_status = if k8s_status == KubernetesRunStatus::Succeeded {
-            let logs = self
+        // For Succeeded pods (exit 0): logs are required — exit 0 is shared
+        // by Success *and* Rejected, so the event is the only way to tell
+        // them apart.  Return Err if logs or the event are missing.
+        //
+        // For Failed/Timeout pods: attempt log-derived status to preserve
+        // fine-grained outcomes such as Aborted (exit 2).  Fall back to
+        // RunStatus::Failed when logs are unavailable (pod never started,
+        // timed out before the event was emitted, etc.).
+        let run_status = match k8s_status {
+            KubernetesRunStatus::Succeeded => {
+                let logs = self
+                    .client
+                    .get_pod_logs(&self.config.namespace, &job_name)
+                    .map_err(|e| {
+                        Box::new(ConfigError(format!(
+                            "kubernetes job \"{job_name}\" succeeded but pod logs unavailable: {e}"
+                        ))) as Box<dyn std::error::Error + Send + Sync>
+                    })?;
+                parse_run_status_from_logs(&logs).ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "kubernetes job \"{job_name}\" succeeded but `run_finished` status not \
+                         found in pod logs; ensure the pod command includes --log-format json"
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?
+            }
+            KubernetesRunStatus::Failed | KubernetesRunStatus::Timeout => self
                 .client
                 .get_pod_logs(&self.config.namespace, &job_name)
-                .map_err(|e| {
-                    Box::new(ConfigError(format!(
-                        "kubernetes job \"{job_name}\" succeeded but pod logs unavailable: {e}"
-                    ))) as Box<dyn std::error::Error + Send + Sync>
-                })?;
-            parse_run_status_from_logs(&logs).ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "kubernetes job \"{job_name}\" succeeded but `run_finished` status not found \
-                     in pod logs; ensure the pod command includes --log-format json"
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?
-        } else {
-            k8s_status.to_run_status()
+                .ok()
+                .and_then(|logs| parse_run_status_from_logs(&logs))
+                .unwrap_or(RunStatus::Failed),
         };
 
         // Mirror Floe's own exit-code convention from compute_run_outcome.
@@ -838,13 +853,11 @@ mod tests {
 
     #[test]
     fn execute_returns_structured_outcome_when_job_fails() {
-        // K8s phase = Failed → RunStatus::Failed in RunOutcome, not an Err.
-        // The caller (CLI) inspects outcome.summary.run.status for normal
-        // run failures; Err is reserved for transport/setup problems.
+        // K8s phase = Failed, no logs → falls back to RunStatus::Failed.
         let client = Box::new(MockK8sClient {
             job_name: "floe-test-fail".to_string(),
             phases: Mutex::new(vec![K8sJobPhase::Failed].into()),
-            logs: None, // logs not fetched for K8s-Failed jobs
+            logs: None,
         });
         let adapter =
             KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
@@ -874,6 +887,28 @@ mod tests {
             .expect("execute should return Ok even for a timed-out run");
         assert_eq!(outcome.summary.run.status, crate::report::RunStatus::Failed);
         assert_eq!(outcome.summary.run.exit_code, 1);
+    }
+
+    #[test]
+    fn execute_derives_aborted_status_from_logs_on_failed_k8s_job() {
+        // K8s phase = Failed but the pod ran and emitted run_finished with
+        // "aborted" (exit 2).  The adapter must preserve that fine-grained
+        // outcome rather than collapsing it to Failed.
+        let client = Box::new(MockK8sClient {
+            job_name: "floe-test-aborted".to_string(),
+            phases: Mutex::new(vec![K8sJobPhase::Failed].into()),
+            logs: Some(make_run_finished_log("aborted")),
+        });
+        let adapter =
+            KubernetesRunnerAdapter::with_client(test_config(), client).expect("construct");
+        let outcome = adapter
+            .execute(cfg_path(), config_base(), Default::default())
+            .expect("execute should return Ok for a log-derived Aborted outcome");
+        assert_eq!(
+            outcome.summary.run.status,
+            crate::report::RunStatus::Aborted
+        );
+        assert_eq!(outcome.summary.run.exit_code, 2);
     }
 
     #[test]
@@ -1012,6 +1047,26 @@ mod tests {
         let args = spec_cmd_args(Default::default());
         assert!(!args.contains(&"--entities".to_string()));
         assert!(!args.contains(&"--entity".to_string()));
+    }
+
+    #[test]
+    fn build_job_spec_forwards_run_id_when_set() {
+        let options = crate::RunOptions {
+            run_id: Some("my-run-2026".to_string()),
+            ..Default::default()
+        };
+        let args = spec_cmd_args(options);
+        let idx = args
+            .iter()
+            .position(|a| a == "--run-id")
+            .expect("--run-id flag");
+        assert_eq!(args[idx + 1], "my-run-2026");
+    }
+
+    #[test]
+    fn build_job_spec_omits_run_id_when_none() {
+        let args = spec_cmd_args(Default::default());
+        assert!(!args.contains(&"--run-id".to_string()));
     }
 
     // ---- parse_kubectl_status -----------------------------------------------

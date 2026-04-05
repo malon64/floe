@@ -201,6 +201,33 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "command": {
+                "type": ["array", "null"],
+                "items": { "type": "string" }
+              },
+              "args": {
+                "type": ["array", "null"],
+                "items": { "type": "string" }
+              },
+              "timeout_seconds": {
+                "type": ["integer", "null"],
+                "minimum": 1
+              },
+              "ttl_seconds_after_finished": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "poll_interval_seconds": {
+                "type": ["integer", "null"],
+                "minimum": 1
+              },
+              "secrets": {
+                "type": ["array", "null"],
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
               }
             }
           }

@@ -42,11 +42,23 @@ class LocalRunner(Runner):
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
     ) -> RunResult:
+        if runner_definition is not None and runner_definition.runner_type == "kubernetes_job":
+            if execution is None:
+                raise ValueError("execution contract is required for kubernetes_job runner")
+            args = [*self._floe_cmd]
+            args.extend(
+                render_execution_args(
+                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                )
+            )
+            from .kubernetes_runner import run_kubernetes_job
+
+            return run_kubernetes_job(args, entity=entity, runner=runner_definition)
+
         if runner_definition is not None and runner_definition.runner_type != "local_process":
             raise NotImplementedError(
                 "unsupported runner type for dagster-floe LocalRunner: "
-                f"{runner_definition.runner_type!r} — wire in a connector-layer "
-                "adapter before using non-local runner types"
+                f"{runner_definition.runner_type!r}"
             )
 
         if execution is not None:

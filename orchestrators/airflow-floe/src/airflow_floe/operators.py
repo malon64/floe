@@ -8,6 +8,7 @@ import subprocess
 import threading
 from typing import Any
 
+from .kubernetes_runner import run_kubernetes_job
 from .manifest import ManifestExecution, ManifestRunnerDefinition
 from .runtime import (
     DagManifestContext,
@@ -25,6 +26,9 @@ except Exception:  # pragma: no cover - fallback for local unit tests without Ai
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             del args, kwargs
+
+
+_KUBERNETES_RUNNER_TYPES = frozenset({"kubernetes_job"})
 
 
 def _split_cmd(command: str) -> list[str]:
@@ -71,6 +75,14 @@ class FloeRunHook:
         log_stdout: Any | None = None,
         log_stderr: Any | None = None,
     ) -> dict[str, Any]:
+        if runner_definition is not None and runner_definition.runner_type in _KUBERNETES_RUNNER_TYPES:
+            args = self.build_args(config_path, entities=entities, execution=execution)
+            return run_kubernetes_job(
+                args,
+                config_path,
+                entities,
+                runner=runner_definition,
+            )
         if runner_definition is not None and runner_definition.runner_type != "local_process":
             raise NotImplementedError(
                 "unsupported runner type for Airflow FloeRunOperator: "

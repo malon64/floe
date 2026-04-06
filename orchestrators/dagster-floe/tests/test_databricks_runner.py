@@ -46,7 +46,7 @@ def _runner() -> ManifestRunnerDefinition:
         existing_cluster_id="1111-222222-abc123",
         config_uri="dbfs:/floe/configs/prod.yml",
         job_name="floe-sales-prod",
-        auth=None,
+        auth={"service_principal_oauth_ref": "env://DATABRICKS_TOKEN"},
         env_parameters={"FLOE_ENV": "prod"},
     )
 
@@ -142,3 +142,31 @@ def test_run_databricks_job_infra_failure_preserves_status_context(monkeypatch) 
     assert result.failure_reason == "jobs api unavailable"
     assert result.backend_metadata["backend_type"] == "databricks"
     assert result.backend_metadata["error_type"] == "RuntimeError"
+
+
+def test_run_databricks_job_renders_job_name_placeholders(monkeypatch) -> None:
+    monkeypatch.setenv("DATABRICKS_TOKEN", "token")
+
+    class RecordingClient(FakeDatabricksClient):
+        def __init__(self) -> None:
+            super().__init__(terminal=DatabricksRunResult(
+                run_id=456,
+                state="TERMINATED",
+                result_state="SUCCESS",
+                state_message="ok",
+                run_page_url="https://example/run/456",
+            ))
+            self.last_spec = None
+
+        def ensure_domain_job(self, spec):  # type: ignore[no-untyped-def]
+            self.last_spec = spec
+            return 123
+
+    client = RecordingClient()
+    runner = _runner()
+    runner = ManifestRunnerDefinition(**{**runner.__dict__, "job_name": "floe-{domain}-{env}"})
+
+    run_databricks_job(["floe", "run"], entity="sales.orders", runner=runner, client=client)
+
+    assert client.last_spec is not None
+    assert client.last_spec.job_name == "floe-sales-prod"

@@ -23,11 +23,21 @@ class _FakeHttp:
             },
             "run_page_url": "https://example/run/999",
         }
+        self.list_calls = 0
 
     def request(self, method: str, url: str, *, headers=None, json_body=None, timeout_seconds=None):
         del headers, timeout_seconds
         self.calls.append((method, url, json_body))
         if "/jobs/list" in url:
+            self.list_calls += 1
+            if self.list_calls == 1 and self.list_jobs.get("next_page"):
+                return {
+                    "jobs": self.list_jobs.get("jobs", []),
+                    "has_more": True,
+                    "next_page_token": "page-2",
+                }
+            if "page_token=page-2" in url:
+                return {"jobs": self.list_jobs.get("next_page", [])}
             return self.list_jobs
         if "/jobs/create" in url:
             return {"job_id": self.created_job_id}
@@ -64,6 +74,34 @@ class DatabricksClientTests(unittest.TestCase):
         self.assertEqual(job_id, 123)
         self.assertEqual(run_id, 999)
         self.assertEqual(terminal.result_state, "SUCCESS")
+
+    def test_get_query_params_are_urlencoded(self) -> None:
+        http = _FakeHttp()
+        client = DatabricksJobsClient(
+            http_client=http,
+            workspace_url="https://adb.example.com",
+            oauth_bearer_token="token",
+        )
+
+        client._call("GET", "/api/2.1/jobs/list", {"name": "floe sales/prod"})
+        _, url, _ = http.calls[-1]
+        self.assertIn("name=floe+sales%2Fprod", url)
+
+    def test_find_job_by_name_paginates_until_match(self) -> None:
+        http = _FakeHttp()
+        http.list_jobs = {
+            "jobs": [{"job_id": 1, "settings": {"name": "other"}}],
+            "next_page": [{"job_id": 2, "settings": {"name": "floe-sales-prod"}}],
+        }
+        client = DatabricksJobsClient(
+            http_client=http,
+            workspace_url="https://adb.example.com",
+            oauth_bearer_token="token",
+        )
+        found = client._find_job_by_name("floe-sales-prod")
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(found["job_id"], 2)
 
 
 if __name__ == "__main__":

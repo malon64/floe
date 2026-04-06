@@ -15,7 +15,7 @@ types, `required` / `additionalProperties` constraints, and inline descriptions.
 **AI-assisted authoring** — paste the contents of `profile.schema.yaml` into
 your AI assistant (or point it at the file) and ask it to generate a valid
 profile for your environment.  The schema enumerates all allowed values (e.g.
-`runner.type: local`) and marks required fields, so generated output can be
+`runner.type: local|kubernetes_job|databricks_job`) and marks required fields, so generated output can be
 validated immediately with `cargo test` or a JSON Schema validator.
 
 ## Schema v1
@@ -30,7 +30,7 @@ metadata:                    # required
   tags: [development, local] # optional; string list
 execution:                   # optional
   runner:
-    type: local              # required when execution is present; currently only "local"
+    type: local              # required when execution is present
 variables:                   # optional; flat string → string map
   KEY: value
 validation:                  # optional
@@ -140,6 +140,37 @@ validation:
   strict: true
 ```
 
+### databricks.yml (runner MVP)
+
+```yaml
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-dbx
+  env: prod
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml
+    job_name: floe-{domain}-{env} # rendered before job lookup/create
+    auth:
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
+variables:
+  CATALOG: prod_catalog
+validation:
+  strict: true
+```
+
+Databricks auth expectations for orchestrator runtimes:
+
+- `auth.service_principal_oauth_ref` remains required in profile/manifest contract.
+- Runtime token resolution is:
+  1) `FLOE_DATABRICKS_OAUTH_TOKEN` (fallback env), else
+  2) `auth.service_principal_oauth_ref` when set as `env://<VAR>`.
+- Other reference schemes (for example `secret://...`) must be resolved upstream into an env var before runtime.
+
 ---
 
 ## Using profile variables in a Floe config
@@ -183,7 +214,7 @@ The parser and validator return actionable errors for common problems:
 | Missing `metadata` | `profile.metadata is required` |
 | Missing `metadata.name` | `profile.metadata.name is required` |
 | Unknown field | `unknown field profile.unknownField` |
-| Unknown runner | `profile.execution.runner.type: unknown runner "kubernetes"; known runners: local` |
+| Unknown runner | `profile.execution.runner.type: unknown runner "kubernetes"; known runners: local, kubernetes_job, databricks_job` |
 | Unresolved variable | `profile variable "PATH_VAR" contains unresolved placeholder: ${UNDEFINED}` |
 
 ---

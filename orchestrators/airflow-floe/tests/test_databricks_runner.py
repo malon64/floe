@@ -32,7 +32,7 @@ class DatabricksRunnerTests(unittest.TestCase):
             "existing_cluster_id": "1111-222222-abc123",
             "config_uri": "dbfs:/floe/config.yml",
             "job_name": "floe-sales-prod",
-            "auth": None,
+            "auth": {"service_principal_oauth_ref": "env://DATABRICKS_TOKEN"},
             "env_parameters": {"FLOE_ENV": "prod"},
         }
         base.update(overrides)
@@ -142,6 +142,125 @@ class DatabricksRunnerTests(unittest.TestCase):
         self.assertEqual(payload["status"], "canceled")
         self.assertEqual(payload["backend_status"], "CANCELED")
         self.assertEqual(payload["failure_reason"], "terminated by user")
+
+    @patch.dict(os.environ, {"DATABRICKS_TOKEN": "token"}, clear=False)
+    def test_job_name_placeholders_are_rendered_before_ensure(self) -> None:
+        with patch("airflow_floe.databricks_runner.DatabricksJobsClient") as client_cls:
+            client = client_cls.return_value
+            client.ensure_domain_job.return_value = 99
+            client.run_now.return_value = 77
+            client.poll_run_to_terminal.return_value = DatabricksRunResult(
+                run_id=77,
+                state="TERMINATED",
+                result_state="SUCCESS",
+                state_message="ok",
+                run_page_url="https://adb.example.com/jobs/77",
+            )
+
+            run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(job_name="floe-{domain}-{env}"),
+                entities=["sales.orders"],
+            )
+
+            spec = client.ensure_domain_job.call_args.args[0]
+            self.assertEqual(spec.job_name, "floe-sales-prod")
+
+    @patch.dict(os.environ, {"DATABRICKS_TOKEN": "token"}, clear=False)
+    def test_job_name_separates_domains(self) -> None:
+        with patch("airflow_floe.databricks_runner.DatabricksJobsClient") as client_cls:
+            client = client_cls.return_value
+            client.ensure_domain_job.return_value = 99
+            client.run_now.return_value = 77
+            client.poll_run_to_terminal.return_value = DatabricksRunResult(
+                run_id=77,
+                state="TERMINATED",
+                result_state="SUCCESS",
+                state_message="ok",
+                run_page_url="https://adb.example.com/jobs/77",
+            )
+
+            run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(job_name="floe-{domain}-{env}"),
+                entities=["sales.orders"],
+            )
+            run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(job_name="floe-{domain}-{env}"),
+                entities=["finance.invoices"],
+            )
+
+            first = client.ensure_domain_job.call_args_list[0].args[0]
+            second = client.ensure_domain_job.call_args_list[1].args[0]
+            self.assertEqual(first.job_name, "floe-sales-prod")
+            self.assertEqual(second.job_name, "floe-finance-prod")
+
+    @patch.dict(os.environ, {"DATABRICKS_TOKEN": "token"}, clear=False)
+    def test_mixed_domains_in_single_run_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "one domain"):
+            run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(job_name="floe-{domain}-{env}"),
+                entities=["sales.orders", "finance.invoices"],
+            )
+
+    @patch.dict(os.environ, {"FLOE_DATABRICKS_OAUTH_TOKEN": "token"}, clear=False)
+    def test_timeout_error_returns_structured_payload(self) -> None:
+        with patch("airflow_floe.databricks_runner.DatabricksJobsClient") as client_cls:
+            client = client_cls.return_value
+            client.ensure_domain_job.return_value = 99
+            client.run_now.return_value = 77
+            client.poll_run_to_terminal.side_effect = TimeoutError("run timed out")
+
+            payload = run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(),
+                entities=["orders"],
+            )
+
+        self.assertEqual(payload["status"], "timeout")
+        self.assertEqual(payload["failure_reason"], "run timed out")
+        self.assertEqual(payload["backend_metadata"]["error_type"], "timeout")
+
+    @patch.dict(os.environ, {"FLOE_DATABRICKS_OAUTH_TOKEN": "token"}, clear=False)
+    def test_infra_error_returns_structured_payload(self) -> None:
+        with patch("airflow_floe.databricks_runner.DatabricksJobsClient") as client_cls:
+            client = client_cls.return_value
+            client.ensure_domain_job.side_effect = RuntimeError("jobs api unavailable")
+
+            payload = run_databricks_job(
+                cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                runner=self._runner(),
+                entities=["orders"],
+            )
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["failure_reason"], "jobs api unavailable")
+        self.assertEqual(payload["backend_metadata"]["error_type"], "RuntimeError")
+
+    def test_auth_ref_env_scheme_is_used_when_fallback_missing(self) -> None:
+        with patch.dict(os.environ, {"DATABRICKS_TOKEN": "token"}, clear=True):
+            with patch("airflow_floe.databricks_runner.DatabricksJobsClient") as client_cls:
+                client = client_cls.return_value
+                client.ensure_domain_job.return_value = 99
+                client.run_now.return_value = 77
+                client.poll_run_to_terminal.return_value = DatabricksRunResult(
+                    run_id=77,
+                    state="TERMINATED",
+                    result_state="SUCCESS",
+                    state_message="ok",
+                    run_page_url="https://adb.example.com/jobs/77",
+                )
+
+                run_databricks_job(
+                    cmd_args=["floe", "run", "-c", "dbfs:/floe/config.yml"],
+                    runner=self._runner(),
+                    entities=["orders"],
+                )
+
+            kwargs = client_cls.call_args.kwargs
+            self.assertEqual(kwargs["oauth_bearer_token"], "token")
 
 
 if __name__ == "__main__":

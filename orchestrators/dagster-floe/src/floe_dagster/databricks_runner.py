@@ -25,9 +25,11 @@ def run_databricks_job(
             "databricks_job runner requires workspace_url, existing_cluster_id, and config_uri"
         )
 
-    oauth_token = os.environ.get("FLOE_DATABRICKS_OAUTH_TOKEN")
-    if not oauth_token:
-        raise ValueError("FLOE_DATABRICKS_OAUTH_TOKEN is required for databricks_job runner")
+    env_parameters = {**(runner.env_parameters or {}), "FLOE_ENTITY": entity}
+    auth_ref = _extract_oauth_ref(runner.auth)
+    oauth_token = _resolve_oauth_token(auth_ref)
+    domain = _resolve_domain(entity)
+    env_name = env_parameters.get("FLOE_ENV") or os.environ.get("FLOE_ENV") or "default"
 
     dbx_client = client or DatabricksJobsClient(
         http_client=_RequestsHttpClient(),
@@ -38,12 +40,12 @@ def run_databricks_job(
         workspace_url=workspace_url,
         existing_cluster_id=existing_cluster_id,
         config_uri=config_uri,
-        job_name=runner.job_name or "floe-{domain}-{env}",
+        job_name=_render_job_name(runner.job_name or "floe-{domain}-{env}", domain=domain, env=env_name),
         command=cmd_args[:1],
         args=cmd_args[1:],
         poll_interval_seconds=runner.poll_interval_seconds or 10,
         timeout_seconds=runner.timeout_seconds or 3600,
-        env_parameters={**(runner.env_parameters or {}), "FLOE_ENTITY": entity},
+        env_parameters=env_parameters,
     )
 
     job_id: int | None = None
@@ -123,6 +125,41 @@ def _map_status(terminal: DatabricksRunResult) -> str:
         return STATUS_FAILED
 
     return STATUS_FAILED
+
+
+def _resolve_domain(entity: str) -> str:
+    if not entity or "." not in entity:
+        return "default"
+    return entity.split(".", 1)[0]
+
+
+def _render_job_name(template: str, *, domain: str, env: str) -> str:
+    return template.replace("{domain}", domain).replace("{env}", env)
+
+
+def _extract_oauth_ref(auth: dict[str, str] | None) -> str | None:
+    return (auth or {}).get("service_principal_oauth_ref")
+
+
+def _resolve_oauth_token(auth_ref: str | None) -> str:
+    token = os.environ.get("FLOE_DATABRICKS_OAUTH_TOKEN")
+    if token:
+        return token
+    if not auth_ref:
+        raise ValueError(
+            "databricks_job runner requires auth.service_principal_oauth_ref "
+            "and FLOE_DATABRICKS_OAUTH_TOKEN fallback"
+        )
+    if auth_ref.startswith("env://"):
+        env_var = auth_ref[len("env://") :]
+        resolved = os.environ.get(env_var)
+        if resolved:
+            return resolved
+        raise ValueError(f"databricks oauth token env var '{env_var}' not found")
+    raise ValueError(
+        "databricks oauth reference is not directly resolvable by dagster-floe; "
+        "set FLOE_DATABRICKS_OAUTH_TOKEN or use auth.service_principal_oauth_ref=env://<VAR>"
+    )
 
 
 def _backend_metadata(

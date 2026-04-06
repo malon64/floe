@@ -10,6 +10,7 @@ import hashlib
 import json
 import time
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 
 class HttpClient(Protocol):
@@ -118,12 +119,31 @@ class DatabricksJobsClient:
             time.sleep(max(1, poll_interval_seconds))
 
     def _find_job_by_name(self, job_name: str) -> dict[str, Any] | None:
-        response = self._call("GET", "/api/2.1/jobs/list", {"name": job_name, "limit": 25})
-        for item in response.get("jobs", []):
-            settings = item.get("settings") or {}
-            if settings.get("name") == job_name:
-                return item
-        return None
+        limit = 25
+        offset = 0
+        page_token: str | None = None
+        while True:
+            params: dict[str, Any] = {"name": job_name, "limit": limit}
+            if page_token:
+                params["page_token"] = page_token
+            else:
+                params["offset"] = offset
+
+            response = self._call("GET", "/api/2.1/jobs/list", params)
+            for item in response.get("jobs", []):
+                settings = item.get("settings") or {}
+                if settings.get("name") == job_name:
+                    return item
+
+            next_token = response.get("next_page_token")
+            has_more = bool(response.get("has_more"))
+            if isinstance(next_token, str) and next_token:
+                page_token = next_token
+                continue
+            if has_more:
+                offset += limit
+                continue
+            return None
 
     def _build_job_settings(self, spec: DatabricksJobSpec) -> dict[str, Any]:
         spark_python_task = {
@@ -144,7 +164,7 @@ class DatabricksJobsClient:
     def _call(self, method: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._workspace_url}{path}"
         if method == "GET":
-            query = "&".join(f"{k}={v}" for k, v in payload.items())
+            query = urlencode(payload, doseq=True)
             url = f"{url}?{query}" if query else url
             return self._http.request(method, url, headers=self._headers)
         return self._http.request(method, url, headers=self._headers, json_body=payload)

@@ -111,12 +111,12 @@ class ManifestRunnerDefinition:
     ttl_seconds_after_finished: int | None
     poll_interval_seconds: int | None
     secrets: list[dict[str, Any]] | None
-    workspace_url: str | None
-    existing_cluster_id: str | None
-    config_uri: str | None
-    job_name: str | None
-    auth: dict[str, str] | None
-    env_parameters: dict[str, str] | None
+    workspace_url: str | None = None
+    existing_cluster_id: str | None = None
+    config_uri: str | None = None
+    job_name: str | None = None
+    auth: dict[str, str] | None = None
+    env_parameters: dict[str, str] | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestRunnerDefinition":

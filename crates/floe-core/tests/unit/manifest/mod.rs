@@ -271,7 +271,10 @@ execution:
     let runner = &value["runners"]["definitions"]["default"];
     assert_eq!(value["runners"]["default"], "default");
     assert_eq!(runner["type"], "databricks_job");
-    assert_eq!(runner["workspace_url"], "https://adb-1234.5.azuredatabricks.net");
+    assert_eq!(
+        runner["workspace_url"],
+        "https://adb-1234.5.azuredatabricks.net"
+    );
     assert_eq!(runner["existing_cluster_id"], "1111-222222-abc123");
     assert_eq!(runner["config_uri"], "dbfs:/floe/configs/prod.yml");
     assert_eq!(runner["job_name"], "floe-{domain}-{env}");

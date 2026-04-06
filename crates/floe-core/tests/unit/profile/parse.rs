@@ -178,9 +178,18 @@ execution:
     let profile = parse_profile_from_str(yaml).expect("parse databricks profile");
     let runner = &profile.execution.as_ref().expect("execution").runner;
     assert_eq!(runner.runner_type, "databricks_job");
-    assert_eq!(runner.workspace_url.as_deref(), Some("https://adb-1234.5.azuredatabricks.net"));
-    assert_eq!(runner.existing_cluster_id.as_deref(), Some("1111-222222-abc123"));
-    assert_eq!(runner.config_uri.as_deref(), Some("dbfs:/floe/configs/prod.yml"));
+    assert_eq!(
+        runner.workspace_url.as_deref(),
+        Some("https://adb-1234.5.azuredatabricks.net")
+    );
+    assert_eq!(
+        runner.existing_cluster_id.as_deref(),
+        Some("1111-222222-abc123")
+    );
+    assert_eq!(
+        runner.config_uri.as_deref(),
+        Some("dbfs:/floe/configs/prod.yml")
+    );
     assert_eq!(runner.job_name.as_deref(), Some("floe-sales-prod"));
     assert_eq!(
         runner

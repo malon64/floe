@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 import unittest
 from unittest.mock import patch
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from airflow_floe.databricks_client import DatabricksRunResult
 from airflow_floe.databricks_runner import run_databricks_job

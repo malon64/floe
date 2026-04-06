@@ -181,7 +181,10 @@ execution:
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
     let err = validate_profile(&profile).unwrap_err();
-    assert!(err.to_string().contains("existing_cluster_id"), "got: {err}");
+    assert!(
+        err.to_string().contains("existing_cluster_id"),
+        "got: {err}"
+    );
 }
 
 #[test]

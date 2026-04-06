@@ -98,7 +98,13 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         return Ok(());
     }
 
-    if runner.workspace_url.as_deref().map(str::trim).unwrap_or("").is_empty() {
+    if runner
+        .workspace_url
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
         return Err(Box::new(ConfigError(
             "profile.execution.runner.workspace_url is required for databricks_job".to_string(),
         )));
@@ -115,7 +121,13 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
                 .to_string(),
         )));
     }
-    if runner.config_uri.as_deref().map(str::trim).unwrap_or("").is_empty() {
+    if runner
+        .config_uri
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
         return Err(Box::new(ConfigError(
             "profile.execution.runner.config_uri is required for databricks_job".to_string(),
         )));

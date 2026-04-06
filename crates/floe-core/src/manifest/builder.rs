@@ -5,8 +5,7 @@ use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
     CommonManifest, ManifestArchiveTarget, ManifestDomain, ManifestEntity, ManifestExecution,
     ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerAuth,
-    ManifestRunnerDefinition, ManifestRunners,
-    ManifestSinkTarget, ManifestSinks, ManifestSource,
+    ManifestRunnerDefinition, ManifestRunners, ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
@@ -396,17 +395,14 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     resources: None,
                     env: None,
                     workspace_url: profile_runner.and_then(|r| r.workspace_url.clone()),
-                    existing_cluster_id: profile_runner
-                        .and_then(|r| r.existing_cluster_id.clone()),
+                    existing_cluster_id: profile_runner.and_then(|r| r.existing_cluster_id.clone()),
                     config_uri: profile_runner.and_then(|r| r.config_uri.clone()),
                     job_name: profile_runner
                         .and_then(|r| r.job_name.clone())
                         .or_else(|| Some("floe-{domain}-{env}".to_string())),
                     auth: profile_runner.and_then(|r| {
                         r.auth.as_ref().map(|auth| ManifestRunnerAuth {
-                            service_principal_oauth_ref: auth
-                                .service_principal_oauth_ref
-                                .clone(),
+                            service_principal_oauth_ref: auth.service_principal_oauth_ref.clone(),
                         })
                     }),
                     env_parameters: profile_runner.and_then(|r| r.env_parameters.clone()),

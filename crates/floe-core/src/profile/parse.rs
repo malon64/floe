@@ -9,8 +9,7 @@ use crate::config::yaml_decode::{
 };
 use crate::profile::types::{
     ProfileConfig, ProfileExecution, ProfileMetadata, ProfileRunner, ProfileRunnerAuth,
-    ProfileValidation,
-    PROFILE_API_VERSION, PROFILE_KIND,
+    ProfileValidation, PROFILE_API_VERSION, PROFILE_KIND,
 };
 use crate::{ConfigError, FloeResult};
 

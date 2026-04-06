@@ -416,13 +416,13 @@ class ManifestRoutingTests(unittest.TestCase):
             run_mock.assert_called_once()
             self.assertEqual(result, expected)
 
-    def test_run_operator_kubernetes_manifest_raises_not_implemented(self) -> None:
-        """manifest runner type=kubernetes → NotImplementedError (no K8s adapter yet)."""
+    def test_run_operator_unknown_runner_manifest_raises_not_implemented(self) -> None:
+        """Unknown non-local runner types still raise NotImplementedError."""
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             config_path = base / "config.yml"
             config_path.write_text("version: v1\n", encoding="utf-8")
-            manifest_path = self._write_manifest_with_runner_type(base, config_path, "kubernetes")
+            manifest_path = self._write_manifest_with_runner_type(base, config_path, "docker")
 
             from airflow_floe.runtime import build_dag_manifest_context
             manifest_context = build_dag_manifest_context(str(manifest_path))
@@ -435,7 +435,7 @@ class ManifestRoutingTests(unittest.TestCase):
             )
             with self.assertRaises(NotImplementedError) as cm:
                 operator.execute({})
-            self.assertIn("kubernetes", str(cm.exception).lower())
+            self.assertIn("docker", str(cm.exception).lower())
 
     def test_profile_path_not_in_template_fields(self) -> None:
         """profile_path must NOT be in FloeRunOperator.template_fields."""

@@ -2,6 +2,19 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.3
+
+- Runner contract and architecture cleanup:
+  - standardized Kubernetes runner naming to `kubernetes_job` across core/CLI/orchestrator-facing manifest surfaces
+  - removed legacy runner alias handling for `kubernetes`
+  - removed legacy Airflow manifest bridge from `floe.plan.v1` to `floe.manifest.v1` (manifest-v1 only)
+- Connector reliability/refactor:
+  - improved Kubernetes status normalization and failure-reason surfacing for orchestrator runner execution paths
+  - reduced Airflow/Dagster drift in k8 runner handling and metadata surfaces
+- Packaging/version updates:
+  - bumped `floe-core` and `floe-cli` to `0.3.3`
+  - bumped `airflow-floe` and `dagster-floe` Python packages to `0.1.3`
+
 ## v0.3.2
 
 - Delta schema evolution rollout:

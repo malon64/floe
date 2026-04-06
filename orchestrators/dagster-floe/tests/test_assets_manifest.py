@@ -89,11 +89,11 @@ def test_local_runner_accepts_local_process_definition() -> None:
     assert result.exit_code == 0
 
 
-def test_local_runner_raises_not_implemented_for_kubernetes_runner() -> None:
+def test_local_runner_raises_not_implemented_for_unknown_runner() -> None:
     """LocalRunner raises NotImplementedError for non-local_process runner types."""
     runner = LocalRunner(floe_bin="floe")
     definition = ManifestRunnerDefinition(
-        runner_type="kubernetes",
+        runner_type="docker",
         image=None,
         namespace=None,
         service_account=None,
@@ -112,4 +112,4 @@ def test_local_runner_raises_not_implemented_for_kubernetes_runner() -> None:
             entity="orders",
             runner_definition=definition,
         )
-    assert "kubernetes" in str(exc_info.value).lower()
+    assert "docker" in str(exc_info.value).lower()

@@ -119,18 +119,7 @@ On run completion, operator enriches outlet events with per-entity metrics using
 - optional `summary_uri` loaded summary file
 - per-entity report reference (`entity_report_file`, typically `{run_id}/{entity}/run.json`)
 
-## 7. Validate payload support
-
-`floe.plan.v1` loader remains available as a legacy compatibility path.
-
-When converting validate payload to `floe.manifest.v1`, connector injects default:
-
-- `execution` contract
-- `runners` contract (`local_process`)
-
-This is a bridge path; production should prefer generated manifest files.
-
-## 8. Error policy
+## 7. Error policy
 
 Task fails when:
 
@@ -140,10 +129,10 @@ Task fails when:
 - NDJSON cannot be parsed
 - `run_finished` event is missing
 
-## 9. Connector modules
+## 8. Connector modules
 
 - `src/airflow_floe/manifest.py`
-  - manifest models + loaders (`floe.manifest.v1`, legacy `floe.plan.v1` compatibility)
+  - manifest models + loader (`floe.manifest.v1`)
 - `src/airflow_floe/manifest_discovery.py`
   - multi-manifest discovery and deterministic DAG id derivation
 - `src/airflow_floe/runtime.py`
@@ -153,7 +142,7 @@ Task fails when:
 - `src/airflow_floe/hooks.py`
   - manifest context hook for DAG wiring
 
-## 10. Open roadmap
+## 9. Open roadmap
 
 1. Remote report loading (cloud URIs).
    - Support `summary_uri` and entity report loading for `s3://`, `gs://`, `abfs://` in addition to local/file.

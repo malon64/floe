@@ -56,6 +56,12 @@ pub struct ManifestRunners {
 pub struct ManifestRunnerDefinition {
     #[serde(rename = "type")]
     pub runner_type: &'static str,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub timeout_seconds: Option<u64>,
+    pub ttl_seconds_after_finished: Option<u64>,
+    pub poll_interval_seconds: Option<u64>,
+    pub secrets: Option<Vec<String>>,
     pub image: Option<String>,
     pub namespace: Option<String>,
     pub service_account: Option<String>,

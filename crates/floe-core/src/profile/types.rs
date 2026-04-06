@@ -27,6 +27,12 @@ pub struct ProfileExecution {
 #[derive(Debug, Clone)]
 pub struct ProfileRunner {
     pub runner_type: String,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub timeout_seconds: Option<u64>,
+    pub ttl_seconds_after_finished: Option<u64>,
+    pub poll_interval_seconds: Option<u64>,
+    pub secrets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]

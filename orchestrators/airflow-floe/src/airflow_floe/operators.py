@@ -28,9 +28,6 @@ except Exception:  # pragma: no cover - fallback for local unit tests without Ai
             del args, kwargs
 
 
-_KUBERNETES_RUNNER_TYPES = frozenset({"kubernetes_job"})
-
-
 def _split_cmd(command: str) -> list[str]:
     parts = shlex.split(command)
     if not parts:
@@ -75,7 +72,7 @@ class FloeRunHook:
         log_stdout: Any | None = None,
         log_stderr: Any | None = None,
     ) -> dict[str, Any]:
-        if runner_definition is not None and runner_definition.runner_type in _KUBERNETES_RUNNER_TYPES:
+        if runner_definition is not None and runner_definition.runner_type == "kubernetes_job":
             args = self.build_args(config_path, entities=entities, execution=execution)
             return run_kubernetes_job(
                 args,
@@ -153,7 +150,7 @@ class FloeRunOperator(BaseOperator):
     accordingly:
 
     * ``"local_process"`` (or no manifest) — subprocess path via
-      :class:`FloeRunHook` (default; backward-compatible).
+      :class:`FloeRunHook`.
     * Any other runner type — raises :exc:`NotImplementedError`; wire in a
       connector-layer adapter before using non-local runner types.
     """

@@ -12,15 +12,17 @@ import time
 import uuid
 from typing import Any
 
+from .k8s_status import (
+    STATUS_CANCELED,
+    STATUS_FAILED,
+    STATUS_RUNNING,
+    STATUS_SUBMITTED,
+    STATUS_SUCCEEDED,
+    STATUS_TIMEOUT,
+    extract_k8s_job_failure_reason,
+    map_k8s_job_status,
+)
 from .manifest import ManifestExecution, ManifestRunnerDefinition
-
-# Normalized status values
-STATUS_SUBMITTED = "submitted"
-STATUS_RUNNING = "running"
-STATUS_SUCCEEDED = "succeeded"
-STATUS_FAILED = "failed"
-STATUS_TIMEOUT = "timeout"
-STATUS_CANCELED = "canceled"
 
 _DEFAULT_POLL_INTERVAL_S = 10
 _DEFAULT_TIMEOUT_S = 3600
@@ -137,68 +139,6 @@ def build_k8s_job_spec(
     }
 
 
-def map_k8s_job_status(job: Any) -> str:
-    """Map a Kubernetes Job object to a normalized Floe status string.
-
-    Accepts either a kubernetes-client object (with attribute access) or a
-    plain dict (for testing).  Returns one of the STATUS_* constants.
-
-    Mapping:
-    - Complete condition (True)       → succeeded
-    - Failed condition + DeadlineExceeded → timeout
-    - Failed condition (True)         → failed
-    - active > 0                      → running
-    - job is None                     → canceled
-    - otherwise                       → submitted
-    """
-    if job is None:
-        return STATUS_CANCELED
-
-    if isinstance(job, dict):
-        status = job.get("status")
-    else:
-        status = getattr(job, "status", None)
-    if status is None:
-        return STATUS_SUBMITTED
-
-    # Support both attribute-style (k8s client) and dict-style (tests/mocks).
-    if hasattr(status, "active"):
-        active = status.active or 0
-        succeeded = status.succeeded or 0
-        failed = status.failed or 0
-        conditions = status.conditions or []
-    else:
-        active = status.get("active") or 0
-        succeeded = status.get("succeeded") or 0
-        failed = status.get("failed") or 0
-        conditions = status.get("conditions") or []
-
-    for condition in conditions:
-        if hasattr(condition, "type"):
-            cond_type = condition.type or ""
-            cond_status = condition.status or ""
-            reason = condition.reason or ""
-        else:
-            cond_type = condition.get("type", "")
-            cond_status = condition.get("status", "")
-            reason = condition.get("reason", "")
-
-        if cond_type == "Complete" and cond_status == "True":
-            return STATUS_SUCCEEDED
-        if cond_type == "Failed" and cond_status == "True":
-            if reason == "DeadlineExceeded":
-                return STATUS_TIMEOUT
-            return STATUS_FAILED
-
-    if succeeded > 0:
-        return STATUS_SUCCEEDED
-    if failed > 0:
-        return STATUS_FAILED
-    if active > 0:
-        return STATUS_RUNNING
-    return STATUS_SUBMITTED
-
-
 def run_kubernetes_job(
     cmd_args: list[str],
     config_path: str,
@@ -243,10 +183,11 @@ def run_kubernetes_job(
 
     deadline = time.monotonic() + timeout
     current_status = STATUS_SUBMITTED
+    last_job: Any = None
 
     while True:
-        job = jobs_api.read_namespaced_job(name=job_name, namespace=namespace)
-        current_status = map_k8s_job_status(job)
+        last_job = jobs_api.read_namespaced_job(name=job_name, namespace=namespace)
+        current_status = map_k8s_job_status(last_job)
 
         if current_status in (STATUS_SUCCEEDED, STATUS_FAILED, STATUS_TIMEOUT, STATUS_CANCELED):
             break
@@ -258,6 +199,7 @@ def run_kubernetes_job(
         time.sleep(poll_interval)
 
     logs = _collect_job_logs(core_api, job_name, namespace)
+    pod_ctx = _collect_pod_context(core_api, job_name, namespace)
 
     # Parse Floe run_finished event from container stdout logs.
     # For failure/timeout cases the event may be absent — fall back gracefully.
@@ -290,7 +232,22 @@ def run_kubernetes_job(
         "finished_at_ts_ms": run_finished.get("ts_ms"),
         "backend_type": "kubernetes",
         "backend_run_id": job_name,
+        "backend_status": current_status,
+        "backend_metadata": {
+            "namespace": namespace,
+            "job_failure_reason": extract_k8s_job_failure_reason(last_job),
+            "pod_name": pod_ctx.get("pod_name"),
+            "container_state": pod_ctx.get("container_state"),
+            "container_reason": pod_ctx.get("container_reason"),
+            "container_exit_code": pod_ctx.get("container_exit_code"),
+        },
     }
+
+    payload["failure_reason"] = _resolve_failure_reason(
+        status=current_status,
+        job=last_job,
+        pod_ctx=pod_ctx,
+    )
     if entities and len(entities) == 1:
         payload["entity"] = entities[0]
     return payload
@@ -361,3 +318,80 @@ def _collect_job_logs(core_api: Any, job_name: str, namespace: str) -> str:
         return logs or ""
     except Exception:
         return ""
+
+
+def _collect_pod_context(core_api: Any, job_name: str, namespace: str) -> dict[str, Any]:
+    try:
+        pods = core_api.list_namespaced_pod(namespace=namespace, label_selector=f"floe-job={job_name}")
+        items = getattr(pods, "items", None) or pods.get("items", [])
+        if not items:
+            return {}
+        pod = items[0]
+        pod_name = _read(_read(pod, "metadata", {}), "name", None)
+        statuses = _read(_read(pod, "status", {}), "container_statuses", []) or []
+        if not statuses:
+            return {"pod_name": pod_name}
+
+        state = _read(statuses[0], "state", {})
+        terminated = _read(state, "terminated", None)
+        waiting = _read(state, "waiting", None)
+
+        if terminated:
+            return {
+                "pod_name": pod_name,
+                "container_state": "terminated",
+                "container_reason": _read(terminated, "reason", None),
+                "container_exit_code": _read(terminated, "exit_code", None),
+            }
+        if waiting:
+            return {
+                "pod_name": pod_name,
+                "container_state": "waiting",
+                "container_reason": _read(waiting, "reason", None),
+                "container_exit_code": None,
+            }
+        return {
+            "pod_name": pod_name,
+            "container_state": "running",
+            "container_reason": None,
+            "container_exit_code": None,
+        }
+    except Exception:
+        return {}
+
+
+def _resolve_failure_reason(*, status: str, job: Any, pod_ctx: dict[str, Any]) -> str | None:
+    if status == STATUS_SUCCEEDED:
+        return None
+
+    job_reason = extract_k8s_job_failure_reason(job)
+    if status == STATUS_TIMEOUT and job_reason:
+        return job_reason
+
+    pod_reason = pod_ctx.get("container_reason")
+    if isinstance(pod_reason, str) and pod_reason:
+        if pod_reason in {"ImagePullBackOff", "ErrImagePull"}:
+            return pod_reason
+        exit_code = pod_ctx.get("container_exit_code")
+        if exit_code is not None:
+            return f"{pod_reason} (exit_code={exit_code})"
+        return pod_reason
+
+    if job_reason:
+        return job_reason
+
+    if status == STATUS_TIMEOUT:
+        return "DeadlineExceeded"
+    if status == STATUS_CANCELED:
+        return "Canceled"
+    return "KubernetesJobFailed"
+
+
+def _read(obj: Any, key: str, default: Any = None) -> Any:
+    if hasattr(obj, key):
+        value = getattr(obj, key)
+        return default if value is None else value
+    if isinstance(obj, dict):
+        value = obj.get(key, default)
+        return default if value is None else value
+    return default

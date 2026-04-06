@@ -7,6 +7,8 @@ from urllib.parse import unquote, urlparse
 
 from dagster import Definitions, Failure, MaterializeResult, asset
 
+from .k8s_status import STATUS_SUCCEEDED
+
 from .asset_checks import build_asset_check_results, build_asset_check_specs
 from .events import last_run_finished, parse_ndjson_events, parse_run_finished
 from .manifest import (
@@ -108,12 +110,24 @@ def _make_entity_asset(
             for line in result.stderr.splitlines():
                 context.log.info(line)
 
-        events = parse_ndjson_events(result.stdout)
-        finished_event = last_run_finished(events)
-        finished = parse_run_finished(
-            finished_event,
-            summary_uri_field=execution.result_contract.summary_uri_field,
-        )
+        try:
+            events = parse_ndjson_events(result.stdout)
+            finished_event = last_run_finished(events)
+            finished = parse_run_finished(
+                finished_event,
+                summary_uri_field=execution.result_contract.summary_uri_field,
+            )
+        except ValueError:
+            synthetic_status = result.status or ("success" if result.exit_code == 0 else "failed")
+            synthetic_exit_code = result.exit_code
+            from .events import FloeRunFinished
+
+            finished = FloeRunFinished(
+                run_id=(result.backend_metadata or {}).get("backend_run_id") or (run_id or "unknown"),
+                status=synthetic_status,
+                exit_code=synthetic_exit_code,
+                summary_uri=None,
+            )
 
         summary_uri = finished.summary_uri
         entity_stats: dict[str, Any] = {}
@@ -141,6 +155,12 @@ def _make_entity_asset(
         metadata.update(entity_stats)
         if entity_report_uri:
             metadata["entity_report_uri"] = entity_report_uri
+        if result.failure_reason:
+            metadata["failure_reason"] = result.failure_reason
+        if result.status:
+            metadata["backend_status"] = result.status
+        if result.backend_metadata:
+            metadata["backend_metadata"] = result.backend_metadata
 
         check_results = build_asset_check_results(
             asset_key=asset_key,
@@ -154,7 +174,11 @@ def _make_entity_asset(
         for check_result in check_results:
             yield check_result
 
-        if result.exit_code != 0 or finished.exit_code != 0:
+        if (
+            result.exit_code != 0
+            or finished.exit_code != 0
+            or ((result.status is not None) and (result.status != STATUS_SUCCEEDED))
+        ):
             raise Failure(
                 description=f"floe run failed for entity {entity_name}",
                 metadata=metadata,

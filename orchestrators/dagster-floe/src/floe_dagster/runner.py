@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .manifest import ManifestExecution, ManifestRunnerDefinition, render_execution_args
@@ -14,6 +14,9 @@ class RunResult:
     stdout: str
     stderr: str
     exit_code: int
+    status: str | None = None
+    failure_reason: str | None = None
+    backend_metadata: dict[str, str | int | None] = field(default_factory=dict)
 
 
 class Runner:

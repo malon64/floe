@@ -102,7 +102,11 @@ execution:
     assert_eq!(runner.command.as_deref(), Some("floe"));
     assert_eq!(
         runner.args.as_ref().unwrap(),
-        &vec!["run".to_string(), "-c".to_string(), "/config/config.yml".to_string()]
+        &vec![
+            "run".to_string(),
+            "-c".to_string(),
+            "/config/config.yml".to_string()
+        ]
     );
     assert_eq!(runner.timeout_seconds, Some(3600));
     assert_eq!(runner.ttl_seconds_after_finished, Some(600));

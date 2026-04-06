@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 from .databricks_client import DatabricksJobSpec, DatabricksJobsClient
@@ -55,27 +56,78 @@ def run_databricks_job(
         poll_interval_seconds=spec.poll_interval_seconds,
         timeout_seconds=spec.timeout_seconds,
     )
-    if terminal.result_state not in {None, "SUCCESS"}:
-        raise RuntimeError(
-            f"Databricks run failed: state={terminal.state} result={terminal.result_state} message={terminal.state_message}"
-        )
+    status = _map_databricks_status(
+        life_cycle_state=terminal.state,
+        result_state=terminal.result_state,
+    )
+    failure_reason = _resolve_failure_reason(
+        status=status,
+        result_state=terminal.result_state,
+        state_message=terminal.state_message,
+    )
 
-    return {
+    payload: dict[str, Any] = {
         "schema": "floe.airflow.run.v1",
         "run_id": str(run_id),
-        "status": terminal.result_state or terminal.state,
-        "exit_code": 0,
-        "files": {},
-        "rows": {},
-        "accepted": {},
-        "rejected": {},
-        "warnings": [],
-        "errors": [],
+        "status": status,
+        "exit_code": 0 if status == "success" else 1,
+        "files": 0,
+        "rows": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "warnings": 0,
+        "errors": 0,
         "summary_uri": None,
         "config_uri": config_uri,
-        "backend": "databricks",
-        "backend_run_page_url": terminal.run_page_url,
+        "floe_log_schema": "floe.log.v1",
+        "finished_at_ts_ms": int(time.time() * 1000),
+        "backend_type": "databricks",
+        "backend_run_id": str(run_id),
+        "backend_status": terminal.result_state or terminal.state,
+        "backend_metadata": {
+            "job_id": job_id,
+            "life_cycle_state": terminal.state,
+            "result_state": terminal.result_state,
+            "run_page_url": terminal.run_page_url,
+        },
     }
+    if failure_reason:
+        payload["failure_reason"] = failure_reason
+    if entities and len(entities) == 1:
+        payload["entity"] = entities[0]
+    return payload
+
+
+def _map_databricks_status(*, life_cycle_state: str | None, result_state: str | None) -> str:
+    normalized_result = (result_state or "").strip().upper()
+    normalized_lifecycle = (life_cycle_state or "").strip().upper()
+
+    if normalized_result == "SUCCESS":
+        return "success"
+    if normalized_result in {"TIMEDOUT"}:
+        return "timeout"
+    if normalized_result in {"CANCELED", "CANCELLED"}:
+        return "canceled"
+    if normalized_result:
+        return "failed"
+
+    if normalized_lifecycle in {"SKIPPED"}:
+        return "canceled"
+    if normalized_lifecycle in {"INTERNAL_ERROR"}:
+        return "failed"
+    if normalized_lifecycle in {"TERMINATED"}:
+        return "failed"
+    return "failed"
+
+
+def _resolve_failure_reason(*, status: str, result_state: str | None, state_message: str | None) -> str | None:
+    if status == "success":
+        return None
+    if state_message:
+        return state_message
+    if result_state:
+        return str(result_state)
+    return None
 
 
 class _RequestsHttpClient:

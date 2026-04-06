@@ -136,6 +136,12 @@ class ManifestRunnerDefinition:
     ttl_seconds_after_finished: int | None
     poll_interval_seconds: int | None
     secrets: list[dict[str, Any]] | None
+    workspace_url: str | None
+    existing_cluster_id: str | None
+    config_uri: str | None
+    job_name: str | None
+    auth: dict[str, str] | None
+    env_parameters: dict[str, str] | None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestRunnerDefinition":
@@ -159,9 +165,12 @@ class ManifestRunnerDefinition:
         command_raw = data.get("command")
         command: list[str] | None = None
         if command_raw is not None:
-            if not isinstance(command_raw, list) or not all(isinstance(s, str) for s in command_raw):
-                raise ValueError("runners.definitions.*.command must be list[str] or null")
-            command = command_raw
+            if isinstance(command_raw, str):
+                command = [command_raw]
+            elif isinstance(command_raw, list) and all(isinstance(s, str) for s in command_raw):
+                command = command_raw
+            else:
+                raise ValueError("runners.definitions.*.command must be string|list[str]|null")
 
         args_raw = data.get("args")
         args: list[str] | None = None
@@ -183,6 +192,9 @@ class ManifestRunnerDefinition:
                 raise ValueError("runners.definitions.*.secrets must be list[object] or null")
             secrets = secrets_raw
 
+        auth = _optional_string_map(data, "auth")
+        env_parameters = _optional_string_map(data, "env_parameters")
+
         return ManifestRunnerDefinition(
             runner_type=_required_str(data, "type"),
             image=_optional_str(data, "image"),
@@ -196,6 +208,12 @@ class ManifestRunnerDefinition:
             ttl_seconds_after_finished=ttl_seconds_after_finished,
             poll_interval_seconds=poll_interval_seconds,
             secrets=secrets,
+            workspace_url=_optional_str(data, "workspace_url"),
+            existing_cluster_id=_optional_str(data, "existing_cluster_id"),
+            config_uri=_optional_str(data, "config_uri"),
+            job_name=_optional_str(data, "job_name"),
+            auth=auth,
+            env_parameters=env_parameters,
         )
 
 
@@ -300,6 +318,12 @@ class AirflowManifest:
                         "ttl_seconds_after_finished": definition.ttl_seconds_after_finished,
                         "poll_interval_seconds": definition.poll_interval_seconds,
                         "secrets": definition.secrets,
+                        "workspace_url": definition.workspace_url,
+                        "existing_cluster_id": definition.existing_cluster_id,
+                        "config_uri": definition.config_uri,
+                        "job_name": definition.job_name,
+                        "auth": definition.auth,
+                        "env_parameters": definition.env_parameters,
                     }
                     for name, definition in self.runners.definitions.items()
                 },
@@ -388,3 +412,14 @@ def _required_string_map(data: dict[str, Any], key: str) -> dict[str, str]:
         raise ValueError(f"{key} must be a map<string,string>")
     return value
 
+
+def _optional_string_map(data: dict[str, Any], key: str) -> dict[str, str] | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not all(
+        isinstance(item_key, str) and isinstance(item_value, str)
+        for item_key, item_value in value.items()
+    ):
+        raise ValueError(f"{key} must be a map<string,string> when provided")
+    return value

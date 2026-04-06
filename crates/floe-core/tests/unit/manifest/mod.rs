@@ -233,3 +233,50 @@ execution:
         serde_json::json!(["floe-db", "floe-warehouse"])
     );
 }
+
+#[test]
+fn manifest_with_databricks_profile_serializes_runner_fields() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-dbx
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml
+    command: floe
+    args:
+      - run
+      - -c
+      - dbfs:/floe/configs/prod.yml
+    poll_interval_seconds: 12
+    timeout_seconds: 1800
+    auth:
+      service_principal_oauth_ref: secret://kv/databricks/oauth
+    env_parameters:
+      FLOE_ENV: prod
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
+        .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let runner = &value["runners"]["definitions"]["default"];
+    assert_eq!(value["runners"]["default"], "default");
+    assert_eq!(runner["type"], "databricks_job");
+    assert_eq!(runner["workspace_url"], "https://adb-1234.5.azuredatabricks.net");
+    assert_eq!(runner["existing_cluster_id"], "1111-222222-abc123");
+    assert_eq!(runner["config_uri"], "dbfs:/floe/configs/prod.yml");
+    assert_eq!(runner["job_name"], "floe-{domain}-{env}");
+    assert_eq!(
+        runner["auth"]["service_principal_oauth_ref"],
+        "secret://kv/databricks/oauth"
+    );
+}

@@ -145,6 +145,46 @@ execution:
 }
 
 #[test]
+fn validate_databricks_job_runner_type_is_accepted() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dbx-prod
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml
+    auth:
+      service_principal_oauth_ref: secret://kv/databricks/oauth
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("databricks_job runner type must pass profile validation");
+}
+
+#[test]
+fn validate_databricks_job_missing_required_field_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dbx-prod
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    config_uri: dbfs:/floe/configs/prod.yml
+    auth:
+      service_principal_oauth_ref: secret://kv/databricks/oauth
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("existing_cluster_id"), "got: {err}");
+}
+
+#[test]
 fn validate_unknown_runner_fails() {
     let yaml = r#"
 apiVersion: floe/v1

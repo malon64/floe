@@ -111,16 +111,24 @@ class ManifestRunnerDefinition:
     ttl_seconds_after_finished: int | None
     poll_interval_seconds: int | None
     secrets: list[dict[str, Any]] | None
+    workspace_url: str | None
+    existing_cluster_id: str | None
+    config_uri: str | None
+    job_name: str | None
+    auth: dict[str, str] | None
+    env_parameters: dict[str, str] | None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestRunnerDefinition":
         env = _optional_string_map(data, "env")
-        command = _optional_string_list(data, "command")
+        command = _optional_command(data, "command")
         args = _optional_string_list(data, "args")
         timeout_seconds = _optional_int(data, "timeout_seconds")
         ttl_seconds_after_finished = _optional_int(data, "ttl_seconds_after_finished")
         poll_interval_seconds = _optional_int(data, "poll_interval_seconds")
         secrets = _optional_object_list(data, "secrets")
+        auth = _optional_string_map(data, "auth")
+        env_parameters = _optional_string_map(data, "env_parameters")
         return ManifestRunnerDefinition(
             runner_type=_required_str(data, "type"),
             image=_optional_str(data, "image"),
@@ -133,6 +141,12 @@ class ManifestRunnerDefinition:
             ttl_seconds_after_finished=ttl_seconds_after_finished,
             poll_interval_seconds=poll_interval_seconds,
             secrets=secrets,
+            workspace_url=_optional_str(data, "workspace_url"),
+            existing_cluster_id=_optional_str(data, "existing_cluster_id"),
+            config_uri=_optional_str(data, "config_uri"),
+            job_name=_optional_str(data, "job_name"),
+            auth=auth,
+            env_parameters=env_parameters,
         )
 
 
@@ -344,6 +358,17 @@ def _optional_string_list(data: dict[str, Any], key: str) -> list[str] | None:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{key} must be an array of strings when provided")
     return value
+
+
+def _optional_command(data: dict[str, Any], key: str) -> list[str] | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise ValueError(f"{key} must be string|list[str] when provided")
 
 
 def _optional_int(data: dict[str, Any], key: str) -> int | None:

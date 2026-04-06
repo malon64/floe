@@ -58,6 +58,19 @@ class LocalRunner(Runner):
 
             return run_kubernetes_job(args, entity=entity, runner=runner_definition)
 
+        if runner_definition is not None and runner_definition.runner_type == "databricks_job":
+            if execution is None:
+                raise ValueError("execution contract is required for databricks_job runner")
+            args = [*self._floe_cmd]
+            args.extend(
+                render_execution_args(
+                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                )
+            )
+            from .databricks_runner import run_databricks_job
+
+            return run_databricks_job(args, entity=entity, runner=runner_definition)
+
         if runner_definition is not None and runner_definition.runner_type != "local_process":
             raise NotImplementedError(
                 "unsupported runner type for dagster-floe LocalRunner: "

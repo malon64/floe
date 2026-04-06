@@ -148,6 +148,57 @@ validation:
     assert_eq!(profile.validation.as_ref().unwrap().strict, Some(false));
 }
 
+#[test]
+fn parse_databricks_runner_with_mvp_fields() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-dbx
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml
+    job_name: floe-sales-prod
+    command: floe
+    args:
+      - run
+      - -c
+      - dbfs:/floe/configs/prod.yml
+    poll_interval_seconds: 20
+    timeout_seconds: 1800
+    auth:
+      service_principal_oauth_ref: secret://kv/databricks/oauth
+    env_parameters:
+      FLOE_ENV: prod
+      FLOE_DOMAIN: sales
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse databricks profile");
+    let runner = &profile.execution.as_ref().expect("execution").runner;
+    assert_eq!(runner.runner_type, "databricks_job");
+    assert_eq!(runner.workspace_url.as_deref(), Some("https://adb-1234.5.azuredatabricks.net"));
+    assert_eq!(runner.existing_cluster_id.as_deref(), Some("1111-222222-abc123"));
+    assert_eq!(runner.config_uri.as_deref(), Some("dbfs:/floe/configs/prod.yml"));
+    assert_eq!(runner.job_name.as_deref(), Some("floe-sales-prod"));
+    assert_eq!(
+        runner
+            .auth
+            .as_ref()
+            .and_then(|a| a.service_principal_oauth_ref.as_deref()),
+        Some("secret://kv/databricks/oauth")
+    );
+    assert_eq!(
+        runner
+            .env_parameters
+            .as_ref()
+            .and_then(|env| env.get("FLOE_ENV"))
+            .map(|s| s.as_str()),
+        Some("prod")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Failure cases
 // ---------------------------------------------------------------------------

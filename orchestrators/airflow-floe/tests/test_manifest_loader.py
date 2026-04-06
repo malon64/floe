@@ -108,6 +108,39 @@ class ManifestLoaderTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported schema in manifest loader"):
                 load_manifest(target)
 
+    def test_load_manifest_accepts_databricks_runner_contract(self) -> None:
+        payload = self._manifest_payload()
+        payload["runners"] = {
+            "default": "dbx",
+            "definitions": {
+                "dbx": {
+                    "type": "databricks_job",
+                    "workspace_url": "https://adb-1234.5.azuredatabricks.net",
+                    "existing_cluster_id": "1111-222222-abc123",
+                    "config_uri": "dbfs:/floe/configs/prod.yml",
+                    "job_name": "floe-sales-prod",
+                    "command": "floe",
+                    "args": ["run", "-c", "dbfs:/floe/configs/prod.yml"],
+                    "poll_interval_seconds": 20,
+                    "timeout_seconds": 1800,
+                    "auth": {
+                        "service_principal_oauth_ref": "secret://kv/databricks/oauth"
+                    },
+                    "env_parameters": {"FLOE_ENV": "prod"},
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "manifest.dbx.json"
+            target.write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded = load_manifest(target)
+            runner = loaded.runners.definitions["dbx"]
+            self.assertEqual(runner.runner_type, "databricks_job")
+            self.assertEqual(runner.workspace_url, "https://adb-1234.5.azuredatabricks.net")
+            self.assertEqual(runner.command, ["floe"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
     CommonManifest, ManifestArchiveTarget, ManifestDomain, ManifestEntity, ManifestExecution,
-    ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerDefinition, ManifestRunners,
+    ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerAuth,
+    ManifestRunnerDefinition, ManifestRunners,
     ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
 use crate::profile::ProfileConfig;
@@ -361,6 +362,54 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     service_account: None,
                     resources: None,
                     env: None,
+                    workspace_url: None,
+                    existing_cluster_id: None,
+                    config_uri: None,
+                    job_name: None,
+                    auth: None,
+                    env_parameters: None,
+                },
+            );
+            ManifestRunners {
+                default: "default",
+                definitions,
+            }
+        }
+        Some("databricks_job") => {
+            let profile_runner = profile
+                .and_then(|p| p.execution.as_ref())
+                .map(|e| &e.runner);
+            let mut definitions = HashMap::new();
+            definitions.insert(
+                "default",
+                ManifestRunnerDefinition {
+                    runner_type: "databricks_job",
+                    command: profile_runner.and_then(|r| r.command.clone()),
+                    args: profile_runner.and_then(|r| r.args.clone()),
+                    timeout_seconds: profile_runner.and_then(|r| r.timeout_seconds),
+                    ttl_seconds_after_finished: None,
+                    poll_interval_seconds: profile_runner.and_then(|r| r.poll_interval_seconds),
+                    secrets: None,
+                    image: None,
+                    namespace: None,
+                    service_account: None,
+                    resources: None,
+                    env: None,
+                    workspace_url: profile_runner.and_then(|r| r.workspace_url.clone()),
+                    existing_cluster_id: profile_runner
+                        .and_then(|r| r.existing_cluster_id.clone()),
+                    config_uri: profile_runner.and_then(|r| r.config_uri.clone()),
+                    job_name: profile_runner
+                        .and_then(|r| r.job_name.clone())
+                        .or_else(|| Some("floe-{domain}-{env}".to_string())),
+                    auth: profile_runner.and_then(|r| {
+                        r.auth.as_ref().map(|auth| ManifestRunnerAuth {
+                            service_principal_oauth_ref: auth
+                                .service_principal_oauth_ref
+                                .clone(),
+                        })
+                    }),
+                    env_parameters: profile_runner.and_then(|r| r.env_parameters.clone()),
                 },
             );
             ManifestRunners {
@@ -386,6 +435,12 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     service_account: None,
                     resources: None,
                     env: None,
+                    workspace_url: None,
+                    existing_cluster_id: None,
+                    config_uri: None,
+                    job_name: None,
+                    auth: None,
+                    env_parameters: None,
                 },
             );
             ManifestRunners {

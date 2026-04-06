@@ -7,6 +7,7 @@ from floe_dagster.kubernetes_runner import (
     STATUS_RUNNING,
     STATUS_SUBMITTED,
     STATUS_SUCCEEDED,
+    STATUS_TIMEOUT,
     build_k8s_job_spec,
     map_k8s_job_status,
     run_kubernetes_job,
@@ -83,4 +84,87 @@ def test_run_kubernetes_job_success() -> None:
         )
 
     assert result.exit_code == 0
+    assert result.status == STATUS_SUCCEEDED
+    assert result.failure_reason is None
+    assert result.backend_metadata["backend_type"] == "kubernetes"
     assert "run_finished" in result.stdout
+
+
+def test_run_kubernetes_job_surfaces_timeout_reason() -> None:
+    jobs_api = MagicMock()
+    jobs_api.create_namespaced_job.return_value = None
+    jobs_api.read_namespaced_job.side_effect = [
+        _job(
+            failed=1,
+            conditions=[
+                {
+                    "type": "Failed",
+                    "status": "True",
+                    "reason": "DeadlineExceeded",
+                    "message": "Job was active longer than specified deadline",
+                }
+            ],
+        ),
+    ]
+
+    core_api = MagicMock()
+    pods = MagicMock()
+    pod = {
+        "metadata": {"name": "pod-1"},
+        "status": {
+            "container_statuses": [
+                {"state": {"terminated": {"reason": "Error", "exit_code": 137}}}
+            ]
+        },
+    }
+    pods.items = [pod]
+    core_api.list_namespaced_pod.return_value = pods
+    core_api.read_namespaced_pod_log.return_value = ""
+
+    with patch("time.sleep"):
+        result = run_kubernetes_job(
+            ["floe", "run", "-c", "cfg.yml"],
+            entity="orders",
+            runner=_runner(),
+            jobs_api=jobs_api,
+            core_api=core_api,
+        )
+
+    assert result.status == STATUS_TIMEOUT
+    assert result.failure_reason.startswith("DeadlineExceeded")
+    assert result.backend_metadata["job_failure_reason"].startswith("DeadlineExceeded")
+
+
+def test_run_kubernetes_job_surfaces_image_pull_reason() -> None:
+    jobs_api = MagicMock()
+    jobs_api.create_namespaced_job.return_value = None
+    jobs_api.read_namespaced_job.side_effect = [
+        _job(failed=1, conditions=[{"type": "Failed", "status": "True", "reason": "BackoffLimitExceeded"}]),
+    ]
+
+    core_api = MagicMock()
+    pods = MagicMock()
+    pod = {
+        "metadata": {"name": "pod-1"},
+        "status": {
+            "container_statuses": [
+                {"state": {"waiting": {"reason": "ImagePullBackOff"}}}
+            ]
+        },
+    }
+    pods.items = [pod]
+    core_api.list_namespaced_pod.return_value = pods
+    core_api.read_namespaced_pod_log.return_value = ""
+
+    with patch("time.sleep"):
+        result = run_kubernetes_job(
+            ["floe", "run", "-c", "cfg.yml"],
+            entity="orders",
+            runner=_runner(),
+            jobs_api=jobs_api,
+            core_api=core_api,
+        )
+
+    assert result.status == STATUS_FAILED
+    assert result.failure_reason == "ImagePullBackOff"
+    assert result.backend_metadata["container_reason"] == "ImagePullBackOff"

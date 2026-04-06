@@ -421,6 +421,8 @@ class RunKubernetesJobTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "floe.airflow.run.v1")
         self.assertEqual(payload["status"], STATUS_FAILED)
         self.assertEqual(payload["backend_type"], "kubernetes")
+        self.assertEqual(payload["backend_status"], STATUS_FAILED)
+        self.assertIsNotNone(payload["backend_metadata"])
         self.assertIsNone(payload["summary_uri"])
 
     def test_timeout_returns_timeout_status(self) -> None:
@@ -446,6 +448,8 @@ class RunKubernetesJobTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], STATUS_TIMEOUT)
         self.assertEqual(payload["backend_type"], "kubernetes")
+        self.assertEqual(payload["backend_status"], STATUS_TIMEOUT)
+        self.assertIn("failure_reason", payload)
 
     def test_k8s_deadline_exceeded_condition_returns_timeout(self) -> None:
         # K8s itself signals DeadlineExceeded via job condition
@@ -470,6 +474,7 @@ class RunKubernetesJobTests(unittest.TestCase):
             )
 
         self.assertEqual(payload["status"], STATUS_TIMEOUT)
+        self.assertTrue(str(payload.get("failure_reason", "")).startswith("DeadlineExceeded"))
 
     def test_no_run_finished_event_uses_infra_status(self) -> None:
         # Logs exist but contain no run_finished event

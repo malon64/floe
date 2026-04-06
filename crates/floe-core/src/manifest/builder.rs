@@ -340,12 +340,22 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
         .map(|e| e.runner.runner_type.as_str());
 
     match profile_runner_type {
-        Some("kubernetes") => {
+        Some("kubernetes") | Some("kubernetes_job") => {
+            let profile_runner = profile
+                .and_then(|p| p.execution.as_ref())
+                .map(|e| &e.runner);
             let mut definitions = HashMap::new();
             definitions.insert(
                 "default",
                 ManifestRunnerDefinition {
-                    runner_type: "kubernetes",
+                    runner_type: "kubernetes_job",
+                    command: profile_runner.and_then(|r| r.command.clone()),
+                    args: profile_runner.and_then(|r| r.args.clone()),
+                    timeout_seconds: profile_runner.and_then(|r| r.timeout_seconds),
+                    ttl_seconds_after_finished: profile_runner
+                        .and_then(|r| r.ttl_seconds_after_finished),
+                    poll_interval_seconds: profile_runner.and_then(|r| r.poll_interval_seconds),
+                    secrets: profile_runner.and_then(|r| r.secrets.clone()),
                     image: None,
                     namespace: None,
                     service_account: None,
@@ -365,6 +375,12 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                 "local",
                 ManifestRunnerDefinition {
                     runner_type: "local_process",
+                    command: None,
+                    args: None,
+                    timeout_seconds: None,
+                    ttl_seconds_after_finished: None,
+                    poll_interval_seconds: None,
+                    secrets: None,
                     image: None,
                     namespace: None,
                     service_account: None,

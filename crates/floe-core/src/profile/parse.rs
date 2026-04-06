@@ -151,11 +151,43 @@ fn parse_execution(value: &Yaml) -> FloeResult<ProfileExecution> {
 
 fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
     let hash = yaml_hash(value, "profile.execution.runner")?;
-    validate_known_keys(hash, "profile.execution.runner", &["type"])?;
+    validate_known_keys(
+        hash,
+        "profile.execution.runner",
+        &[
+            "type",
+            "command",
+            "args",
+            "timeout_seconds",
+            "ttl_seconds_after_finished",
+            "poll_interval_seconds",
+            "secrets",
+        ],
+    )?;
 
     let runner_type = get_required_string(hash, "type", "profile.execution.runner")?;
 
-    Ok(ProfileRunner { runner_type })
+    let command = get_optional_string(hash, "command", "profile.execution.runner")?;
+    let args = get_optional_string_list(hash, "args", "profile.execution.runner")?;
+    let timeout_seconds = get_optional_u64(hash, "timeout_seconds", "profile.execution.runner")?;
+    let ttl_seconds_after_finished = get_optional_u64(
+        hash,
+        "ttl_seconds_after_finished",
+        "profile.execution.runner",
+    )?;
+    let poll_interval_seconds =
+        get_optional_u64(hash, "poll_interval_seconds", "profile.execution.runner")?;
+    let secrets = get_optional_string_list(hash, "secrets", "profile.execution.runner")?;
+
+    Ok(ProfileRunner {
+        runner_type,
+        command,
+        args,
+        timeout_seconds,
+        ttl_seconds_after_finished,
+        poll_interval_seconds,
+        secrets,
+    })
 }
 
 fn parse_variables(value: &Yaml) -> FloeResult<HashMap<String, String>> {
@@ -192,6 +224,30 @@ fn get_optional_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<S
     match hash_get(hash, key) {
         None => Ok(None),
         Some(value) => yaml_string(value, &format!("{ctx}.{key}")).map(Some),
+    }
+}
+
+fn get_optional_string_list(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<Vec<String>>> {
+    match hash_get(hash, key) {
+        None => Ok(None),
+        Some(value) => {
+            let arr = yaml_array(value, &format!("{ctx}.{key}"))?;
+            let mut items = Vec::with_capacity(arr.len());
+            for item in arr {
+                items.push(yaml_string(item, &format!("{ctx}.{key}[]"))?);
+            }
+            Ok(Some(items))
+        }
+    }
+}
+
+fn get_optional_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
+    match hash_get(hash, key) {
+        None => Ok(None),
+        Some(Yaml::Integer(v)) if *v >= 0 => Ok(Some(*v as u64)),
+        Some(_) => Err(Box::new(ConfigError(format!(
+            "{ctx}.{key} must be a non-negative integer"
+        )))),
     }
 }
 

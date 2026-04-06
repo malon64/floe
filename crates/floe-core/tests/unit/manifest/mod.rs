@@ -183,6 +183,53 @@ execution:
     assert_eq!(value["runners"]["default"], "default");
     assert_eq!(
         value["runners"]["definitions"]["default"]["type"],
-        "kubernetes"
+        "kubernetes_job"
+    );
+}
+
+#[test]
+fn manifest_with_kubernetes_profile_serializes_k8_runner_fields() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-k8s
+execution:
+  runner:
+    type: kubernetes
+    command: floe
+    args:
+      - run
+      - -c
+      - /config/config.yml
+    timeout_seconds: 3600
+    ttl_seconds_after_finished: 600
+    poll_interval_seconds: 15
+    secrets:
+      - floe-db
+      - floe-warehouse
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
+        .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let runner = &value["runners"]["definitions"]["default"];
+    assert_eq!(runner["type"], "kubernetes_job");
+    assert_eq!(runner["command"], "floe");
+    assert_eq!(
+        runner["args"],
+        serde_json::json!(["run", "-c", "/config/config.yml"])
+    );
+    assert_eq!(runner["timeout_seconds"], 3600);
+    assert_eq!(runner["ttl_seconds_after_finished"], 600);
+    assert_eq!(runner["poll_interval_seconds"], 15);
+    assert_eq!(
+        runner["secrets"],
+        serde_json::json!(["floe-db", "floe-warehouse"])
     );
 }

@@ -153,7 +153,48 @@ fn manifest_generate_with_kubernetes_profile_has_kubernetes_runner() {
     assert_eq!(value["runners"]["default"], "default");
     assert_eq!(
         value["runners"]["definitions"]["default"]["type"],
-        "kubernetes"
+        "kubernetes_job"
+    );
+}
+
+#[test]
+fn manifest_generate_kubernetes_profile_serializes_k8_runner_fields() {
+    let config_path = repo_root().join("example/config.yml");
+    let tmp = tempdir().expect("create temp dir");
+    let profile_path = tmp.path().join("k8s-fields.yml");
+
+    let mut f = fs::File::create(&profile_path).expect("create profile file");
+    writeln!(
+        f,
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes\n    command: floe\n    args:\n      - run\n      - -c\n      - /config/config.yml\n    timeout_seconds: 3600\n    ttl_seconds_after_finished: 600\n    poll_interval_seconds: 15\n    secrets:\n      - floe-db\n      - floe-warehouse"
+    )
+    .expect("write profile");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg(&profile_path)
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+    let runner = &value["runners"]["definitions"]["default"];
+    assert_eq!(runner["type"], "kubernetes_job");
+    assert_eq!(runner["command"], "floe");
+    assert_eq!(
+        runner["args"],
+        serde_json::json!(["run", "-c", "/config/config.yml"])
+    );
+    assert_eq!(runner["timeout_seconds"], 3600);
+    assert_eq!(runner["ttl_seconds_after_finished"], 600);
+    assert_eq!(runner["poll_interval_seconds"], 15);
+    assert_eq!(
+        runner["secrets"],
+        serde_json::json!(["floe-db", "floe-warehouse"])
     );
 }
 

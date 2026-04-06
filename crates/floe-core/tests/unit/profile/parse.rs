@@ -75,6 +75,45 @@ validation:
 }
 
 #[test]
+fn parse_kubernetes_runner_with_extended_fields() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-k8s
+execution:
+  runner:
+    type: kubernetes
+    command: floe
+    args:
+      - run
+      - -c
+      - /config/config.yml
+    timeout_seconds: 3600
+    ttl_seconds_after_finished: 600
+    poll_interval_seconds: 15
+    secrets:
+      - floe-db
+      - floe-warehouse
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse k8s profile");
+    let runner = &profile.execution.as_ref().expect("execution").runner;
+    assert_eq!(runner.runner_type, "kubernetes");
+    assert_eq!(runner.command.as_deref(), Some("floe"));
+    assert_eq!(
+        runner.args.as_ref().unwrap(),
+        &vec!["run".to_string(), "-c".to_string(), "/config/config.yml".to_string()]
+    );
+    assert_eq!(runner.timeout_seconds, Some(3600));
+    assert_eq!(runner.ttl_seconds_after_finished, Some(600));
+    assert_eq!(runner.poll_interval_seconds, Some(15));
+    assert_eq!(
+        runner.secrets.as_ref().unwrap(),
+        &vec!["floe-db".to_string(), "floe-warehouse".to_string()]
+    );
+}
+
+#[test]
 fn parse_profile_no_variables() {
     let yaml = r#"
 apiVersion: floe/v1

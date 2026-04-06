@@ -1,9 +1,4 @@
-"""Manifest loader for Airflow-Floe integration.
-
-This module supports two input schemas:
-- floe.manifest.v1 (native manifest)
-- floe.plan.v1 (legacy payload, converted on load for backward compatibility)
-"""
+"""Manifest loader for Airflow-Floe integration."""
 
 from __future__ import annotations
 
@@ -13,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 MANIFEST_SCHEMA = "floe.manifest.v1"
-VALIDATE_SCHEMA = "floe.plan.v1"
 
 
 @dataclass(frozen=True)
@@ -335,103 +329,7 @@ def load_manifest(path: str | Path) -> AirflowManifest:
     if schema == MANIFEST_SCHEMA:
         return AirflowManifest.from_dict(payload)
 
-    if schema == VALIDATE_SCHEMA:
-        return build_manifest_from_validate_payload(payload)
-
     raise ValueError(f"unsupported schema in manifest loader: {schema}")
-
-
-def build_manifest_from_validate_payload(
-    payload: dict[str, Any],
-    *,
-    selected_entities: list[str] | None = None,
-) -> AirflowManifest:
-    schema = payload.get("schema")
-    if schema != VALIDATE_SCHEMA:
-        raise ValueError(f"validate schema mismatch: expected {VALIDATE_SCHEMA}, got {schema}")
-
-    if payload.get("valid") is not True:
-        raise ValueError("cannot build manifest from invalid validate payload")
-
-    config_obj = payload.get("config")
-    if not isinstance(config_obj, dict):
-        raise ValueError("validate payload missing config object")
-
-    config_uri = _required_str(config_obj, "uri")
-    config_checksum = _optional_str(config_obj, "checksum")
-    floe_version = _optional_str(payload, "floe_version")
-
-    generated_at_ts_ms = payload.get("generated_at_ts_ms")
-    if not isinstance(generated_at_ts_ms, int) or generated_at_ts_ms < 0:
-        raise ValueError("validate payload missing valid generated_at_ts_ms")
-
-    plan = payload.get("plan")
-    if not isinstance(plan, dict):
-        raise ValueError("validate payload missing plan object")
-
-    entities_raw = plan.get("entities")
-    if not isinstance(entities_raw, list):
-        raise ValueError("validate payload plan.entities must be a list")
-
-    selected = set(selected_entities or [])
-    use_filter = bool(selected_entities)
-
-    entities: list[ManifestEntity] = []
-    for raw in entities_raw:
-        if not isinstance(raw, dict):
-            raise ValueError("validate payload entity must be an object")
-
-        name = _required_str(raw, "name")
-        if use_filter and name not in selected:
-            continue
-
-        domain = _optional_str(raw, "domain")
-        group_name = _optional_str(raw, "group_name") or domain or "floe"
-
-        source_obj = raw.get("source")
-        if not isinstance(source_obj, dict):
-            raise ValueError(f"entity {name} source must be an object")
-        source_format = _required_str(source_obj, "format")
-
-        sinks_obj = raw.get("sinks")
-        if not isinstance(sinks_obj, dict):
-            raise ValueError(f"entity {name} sinks must be an object")
-
-        accepted_obj = sinks_obj.get("accepted")
-        if not isinstance(accepted_obj, dict):
-            raise ValueError(f"entity {name} sinks.accepted must be an object")
-        accepted_sink_uri = _required_str(accepted_obj, "uri")
-
-        rejected_sink_uri: str | None = None
-        rejected_obj = sinks_obj.get("rejected")
-        if isinstance(rejected_obj, dict):
-            rejected_sink_uri = _required_str(rejected_obj, "uri")
-
-        asset_key = [domain, name] if domain else [name]
-
-        entities.append(
-            ManifestEntity(
-                name=name,
-                domain=domain,
-                group_name=group_name,
-                source_format=source_format,
-                accepted_sink_uri=accepted_sink_uri,
-                rejected_sink_uri=rejected_sink_uri,
-                asset_key=asset_key,
-                runner=None,
-            )
-        )
-
-    return AirflowManifest(
-        schema=MANIFEST_SCHEMA,
-        generated_at_ts_ms=generated_at_ts_ms,
-        floe_version=floe_version,
-        config_uri=config_uri,
-        config_checksum=config_checksum,
-        execution=default_execution_contract(),
-        runners=default_runners_contract(),
-        entities=entities,
-    )
 
 
 def _required_str(data: dict[str, Any], key: str) -> str:
@@ -490,43 +388,3 @@ def _required_string_map(data: dict[str, Any], key: str) -> dict[str, str]:
         raise ValueError(f"{key} must be a map<string,string>")
     return value
 
-
-def default_execution_contract() -> ManifestExecution:
-    return ManifestExecution(
-        entrypoint="floe",
-        base_args=["run", "-c", "{config_uri}", "--log-format", "json", "--quiet"],
-        per_entity_args=["--entities", "{entity_name}"],
-        log_format="json",
-        result_contract=ManifestExecutionResultContract(
-            run_finished_event=True,
-            summary_uri_field="summary_uri",
-            exit_codes={
-                "0": "success_or_rejected",
-                "1": "technical_failure",
-                "2": "aborted",
-            },
-        ),
-        defaults=ManifestExecutionDefaults(env={}, workdir=None),
-    )
-
-
-def default_runners_contract() -> ManifestRunners:
-    return ManifestRunners(
-        default="local",
-        definitions={
-            "local": ManifestRunnerDefinition(
-                runner_type="local_process",
-                image=None,
-                namespace=None,
-                service_account=None,
-                resources=None,
-                env=None,
-                command=None,
-                args=None,
-                timeout_seconds=None,
-                ttl_seconds_after_finished=None,
-                poll_interval_seconds=None,
-                secrets=None,
-            )
-        },
-    )

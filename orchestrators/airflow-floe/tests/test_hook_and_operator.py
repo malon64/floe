@@ -381,7 +381,7 @@ class ManifestRoutingTests(unittest.TestCase):
         return manifest_path
 
     def test_run_operator_no_manifest_defaults_to_local(self) -> None:
-        """No manifest_context → backward-compatible local subprocess path."""
+        """No manifest_context → local subprocess path."""
         operator = FloeRunOperator(
             task_id="run_floe",
             config_path="/tmp/config.yml",

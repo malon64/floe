@@ -134,7 +134,7 @@ fn manifest_generate_with_kubernetes_profile_has_kubernetes_runner() {
     let mut f = fs::File::create(&profile_path).expect("create profile file");
     writeln!(
         f,
-        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes"
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job"
     )
     .expect("write profile");
 
@@ -166,7 +166,7 @@ fn manifest_generate_kubernetes_profile_serializes_k8_runner_fields() {
     let mut f = fs::File::create(&profile_path).expect("create profile file");
     writeln!(
         f,
-        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes\n    command: floe\n    args:\n      - run\n      - -c\n      - /config/config.yml\n    timeout_seconds: 3600\n    ttl_seconds_after_finished: 600\n    poll_interval_seconds: 15\n    secrets:\n      - floe-db\n      - floe-warehouse"
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job\n    command: floe\n    args:\n      - run\n      - -c\n      - /config/config.yml\n    timeout_seconds: 3600\n    ttl_seconds_after_finished: 600\n    poll_interval_seconds: 15\n    secrets:\n      - floe-db\n      - floe-warehouse"
     )
     .expect("write profile");
 

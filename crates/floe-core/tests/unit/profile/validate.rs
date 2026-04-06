@@ -128,24 +128,9 @@ variables:
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validate_kubernetes_runner_type_is_accepted() {
-    // "kubernetes" must be recognized at the profile validation layer so that
-    // connector-side profiles are valid without requiring the adapter in floe-core.
-    let yaml = r#"
-apiVersion: floe/v1
-kind: EnvironmentProfile
-metadata:
-  name: k8s-prod
-execution:
-  runner:
-    type: kubernetes
-"#;
-    let profile = parse_profile_from_str(yaml).expect("parse");
-    validate_profile(&profile).expect("kubernetes runner type must pass profile validation");
-}
-
-#[test]
 fn validate_kubernetes_job_runner_type_is_accepted() {
+    // "kubernetes_job" must be recognized at the profile validation layer so that
+    // connector-side profiles are valid without requiring the adapter in floe-core.
     let yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile

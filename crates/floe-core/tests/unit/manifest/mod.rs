@@ -169,7 +169,7 @@ metadata:
   name: prod-k8s
 execution:
   runner:
-    type: kubernetes
+    type: kubernetes_job
 "#;
     let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
     let config_path = repo_root().join("example/config.yml");
@@ -196,7 +196,7 @@ metadata:
   name: prod-k8s
 execution:
   runner:
-    type: kubernetes
+    type: kubernetes_job
     command: floe
     args:
       - run

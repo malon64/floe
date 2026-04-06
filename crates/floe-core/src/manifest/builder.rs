@@ -340,7 +340,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
         .map(|e| e.runner.runner_type.as_str());
 
     match profile_runner_type {
-        Some("kubernetes") | Some("kubernetes_job") => {
+        Some("kubernetes_job") => {
             let profile_runner = profile
                 .and_then(|p| p.execution.as_ref())
                 .map(|e| &e.runner);

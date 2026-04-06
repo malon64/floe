@@ -83,7 +83,7 @@ metadata:
   name: prod-k8s
 execution:
   runner:
-    type: kubernetes
+    type: kubernetes_job
     command: floe
     args:
       - run
@@ -98,7 +98,7 @@ execution:
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse k8s profile");
     let runner = &profile.execution.as_ref().expect("execution").runner;
-    assert_eq!(runner.runner_type, "kubernetes");
+    assert_eq!(runner.runner_type, "kubernetes_job");
     assert_eq!(runner.command.as_deref(), Some("floe"));
     assert_eq!(
         runner.args.as_ref().unwrap(),

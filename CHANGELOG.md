@@ -2,17 +2,6 @@
 
 All notable changes to Floe are documented in this file.
 
-## v0.3.4
-
-- Databricks runner hardening and contract alignment:
-  - render `job_name` placeholders (`{domain}`, `{env}`) before Databricks job ensure/reset flows
-  - enforce one-domain-per-run semantics in Airflow Databricks execution path to preserve one-job-per-domain behavior
-  - normalize Airflow Databricks timeout/infra failures into structured `floe.airflow.run.v1` payloads with `status`, `failure_reason`, and `backend_metadata`
-  - URL-encode Databricks GET query params and paginate job lookup beyond first page
-  - align runtime auth behavior with manifest contract: `auth.service_principal_oauth_ref` accepted via `env://<VAR>` resolution, with explicit `FLOE_DATABRICKS_OAUTH_TOKEN` fallback/error behavior
-- Documentation:
-  - added profile docs note for Databricks required fields, auth expectations, and `job_name` rendering semantics
-
 ## v0.3.3
 
 - Runner contract and architecture cleanup:

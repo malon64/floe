@@ -296,7 +296,7 @@ fn build_dataframe(
     column_values: Vec<Vec<Option<String>>>,
 ) -> Result<DataFrame, JsonReadError> {
     let mut series = Vec::with_capacity(plans.len());
-    for (plan, values) in plans.iter().zip(column_values.into_iter()) {
+    for (plan, values) in plans.iter().zip(column_values) {
         series.push(Series::new(plan.source.as_str().into(), values).into());
     }
 

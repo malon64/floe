@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from .databricks_client import DatabricksJobSpec, DatabricksJobsClient, DatabricksRunResult
 from .k8s_status import STATUS_CANCELED, STATUS_FAILED, STATUS_SUCCEEDED, STATUS_TIMEOUT
@@ -20,16 +21,22 @@ def run_databricks_job(
     workspace_url = runner.workspace_url
     existing_cluster_id = runner.existing_cluster_id
     config_uri = runner.config_uri
-    if not workspace_url or not existing_cluster_id or not config_uri:
+    python_file_uri = runner.python_file_uri
+    if (
+        not workspace_url
+        or not existing_cluster_id
+        or not config_uri
+        or not python_file_uri
+    ):
         raise ValueError(
-            "databricks_job runner requires workspace_url, existing_cluster_id, and config_uri"
+            "databricks_job runner requires workspace_url, existing_cluster_id, "
+            "config_uri and python_file_uri"
         )
 
-    env_parameters = {**(runner.env_parameters or {}), "FLOE_ENTITY": entity}
     auth_ref = _extract_oauth_ref(runner.auth)
     oauth_token = _resolve_oauth_token(auth_ref)
     domain = _resolve_domain(entity)
-    env_name = env_parameters.get("FLOE_ENV") or os.environ.get("FLOE_ENV") or "default"
+    env_name = _resolve_env_name(runner.env_parameters)
 
     dbx_client = client or DatabricksJobsClient(
         http_client=_RequestsHttpClient(),
@@ -39,20 +46,20 @@ def run_databricks_job(
     spec = DatabricksJobSpec(
         workspace_url=workspace_url,
         existing_cluster_id=existing_cluster_id,
-        config_uri=config_uri,
-        job_name=_render_job_name(runner.job_name or "floe-{domain}-{env}", domain=domain, env=env_name),
-        command=cmd_args[:1],
-        args=cmd_args[1:],
+        python_file_uri=python_file_uri,
+        job_name=_render_job_name(
+            runner.job_name or "floe-{domain}-{env}", domain=domain, env=env_name
+        ),
+        parameters=list(cmd_args),
         poll_interval_seconds=runner.poll_interval_seconds or 10,
         timeout_seconds=runner.timeout_seconds or 3600,
-        env_parameters=env_parameters,
     )
 
     job_id: int | None = None
     run_id: int | None = None
     try:
         job_id = dbx_client.ensure_domain_job(spec)
-        run_id = dbx_client.run_now(job_id=job_id, env_parameters=spec.env_parameters)
+        run_id = dbx_client.run_now(job_id=job_id)
         terminal = dbx_client.poll_run_to_terminal(
             run_id=run_id,
             poll_interval_seconds=spec.poll_interval_seconds,
@@ -119,11 +126,8 @@ def _map_status(terminal: DatabricksRunResult) -> str:
     if result_state:
         return STATUS_FAILED
 
-    if life_cycle_state in {"SKIPPED"}:
+    if life_cycle_state == "SKIPPED":
         return STATUS_CANCELED
-    if life_cycle_state in {"INTERNAL_ERROR"}:
-        return STATUS_FAILED
-
     return STATUS_FAILED
 
 
@@ -131,6 +135,12 @@ def _resolve_domain(entity: str) -> str:
     if not entity or "." not in entity:
         return "default"
     return entity.split(".", 1)[0]
+
+
+def _resolve_env_name(env_parameters: dict[str, str] | None) -> str:
+    if env_parameters and env_parameters.get("FLOE_ENV"):
+        return env_parameters["FLOE_ENV"]
+    return os.environ.get("FLOE_ENV") or "default"
 
 
 def _render_job_name(template: str, *, domain: str, env: str) -> str:
@@ -142,23 +152,30 @@ def _extract_oauth_ref(auth: dict[str, str] | None) -> str | None:
 
 
 def _resolve_oauth_token(auth_ref: str | None) -> str:
-    token = os.environ.get("FLOE_DATABRICKS_OAUTH_TOKEN")
-    if token:
-        return token
-    if not auth_ref:
+    # Prefer a declared `env://VAR` reference over the bare-fallback env so
+    # that misconfiguration (declared ref pointing at a missing var) is loud
+    # instead of silently masked by FLOE_DATABRICKS_OAUTH_TOKEN.
+    if auth_ref:
+        if auth_ref.startswith("env://"):
+            env_var = auth_ref[len("env://") :]
+            resolved = os.environ.get(env_var)
+            if resolved:
+                return resolved
+            raise ValueError(
+                f"databricks oauth token env var '{env_var}' "
+                f"(from auth.service_principal_oauth_ref) not found"
+            )
         raise ValueError(
-            "databricks_job runner requires auth.service_principal_oauth_ref "
-            "and FLOE_DATABRICKS_OAUTH_TOKEN fallback"
+            "databricks oauth reference is not directly resolvable by dagster-floe; "
+            "use auth.service_principal_oauth_ref=env://<VAR> or set "
+            "FLOE_DATABRICKS_OAUTH_TOKEN with no auth.service_principal_oauth_ref"
         )
-    if auth_ref.startswith("env://"):
-        env_var = auth_ref[len("env://") :]
-        resolved = os.environ.get(env_var)
-        if resolved:
-            return resolved
-        raise ValueError(f"databricks oauth token env var '{env_var}' not found")
+    fallback = os.environ.get("FLOE_DATABRICKS_OAUTH_TOKEN")
+    if fallback:
+        return fallback
     raise ValueError(
-        "databricks oauth reference is not directly resolvable by dagster-floe; "
-        "set FLOE_DATABRICKS_OAUTH_TOKEN or use auth.service_principal_oauth_ref=env://<VAR>"
+        "databricks_job runner requires auth.service_principal_oauth_ref "
+        "(env://<VAR>) or FLOE_DATABRICKS_OAUTH_TOKEN fallback"
     )
 
 
@@ -167,16 +184,17 @@ def _backend_metadata(
     workspace_url: str,
     terminal: DatabricksRunResult,
     job_id: int | None,
-) -> dict[str, str | int | None]:
+) -> dict[str, Any]:
     return {
         "backend_type": "databricks",
         "backend_run_id": terminal.run_id,
         "workspace_url": workspace_url,
         "job_id": job_id,
-        "run_page_url": terminal.run_page_url,
         "life_cycle_state": terminal.state,
         "result_state": terminal.result_state,
         "state_message": terminal.state_message,
+        "run_page_url": terminal.run_page_url,
+        "error_type": None,
     }
 
 
@@ -190,13 +208,16 @@ def _infra_failure_result(
     run_id: int | None,
     error_type: str,
 ) -> RunResult:
-    backend_metadata: dict[str, str | int | None] = {
+    backend_metadata: dict[str, Any] = {
         "backend_type": "databricks",
         "backend_run_id": run_id,
         "workspace_url": workspace_url,
         "job_id": job_id,
-        "error_type": error_type,
+        "life_cycle_state": None,
+        "result_state": None,
         "state_message": failure_reason,
+        "run_page_url": None,
+        "error_type": error_type,
     }
     return RunResult(
         stdout="",

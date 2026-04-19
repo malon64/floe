@@ -296,8 +296,7 @@
                   "null"
                 ],
                 "items": {
-                  "type": "object",
-                  "additionalProperties": true
+                  "type": "object"
                 }
               },
               "workspace_url": {
@@ -315,6 +314,13 @@
                 "minLength": 1
               },
               "config_uri": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "python_file_uri": {
                 "type": [
                   "string",
                   "null"
@@ -368,6 +374,7 @@
                     "workspace_url",
                     "existing_cluster_id",
                     "config_uri",
+                    "python_file_uri",
                     "auth"
                   ],
                   "properties": {
@@ -379,7 +386,8 @@
                       "properties": {
                         "service_principal_oauth_ref": {
                           "type": "string",
-                          "minLength": 1
+                          "minLength": 1,
+                          "pattern": "^env://[A-Z0-9_]+$"
                         }
                       },
                       "additionalProperties": false

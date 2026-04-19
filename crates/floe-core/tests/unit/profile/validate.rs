@@ -157,8 +157,9 @@ execution:
     workspace_url: https://adb-1234.5.azuredatabricks.net
     existing_cluster_id: 1111-222222-abc123
     config_uri: dbfs:/floe/configs/prod.yml
+    python_file_uri: dbfs:/floe/bin/floe_entry.py
     auth:
-      service_principal_oauth_ref: secret://kv/databricks/oauth
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
     validate_profile(&profile).expect("databricks_job runner type must pass profile validation");
@@ -176,8 +177,9 @@ execution:
     type: databricks_job
     workspace_url: https://adb-1234.5.azuredatabricks.net
     config_uri: dbfs:/floe/configs/prod.yml
+    python_file_uri: dbfs:/floe/bin/floe_entry.py
     auth:
-      service_principal_oauth_ref: secret://kv/databricks/oauth
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
     let err = validate_profile(&profile).unwrap_err();
@@ -185,6 +187,27 @@ execution:
         err.to_string().contains("existing_cluster_id"),
         "got: {err}"
     );
+}
+
+#[test]
+fn validate_databricks_job_missing_python_file_uri_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dbx-prod
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml
+    auth:
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("python_file_uri"), "got: {err}");
 }
 
 #[test]

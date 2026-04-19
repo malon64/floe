@@ -126,13 +126,14 @@ def test_manifest_schema_accepts_databricks_runner_fields(tmp_path: Path):
                 "workspace_url": "https://adb-1234.5.azuredatabricks.net",
                 "existing_cluster_id": "1111-222222-abc123",
                 "config_uri": "dbfs:/floe/configs/prod.yml",
+                "python_file_uri": "dbfs:/floe/bin/floe_entry.py",
                 "job_name": "floe-sales-prod",
                 "command": "floe",
                 "args": ["run", "-c", "dbfs:/floe/configs/prod.yml"],
                 "poll_interval_seconds": 20,
                 "timeout_seconds": 1800,
                 "auth": {
-                    "service_principal_oauth_ref": "secret://kv/databricks/oauth"
+                    "service_principal_oauth_ref": "env://DATABRICKS_TOKEN"
                 },
                 "env_parameters": {"FLOE_ENV": "prod"},
             }

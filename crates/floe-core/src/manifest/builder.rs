@@ -364,6 +364,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     workspace_url: None,
                     existing_cluster_id: None,
                     config_uri: None,
+                    python_file_uri: None,
                     job_name: None,
                     auth: None,
                     env_parameters: None,
@@ -397,6 +398,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     workspace_url: profile_runner.and_then(|r| r.workspace_url.clone()),
                     existing_cluster_id: profile_runner.and_then(|r| r.existing_cluster_id.clone()),
                     config_uri: profile_runner.and_then(|r| r.config_uri.clone()),
+                    python_file_uri: profile_runner.and_then(|r| r.python_file_uri.clone()),
                     job_name: profile_runner
                         .and_then(|r| r.job_name.clone())
                         .or_else(|| Some("floe-{domain}-{env}".to_string())),
@@ -434,6 +436,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     workspace_url: None,
                     existing_cluster_id: None,
                     config_uri: None,
+                    python_file_uri: None,
                     job_name: None,
                     auth: None,
                     env_parameters: None,

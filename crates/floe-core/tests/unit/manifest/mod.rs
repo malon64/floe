@@ -247,6 +247,7 @@ execution:
     workspace_url: https://adb-1234.5.azuredatabricks.net
     existing_cluster_id: 1111-222222-abc123
     config_uri: dbfs:/floe/configs/prod.yml
+    python_file_uri: dbfs:/floe/bin/floe_entry.py
     command: floe
     args:
       - run
@@ -255,7 +256,7 @@ execution:
     poll_interval_seconds: 12
     timeout_seconds: 1800
     auth:
-      service_principal_oauth_ref: secret://kv/databricks/oauth
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
     env_parameters:
       FLOE_ENV: prod
 "#;
@@ -277,9 +278,10 @@ execution:
     );
     assert_eq!(runner["existing_cluster_id"], "1111-222222-abc123");
     assert_eq!(runner["config_uri"], "dbfs:/floe/configs/prod.yml");
+    assert_eq!(runner["python_file_uri"], "dbfs:/floe/bin/floe_entry.py");
     assert_eq!(runner["job_name"], "floe-{domain}-{env}");
     assert_eq!(
         runner["auth"]["service_principal_oauth_ref"],
-        "secret://kv/databricks/oauth"
+        "env://DATABRICKS_TOKEN"
     );
 }

@@ -114,6 +114,7 @@ class ManifestRunnerDefinition:
     workspace_url: str | None = None
     existing_cluster_id: str | None = None
     config_uri: str | None = None
+    python_file_uri: str | None = None
     job_name: str | None = None
     auth: dict[str, str] | None = None
     env_parameters: dict[str, str] | None = None
@@ -144,6 +145,7 @@ class ManifestRunnerDefinition:
             workspace_url=_optional_str(data, "workspace_url"),
             existing_cluster_id=_optional_str(data, "existing_cluster_id"),
             config_uri=_optional_str(data, "config_uri"),
+            python_file_uri=_optional_str(data, "python_file_uri"),
             job_name=_optional_str(data, "job_name"),
             auth=auth,
             env_parameters=env_parameters,

@@ -6,11 +6,17 @@ Primary auth model: service principal OAuth bearer token supplied by caller.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-import json
 import time
 from typing import Any, Protocol
 from urllib.parse import urlencode
+
+
+# Bumped whenever floe materially changes the job-settings shape it produces.
+# Stored on the Databricks job as a tag so we can detect drift without comparing
+# server-normalized payloads (which trigger spurious resets every run).
+FLOE_SETTINGS_VERSION = "1"
+
+_FIND_JOB_MAX_PAGES = 200
 
 
 class HttpClient(Protocol):
@@ -30,13 +36,11 @@ class HttpClient(Protocol):
 class DatabricksJobSpec:
     workspace_url: str
     existing_cluster_id: str
-    config_uri: str
+    python_file_uri: str
     job_name: str
-    command: list[str]
-    args: list[str]
+    parameters: list[str]
     poll_interval_seconds: int = 10
     timeout_seconds: int = 3600
-    env_parameters: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -65,31 +69,37 @@ class DatabricksJobsClient:
 
     def ensure_domain_job(self, spec: DatabricksJobSpec) -> int:
         expected = self._build_job_settings(spec)
-        expected_hash = _settings_hash(expected)
+        expected_marker = expected["tags"]["floe_settings_version"]
 
         existing = self._find_job_by_name(spec.job_name)
         if existing is None:
-            created = self._call("POST", "/api/2.1/jobs/create", {"name": spec.job_name, **expected})
+            created = self._call(
+                "POST",
+                "/api/2.1/jobs/create",
+                {"name": spec.job_name, **expected},
+            )
             return int(created["job_id"])
 
         job_id = int(existing["job_id"])
-        current_settings = existing.get("settings") or {}
-        current_hash = _settings_hash(
-            {
-                "tasks": current_settings.get("tasks", []),
-                "tags": current_settings.get("tags", {}),
-                "max_concurrent_runs": current_settings.get("max_concurrent_runs", 1),
-            }
+        current_marker = (
+            (existing.get("settings") or {})
+            .get("tags", {})
+            .get("floe_settings_version")
         )
-        if current_hash != expected_hash:
-            self._call("POST", "/api/2.1/jobs/reset", {"job_id": job_id, "new_settings": {"name": spec.job_name, **expected}})
+        if current_marker != expected_marker:
+            self._call(
+                "POST",
+                "/api/2.1/jobs/reset",
+                {"job_id": job_id, "new_settings": {"name": spec.job_name, **expected}},
+            )
         return job_id
 
-    def run_now(self, *, job_id: int, env_parameters: dict[str, str] | None = None) -> int:
-        payload: dict[str, Any] = {"job_id": job_id}
-        if env_parameters:
-            payload["job_parameters"] = env_parameters
-        response = self._call("POST", "/api/2.1/jobs/run-now", payload)
+    def run_now(self, *, job_id: int) -> int:
+        # NOTE: Per-run env vars are intentionally not sent here. Databricks
+        # `job_parameters` are not surfaced as OS env or argv to a
+        # `spark_python_task`. Per-run inputs (entity, run id, etc.) must be
+        # encoded into `spec.parameters` (task-level argv).
+        response = self._call("POST", "/api/2.1/jobs/run-now", {"job_id": job_id})
         return int(response["run_id"])
 
     def poll_run_to_terminal(
@@ -122,7 +132,7 @@ class DatabricksJobsClient:
         limit = 25
         offset = 0
         page_token: str | None = None
-        while True:
+        for _ in range(_FIND_JOB_MAX_PAGES):
             params: dict[str, Any] = {"name": job_name, "limit": limit}
             if page_token:
                 params["page_token"] = page_token
@@ -144,11 +154,15 @@ class DatabricksJobsClient:
                 offset += limit
                 continue
             return None
+        raise RuntimeError(
+            f"databricks jobs/list pagination exceeded {_FIND_JOB_MAX_PAGES} pages "
+            f"while searching for job_name={job_name!r}"
+        )
 
     def _build_job_settings(self, spec: DatabricksJobSpec) -> dict[str, Any]:
         spark_python_task = {
-            "python_file": spec.config_uri,
-            "parameters": [*spec.command, *spec.args],
+            "python_file": spec.python_file_uri,
+            "parameters": list(spec.parameters),
         }
         task = {
             "task_key": "floe_main",
@@ -158,7 +172,11 @@ class DatabricksJobsClient:
         return {
             "max_concurrent_runs": 1,
             "tasks": [task],
-            "tags": {"managed_by": "floe", "runner_type": "databricks_job"},
+            "tags": {
+                "managed_by": "floe",
+                "runner_type": "databricks_job",
+                "floe_settings_version": FLOE_SETTINGS_VERSION,
+            },
         }
 
     def _call(self, method: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -168,8 +186,3 @@ class DatabricksJobsClient:
             url = f"{url}?{query}" if query else url
             return self._http.request(method, url, headers=self._headers)
         return self._http.request(method, url, headers=self._headers, json_body=payload)
-
-
-def _settings_hash(settings: dict[str, Any]) -> str:
-    encoded = json.dumps(settings, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()

@@ -132,6 +132,17 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
             "profile.execution.runner.config_uri is required for databricks_job".to_string(),
         )));
     }
+    if runner
+        .python_file_uri
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.python_file_uri is required for databricks_job".to_string(),
+        )));
+    }
 
     let auth_ref = runner
         .auth

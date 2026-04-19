@@ -49,14 +49,13 @@ def test_databricks_client_ensure_and_run() -> None:
     spec = DatabricksJobSpec(
         workspace_url="https://adb.example.com",
         existing_cluster_id="1111-222222-abc123",
-        config_uri="dbfs:/floe/configs/prod.yml",
+        python_file_uri="dbfs:/floe/bin/floe_entry.py",
         job_name="floe-sales-prod",
-        command=["floe"],
-        args=["run", "-c", "dbfs:/floe/configs/prod.yml"],
+        parameters=["run", "-c", "dbfs:/floe/configs/prod.yml"],
     )
 
     job_id = client.ensure_domain_job(spec)
-    run_id = client.run_now(job_id=job_id, env_parameters={"FLOE_ENV": "prod"})
+    run_id = client.run_now(job_id=job_id)
     terminal = client.poll_run_to_terminal(run_id=run_id, poll_interval_seconds=1, timeout_seconds=5)
 
     assert job_id == 42

@@ -70,6 +70,7 @@ pub struct ManifestRunnerDefinition {
     pub workspace_url: Option<String>,
     pub existing_cluster_id: Option<String>,
     pub config_uri: Option<String>,
+    pub python_file_uri: Option<String>,
     pub job_name: Option<String>,
     pub auth: Option<ManifestRunnerAuth>,
     pub env_parameters: Option<HashMap<String, String>>,

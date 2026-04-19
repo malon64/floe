@@ -161,6 +161,7 @@ execution:
     workspace_url: https://adb-1234.5.azuredatabricks.net
     existing_cluster_id: 1111-222222-abc123
     config_uri: dbfs:/floe/configs/prod.yml
+    python_file_uri: dbfs:/floe/bin/floe_entry.py
     job_name: floe-sales-prod
     command: floe
     args:
@@ -170,7 +171,7 @@ execution:
     poll_interval_seconds: 20
     timeout_seconds: 1800
     auth:
-      service_principal_oauth_ref: secret://kv/databricks/oauth
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
     env_parameters:
       FLOE_ENV: prod
       FLOE_DOMAIN: sales
@@ -190,13 +191,17 @@ execution:
         runner.config_uri.as_deref(),
         Some("dbfs:/floe/configs/prod.yml")
     );
+    assert_eq!(
+        runner.python_file_uri.as_deref(),
+        Some("dbfs:/floe/bin/floe_entry.py")
+    );
     assert_eq!(runner.job_name.as_deref(), Some("floe-sales-prod"));
     assert_eq!(
         runner
             .auth
             .as_ref()
             .and_then(|a| a.service_principal_oauth_ref.as_deref()),
-        Some("secret://kv/databricks/oauth")
+        Some("env://DATABRICKS_TOKEN")
     );
     assert_eq!(
         runner

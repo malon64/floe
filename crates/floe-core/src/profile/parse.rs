@@ -189,8 +189,7 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
     let existing_cluster_id =
         get_optional_string(hash, "existing_cluster_id", "profile.execution.runner")?;
     let config_uri = get_optional_string(hash, "config_uri", "profile.execution.runner")?;
-    let python_file_uri =
-        get_optional_string(hash, "python_file_uri", "profile.execution.runner")?;
+    let python_file_uri = get_optional_string(hash, "python_file_uri", "profile.execution.runner")?;
     let job_name = get_optional_string(hash, "job_name", "profile.execution.runner")?;
     let auth = parse_runner_auth(hash_get(hash, "auth"))?;
     let env_parameters = match hash_get(hash, "env_parameters") {

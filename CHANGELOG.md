@@ -2,6 +2,17 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.4
+
+- Databricks runner foundation for orchestrator connectors:
+  - added `databricks_job` runner contract support in Floe profile/manifest flow
+  - added connector-side Databricks job client flow for Airflow and Dagster
+  - standardized Databricks run status/result mapping with backend metadata and failure reason handling
+  - added mocked integration coverage for success, failure, timeout, canceled, and infra failure paths
+- Packaging/version updates:
+  - bumped `floe-core` and `floe-cli` to `0.3.4`
+  - bumped `airflow-floe` and `dagster-floe` Python packages to `0.1.4`
+
 ## v0.3.3
 
 - Runner contract and architecture cleanup:

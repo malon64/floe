@@ -25,11 +25,10 @@ pub(super) fn prepare_iceberg_write(
         ))));
     }
 
-    let mut field_id = 1_i32;
     let mut iceberg_fields = Vec::with_capacity(columns.len());
     let mut arrays = Vec::with_capacity(columns.len());
 
-    for (name, nullable, series) in columns {
+    for (field_id, (name, nullable, series)) in (1_i32..).zip(columns) {
         if !nullable && series.null_count() > 0 {
             return Err(Box::new(RunError(format!(
                 "iceberg write rejected nulls for non-nullable column {}",
@@ -45,7 +44,6 @@ pub(super) fn prepare_iceberg_write(
         };
         iceberg_fields.push(field.into());
         arrays.push(series_to_arrow_array(series, &name, &entity.name)?);
-        field_id += 1;
     }
 
     let iceberg_schema = Schema::builder()

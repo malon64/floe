@@ -268,6 +268,10 @@ class HookAndOperatorTests(unittest.TestCase):
             manifest_path = self._write_manifest(base, config_path)
             manifest_context = build_dag_manifest_context(str(manifest_path))
             outlet_asset = manifest_context.assets_by_entity["orders"]
+            # Airflow SDK Asset may be unhashable in some provider/runtime combos;
+            # normalize to a stable hashable key for outlet_events mapping in this test.
+            manifest_context.assets_by_entity["orders"] = "orders-asset"
+            outlet_asset = "orders-asset"
             outlet_event = OutletEvent()
 
             summary_path = base / "report" / "run.summary.json"

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::profile::types::ProfileConfig;
+use crate::profile::types::{ProfileConfig, ProfileRunner};
 use crate::{ConfigError, FloeResult};
 
 /// Validate a parsed profile.
 ///
 /// Checks performed:
 /// - `metadata.name` is non-empty (guaranteed by parser, double-checked here).
-/// - `execution.runner.type` is one of the recognized values (`local`, `kubernetes_job`) when present.
+/// - `execution.runner.type` is one of the recognized values (`local`, `kubernetes_job`, `databricks_job`) when present.
 ///   Orchestration/job-submission for each runner type belongs to connector crates, not floe-core.
 /// - No variable value contains an unresolved `${...}` placeholder.
 pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
@@ -19,6 +19,7 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
 
     if let Some(execution) = &profile.execution {
         validate_runner_type(&execution.runner.runner_type)?;
+        validate_runner_contract(&execution.runner)?;
     }
 
     validate_no_unresolved_vars(&profile.variables)?;
@@ -81,7 +82,7 @@ fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()>
 }
 
 fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
-    const KNOWN_RUNNERS: &[&str] = &["local", "kubernetes_job"];
+    const KNOWN_RUNNERS: &[&str] = &["local", "kubernetes_job", "databricks_job"];
     if !KNOWN_RUNNERS.contains(&runner_type) {
         return Err(Box::new(ConfigError(format!(
             "profile.execution.runner.type: unknown runner \"{runner_type}\"; \
@@ -89,6 +90,73 @@ fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
             KNOWN_RUNNERS.join(", ")
         ))));
     }
+    Ok(())
+}
+
+fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
+    if runner.runner_type != "databricks_job" {
+        return Ok(());
+    }
+
+    if runner
+        .workspace_url
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.workspace_url is required for databricks_job".to_string(),
+        )));
+    }
+    if runner
+        .existing_cluster_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.existing_cluster_id is required for databricks_job"
+                .to_string(),
+        )));
+    }
+    if runner
+        .config_uri
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.config_uri is required for databricks_job".to_string(),
+        )));
+    }
+    if runner
+        .python_file_uri
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.python_file_uri is required for databricks_job".to_string(),
+        )));
+    }
+
+    let auth_ref = runner
+        .auth
+        .as_ref()
+        .and_then(|auth| auth.service_principal_oauth_ref.as_deref())
+        .map(str::trim)
+        .unwrap_or("");
+    if auth_ref.is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.execution.runner.auth.service_principal_oauth_ref is required for databricks_job"
+                .to_string(),
+        )));
+    }
+
     Ok(())
 }
 

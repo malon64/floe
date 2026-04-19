@@ -113,3 +113,37 @@ def test_manifest_schema_accepts_extended_k8_runner_fields(tmp_path: Path):
     assert k8s_runner.command == ["floe"]
     assert k8s_runner.poll_interval_seconds == 5
     assert k8s_runner.secrets is not None and k8s_runner.secrets[0]["name"] == "API_TOKEN"
+
+
+def test_manifest_schema_accepts_databricks_runner_fields(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload["runners"] = {
+        "default": "dbx",
+        "definitions": {
+            "dbx": {
+                "type": "databricks_job",
+                "workspace_url": "https://adb-1234.5.azuredatabricks.net",
+                "existing_cluster_id": "1111-222222-abc123",
+                "config_uri": "dbfs:/floe/configs/prod.yml",
+                "python_file_uri": "dbfs:/floe/bin/floe_entry.py",
+                "job_name": "floe-sales-prod",
+                "command": "floe",
+                "args": ["run", "-c", "dbfs:/floe/configs/prod.yml"],
+                "poll_interval_seconds": 20,
+                "timeout_seconds": 1800,
+                "auth": {
+                    "service_principal_oauth_ref": "env://DATABRICKS_TOKEN"
+                },
+                "env_parameters": {"FLOE_ENV": "prod"},
+            }
+        },
+    }
+    manifest_path = tmp_path / "manifest.dbx.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    manifest = load_manifest(manifest_path)
+    runner = manifest.runners.definitions["dbx"]
+    assert runner.runner_type == "databricks_job"
+    assert runner.command == ["floe"]
+    assert runner.workspace_url == "https://adb-1234.5.azuredatabricks.net"

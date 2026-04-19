@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from airflow_floe.databricks_client import DatabricksJobSpec, DatabricksJobsClient
+
+
+class _FakeHttp:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict | None]] = []
+        self.list_jobs: dict = {"jobs": []}
+        self.created_job_id = 123
+        self.run_id = 999
+        self.run_state = {
+            "state": {
+                "life_cycle_state": "TERMINATED",
+                "result_state": "SUCCESS",
+                "state_message": "ok",
+            },
+            "run_page_url": "https://example/run/999",
+        }
+        self.list_calls = 0
+
+    def request(self, method: str, url: str, *, headers=None, json_body=None, timeout_seconds=None):
+        del headers, timeout_seconds
+        self.calls.append((method, url, json_body))
+        if "/jobs/list" in url:
+            self.list_calls += 1
+            if self.list_calls == 1 and self.list_jobs.get("next_page"):
+                return {
+                    "jobs": self.list_jobs.get("jobs", []),
+                    "has_more": True,
+                    "next_page_token": "page-2",
+                }
+            if "page_token=page-2" in url:
+                return {"jobs": self.list_jobs.get("next_page", [])}
+            return self.list_jobs
+        if "/jobs/create" in url:
+            return {"job_id": self.created_job_id}
+        if "/jobs/reset" in url:
+            return {}
+        if "/jobs/run-now" in url:
+            return {"run_id": self.run_id}
+        if "/jobs/runs/get" in url:
+            return self.run_state
+        raise AssertionError(f"unexpected call: {method} {url}")
+
+
+class DatabricksClientTests(unittest.TestCase):
+    def test_ensure_run_and_poll_success(self) -> None:
+        http = _FakeHttp()
+        client = DatabricksJobsClient(
+            http_client=http,
+            workspace_url="https://adb.example.com",
+            oauth_bearer_token="token",
+        )
+        spec = DatabricksJobSpec(
+            workspace_url="https://adb.example.com",
+            existing_cluster_id="1111-222222-abc123",
+            python_file_uri="dbfs:/floe/bin/floe_entry.py",
+            job_name="floe-sales-prod",
+            parameters=["run", "-c", "dbfs:/floe/configs/prod.yml"],
+        )
+
+        job_id = client.ensure_domain_job(spec)
+        run_id = client.run_now(job_id=job_id)
+        terminal = client.poll_run_to_terminal(run_id=run_id, poll_interval_seconds=1, timeout_seconds=5)
+
+        self.assertEqual(job_id, 123)
+        self.assertEqual(run_id, 999)
+        self.assertEqual(terminal.result_state, "SUCCESS")
+
+    def test_get_query_params_are_urlencoded(self) -> None:
+        http = _FakeHttp()
+        client = DatabricksJobsClient(
+            http_client=http,
+            workspace_url="https://adb.example.com",
+            oauth_bearer_token="token",
+        )
+
+        client._call("GET", "/api/2.1/jobs/list", {"name": "floe sales/prod"})
+        _, url, _ = http.calls[-1]
+        self.assertIn("name=floe+sales%2Fprod", url)
+
+    def test_find_job_by_name_paginates_until_match(self) -> None:
+        http = _FakeHttp()
+        http.list_jobs = {
+            "jobs": [{"job_id": 1, "settings": {"name": "other"}}],
+            "next_page": [{"job_id": 2, "settings": {"name": "floe-sales-prod"}}],
+        }
+        client = DatabricksJobsClient(
+            http_client=http,
+            workspace_url="https://adb.example.com",
+            oauth_bearer_token="token",
+        )
+        found = client._find_job_by_name("floe-sales-prod")
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(found["job_id"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

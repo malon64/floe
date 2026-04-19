@@ -33,6 +33,18 @@ pub struct ProfileRunner {
     pub ttl_seconds_after_finished: Option<u64>,
     pub poll_interval_seconds: Option<u64>,
     pub secrets: Option<Vec<String>>,
+    pub workspace_url: Option<String>,
+    pub existing_cluster_id: Option<String>,
+    pub config_uri: Option<String>,
+    pub python_file_uri: Option<String>,
+    pub job_name: Option<String>,
+    pub auth: Option<ProfileRunnerAuth>,
+    pub env_parameters: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileRunnerAuth {
+    pub service_principal_oauth_ref: Option<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -8,8 +8,8 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::profile::types::{
-    ProfileConfig, ProfileExecution, ProfileMetadata, ProfileRunner, ProfileValidation,
-    PROFILE_API_VERSION, PROFILE_KIND,
+    ProfileConfig, ProfileExecution, ProfileMetadata, ProfileRunner, ProfileRunnerAuth,
+    ProfileValidation, PROFILE_API_VERSION, PROFILE_KIND,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -162,6 +162,13 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
             "ttl_seconds_after_finished",
             "poll_interval_seconds",
             "secrets",
+            "workspace_url",
+            "existing_cluster_id",
+            "config_uri",
+            "python_file_uri",
+            "job_name",
+            "auth",
+            "env_parameters",
         ],
     )?;
 
@@ -178,6 +185,20 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
     let poll_interval_seconds =
         get_optional_u64(hash, "poll_interval_seconds", "profile.execution.runner")?;
     let secrets = get_optional_string_list(hash, "secrets", "profile.execution.runner")?;
+    let workspace_url = get_optional_string(hash, "workspace_url", "profile.execution.runner")?;
+    let existing_cluster_id =
+        get_optional_string(hash, "existing_cluster_id", "profile.execution.runner")?;
+    let config_uri = get_optional_string(hash, "config_uri", "profile.execution.runner")?;
+    let python_file_uri = get_optional_string(hash, "python_file_uri", "profile.execution.runner")?;
+    let job_name = get_optional_string(hash, "job_name", "profile.execution.runner")?;
+    let auth = parse_runner_auth(hash_get(hash, "auth"))?;
+    let env_parameters = match hash_get(hash, "env_parameters") {
+        Some(value) => Some(extract_string_map(
+            yaml_hash(value, "profile.execution.runner.env_parameters")?,
+            "profile.execution.runner.env_parameters",
+        )?),
+        None => None,
+    };
 
     Ok(ProfileRunner {
         runner_type,
@@ -187,7 +208,35 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
         ttl_seconds_after_finished,
         poll_interval_seconds,
         secrets,
+        workspace_url,
+        existing_cluster_id,
+        config_uri,
+        python_file_uri,
+        job_name,
+        auth,
+        env_parameters,
     })
+}
+
+fn parse_runner_auth(value: Option<&Yaml>) -> FloeResult<Option<ProfileRunnerAuth>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let hash = yaml_hash(value, "profile.execution.runner.auth")?;
+    validate_known_keys(
+        hash,
+        "profile.execution.runner.auth",
+        &["service_principal_oauth_ref"],
+    )?;
+
+    Ok(Some(ProfileRunnerAuth {
+        service_principal_oauth_ref: get_optional_string(
+            hash,
+            "service_principal_oauth_ref",
+            "profile.execution.runner.auth",
+        )?,
+    }))
 }
 
 fn parse_variables(value: &Yaml) -> FloeResult<HashMap<String, String>> {

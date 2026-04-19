@@ -15,7 +15,7 @@ types, `required` / `additionalProperties` constraints, and inline descriptions.
 **AI-assisted authoring** — paste the contents of `profile.schema.yaml` into
 your AI assistant (or point it at the file) and ask it to generate a valid
 profile for your environment.  The schema enumerates all allowed values (e.g.
-`runner.type: local`) and marks required fields, so generated output can be
+`runner.type: local|kubernetes_job|databricks_job`) and marks required fields, so generated output can be
 validated immediately with `cargo test` or a JSON Schema validator.
 
 ## Schema v1
@@ -30,7 +30,7 @@ metadata:                    # required
   tags: [development, local] # optional; string list
 execution:                   # optional
   runner:
-    type: local              # required when execution is present; currently only "local"
+    type: local              # required when execution is present
 variables:                   # optional; flat string → string map
   KEY: value
 validation:                  # optional
@@ -140,6 +140,56 @@ validation:
   strict: true
 ```
 
+### databricks.yml (runner MVP)
+
+```yaml
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod-dbx
+  env: prod
+execution:
+  runner:
+    type: databricks_job
+    workspace_url: https://adb-1234.5.azuredatabricks.net
+    existing_cluster_id: 1111-222222-abc123
+    config_uri: dbfs:/floe/configs/prod.yml         # passed to floe CLI as `-c`
+    python_file_uri: dbfs:/floe/bin/floe_entry.py   # spark_python_task python_file
+    job_name: floe-{domain}-{env}                   # rendered before job lookup/create
+    auth:
+      service_principal_oauth_ref: env://DATABRICKS_TOKEN
+variables:
+  CATALOG: prod_catalog
+validation:
+  strict: true
+```
+
+`config_uri` and `python_file_uri` are intentionally separate: the first is the
+floe YAML config the CLI is invoked with (`-c`), the second is the Python entry
+script Databricks executes as `spark_python_task.python_file`. They are usually
+distinct artifacts.
+
+Databricks auth expectations for orchestrator runtimes:
+
+- `auth.service_principal_oauth_ref` is required in the profile/manifest
+  contract and must be of the form `env://<VAR>` (schema-enforced). When set,
+  it is the source of truth and **takes precedence** over any
+  `FLOE_DATABRICKS_OAUTH_TOKEN` fallback.
+- If `auth.service_principal_oauth_ref` is not set, the runtime falls back to
+  `FLOE_DATABRICKS_OAUTH_TOKEN`.
+- Other reference schemes (for example `secret://...`) are rejected at runtime
+  and at schema-validation time. Resolve them upstream into an env var before
+  the orchestrator process starts.
+
+Per-run env vars and `existing_cluster_id`:
+
+- Databricks does not allow per-run OS env vars on a `spark_python_task`
+  attached to an existing cluster. `runner.env_parameters` is therefore not
+  delivered per-run; values that the floe CLI reads from the environment
+  (e.g. `FLOE_ENV`) must be configured at cluster level. The orchestrator
+  process still reads `env_parameters.FLOE_ENV` to render `{env}` in
+  `job_name`, but does not push it to the running task.
+
 ---
 
 ## Using profile variables in a Floe config
@@ -183,7 +233,8 @@ The parser and validator return actionable errors for common problems:
 | Missing `metadata` | `profile.metadata is required` |
 | Missing `metadata.name` | `profile.metadata.name is required` |
 | Unknown field | `unknown field profile.unknownField` |
-| Unknown runner | `profile.execution.runner.type: unknown runner "kubernetes"; known runners: local` |
+| Unknown runner | `profile.execution.runner.type: unknown runner "kubernetes"; known runners: local, kubernetes_job, databricks_job` |
+| Missing `python_file_uri` | `profile.execution.runner.python_file_uri is required for databricks_job` |
 | Unresolved variable | `profile variable "PATH_VAR" contains unresolved placeholder: ${UNDEFINED}` |
 
 ---

@@ -9,6 +9,7 @@ import threading
 from typing import Any
 
 from .kubernetes_runner import run_kubernetes_job
+from .databricks_runner import run_databricks_job
 from .manifest import ManifestExecution, ManifestRunnerDefinition
 from .runtime import (
     DagManifestContext,
@@ -79,6 +80,13 @@ class FloeRunHook:
                 config_path,
                 entities,
                 runner=runner_definition,
+            )
+        if runner_definition is not None and runner_definition.runner_type == "databricks_job":
+            args = self.build_args(config_path, entities=entities, execution=execution)
+            return run_databricks_job(
+                cmd_args=args,
+                runner=runner_definition,
+                entities=entities,
             )
         if runner_definition is not None and runner_definition.runner_type != "local_process":
             raise NotImplementedError(

@@ -5,4 +5,5 @@ pub mod profile;
 pub mod report;
 pub mod run;
 pub mod runner;
+pub mod state;
 pub mod vars;

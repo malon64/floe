@@ -248,6 +248,41 @@ entities:
 }
 
 #[test]
+fn parse_config_supports_entity_state_path_override() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    incremental_mode: "file"
+    state:
+      path: "custom/state/customer.json"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    assert_eq!(
+        config.entities[0]
+            .state
+            .as_ref()
+            .and_then(|state| state.path.as_deref()),
+        Some("custom/state/customer.json")
+    );
+}
+
+#[test]
 fn parse_config_supports_sink_level_merge_scd1_write_mode() {
     let yaml = r#"
 version: "0.1"

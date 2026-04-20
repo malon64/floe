@@ -11,6 +11,7 @@ pub mod report;
 pub mod run;
 pub mod runner;
 pub mod runtime;
+pub mod state;
 pub mod vars;
 pub mod warnings;
 

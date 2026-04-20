@@ -13,6 +13,8 @@ pub struct InputFile {
     pub source_local_path: PathBuf,
     pub source_name: String,
     pub source_stem: String,
+    pub source_size: Option<u64>,
+    pub source_mtime: Option<String>,
 }
 
 #[derive(Debug, Clone)]

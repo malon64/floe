@@ -236,6 +236,43 @@ entities:
 }
 
 #[test]
+fn resolves_default_entity_state_path_from_local_directory_with_file_like_suffix() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let source_dir = temp_dir.path().join("landing/archive.csv");
+    fs::create_dir_all(&source_dir).expect("create source dir");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}/"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        source_dir.display(),
+        temp_dir.path().join("out").display()
+    );
+    let (config, resolver) = build_local_resolver(&temp_dir, &yaml);
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(source_dir.join(".floe/state/sales/state.json").as_path())
+    );
+}
+
+#[test]
 fn resolves_default_entity_state_path_from_hidden_source_directory() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let source_dir = temp_dir.path().join("data/.snapshot");

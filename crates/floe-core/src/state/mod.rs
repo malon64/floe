@@ -133,9 +133,19 @@ fn derive_source_root(
             .to_string();
     }
 
-    if resolved_local_path.is_some_and(|path| path.is_file())
-        || matches_source_file_suffix(trimmed, source_format)
-    {
+    if let Some(path) = resolved_local_path.filter(|path| path.exists()) {
+        if path.is_dir() {
+            return trimmed.to_string();
+        }
+        if path.is_file() {
+            return parent_like(trimmed)
+                .unwrap_or(trimmed)
+                .trim_end_matches('/')
+                .to_string();
+        }
+    }
+
+    if matches_source_file_suffix(trimmed, source_format) {
         return parent_like(trimmed)
             .unwrap_or(trimmed)
             .trim_end_matches('/')

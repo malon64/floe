@@ -41,6 +41,7 @@ fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -101,6 +102,7 @@ fn iceberg_store_config_builds_s3_warehouse_and_region_props() -> FloeResult<()>
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -173,6 +175,7 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -234,6 +237,7 @@ fn iceberg_store_config_builds_local_warehouse_without_props() -> FloeResult<()>
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -307,6 +311,7 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -396,6 +401,7 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -472,6 +478,7 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),
@@ -544,6 +551,7 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
         name: "orders".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),

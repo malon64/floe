@@ -5,6 +5,7 @@ fn base_entity() -> config::EntityConfig {
         name: "customer".to_string(),
         metadata: None,
         domain: None,
+        incremental_mode: config::IncrementalMode::None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in.csv".to_string(),

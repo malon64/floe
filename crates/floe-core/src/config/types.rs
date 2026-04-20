@@ -46,10 +46,31 @@ pub struct EntityConfig {
     pub name: String,
     pub metadata: Option<EntityMetadata>,
     pub domain: Option<String>,
+    pub incremental_mode: IncrementalMode,
     pub source: SourceConfig,
     pub sink: SinkConfig,
     pub policy: PolicyConfig,
     pub schema: SchemaConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IncrementalMode {
+    #[default]
+    None,
+    Archive,
+    File,
+    Row,
+}
+
+impl IncrementalMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Archive => "archive",
+            Self::File => "file",
+            Self::Row => "row",
+        }
+    }
 }
 
 #[derive(Debug)]

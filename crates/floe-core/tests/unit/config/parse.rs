@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use floe_core::config::{SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, WriteMode};
+use floe_core::config::{
+    IncrementalMode, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, WriteMode,
+};
 use floe_core::load_config;
 
 static TEMP_CONFIG_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -181,6 +183,68 @@ entities:
         WriteMode::Append
     );
     assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Append);
+}
+
+#[test]
+fn parse_config_defaults_incremental_mode_to_none() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    assert_eq!(config.entities[0].incremental_mode, IncrementalMode::None);
+}
+
+#[test]
+fn parse_config_supports_incremental_modes() {
+    for (raw, expected) in [
+        ("none", IncrementalMode::None),
+        ("archive", IncrementalMode::Archive),
+        ("file", IncrementalMode::File),
+        ("row", IncrementalMode::Row),
+    ] {
+        let yaml = format!(
+            r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    incremental_mode: "{raw}"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#
+        );
+        let path = write_temp_config(&yaml);
+        let config = load_config(&path).expect("parse config");
+
+        assert_eq!(config.entities[0].incremental_mode, expected, "mode {raw}");
+    }
 }
 
 #[test]

@@ -12,6 +12,7 @@ fn sample_entity() -> config::EntityConfig {
         metadata: None,
         domain: None,
         incremental_mode: config::IncrementalMode::None,
+        state: None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "in".to_string(),

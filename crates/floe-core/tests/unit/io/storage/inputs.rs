@@ -206,6 +206,7 @@ fn mock_entity(name: &str) -> config::EntityConfig {
         metadata: None,
         domain: None,
         incremental_mode: config::IncrementalMode::None,
+        state: None,
         source: config::SourceConfig {
             format: "csv".to_string(),
             path: "unused".to_string(),

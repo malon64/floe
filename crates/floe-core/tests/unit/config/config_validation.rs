@@ -206,6 +206,39 @@ fn invalid_source_format_errors() {
 }
 
 #[test]
+fn empty_entity_state_path_errors() {
+    let entity = r#"  - name: "customer"
+    state:
+      path: ""
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      rejected:
+        format: "csv"
+        path: "/tmp/rejected"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "entity.state.path",
+            "must not be empty",
+        ],
+    );
+}
+
+#[test]
 fn unsupported_incremental_mode_errors() {
     let entity = r#"  - name: "customer"
     incremental_mode: "batch"

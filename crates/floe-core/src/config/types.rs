@@ -47,6 +47,7 @@ pub struct EntityConfig {
     pub metadata: Option<EntityMetadata>,
     pub domain: Option<String>,
     pub incremental_mode: IncrementalMode,
+    pub state: Option<EntityStateConfig>,
     pub source: SourceConfig,
     pub sink: SinkConfig,
     pub policy: PolicyConfig,
@@ -80,6 +81,11 @@ pub struct EntityMetadata {
     pub owner: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntityStateConfig {
+    pub path: Option<String>,
 }
 
 #[derive(Debug)]

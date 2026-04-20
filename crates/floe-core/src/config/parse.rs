@@ -10,12 +10,12 @@ use crate::config::yaml_decode::{
 };
 use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
-    EntityMetadata, EnvConfig, IcebergPartitionFieldConfig, IcebergSinkTargetConfig,
-    IncrementalMode, MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig,
-    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
-    SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
-    SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
-    WriteMode,
+    EntityMetadata, EntityStateConfig, EnvConfig, IcebergPartitionFieldConfig,
+    IcebergSinkTargetConfig, IncrementalMode, MergeOptionsConfig, MergeScd2OptionsConfig,
+    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
+    SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode,
+    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
+    StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -138,6 +138,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
             "metadata",
             "domain",
             "incremental_mode",
+            "state",
             "source",
             "sink",
             "policy",
@@ -155,6 +156,10 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         Some(value) => parse_incremental_mode(&value, "entity.incremental_mode")?,
         None => IncrementalMode::default(),
     };
+    let state = match hash_get(hash, "state") {
+        Some(value) => Some(parse_entity_state(value)?),
+        None => None,
+    };
 
     let source = parse_source(get_value(hash, "source", "entity")?)?;
     let sink = parse_sink(get_value(hash, "sink", "entity")?)?;
@@ -166,6 +171,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         metadata,
         domain,
         incremental_mode,
+        state,
         source,
         sink,
         policy,
@@ -197,6 +203,14 @@ fn parse_entity_metadata(value: &Yaml) -> FloeResult<EntityMetadata> {
         owner: opt_string(hash, "owner", "entity.metadata")?,
         description: opt_string(hash, "description", "entity.metadata")?,
         tags: opt_vec_string(hash, "tags", "entity.metadata")?,
+    })
+}
+
+fn parse_entity_state(value: &Yaml) -> FloeResult<EntityStateConfig> {
+    let hash = yaml_hash(value, "entity.state")?;
+    validate_known_keys(hash, "entity.state", &["path"])?;
+    Ok(EntityStateConfig {
+        path: opt_string(hash, "path", "entity.state")?,
     })
 }
 

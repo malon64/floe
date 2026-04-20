@@ -54,7 +54,17 @@ pub fn resolve_entity_state_path(
         }
     }
 
-    let source_root = derive_source_root(&entity.source.path, &entity.source.format);
+    let resolved_source = resolver.resolve_path(
+        &entity.name,
+        "entity.source.path",
+        entity.source.storage.as_deref(),
+        &entity.source.path,
+    )?;
+    let source_root = derive_source_root(
+        &entity.source.path,
+        &entity.source.format,
+        resolved_source.local_path.as_deref(),
+    );
     let default_path = join_state_path(&source_root, &entity.name);
     resolver.resolve_path(
         &entity.name,
@@ -100,7 +110,11 @@ fn join_state_path(source_root: &str, entity_name: &str) -> String {
     }
 }
 
-fn derive_source_root(raw_path: &str, source_format: &str) -> String {
+fn derive_source_root(
+    raw_path: &str,
+    source_format: &str,
+    resolved_local_path: Option<&Path>,
+) -> String {
     let trimmed = raw_path.trim_end_matches('/');
     if trimmed.is_empty() {
         return String::new();
@@ -119,7 +133,9 @@ fn derive_source_root(raw_path: &str, source_format: &str) -> String {
             .to_string();
     }
 
-    if matches_source_file_suffix(trimmed, source_format) {
+    if resolved_local_path.is_some_and(|path| path.is_file())
+        || matches_source_file_suffix(trimmed, source_format)
+    {
         return parent_like(trimmed)
             .unwrap_or(trimmed)
             .trim_end_matches('/')

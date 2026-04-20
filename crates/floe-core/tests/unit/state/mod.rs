@@ -18,6 +18,17 @@ fn load_config_from_yaml(
     load_config(&path).expect("load config")
 }
 
+fn build_local_resolver(
+    temp_dir: &tempfile::TempDir,
+    yaml: &str,
+) -> (floe_core::config::RootConfig, StorageResolver) {
+    let config = load_config_from_yaml(temp_dir, yaml);
+    let config_path = temp_dir.path().join("floe.yml");
+    let resolver =
+        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+    (config, resolver)
+}
+
 #[test]
 fn resolves_default_entity_state_path_from_local_source_directory() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
@@ -105,6 +116,7 @@ entities:
 fn resolves_default_entity_state_path_from_dotted_source_directory() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let source_dir = temp_dir.path().join("incoming/v1.2");
+    fs::create_dir_all(&source_dir).expect("create dotted dir");
     let yaml = format!(
         r#"version: "0.1"
 entities:
@@ -127,16 +139,99 @@ entities:
         source_dir.display(),
         temp_dir.path().join("out").display()
     );
-    let config = load_config_from_yaml(&temp_dir, &yaml);
-    let config_path = temp_dir.path().join("floe.yml");
-    let resolver =
-        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+    let (config, resolver) = build_local_resolver(&temp_dir, &yaml);
 
     let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
 
     assert_eq!(
         resolved.local_path.as_deref(),
         Some(source_dir.join(".floe/state/sales/state.json").as_path())
+    );
+}
+
+#[test]
+fn resolves_default_entity_state_path_from_local_file_with_uppercase_extension() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let source_file = temp_dir.path().join("incoming/INPUT.CSV");
+    fs::create_dir_all(source_file.parent().expect("parent")).expect("create parent");
+    fs::write(&source_file, "id\n1\n").expect("write source file");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        source_file.display(),
+        temp_dir.path().join("out").display()
+    );
+    let (config, resolver) = build_local_resolver(&temp_dir, &yaml);
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            temp_dir
+                .path()
+                .join("incoming/.floe/state/sales/state.json")
+                .as_path()
+        )
+    );
+}
+
+#[test]
+fn resolves_default_entity_state_path_from_local_extensionless_file() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let source_file = temp_dir.path().join("incoming/manifest");
+    fs::create_dir_all(source_file.parent().expect("parent")).expect("create parent");
+    fs::write(&source_file, "id\n1\n").expect("write source file");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        source_file.display(),
+        temp_dir.path().join("out").display()
+    );
+    let (config, resolver) = build_local_resolver(&temp_dir, &yaml);
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            temp_dir
+                .path()
+                .join("incoming/.floe/state/sales/state.json")
+                .as_path()
+        )
     );
 }
 

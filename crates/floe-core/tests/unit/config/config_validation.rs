@@ -206,6 +206,35 @@ fn invalid_source_format_errors() {
 }
 
 #[test]
+fn unsupported_incremental_mode_errors() {
+    let entity = r#"  - name: "customer"
+    incremental_mode: "batch"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.incremental_mode",
+            "batch",
+            "allowed: none, archive, file, row",
+        ],
+    );
+}
+
+#[test]
 fn xml_source_requires_row_tag() {
     let entity = r#"  - name: "customer"
     source:

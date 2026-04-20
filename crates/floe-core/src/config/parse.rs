@@ -11,8 +11,8 @@ use crate::config::yaml_decode::{
 use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
     EntityMetadata, EnvConfig, IcebergPartitionFieldConfig, IcebergSinkTargetConfig,
-    MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PolicyConfig,
-    ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
+    IncrementalMode, MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig,
+    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
     SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
     SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
     WriteMode,
@@ -134,7 +134,14 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         hash,
         "entity",
         &[
-            "name", "metadata", "domain", "source", "sink", "policy", "schema",
+            "name",
+            "metadata",
+            "domain",
+            "incremental_mode",
+            "source",
+            "sink",
+            "policy",
+            "schema",
         ],
     )?;
     let name = get_string(hash, "name", "entity")?;
@@ -144,6 +151,10 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         None => None,
     };
     let domain = opt_string(hash, "domain", "entity")?;
+    let incremental_mode = match opt_string(hash, "incremental_mode", "entity")? {
+        Some(value) => parse_incremental_mode(&value, "entity.incremental_mode")?,
+        None => IncrementalMode::default(),
+    };
 
     let source = parse_source(get_value(hash, "source", "entity")?)?;
     let sink = parse_sink(get_value(hash, "sink", "entity")?)?;
@@ -154,6 +165,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         name,
         metadata,
         domain,
+        incremental_mode,
         source,
         sink,
         policy,
@@ -225,6 +237,18 @@ fn parse_string_map(value: &Yaml, context: &str) -> FloeResult<HashMap<String, S
         map.insert(key_str, value_str);
     }
     Ok(map)
+}
+
+fn parse_incremental_mode(value: &str, ctx: &str) -> FloeResult<IncrementalMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => Ok(IncrementalMode::None),
+        "archive" => Ok(IncrementalMode::Archive),
+        "file" => Ok(IncrementalMode::File),
+        "row" => Ok(IncrementalMode::Row),
+        _ => Err(Box::new(ConfigError(format!(
+            "unsupported value at {ctx}: {value} (allowed: none, archive, file, row)"
+        )))),
+    }
 }
 
 fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {

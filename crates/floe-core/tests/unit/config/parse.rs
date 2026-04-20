@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use floe_core::config::{
     IncrementalMode, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, WriteMode,
 };
-use floe_core::load_config;
+use floe_core::{load_config, validate_config_for_tests};
 
 static TEMP_CONFIG_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -280,6 +280,39 @@ entities:
             .and_then(|state| state.path.as_deref()),
         Some("custom/state/customer.json")
     );
+}
+
+#[test]
+fn parse_config_rejects_empty_entity_state_path_during_validation() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    incremental_mode: "file"
+    state:
+      path: ""
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let err =
+        validate_config_for_tests(&config).expect_err("empty state.path should fail validation");
+
+    assert!(err
+        .to_string()
+        .contains("entity.state.path must not be empty"));
 }
 
 #[test]

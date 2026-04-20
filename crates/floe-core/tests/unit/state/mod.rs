@@ -356,6 +356,92 @@ entities:
 }
 
 #[test]
+fn resolves_default_entity_state_path_from_windows_style_source_file() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: 'C:\data\INPUT.CSV'
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        temp_dir.path().join("out").display()
+    );
+    let config = load_config_from_yaml(&temp_dir, &yaml);
+    let config_path = temp_dir.path().join("floe.yml");
+    let resolver =
+        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            temp_dir
+                .path()
+                .join(r"C:\data")
+                .join(".floe/state/sales/state.json")
+                .as_path()
+        )
+    );
+}
+
+#[test]
+fn resolves_default_entity_state_path_from_windows_style_glob_prefix() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: 'C:\data\*.csv'
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        temp_dir.path().join("out").display()
+    );
+    let config = load_config_from_yaml(&temp_dir, &yaml);
+    let config_path = temp_dir.path().join("floe.yml");
+    let resolver =
+        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            temp_dir
+                .path()
+                .join(r"C:\data")
+                .join(".floe/state/sales/state.json")
+                .as_path()
+        )
+    );
+}
+
+#[test]
 fn resolves_default_entity_state_path_from_remote_source_context() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let yaml = r#"version: "0.1"

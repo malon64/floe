@@ -116,9 +116,28 @@ fn validate_entity(
     catalogs: &CatalogRegistry,
 ) -> FloeResult<()> {
     validate_source(entity, storages)?;
+    validate_state(entity)?;
     validate_policy(entity)?;
     validate_sink(entity, storages, catalogs)?;
     validate_schema(entity, config_version)?;
+    Ok(())
+}
+
+fn validate_state(entity: &EntityConfig) -> FloeResult<()> {
+    if let Some(path) = entity
+        .state
+        .as_ref()
+        .and_then(|state| state.path.as_deref())
+        .map(str::trim)
+    {
+        if path.is_empty() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} entity.state.path must not be empty",
+                entity.name
+            ))));
+        }
+    }
+
     Ok(())
 }
 

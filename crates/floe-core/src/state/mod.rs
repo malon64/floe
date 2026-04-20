@@ -105,7 +105,7 @@ fn join_state_path(source_root: &str, entity_name: &str) -> String {
     } else {
         format!(
             "{}/.floe/state/{entity_name}/{ENTITY_STATE_FILENAME}",
-            source_root.trim_end_matches('/')
+            source_root.trim_end_matches(is_path_separator)
         )
     }
 }
@@ -115,7 +115,7 @@ fn derive_source_root(
     source_format: &str,
     resolved_local_path: Option<&Path>,
 ) -> String {
-    let trimmed = raw_path.trim_end_matches('/');
+    let trimmed = raw_path.trim_end_matches(is_path_separator);
     if trimmed.is_empty() {
         return String::new();
     }
@@ -124,12 +124,12 @@ fn derive_source_root(
         if prefix.is_empty() {
             return String::new();
         }
-        if prefix.ends_with('/') {
-            return prefix.trim_end_matches('/').to_string();
+        if prefix.ends_with(is_path_separator) {
+            return prefix.trim_end_matches(is_path_separator).to_string();
         }
         return parent_like(prefix)
             .unwrap_or(prefix)
-            .trim_end_matches('/')
+            .trim_end_matches(is_path_separator)
             .to_string();
     }
 
@@ -140,7 +140,7 @@ fn derive_source_root(
         if path.is_file() {
             return parent_like(trimmed)
                 .unwrap_or(trimmed)
-                .trim_end_matches('/')
+                .trim_end_matches(is_path_separator)
                 .to_string();
         }
     }
@@ -148,7 +148,7 @@ fn derive_source_root(
     if matches_source_file_suffix(trimmed, source_format) {
         return parent_like(trimmed)
             .unwrap_or(trimmed)
-            .trim_end_matches('/')
+            .trim_end_matches(is_path_separator)
             .to_string();
     }
 
@@ -161,17 +161,30 @@ fn prefix_before_first_glob(value: &str) -> Option<&str> {
 }
 
 fn matches_source_file_suffix(value: &str, source_format: &str) -> bool {
-    let Some(segment) = value.rsplit('/').next() else {
+    let Some(segment) = value.rsplit(is_path_separator).next() else {
         return false;
     };
+    let segment = segment.to_ascii_lowercase();
 
     extensions::suffixes_for_format(source_format)
-        .map(|suffixes| suffixes.iter().any(|suffix| segment.ends_with(suffix)))
+        .map(|suffixes| {
+            suffixes
+                .iter()
+                .any(|suffix| segment.ends_with(&suffix.to_ascii_lowercase()))
+        })
         .unwrap_or(false)
 }
 
 fn parent_like(value: &str) -> Option<&str> {
-    value
-        .rfind('/')
-        .map(|index| if index == 0 { "/" } else { &value[..index] })
+    value.rfind(is_path_separator).map(|index| {
+        if index == 0 {
+            &value[..1]
+        } else {
+            &value[..index]
+        }
+    })
+}
+
+fn is_path_separator(ch: char) -> bool {
+    ch == '/' || ch == '\\'
 }

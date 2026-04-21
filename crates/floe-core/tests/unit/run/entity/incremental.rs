@@ -5,7 +5,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use floe_core::report::{FileStatus, RunStatus};
-use floe_core::state::read_entity_state;
+use floe_core::state::{
+    read_entity_state, write_entity_state_atomic, EntityState, ENTITY_STATE_SCHEMA_V1,
+};
 use floe_core::{run, set_observer, RunEvent, RunObserver, RunOptions};
 
 #[derive(Default)]
@@ -268,6 +270,118 @@ fn incremental_file_mode_warns_and_skips_changed_files() {
             ..
         } if code == "incremental_file_changed" && message.contains("changed metadata")
     )));
+}
+
+#[test]
+fn incremental_file_mode_accepts_matching_state_file() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let state_file = state_path(&input_dir);
+    write_entity_state_atomic(&state_file, &EntityState::new("customer")).expect("write state");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    let outcome = run_config(&config_path, "incremental-matching-state");
+    assert_eq!(outcome.summary.run.status, RunStatus::Success);
+    assert_eq!(outcome.entity_outcomes[0].report.results.rows_total, 1);
+}
+
+#[test]
+fn incremental_file_mode_fails_on_mismatched_state_entity() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let state_file = state_path(&input_dir);
+    write_entity_state_atomic(&state_file, &EntityState::new("orders")).expect("write state");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("incremental-entity-mismatch".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect_err("mismatched entity state should fail");
+    let msg = err.to_string();
+    assert!(msg.contains("state entity mismatch"));
+    assert!(msg.contains("expected customer, got orders"));
+}
+
+#[test]
+fn incremental_file_mode_fails_on_mismatched_state_schema() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let state_file = state_path(&input_dir);
+    write_entity_state_atomic(
+        &state_file,
+        &EntityState {
+            schema: "floe.state.file-ingest.v0".to_string(),
+            entity: "customer".to_string(),
+            updated_at: None,
+            files: Default::default(),
+        },
+    )
+    .expect("write state");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("incremental-schema-mismatch".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect_err("mismatched schema state should fail");
+    let msg = err.to_string();
+    assert!(msg.contains("state schema mismatch"));
+    assert!(msg.contains(ENTITY_STATE_SCHEMA_V1));
+    assert!(msg.contains("floe.state.file-ingest.v0"));
 }
 
 #[test]

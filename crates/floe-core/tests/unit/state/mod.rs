@@ -29,6 +29,26 @@ fn build_local_resolver(
     (config, resolver)
 }
 
+fn short_stable_hash_hex(value: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
+}
+
+fn with_cache_home<T>(cache_home: &Path, test: impl FnOnce() -> T) -> T {
+    let previous = std::env::var_os("XDG_CACHE_HOME");
+    std::env::set_var("XDG_CACHE_HOME", cache_home);
+    let output = test();
+    match previous {
+        Some(value) => std::env::set_var("XDG_CACHE_HOME", value),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
+    output
+}
+
 #[test]
 fn resolves_default_entity_state_path_from_local_source_directory() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
@@ -489,6 +509,185 @@ entities:
                 .as_path()
         )
     );
+}
+
+#[test]
+fn resolves_default_entity_state_path_from_remote_config_into_persistent_cache() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let cache_home = temp_dir.path().join("cache-home");
+    fs::create_dir_all(&cache_home).expect("cache dir");
+    let yaml = r#"version: "0.1"
+storages:
+  default: "lake"
+  definitions:
+    - name: "lake"
+      type: "s3"
+      bucket: "raw-bucket"
+      prefix: "landing"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "incoming/sales"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "curated/sales"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let config = load_config_from_yaml(&temp_dir, yaml);
+    let remote_base = ConfigBase::remote_from_uri(
+        temp_dir.path().join("ephemeral-config-download"),
+        "s3://raw-bucket/configs/floe.yml",
+    )
+    .expect("remote base");
+    let resolver = StorageResolver::new(&config, remote_base).expect("resolver");
+
+    let resolved = with_cache_home(&cache_home, || {
+        resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path")
+    });
+    let expected_uri = "s3://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json";
+
+    assert_eq!(resolved.uri, expected_uri);
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            cache_home
+                .join("floe/state")
+                .join(short_stable_hash_hex(expected_uri))
+                .join("sales/state.json")
+                .as_path()
+        )
+    );
+}
+
+#[test]
+fn resolves_remote_config_state_cache_for_all_remote_storage_backends() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let cache_home = temp_dir.path().join("cache-home");
+    fs::create_dir_all(&cache_home).expect("cache dir");
+
+    let cases = [
+        (
+            r#"version: "0.1"
+storages:
+  default: "lake"
+  definitions:
+    - name: "lake"
+      type: "s3"
+      bucket: "raw-bucket"
+      prefix: "landing"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "incoming/sales"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "curated/sales"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+            "s3://raw-bucket/configs/floe.yml",
+            "s3://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json",
+        ),
+        (
+            r#"version: "0.1"
+storages:
+  default: "lake"
+  definitions:
+    - name: "lake"
+      type: "gcs"
+      bucket: "raw-bucket"
+      prefix: "landing"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "incoming/sales"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "curated/sales"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+            "gs://raw-bucket/configs/floe.yml",
+            "gs://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json",
+        ),
+        (
+            r#"version: "0.1"
+storages:
+  default: "lake"
+  definitions:
+    - name: "lake"
+      type: "adls"
+      account: "acct"
+      container: "cont"
+      prefix: "landing"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "incoming/sales"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "curated/sales"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+            "abfs://cont@acct.dfs.core.windows.net/configs/floe.yml",
+            "abfs://cont@acct.dfs.core.windows.net/landing/incoming/sales/.floe/state/sales/state.json",
+        ),
+    ];
+
+    with_cache_home(&cache_home, || {
+        for (yaml, config_uri, expected_uri) in cases {
+            let config = load_config_from_yaml(&temp_dir, yaml);
+            let base = ConfigBase::remote_from_uri(
+                temp_dir.path().join("ephemeral-config-download"),
+                config_uri,
+            )
+            .expect("remote base");
+            let resolver = StorageResolver::new(&config, base).expect("resolver");
+            let resolved =
+                resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+            assert_eq!(resolved.uri, expected_uri);
+            assert_eq!(
+                resolved.local_path,
+                Some(
+                    cache_home
+                        .join("floe/state")
+                        .join(short_stable_hash_hex(expected_uri))
+                        .join("sales/state.json")
+                )
+            );
+        }
+    });
 }
 
 #[test]

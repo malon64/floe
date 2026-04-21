@@ -138,6 +138,10 @@ impl StorageResolver {
         self.config_base.local_dir()
     }
 
+    pub fn config_is_remote(&self) -> bool {
+        self.config_base.remote_base().is_some()
+    }
+
     pub fn resolve_local_path(&self, raw_path: &str) -> FloeResult<ResolvedPath> {
         if is_remote_uri(raw_path) {
             return Err(Box::new(ConfigError(format!(

@@ -86,17 +86,56 @@ fn with_local_state_fallback(
     mut resolved: ResolvedPath,
 ) -> ResolvedPath {
     if resolved.local_path.is_none() {
-        resolved.local_path = Some(default_local_state_cache_path(resolver, entity));
+        resolved.local_path = Some(default_local_state_cache_path(
+            resolver,
+            entity,
+            &resolved.uri,
+        ));
     }
     resolved
 }
 
-fn default_local_state_cache_path(resolver: &StorageResolver, entity: &EntityConfig) -> PathBuf {
-    resolver
-        .config_local_dir()
+fn default_local_state_cache_path(
+    resolver: &StorageResolver,
+    entity: &EntityConfig,
+    resolved_uri: &str,
+) -> PathBuf {
+    if resolver.config_is_remote() {
+        remote_config_state_cache_root()
+            .join(short_stable_hash_hex(resolved_uri))
+            .join(&entity.name)
+            .join(ENTITY_STATE_FILENAME)
+    } else {
+        resolver
+            .config_local_dir()
+            .join(".floe/state")
+            .join(&entity.name)
+            .join(ENTITY_STATE_FILENAME)
+    }
+}
+
+fn remote_config_state_cache_root() -> PathBuf {
+    if let Some(path) = std::env::var_os("XDG_CACHE_HOME") {
+        let path = PathBuf::from(path);
+        if path.is_absolute() {
+            return path.join("floe/state");
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join(".cache/floe/state");
+    }
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
         .join(".floe/state")
-        .join(&entity.name)
-        .join(ENTITY_STATE_FILENAME)
+}
+
+fn short_stable_hash_hex(value: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
 }
 
 pub fn read_entity_state(path: &Path) -> FloeResult<Option<EntityState>> {

@@ -110,6 +110,7 @@ pub(super) struct AcceptedWritePhaseContext<'a> {
     pub(super) write_mode: config::WriteMode,
     pub(super) perf_enabled: bool,
     pub(super) phase_timings: &'a mut EntityPhaseTimings,
+    pub(super) pending_input_count: usize,
     pub(super) accepted_accum: Vec<DataFrame>,
 }
 
@@ -126,10 +127,15 @@ pub(super) fn run_accepted_write_phase(
         write_mode,
         perf_enabled,
         phase_timings,
+        pending_input_count,
         accepted_accum,
     } = context;
 
     let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
+    if pending_input_count == 0 {
+        accepted_write_report.files_written = Some(0);
+        return Ok(accepted_write_report);
+    }
     if accepted_accum.is_empty() && write_mode != config::WriteMode::Overwrite {
         accepted_write_report.files_written = Some(0);
         return Ok(accepted_write_report);

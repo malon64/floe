@@ -97,6 +97,7 @@ fn config_yaml(
     report_dir: &Path,
     severity: &str,
     mismatch_block: &str,
+    write_mode: Option<&str>,
 ) -> String {
     let rejected_block = rejected_dir
         .map(|path| {
@@ -105,6 +106,9 @@ fn config_yaml(
                 path.display()
             )
         })
+        .unwrap_or_default();
+    let write_mode_block = write_mode
+        .map(|mode| format!("      write_mode: \"{mode}\"\n"))
         .unwrap_or_default();
     format!(
         r#"version: "0.1"
@@ -120,7 +124,7 @@ entities:
       accepted:
         format: "parquet"
         path: "{accepted_dir}"
-{rejected_block}    policy:
+{write_mode_block}{rejected_block}    policy:
       severity: "{severity}"
     schema:
 {mismatch_block}      columns:
@@ -132,10 +136,21 @@ entities:
         report_dir = report_dir.display(),
         input_dir = input_dir.display(),
         accepted_dir = accepted_dir.display(),
+        write_mode_block = write_mode_block,
         rejected_block = rejected_block,
         severity = severity,
         mismatch_block = mismatch_block,
     )
+}
+
+fn list_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = fs::read_dir(dir)
+        .expect("read dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    files.sort();
+    files
 }
 
 fn run_config(path: &Path, run_id: &str) -> floe_core::RunOutcome {
@@ -167,7 +182,15 @@ fn incremental_file_mode_skips_seen_files_and_commits_once() {
     write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
     let config_path = write_config(
         root.path(),
-        &config_yaml(&input_dir, &accepted_dir, None, &report_dir, "warn", ""),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
     );
 
     let first = run_config(&config_path, "incremental-first");
@@ -207,7 +230,15 @@ fn incremental_file_mode_warns_and_skips_changed_files() {
     let source = write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
     let config_path = write_config(
         root.path(),
-        &config_yaml(&input_dir, &accepted_dir, None, &report_dir, "warn", ""),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
     );
 
     let _ = run_config(&config_path, "incremental-changed-first");
@@ -240,6 +271,51 @@ fn incremental_file_mode_warns_and_skips_changed_files() {
 }
 
 #[test]
+fn incremental_file_mode_overwrite_noop_preserves_accepted_output() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            Some("overwrite"),
+        ),
+    );
+
+    let first = run_config(&config_path, "incremental-overwrite-first");
+    assert_eq!(first.summary.run.status, RunStatus::Success);
+    let first_outputs = list_files(&accepted_dir);
+    assert!(!first_outputs.is_empty());
+    let first_sizes = first_outputs
+        .iter()
+        .map(|path| fs::metadata(path).expect("metadata").len())
+        .collect::<Vec<_>>();
+
+    let second = run_config(&config_path, "incremental-overwrite-second");
+    assert_eq!(second.summary.run.status, RunStatus::Success);
+    let report = &second.entity_outcomes[0].report;
+    assert_eq!(report.results.rows_total, 0);
+    assert_eq!(report.results.accepted_total, 0);
+
+    let second_outputs = list_files(&accepted_dir);
+    assert_eq!(second_outputs, first_outputs);
+    let second_sizes = second_outputs
+        .iter()
+        .map(|path| fs::metadata(path).expect("metadata").len())
+        .collect::<Vec<_>>();
+    assert_eq!(second_sizes, first_sizes);
+}
+
+#[test]
 fn incremental_file_mode_does_not_commit_state_after_unsuccessful_entity() {
     let root = tempfile::TempDir::new().expect("temp dir");
     let input_dir = root.path().join("in");
@@ -258,6 +334,7 @@ fn incremental_file_mode_does_not_commit_state_after_unsuccessful_entity() {
             &report_dir,
             "reject",
             mismatch_block,
+            None,
         ),
     );
 

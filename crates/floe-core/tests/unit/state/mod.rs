@@ -480,6 +480,15 @@ entities:
         resolved.uri,
         "s3://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json"
     );
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(
+            temp_dir
+                .path()
+                .join(".floe/state/sales/state.json")
+                .as_path()
+        )
+    );
 }
 
 #[test]
@@ -519,6 +528,47 @@ entities:
         resolved.local_path.as_deref(),
         Some(temp_dir.path().join("custom/state/sales.json").as_path())
     );
+}
+
+#[test]
+fn resolves_remote_entity_state_override_to_local_path() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let yaml = r#"version: "0.1"
+storages:
+  default: "lake"
+  definitions:
+    - name: "lake"
+      type: "s3"
+      bucket: "raw-bucket"
+      prefix: "landing"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    state:
+      path: "custom/state/sales.json"
+    source:
+      format: "csv"
+      path: "incoming/sales"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "curated/sales"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let (config, resolver) = build_local_resolver(&temp_dir, yaml);
+
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+
+    assert_eq!(
+        resolved.local_path.as_deref(),
+        Some(temp_dir.path().join("custom/state/sales.json").as_path())
+    );
+    assert!(resolved.uri.starts_with("local://"));
 }
 
 #[test]

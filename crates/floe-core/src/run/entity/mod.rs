@@ -117,6 +117,7 @@ pub(super) fn run_entity(
     } = plan.resolved_inputs;
     let incremental = incremental::prepare_incremental_context(context, entity, input_files)?;
     let input_files = incremental.pending_inputs;
+    let pending_input_count = input_files.len();
 
     let severity = match entity.policy.severity.as_str() {
         "warn" => report::Severity::Warn,
@@ -260,6 +261,7 @@ pub(super) fn run_entity(
         write_mode,
         perf_enabled,
         phase_timings: &mut phase_timings,
+        pending_input_count,
         accepted_accum,
     })?;
     accepted_write_report

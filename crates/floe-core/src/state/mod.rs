@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
@@ -45,12 +45,17 @@ pub fn resolve_entity_state_path(
 ) -> FloeResult<ResolvedPath> {
     if let Some(state) = &entity.state {
         if let Some(path) = state.path.as_deref() {
-            return resolver.resolve_path(
-                &entity.name,
-                "entity.state.path",
-                entity.source.storage.as_deref(),
-                path,
-            );
+            let resolved = if is_remote_uri(path) {
+                resolver.resolve_path(
+                    &entity.name,
+                    "entity.state.path",
+                    entity.source.storage.as_deref(),
+                    path,
+                )?
+            } else {
+                resolver.resolve_local_path(path)?
+            };
+            return Ok(with_local_state_fallback(resolver, entity, resolved));
         }
     }
 
@@ -66,12 +71,32 @@ pub fn resolve_entity_state_path(
         resolved_source.local_path.as_deref(),
     );
     let default_path = join_state_path(&source_root, &entity.name);
-    resolver.resolve_path(
+    let resolved = resolver.resolve_path(
         &entity.name,
         "entity.state.path",
         entity.source.storage.as_deref(),
         &default_path,
-    )
+    )?;
+    Ok(with_local_state_fallback(resolver, entity, resolved))
+}
+
+fn with_local_state_fallback(
+    resolver: &StorageResolver,
+    entity: &EntityConfig,
+    mut resolved: ResolvedPath,
+) -> ResolvedPath {
+    if resolved.local_path.is_none() {
+        resolved.local_path = Some(default_local_state_cache_path(resolver, entity));
+    }
+    resolved
+}
+
+fn default_local_state_cache_path(resolver: &StorageResolver, entity: &EntityConfig) -> PathBuf {
+    resolver
+        .config_local_dir()
+        .join(".floe/state")
+        .join(&entity.name)
+        .join(ENTITY_STATE_FILENAME)
 }
 
 pub fn read_entity_state(path: &Path) -> FloeResult<Option<EntityState>> {
@@ -187,4 +212,8 @@ fn parent_like(value: &str) -> Option<&str> {
 
 fn is_path_separator(ch: char) -> bool {
     ch == '/' || ch == '\\'
+}
+
+fn is_remote_uri(value: &str) -> bool {
+    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
 }

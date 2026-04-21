@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use glob::{MatchOptions, Pattern};
 
@@ -209,6 +210,8 @@ fn build_cloud_inputs(
             source_local_path: local_path,
             source_name,
             source_stem,
+            source_size: object.size,
+            source_mtime: object.last_modified.clone(),
         });
     }
     Ok(inputs)
@@ -223,6 +226,7 @@ fn build_local_inputs(
         .iter()
         .map(|path| {
             let normalized_path = crate::io::storage::paths::normalize_local_path(path);
+            let metadata = std::fs::metadata(&normalized_path).ok();
             let source_name = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -245,9 +249,20 @@ fn build_local_inputs(
                 source_local_path: normalized_path,
                 source_name,
                 source_stem,
+                source_size: metadata.as_ref().map(|metadata| metadata.len()),
+                source_mtime: metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(system_time_to_rfc3339),
             }
         })
         .collect()
+}
+
+fn system_time_to_rfc3339(value: SystemTime) -> Option<String> {
+    time::OffsetDateTime::from(value)
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
 }
 
 fn build_local_listing(

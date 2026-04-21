@@ -12,6 +12,7 @@ use crate::checks::normalize::{
 use io::storage::Target;
 
 mod accepted_write;
+mod incremental;
 mod precheck;
 mod process;
 mod resolve;
@@ -114,6 +115,9 @@ pub(super) fn run_entity(
         listed: resolved_files,
         mode: resolved_mode,
     } = plan.resolved_inputs;
+    let incremental = incremental::prepare_incremental_context(context, entity, input_files)?;
+    let input_files = incremental.pending_inputs;
+    let pending_input_count = input_files.len();
 
     let severity = match entity.policy.severity.as_str() {
         "warn" => report::Severity::Warn,
@@ -133,7 +137,8 @@ pub(super) fn run_entity(
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut file_reports = Vec::with_capacity(input_files.len());
+    let mut file_reports =
+        Vec::with_capacity(input_files.len() + incremental.skipped_reports.len());
     let mut totals = report::ResultsTotals {
         files_total: 0,
         rows_total: 0,
@@ -160,7 +165,14 @@ pub(super) fn run_entity(
             Target::from_resolved(&resolved)
         })
         .transpose()?;
-    let mut file_timings_ms = Vec::with_capacity(input_files.len());
+    let mut file_timings_ms =
+        Vec::with_capacity(input_files.len() + incremental.skipped_reports.len());
+    for skipped in incremental.skipped_reports {
+        totals.files_total += 1;
+        totals.warnings_total += skipped.validation.warnings;
+        file_reports.push(skipped);
+        file_timings_ms.push(Some(0));
+    }
     let sink_options_warning = sink_options_warning(entity);
     // Phase A: per-file precheck (schema mismatch / early rejection).
     let precheck_start = perf_enabled.then(Instant::now);
@@ -249,6 +261,7 @@ pub(super) fn run_entity(
         write_mode,
         perf_enabled,
         phase_timings: &mut phase_timings,
+        pending_input_count,
         accepted_accum,
     })?;
     accepted_write_report
@@ -314,6 +327,22 @@ pub(super) fn run_entity(
         )?;
         if let Some(start) = report_write_start {
             phase_timings.report_write_ms += start.elapsed().as_millis() as u64;
+        }
+    }
+
+    if let Some(pending_state) = incremental.pending_state.as_ref() {
+        let (status, _) = report::compute_run_outcome(
+            &run_report
+                .files
+                .iter()
+                .map(|file| file.status)
+                .collect::<Vec<_>>(),
+        );
+        if matches!(
+            status,
+            report::RunStatus::Success | report::RunStatus::SuccessWithWarnings
+        ) {
+            pending_state.commit()?;
         }
     }
 

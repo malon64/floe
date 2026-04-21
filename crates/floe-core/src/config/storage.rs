@@ -134,6 +134,34 @@ pub struct StorageResolver {
 }
 
 impl StorageResolver {
+    pub fn config_local_dir(&self) -> &Path {
+        self.config_base.local_dir()
+    }
+
+    pub fn config_is_remote(&self) -> bool {
+        self.config_base.remote_base().is_some()
+    }
+
+    pub fn resolve_local_path(&self, raw_path: &str) -> FloeResult<ResolvedPath> {
+        if is_remote_uri(raw_path) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.state.path must be a local path (got {})",
+                raw_path
+            ))));
+        }
+        if self.config_base.remote_base().is_some() && Path::new(raw_path).is_relative() {
+            return Err(Box::new(ConfigError(
+                "entity.state.path must be absolute when config is remote".to_string(),
+            )));
+        }
+        let resolved = resolve_local_path(self.config_base.local_dir(), raw_path);
+        Ok(ResolvedPath {
+            storage: "local".to_string(),
+            uri: local_uri(&resolved),
+            local_path: Some(resolved),
+        })
+    }
+
     pub fn new(config: &RootConfig, config_base: ConfigBase) -> FloeResult<Self> {
         if let Some(storages) = &config.storages {
             let mut definitions = HashMap::new();

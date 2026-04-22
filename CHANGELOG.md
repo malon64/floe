@@ -2,6 +2,15 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.5
+
+- Incremental ingestion release finalization:
+  - documented `incremental_mode: file`, entity `state.path`, and the `floe state inspect/reset` CLI flow
+  - refreshed the repository example config to show file-based incremental ingestion state explicitly
+  - clarified incremental planning and state-commit behavior in the docs summary/reference set
+- Packaging/version updates:
+  - bumped `floe-core` and `floe-cli` to `0.3.5`
+
 ## v0.3.4
 
 - Databricks runner foundation for orchestrator connectors:

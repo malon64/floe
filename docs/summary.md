@@ -43,8 +43,9 @@ important references so you can quickly find the right guide.
 
 ## Bootstrap & CLI productivity
 
-- CLI usage (`validate`, `run`, `manifest generate`, `add-entity`): [docs/cli.md](cli.md)
+- CLI usage (`validate`, `run`, `manifest generate`, `add-entity`, `state inspect`, `state reset`): [docs/cli.md](cli.md)
 - `floe add-entity` can bootstrap a missing config file and infer entity name/format from input path extensions (CSV/JSON/Parquet).
+- `floe state inspect` / `floe state reset` help manage per-entity incremental state for `incremental_mode: file`.
 
 ## Benchmarking & development
 
@@ -53,6 +54,7 @@ important references so you can quickly find the right guide.
 ## Current boundaries
 
 - Floe supports partitioned Delta (`partition_by`) and partitioned Iceberg (`partition_spec`) writes.
+- File-based incremental ingestion is implemented. Row-based incremental mode remains a contract-level value for future work.
 - Floe reports write-time metrics/metadata for accepted outputs (format-dependent), including Delta/Iceberg table versioning metadata and file sizing metrics where available.
 - Floe does not perform table optimization/maintenance (for example Delta optimize/vacuum or Iceberg compaction/maintenance); run those as separate jobs.
 - Iceberg schema evolution and merge/upsert workflows are out of scope in current releases.

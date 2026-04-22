@@ -11,6 +11,9 @@ report:
 
 entities:
   - name: "customer"
+    incremental_mode: "file"
+    state:
+      path: "./state/customer.json"
 
     metadata:
       data_product: "customer_master"
@@ -27,6 +30,7 @@ entities:
         separator: ","
         encoding: "utf-8"
         null_values: ["", "NULL", "null"]
+        glob: "*.csv"
       cast_mode: "strict"   # strict | coerce
 
     sink:

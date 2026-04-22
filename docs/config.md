@@ -22,6 +22,9 @@ entities:
   - name: "customer"
     domain: "sales"
     metadata: { ... }
+    incremental_mode: "file"
+    state:
+      path: "./state/customer.json"
     source:
       format: "csv"
       path: "{{domain.incoming_dir}}/customer"
@@ -118,6 +121,30 @@ Free-form entity metadata. Supported keys: `data_product`, `domain`, `owner`,
 ### `domain` (optional)
 Reference to a domain defined in `domains`. When set, `{{domain.incoming_dir}}`
 is available for templating within that entity.
+
+### `incremental_mode` (optional)
+
+- Controls incremental ingestion behavior for the entity.
+- Supported values:
+  - `none` (default)
+  - `archive`
+  - `file`
+  - `row` (reserved contract value, not runtime-enabled in this release)
+- `incremental_mode: archive` requires `sink.archive`.
+- `incremental_mode: file` enables per-file state tracking and skip logic.
+- For backward compatibility, `sink.archive` without `incremental_mode` is still
+  treated as archive mode, but new configs should set `incremental_mode: archive`
+  explicitly.
+
+### `state` (optional)
+
+- Entity-local state settings used by incremental ingestion.
+- `state.path` (optional)
+  - Overrides the local file used to store entity state.
+  - Must be a local path, not `s3://`, `gs://`, or `abfs://`.
+  - When the config itself is remote, the override must be an absolute local path.
+  - If omitted and `incremental_mode: file` is used, Floe derives the path under the
+    source root as `.floe/state/<entity>/state.json`.
 
 ### `source` (required)
 

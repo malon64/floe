@@ -15,6 +15,7 @@ Start here: [docs/summary.md](docs/summary.md)
 - Schema enforcement and type casting (`strict` vs `coerce`)
 - Nullability checks (`not_null`)
 - Uniqueness checks (`unique`)
+- Incremental ingestion with per-entity file state tracking (`incremental_mode: file`)
 - Policy behavior: `warn` / `reject` / `abort`
 - Accepted vs rejected outputs for clean separation
 - JSON run reports for observability and audit
@@ -148,6 +149,27 @@ Report details: [docs/report.md](docs/report.md)
 - `abort`: reject the entire file on first violation
 
 Checks and policy details: [docs/checks.md](docs/checks.md)
+
+## Incremental ingestion
+
+For file-based incremental ingestion, set `incremental_mode: "file"` on an entity.
+Floe records processed file metadata in a per-entity state file and skips files it
+has already ingested unchanged on later runs.
+
+By default the state file lives under the source root:
+
+- local source dir `./in/customer` → `./in/customer/.floe/state/customer/state.json`
+- local source file `./in/customer.csv` → `./in/.floe/state/customer/state.json`
+
+You can override the location with `state.path` when you want the state file in a
+separate local directory.
+
+Inspect or intentionally reset that state with:
+
+```bash
+floe state inspect -c example/config.yml --entity customer
+floe state reset -c example/config.yml --entity customer --yes
+```
 
 ## Supported formats
 

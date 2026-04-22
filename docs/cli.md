@@ -28,6 +28,14 @@
   - `--dry-run` prints the updated YAML without writing.
   - `--output <new.yml>` writes the updated config to a new file instead of overwriting `-c`.
 
+- `floe state inspect -c <config> --entity <name>`
+  - Print the resolved incremental state path for an entity and the current state JSON when present.
+  - Helpful for confirming what Floe has already seen in `incremental_mode: file`.
+
+- `floe state reset -c <config> --entity <name> --yes`
+  - Remove the local state file for an entity.
+  - Requires `--yes` because the next incremental run may reprocess previously tracked files.
+
 ### Dry-run behavior
 
 - Dry-run resolves input files/objects using the same planning path as real runs.
@@ -54,6 +62,10 @@
   - `floe add-entity -c example/config.yml --input ./in/customers.csv --format csv --name customers`
 - Bootstrap a new config file and infer name/format:
   - `floe add-entity -c new-config.yml --input ./in/orders.csv`
+- Inspect incremental state:
+  - `floe state inspect -c example/config.yml --entity customer`
+- Reset incremental state:
+  - `floe state reset -c example/config.yml --entity customer --yes`
 - Report output:
   - `example/report/run_<run_id>/run.summary.json`
   - `example/report/run_<run_id>/customer/run.json`

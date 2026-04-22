@@ -11,7 +11,9 @@ entity. The order is deterministic and is reflected in reports.
    - In normal runs, resolved cloud objects are then downloaded to temp files.
    - In dry-run, resolution is list-only for cloud inputs (no downloads, no writes).
 2. Resolve storage targets for accepted/rejected/report outputs.
-3. Prepare output directories if needed.
+3. If `incremental_mode: file` is enabled, load the entity state file and filter out
+   files already processed with matching metadata.
+4. Prepare output directories if needed.
 
 ### B) File-level prechecks (per file)
 
@@ -55,6 +57,12 @@ Accepted rows from all input files are concatenated in file order and written
 once to the accepted sink. For parquet sinks, Floe writes a dataset directory
 containing `part-00000.parquet` (and additional parts when chunking is enabled
 via `sink.accepted.options.max_size_per_file`).
+
+### F) Incremental state commit
+
+When `incremental_mode: file` is enabled and the entity finishes successfully,
+Floe updates the entity state file with the processed file URIs plus observed
+size/mtime metadata. Later runs reuse that state to skip unchanged inputs.
 
 ## Severity behavior
 

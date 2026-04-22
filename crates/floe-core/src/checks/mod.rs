@@ -4,17 +4,19 @@ pub mod normalize;
 mod not_null;
 mod unique;
 
-use polars::prelude::{BooleanChunked, DataFrame, NamedFrom, NewChunkedArray, Series};
+use polars::prelude::{BooleanChunked, ChunkFull, DataFrame, NamedFrom, NewChunkedArray, Series};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{ConfigError, FloeResult};
 
-pub use cast::{cast_mismatch_counts, cast_mismatch_errors, cast_mismatch_errors_sparse};
+pub use cast::{
+    cast_mismatch_counts, cast_mismatch_errors, cast_mismatch_errors_sparse, cast_mismatch_expr,
+};
 pub use mismatch::{
     apply_mismatch_plan, apply_schema_mismatch, plan_schema_mismatch, resolve_mismatch_columns,
     top_level_declared_columns, MismatchOutcome,
 };
-pub use not_null::{not_null_counts, not_null_errors, not_null_errors_sparse};
+pub use not_null::{not_null_counts, not_null_errors, not_null_errors_sparse, not_null_expr};
 pub use unique::{
     resolve_schema_unique_keys, unique_counts, unique_errors, unique_errors_sparse,
     UniqueConstraint, UniqueConstraintResult, UniqueTracker,
@@ -242,6 +244,23 @@ pub fn row_error_formatter(
             "unsupported report.formatter: {other}"
         )))),
     }
+}
+
+pub fn accept_mask_from_error_cols(
+    df: &DataFrame,
+    err_cols: &[&str],
+) -> FloeResult<BooleanChunked> {
+    let mut accept_mask = BooleanChunked::full("floe_accept".into(), true, df.height());
+    for err_col in err_cols {
+        let errors = df.column(err_col).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "error column {err_col} not found: {err}"
+            )))
+        })?;
+        let no_error = errors.is_null();
+        accept_mask = &accept_mask & &no_error;
+    }
+    Ok(accept_mask)
 }
 
 pub fn build_accept_rows(errors_per_row: &[Vec<RowError>]) -> Vec<bool> {

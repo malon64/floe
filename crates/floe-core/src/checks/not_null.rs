@@ -1,4 +1,4 @@
-use polars::prelude::{AnyValue, DataFrame};
+use polars::prelude::{col, lit, AnyValue, DataFrame, Expr, NULL};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
@@ -83,6 +83,16 @@ pub fn not_null_errors_sparse(
     }
 
     Ok(errors)
+}
+
+pub fn not_null_expr(col_name: &str) -> (String, Expr) {
+    let err_col = format!("_e_nn_{col_name}");
+    let error_json = RowError::new("not_null", col_name, "required value missing").to_json();
+    let expr = polars::prelude::when(col(col_name).is_null())
+        .then(lit(error_json))
+        .otherwise(lit(NULL))
+        .alias(&err_col);
+    (err_col, expr)
 }
 
 pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<Vec<(String, u64)>> {

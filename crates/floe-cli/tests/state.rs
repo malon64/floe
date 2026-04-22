@@ -86,6 +86,19 @@ fn state_reset_requires_explicit_yes_flag() {
         .stderr(predicate::str::contains("rerun with --yes to confirm"));
 }
 
+fn assert_state_reset(config_path: &std::path::Path, state_path: &std::path::Path) {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["state", "reset", "-c"])
+        .arg(config_path)
+        .args(["--entity", "sales", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Entity: sales"))
+        .stdout(predicate::str::contains("State reset: removed state file"));
+
+    assert!(!state_path.exists());
+}
+
 #[test]
 fn state_reset_removes_existing_file() {
     let dir = tempdir().expect("tempdir");
@@ -98,13 +111,31 @@ fn state_reset_removes_existing_file() {
     )
     .expect("write state");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
-    cmd.args(["state", "reset", "-c"])
-        .arg(&config_path)
-        .args(["--entity", "sales", "--yes"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("State reset: removed state file"));
+    assert_state_reset(&config_path, &state_path);
+}
 
-    assert!(!state_path.exists());
+#[test]
+fn state_reset_removes_malformed_state_file() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = write_config(&dir);
+    let state_path = dir.path().join("incoming/.floe/state/sales/state.json");
+    fs::create_dir_all(state_path.parent().expect("parent")).expect("mkdir state parent");
+    fs::write(&state_path, "{not valid json").expect("write malformed state");
+
+    assert_state_reset(&config_path, &state_path);
+}
+
+#[test]
+fn state_reset_removes_mismatched_state_file() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = write_config(&dir);
+    let state_path = dir.path().join("incoming/.floe/state/sales/state.json");
+    fs::create_dir_all(state_path.parent().expect("parent")).expect("mkdir state parent");
+    fs::write(
+        &state_path,
+        r#"{"schema":"wrong.schema","entity":"other","updated_at":null,"files":{}}"#,
+    )
+    .expect("write mismatched state");
+
+    assert_state_reset(&config_path, &state_path);
 }

@@ -171,16 +171,7 @@ pub fn inspect_entity_state(
     config_base: ConfigBase,
     entity_name: &str,
 ) -> FloeResult<EntityStateInspection> {
-    let entity = config
-        .entities
-        .iter()
-        .find(|entity| entity.name == entity_name)
-        .ok_or_else(|| {
-            Box::new(ConfigError(format!("entity not found: {entity_name}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
-    let resolver = StorageResolver::new(config, config_base)?;
-    let path = resolve_entity_state_path(&resolver, entity)?;
+    let (entity, path) = resolve_entity_state_target(config, config_base, entity_name)?;
     let state = match &path.local_path {
         Some(local_path) => read_entity_state(local_path)?
             .map(|state| validate_entity_state(entity, state))
@@ -201,11 +192,12 @@ pub fn reset_entity_state_with_base(
     config_base: ConfigBase,
     entity_name: &str,
 ) -> FloeResult<bool> {
-    let inspection = inspect_entity_state_with_base(config_path, config_base, entity_name)?;
-    let Some(local_path) = inspection.path.local_path.as_ref() else {
+    let config = crate::load_config(config_path)?;
+    let (entity, path) = resolve_entity_state_target(&config, config_base, entity_name)?;
+    let Some(local_path) = path.local_path.as_ref() else {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} state path is not local and cannot be reset: {}",
-            inspection.entity_name, inspection.path.uri
+            entity.name, path.uri
         ))));
     };
 
@@ -215,6 +207,24 @@ pub fn reset_entity_state_with_base(
 
     fs::remove_file(local_path)?;
     Ok(true)
+}
+
+fn resolve_entity_state_target<'a>(
+    config: &'a RootConfig,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<(&'a EntityConfig, ResolvedPath)> {
+    let entity = config
+        .entities
+        .iter()
+        .find(|entity| entity.name == entity_name)
+        .ok_or_else(|| {
+            Box::new(ConfigError(format!("entity not found: {entity_name}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+    let resolver = StorageResolver::new(config, config_base)?;
+    let path = resolve_entity_state_path(&resolver, entity)?;
+    Ok((entity, path))
 }
 
 pub fn write_entity_state_atomic(path: &Path, state: &EntityState) -> FloeResult<()> {

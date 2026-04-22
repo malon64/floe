@@ -558,20 +558,20 @@ fn main() -> FloeResult<()> {
                 }
 
                 let config_location = resolve_or_exit(&config);
-                let inspection = match inspect_entity_state_with_base(
-                    &config_location.path,
-                    config_location.base.clone(),
-                    &entity,
-                ) {
-                    Ok(inspection) => inspection,
-                    Err(err) => exit_with_error(err),
-                };
                 let removed = match reset_entity_state_with_base(
                     &config_location.path,
                     config_location.base.clone(),
                     &entity,
                 ) {
                     Ok(removed) => removed,
+                    Err(err) => exit_with_error(err),
+                };
+                let inspection = match inspect_entity_state_with_base(
+                    &config_location.path,
+                    config_location.base.clone(),
+                    &entity,
+                ) {
+                    Ok(inspection) => inspection,
                     Err(err) => exit_with_error(err),
                 };
 

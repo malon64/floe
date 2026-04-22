@@ -887,8 +887,7 @@ entities:
     assert_eq!(inspection.state, Some(state));
 }
 
-#[test]
-fn reset_entity_state_removes_existing_state_file() {
+fn write_reset_test_config() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let source_dir = temp_dir.path().join("incoming");
     fs::create_dir_all(&source_dir).expect("mkdir source");
@@ -927,6 +926,13 @@ entities:
         .expect("state path")
         .local_path
         .expect("local path");
+
+    (temp_dir, config_path, state_path)
+}
+
+#[test]
+fn reset_entity_state_removes_existing_state_file() {
+    let (_temp_dir, config_path, state_path) = write_reset_test_config();
     write_entity_state_atomic(&state_path, &EntityState::new("sales")).expect("write state");
 
     let removed = reset_entity_state_with_base(
@@ -935,6 +941,44 @@ entities:
         "sales",
     )
     .expect("reset state");
+
+    assert!(removed);
+    assert!(!state_path.exists());
+}
+
+#[test]
+fn reset_entity_state_removes_malformed_state_file() {
+    let (_temp_dir, config_path, state_path) = write_reset_test_config();
+    fs::create_dir_all(state_path.parent().expect("parent")).expect("mkdir state parent");
+    fs::write(&state_path, "{not valid json").expect("write malformed state");
+
+    let removed = reset_entity_state_with_base(
+        &config_path,
+        ConfigBase::local_from_path(&config_path),
+        "sales",
+    )
+    .expect("reset malformed state");
+
+    assert!(removed);
+    assert!(!state_path.exists());
+}
+
+#[test]
+fn reset_entity_state_removes_mismatched_state_file() {
+    let (_temp_dir, config_path, state_path) = write_reset_test_config();
+    fs::create_dir_all(state_path.parent().expect("parent")).expect("mkdir state parent");
+    fs::write(
+        &state_path,
+        r#"{"schema":"wrong.schema","entity":"other","updated_at":null,"files":{}}"#,
+    )
+    .expect("write mismatched state");
+
+    let removed = reset_entity_state_with_base(
+        &config_path,
+        ConfigBase::local_from_path(&config_path),
+        "sales",
+    )
+    .expect("reset mismatched state");
 
     assert!(removed);
     assert!(!state_path.exists());

@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::config::{EntityConfig, ResolvedPath, StorageResolver};
+use crate::config::{
+    ConfigBase, EntityConfig, IncrementalMode, ResolvedPath, RootConfig, StorageResolver,
+};
 use crate::io::storage::extensions;
 use crate::{ConfigError, FloeResult};
 
@@ -37,6 +39,14 @@ pub struct EntityFileState {
     pub processed_at: String,
     pub size: Option<u64>,
     pub mtime: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntityStateInspection {
+    pub entity_name: String,
+    pub incremental_mode: IncrementalMode,
+    pub path: ResolvedPath,
+    pub state: Option<EntityState>,
 }
 
 pub fn resolve_entity_state_path(
@@ -147,6 +157,76 @@ pub fn read_entity_state(path: &Path) -> FloeResult<Option<EntityState>> {
     Ok(Some(state))
 }
 
+pub fn inspect_entity_state_with_base(
+    config_path: &Path,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<EntityStateInspection> {
+    let config = crate::load_config(config_path)?;
+    inspect_entity_state(&config, config_base, entity_name)
+}
+
+pub fn inspect_entity_state(
+    config: &RootConfig,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<EntityStateInspection> {
+    let (entity, path) = resolve_entity_state_target(config, config_base, entity_name)?;
+    let state = match &path.local_path {
+        Some(local_path) => read_entity_state(local_path)?
+            .map(|state| validate_entity_state(entity, state))
+            .transpose()?,
+        None => None,
+    };
+
+    Ok(EntityStateInspection {
+        entity_name: entity.name.clone(),
+        incremental_mode: entity.incremental_mode,
+        path,
+        state,
+    })
+}
+
+pub fn reset_entity_state_with_base(
+    config_path: &Path,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<bool> {
+    let config = crate::load_config(config_path)?;
+    let (entity, path) = resolve_entity_state_target(&config, config_base, entity_name)?;
+    let Some(local_path) = path.local_path.as_ref() else {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} state path is not local and cannot be reset: {}",
+            entity.name, path.uri
+        ))));
+    };
+
+    if !local_path.exists() {
+        return Ok(false);
+    }
+
+    fs::remove_file(local_path)?;
+    Ok(true)
+}
+
+fn resolve_entity_state_target<'a>(
+    config: &'a RootConfig,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<(&'a EntityConfig, ResolvedPath)> {
+    let entity = config
+        .entities
+        .iter()
+        .find(|entity| entity.name == entity_name)
+        .ok_or_else(|| {
+            Box::new(ConfigError(format!("entity not found: {entity_name}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+    let resolver = StorageResolver::new(config, config_base)?;
+    let path = resolve_entity_state_path(&resolver, entity)?;
+    Ok((entity, path))
+}
+
 pub fn write_entity_state_atomic(path: &Path, state: &EntityState) -> FloeResult<()> {
     let parent = path.parent().ok_or_else(|| {
         Box::new(ConfigError(format!(
@@ -255,4 +335,22 @@ fn is_path_separator(ch: char) -> bool {
 
 fn is_remote_uri(value: &str) -> bool {
     value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
+}
+
+pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeResult<EntityState> {
+    if state.schema != ENTITY_STATE_SCHEMA_V1 {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} state schema mismatch: expected {}, got {}",
+            entity.name, ENTITY_STATE_SCHEMA_V1, state.schema
+        ))));
+    }
+
+    if state.entity != entity.name {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} state entity mismatch: expected {}, got {}",
+            entity.name, entity.name, state.entity
+        ))));
+    }
+
+    Ok(state)
 }

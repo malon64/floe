@@ -5,8 +5,9 @@ use std::path::Path;
 use floe_core::config::{ConfigBase, StorageResolver};
 use floe_core::load_config;
 use floe_core::state::{
-    read_entity_state, resolve_entity_state_path, write_entity_state_atomic, EntityFileState,
-    EntityState, ENTITY_STATE_SCHEMA_V1,
+    inspect_entity_state_with_base, read_entity_state, reset_entity_state_with_base,
+    resolve_entity_state_path, write_entity_state_atomic, EntityFileState, EntityState,
+    ENTITY_STATE_SCHEMA_V1,
 };
 
 fn load_config_from_yaml(
@@ -813,4 +814,128 @@ fn read_entity_state_returns_none_when_missing() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let missing = temp_dir.path().join("missing/state.json");
     assert!(read_entity_state(&missing).expect("read missing").is_none());
+}
+
+#[test]
+fn inspect_entity_state_reports_current_state() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let source_dir = temp_dir.path().join("incoming");
+    fs::create_dir_all(&source_dir).expect("mkdir source");
+    let config_path = temp_dir.path().join("floe.yml");
+    fs::write(
+        &config_path,
+        format!(
+            r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+            source_dir.display(),
+            temp_dir.path().join("out").display()
+        ),
+    )
+    .expect("write config");
+
+    let config = load_config(&config_path).expect("load config");
+    let resolver =
+        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+    let state_path = resolve_entity_state_path(&resolver, &config.entities[0])
+        .expect("state path")
+        .local_path
+        .expect("local path");
+    let state = EntityState {
+        schema: ENTITY_STATE_SCHEMA_V1.to_string(),
+        entity: "sales".to_string(),
+        updated_at: Some("2026-04-22T09:00:00Z".to_string()),
+        files: BTreeMap::from([(
+            "local:///tmp/incoming/sales.csv".to_string(),
+            EntityFileState {
+                processed_at: "2026-04-22T08:59:00Z".to_string(),
+                size: Some(42),
+                mtime: Some("2026-04-22T08:00:00Z".to_string()),
+            },
+        )]),
+    };
+    write_entity_state_atomic(&state_path, &state).expect("write state");
+
+    let inspection = inspect_entity_state_with_base(
+        &config_path,
+        ConfigBase::local_from_path(&config_path),
+        "sales",
+    )
+    .expect("inspect state");
+
+    assert_eq!(inspection.entity_name, "sales");
+    assert_eq!(inspection.incremental_mode.as_str(), "file");
+    assert_eq!(
+        inspection.path.local_path.as_deref(),
+        Some(state_path.as_path())
+    );
+    assert_eq!(inspection.state, Some(state));
+}
+
+#[test]
+fn reset_entity_state_removes_existing_state_file() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let source_dir = temp_dir.path().join("incoming");
+    fs::create_dir_all(&source_dir).expect("mkdir source");
+    let config_path = temp_dir.path().join("floe.yml");
+    fs::write(
+        &config_path,
+        format!(
+            r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+            source_dir.display(),
+            temp_dir.path().join("out").display()
+        ),
+    )
+    .expect("write config");
+
+    let config = load_config(&config_path).expect("load config");
+    let resolver =
+        StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
+    let state_path = resolve_entity_state_path(&resolver, &config.entities[0])
+        .expect("state path")
+        .local_path
+        .expect("local path");
+    write_entity_state_atomic(&state_path, &EntityState::new("sales")).expect("write state");
+
+    let removed = reset_entity_state_with_base(
+        &config_path,
+        ConfigBase::local_from_path(&config_path),
+        "sales",
+    )
+    .expect("reset state");
+
+    assert!(removed);
+    assert!(!state_path.exists());
 }

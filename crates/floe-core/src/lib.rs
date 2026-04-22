@@ -15,6 +15,7 @@ pub mod state;
 pub mod vars;
 pub mod warnings;
 
+pub use crate::state::{inspect_entity_state_with_base, reset_entity_state_with_base};
 pub use add_entity::{add_entity_to_config, AddEntityOptions, AddEntityOutcome};
 pub use checks as check;
 pub use config::{resolve_config_location, ConfigLocation};

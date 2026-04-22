@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, load_config, parse_profile,
-    resolve_config_location, run_with_base, validate_profile, validate_with_base, AddEntityOptions,
-    FloeResult, RunOptions, ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base, load_config,
+    parse_profile, reset_entity_state_with_base, resolve_config_location, run_with_base,
+    validate_profile, validate_with_base, AddEntityOptions, FloeResult, RunOptions,
+    ValidateOptions,
 };
 use std::io::Write;
 
@@ -82,6 +83,14 @@ const ADD_ENTITY_LONG_ABOUT: &str = concat!(
     "\n",
     "Example:\n",
     "  floe add-entity -c config.yml --input ./in/customers.csv\n",
+);
+
+const STATE_LONG_ABOUT: &str = concat!(
+    "Inspect or intentionally reset per-entity incremental state.\n",
+    "\n",
+    "Examples:\n",
+    "  floe state inspect -c example/config.yml --entity customers\n",
+    "  floe state reset -c example/config.yml --entity customers --yes\n",
 );
 
 mod logging;
@@ -177,6 +186,31 @@ enum Command {
         output: Option<String>,
         #[arg(long, help = "Print the updated YAML without writing the file")]
         dry_run: bool,
+    },
+    #[command(about = "Inspect or reset entity incremental state", long_about = STATE_LONG_ABOUT)]
+    State {
+        #[command(subcommand)]
+        command: StateCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum StateCommand {
+    #[command(about = "Inspect entity state")]
+    Inspect {
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
+        #[arg(long, help = "Entity name")]
+        entity: String,
+    },
+    #[command(about = "Reset entity state")]
+    Reset {
+        #[arg(short, long, help = "Path or URI to the Floe config file")]
+        config: String,
+        #[arg(long, help = "Entity name")]
+        entity: String,
+        #[arg(long, help = "Required confirmation to delete the state file")]
+        yes: bool,
     },
 }
 
@@ -470,5 +504,102 @@ fn main() -> FloeResult<()> {
             let _ = out.flush();
             Ok(())
         }
+        Command::State { command } => match command {
+            StateCommand::Inspect { config, entity } => {
+                let config_location = resolve_or_exit(&config);
+                let inspection = match inspect_entity_state_with_base(
+                    &config_location.path,
+                    config_location.base.clone(),
+                    &entity,
+                ) {
+                    Ok(inspection) => inspection,
+                    Err(err) => exit_with_error(err),
+                };
+
+                let mut out = std::io::stdout().lock();
+                let _ = writeln!(out, "Entity: {}", inspection.entity_name);
+                let _ = writeln!(
+                    out,
+                    "Incremental mode: {}",
+                    inspection.incremental_mode.as_str()
+                );
+                let _ = writeln!(out, "State path: {}", inspection.path.uri);
+                match inspection.state {
+                    Some(state) => {
+                        let _ = writeln!(out, "State exists: yes");
+                        let _ = writeln!(out, "Tracked files: {}", state.files.len());
+                        let _ = writeln!(
+                            out,
+                            "Updated at: {}",
+                            state.updated_at.as_deref().unwrap_or("(unknown)")
+                        );
+                        let _ = writeln!(out);
+                        let _ = serde_json::to_writer_pretty(&mut out, &state);
+                        let _ = writeln!(out);
+                    }
+                    None => {
+                        let _ = writeln!(out, "State exists: no");
+                        let _ = writeln!(out, "Tracked files: 0");
+                    }
+                }
+                let _ = out.flush();
+                Ok(())
+            }
+            StateCommand::Reset {
+                config,
+                entity,
+                yes,
+            } => {
+                if !yes {
+                    exit_with_error(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "state reset is destructive, rerun with --yes to confirm",
+                    )));
+                }
+
+                let config_location = resolve_or_exit(&config);
+                let inspection = match inspect_entity_state_with_base(
+                    &config_location.path,
+                    config_location.base.clone(),
+                    &entity,
+                ) {
+                    Ok(inspection) => inspection,
+                    Err(err) => exit_with_error(err),
+                };
+                let removed = match reset_entity_state_with_base(
+                    &config_location.path,
+                    config_location.base.clone(),
+                    &entity,
+                ) {
+                    Ok(removed) => removed,
+                    Err(err) => exit_with_error(err),
+                };
+
+                let mut out = std::io::stdout().lock();
+                let _ = writeln!(out, "Entity: {}", inspection.entity_name);
+                let _ = writeln!(out, "State path: {}", inspection.path.uri);
+                if removed {
+                    let _ = writeln!(out, "State reset: removed state file");
+                } else {
+                    let _ = writeln!(out, "State reset: no state file found");
+                }
+                let _ = out.flush();
+                Ok(())
+            }
+        },
     }
+}
+
+fn resolve_or_exit(config: &str) -> floe_core::ConfigLocation {
+    match resolve_config_location(config) {
+        Ok(location) => location,
+        Err(err) => exit_with_error(err),
+    }
+}
+
+fn exit_with_error(err: Box<dyn std::error::Error + Send + Sync>) -> ! {
+    let mut err_out = std::io::stderr().lock();
+    let _ = writeln!(err_out, "Error: {err}");
+    let _ = err_out.flush();
+    std::process::exit(1);
 }

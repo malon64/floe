@@ -8,8 +8,8 @@ use crate::report::{
 };
 use crate::run::RunContext;
 use crate::state::{
-    read_entity_state, resolve_entity_state_path, write_entity_state_atomic, EntityFileState,
-    EntityState,
+    read_entity_state, resolve_entity_state_path, validate_entity_state, write_entity_state_atomic,
+    EntityFileState, EntityState,
 };
 use crate::{config, report, warnings, FloeResult};
 
@@ -40,7 +40,7 @@ pub(super) fn prepare_incremental_context(
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
     let existing = read_entity_state(&state_path)?
-        .map(|state| validate_loaded_state(entity, &state_path, state))
+        .map(|state| validate_entity_state(entity, state))
         .transpose()?
         .unwrap_or_else(|| EntityState::new(&entity.name));
 
@@ -98,34 +98,6 @@ pub(super) fn prepare_incremental_context(
             pending_entries,
         }),
     })
-}
-
-fn validate_loaded_state(
-    entity: &config::EntityConfig,
-    state_path: &std::path::Path,
-    state: EntityState,
-) -> FloeResult<EntityState> {
-    if state.schema != crate::state::ENTITY_STATE_SCHEMA_V1 {
-        return Err(Box::new(crate::ConfigError(format!(
-            "entity.name={} incremental_mode=file state schema mismatch at {}: expected {}, got {}",
-            entity.name,
-            state_path.display(),
-            crate::state::ENTITY_STATE_SCHEMA_V1,
-            state.schema
-        ))));
-    }
-
-    if state.entity != entity.name {
-        return Err(Box::new(crate::ConfigError(format!(
-            "entity.name={} incremental_mode=file state entity mismatch at {}: expected {}, got {}",
-            entity.name,
-            state_path.display(),
-            entity.name,
-            state.entity
-        ))));
-    }
-
-    Ok(state)
 }
 
 fn file_state_matches(recorded: &EntityFileState, input_file: &InputFile) -> bool {

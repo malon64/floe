@@ -283,6 +283,39 @@ entities:
 }
 
 #[test]
+fn parse_config_maps_legacy_sink_archive_to_resolved_archive_mode() {
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      archive:
+        path: "/tmp/archive"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+
+    assert_eq!(config.entities[0].incremental_mode, IncrementalMode::None);
+    assert_eq!(
+        config.entities[0].resolved_incremental_mode(),
+        IncrementalMode::Archive
+    );
+    assert!(config.entities[0].archive_enabled());
+}
+
+#[test]
 fn parse_config_rejects_empty_entity_state_path_during_validation() {
     let yaml = r#"
 version: "0.1"

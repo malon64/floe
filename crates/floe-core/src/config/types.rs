@@ -54,6 +54,20 @@ pub struct EntityConfig {
     pub schema: SchemaConfig,
 }
 
+impl EntityConfig {
+    pub fn resolved_incremental_mode(&self) -> IncrementalMode {
+        if self.incremental_mode == IncrementalMode::None && self.sink.archive.is_some() {
+            IncrementalMode::Archive
+        } else {
+            self.incremental_mode
+        }
+    }
+
+    pub fn archive_enabled(&self) -> bool {
+        self.resolved_incremental_mode() == IncrementalMode::Archive && self.sink.archive.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IncrementalMode {
     #[default]

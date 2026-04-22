@@ -66,6 +66,11 @@ $defs:
         $ref: "#/$defs/entity_metadata"
       domain:
         type: string
+      incremental_mode:
+        type: string
+        enum: [none, archive, file, row]
+      state:
+        $ref: "#/$defs/entity_state"
       source:
         $ref: "#/$defs/source"
       sink:
@@ -113,6 +118,13 @@ $defs:
         type: array
         items:
           type: string
+
+  entity_state:
+    type: object
+    additionalProperties: false
+    properties:
+      path:
+        type: string
 
   env:
     type: object

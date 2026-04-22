@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::config::{
-    CatalogDefinition, EntityConfig, RootConfig, SourceOptions, StorageDefinition,
+    CatalogDefinition, EntityConfig, IncrementalMode, RootConfig, SourceOptions, StorageDefinition,
 };
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
@@ -135,6 +135,36 @@ fn validate_state(entity: &EntityConfig) -> FloeResult<()> {
                 "entity.name={} entity.state.path must not be empty",
                 entity.name
             ))));
+        }
+    }
+
+    if entity.incremental_mode == IncrementalMode::Archive && entity.sink.archive.is_none() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} incremental_mode=archive requires sink.archive",
+            entity.name
+        ))));
+    }
+
+    if entity.sink.archive.is_some() {
+        match entity.incremental_mode {
+            IncrementalMode::None => warnings::emit(
+                "validate",
+                Some(&entity.name),
+                None,
+                Some("incremental_archive_legacy"),
+                &format!(
+                    "entity.name={} sink.archive without incremental_mode is deprecated; treating it as incremental_mode=archive for backward compatibility",
+                    entity.name
+                ),
+            ),
+            IncrementalMode::File | IncrementalMode::Row => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.archive conflicts with incremental_mode={}; use incremental_mode=archive or remove sink.archive",
+                    entity.name,
+                    entity.incremental_mode.as_str()
+                ))));
+            }
+            IncrementalMode::Archive => {}
         }
     }
 

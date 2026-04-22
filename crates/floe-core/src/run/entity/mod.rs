@@ -147,24 +147,28 @@ pub(super) fn run_entity(
         warnings_total: 0,
         errors_total: 0,
     };
-    let archive_target = entity
-        .sink
-        .archive
-        .as_ref()
-        .map(|archive| {
-            let storage_name = archive
-                .storage
-                .as_deref()
-                .or(entity.source.storage.as_deref());
-            let resolved = context.storage_resolver.resolve_path(
-                &entity.name,
-                "sink.archive.storage",
-                storage_name,
-                &archive.path,
-            )?;
-            Target::from_resolved(&resolved)
-        })
-        .transpose()?;
+    let archive_target = if entity.archive_enabled() {
+        entity
+            .sink
+            .archive
+            .as_ref()
+            .map(|archive| {
+                let storage_name = archive
+                    .storage
+                    .as_deref()
+                    .or(entity.source.storage.as_deref());
+                let resolved = context.storage_resolver.resolve_path(
+                    &entity.name,
+                    "sink.archive.storage",
+                    storage_name,
+                    &archive.path,
+                )?;
+                Target::from_resolved(&resolved)
+            })
+            .transpose()?
+    } else {
+        None
+    };
     let mut file_timings_ms =
         Vec::with_capacity(input_files.len() + incremental.skipped_reports.len());
     for skipped in incremental.skipped_reports {

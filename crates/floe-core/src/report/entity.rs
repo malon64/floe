@@ -80,7 +80,7 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
                         .unwrap_or_else(|| rejected.path.clone()),
                 }),
             archive: report::SinkArchiveEcho {
-                enabled: ctx.entity.sink.archive.is_some(),
+                enabled: ctx.entity.archive_enabled(),
                 path: ctx
                     .entity
                     .sink

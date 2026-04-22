@@ -34,28 +34,25 @@ fn list_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-#[test]
-fn archive_moves_only_processed_input_not_local_siblings() {
-    let temp_dir = tempfile::TempDir::new().expect("temp dir");
-    let root = temp_dir.path();
-    let input_dir = root.join("in");
-    let accepted_dir = root.join("out/accepted/customer");
-    let archive_dir = root.join("archive");
-    let report_dir = root.join("report");
-
-    fs::create_dir_all(&input_dir).expect("create input dir");
-    let processed = write_csv(&input_dir, "data.csv", "id,name\n1,alice\n");
-    let sibling = write_csv(&input_dir, "sibling.csv", "id,name\n99,keep\n");
-
-    let yaml = format!(
+fn archive_config(
+    report_dir: &Path,
+    source_path: &Path,
+    accepted_dir: &Path,
+    archive_dir: &Path,
+    incremental_mode: Option<&str>,
+) -> String {
+    let incremental_block = incremental_mode
+        .map(|mode| format!("    incremental_mode: \"{mode}\"\n"))
+        .unwrap_or_default();
+    format!(
         r#"version: "0.1"
 report:
   path: "{report_dir}"
 entities:
   - name: "customer"
-    source:
+{incremental_block}    source:
       format: "csv"
-      path: "{processed}"
+      path: "{source_path}"
     sink:
       accepted:
         format: "parquet"
@@ -72,9 +69,32 @@ entities:
           type: "string"
 "#,
         report_dir = report_dir.display(),
-        processed = processed.display(),
+        incremental_block = incremental_block,
+        source_path = source_path.display(),
         accepted_dir = accepted_dir.display(),
         archive_dir = archive_dir.display(),
+    )
+}
+
+#[test]
+fn archive_moves_only_processed_input_not_local_siblings() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer");
+    let archive_dir = root.join("archive");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    let processed = write_csv(&input_dir, "data.csv", "id,name\n1,alice\n");
+    let sibling = write_csv(&input_dir, "sibling.csv", "id,name\n99,keep\n");
+
+    let yaml = archive_config(
+        &report_dir,
+        &processed,
+        &accepted_dir,
+        &archive_dir,
+        Some("archive"),
     );
     let config_path = write_config(root, &yaml);
 
@@ -125,34 +145,12 @@ fn archive_repeated_runs_do_not_overwrite_same_source_filename() {
     fs::create_dir_all(&input_dir).expect("create input dir");
     let source_path = input_dir.join("data.csv");
 
-    let yaml = format!(
-        r#"version: "0.1"
-report:
-  path: "{report_dir}"
-entities:
-  - name: "customer"
-    source:
-      format: "csv"
-      path: "{source_path}"
-    sink:
-      accepted:
-        format: "parquet"
-        path: "{accepted_dir}"
-      archive:
-        path: "{archive_dir}"
-    policy:
-      severity: "warn"
-    schema:
-      columns:
-        - name: "id"
-          type: "string"
-        - name: "name"
-          type: "string"
-"#,
-        report_dir = report_dir.display(),
-        source_path = source_path.display(),
-        accepted_dir = accepted_dir.display(),
-        archive_dir = archive_dir.display(),
+    let yaml = archive_config(
+        &report_dir,
+        &source_path,
+        &accepted_dir,
+        &archive_dir,
+        Some("archive"),
     );
     let config_path = write_config(root, &yaml);
 
@@ -203,4 +201,36 @@ entities:
         .collect::<Vec<_>>();
     assert!(contents.iter().any(|content| content.contains("1,first")));
     assert!(contents.iter().any(|content| content.contains("2,second")));
+}
+
+#[test]
+fn legacy_archive_config_still_archives_inputs() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer");
+    let archive_dir = root.join("archive");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    let processed = write_csv(&input_dir, "data.csv", "id,name\n1,alice\n");
+    let yaml = archive_config(&report_dir, &processed, &accepted_dir, &archive_dir, None);
+    let config_path = write_config(root, &yaml);
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            run_id: Some("archive-legacy-compat".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect("run config");
+
+    assert_eq!(outcome.entity_outcomes[0].report.sink.archive.enabled, true);
+    assert!(!processed.exists(), "processed file should be archived");
+    assert_eq!(
+        list_files(&archive_entity_dir(&archive_dir, "customer")).len(),
+        1
+    );
 }

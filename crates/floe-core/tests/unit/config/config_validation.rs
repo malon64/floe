@@ -268,6 +268,64 @@ fn unsupported_incremental_mode_errors() {
 }
 
 #[test]
+fn archive_incremental_mode_requires_archive_sink() {
+    let entity = r#"  - name: "customer"
+    incremental_mode: "archive"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "incremental_mode=archive requires sink.archive",
+        ],
+    );
+}
+
+#[test]
+fn sink_archive_conflicts_with_file_incremental_mode() {
+    let entity = r#"  - name: "customer"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      archive:
+        path: "/tmp/archive"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+"#;
+    let yaml = base_config(entity);
+    assert_validation_error(
+        &yaml,
+        &[
+            "entity.name=customer",
+            "sink.archive conflicts with incremental_mode=file",
+        ],
+    );
+}
+
+#[test]
 fn xml_source_requires_row_tag() {
     let entity = r#"  - name: "customer"
     source:

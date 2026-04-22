@@ -227,7 +227,7 @@ fn legacy_archive_config_still_archives_inputs() {
     )
     .expect("run config");
 
-    assert_eq!(outcome.entity_outcomes[0].report.sink.archive.enabled, true);
+    assert!(outcome.entity_outcomes[0].report.sink.archive.enabled);
     assert!(!processed.exists(), "processed file should be archived");
     assert_eq!(
         list_files(&archive_entity_dir(&archive_dir, "customer")).len(),

@@ -5,7 +5,7 @@ use std::path::Path;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use serde_json::Value;
 
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::io::read::json_selector::{
     compact_json, evaluate_selector, parse_selector, SelectorToken, SelectorValue,
 };
@@ -314,7 +314,7 @@ impl InputAdapter for JsonInputAdapter {
     fn read_input_columns(
         &self,
         entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
         let json_mode = entity
@@ -323,7 +323,7 @@ impl InputAdapter for JsonInputAdapter {
             .as_ref()
             .and_then(|options| options.json_mode.as_deref())
             .unwrap_or("array");
-        let path = &input_file.source_local_path;
+        let path = &input_file.local_path;
         let read_result = match json_mode {
             "ndjson" => read_ndjson_columns(path),
             "array" => read_json_array_columns(path),
@@ -344,7 +344,7 @@ impl InputAdapter for JsonInputAdapter {
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -358,7 +358,7 @@ impl InputAdapter for JsonInputAdapter {
             .unwrap_or("array");
         let cast_mode = entity.source.cast_mode.as_deref().unwrap_or("strict");
         for input_file in files {
-            let path = &input_file.source_local_path;
+            let path = &input_file.local_path;
             let read_result = match json_mode {
                 "ndjson" => read_ndjson_file(path, columns, cast_mode),
                 "array" => read_json_array_file(path, columns, cast_mode),
@@ -383,7 +383,7 @@ impl InputAdapter for JsonInputAdapter {
                 }
                 Err(err) => {
                     inputs.push(ReadInput::FileError {
-                        input_file: input_file.clone(),
+                        input_file: input_file.file.clone(),
                         error: FileReadError {
                             rule: err.rule,
                             message: err.message,

@@ -102,7 +102,7 @@ pub(super) fn run_validate_split_phase(
 
     for prechecked in prechecked_inputs {
         let PrecheckedInput {
-            input_file,
+            input_file: local_file,
             input_columns,
             mismatch,
             file_timer,
@@ -110,7 +110,7 @@ pub(super) fn run_validate_split_phase(
         let read_parse_start = perf_enabled.then(Instant::now);
         let mut inputs = input_adapter.read_inputs_with_prechecked_columns(
             entity,
-            std::slice::from_ref(&input_file),
+            std::slice::from_ref(&local_file),
             read_columns,
             normalize_strategy,
             collect_raw,
@@ -154,7 +154,7 @@ pub(super) fn run_validate_split_phase(
                     .map(|target| {
                         write_rejected_raw_output(
                             target,
-                            &input_file,
+                            &local_file,
                             temp_dir,
                             runtime.storage(),
                             &run_context.storage_resolver,
@@ -200,6 +200,9 @@ pub(super) fn run_validate_split_phase(
                 file_reports.push(file_report);
                 file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
 
+                if local_file.is_ephemeral {
+                    let _ = std::fs::remove_file(&local_file.local_path);
+                }
                 if status == report::FileStatus::Aborted {
                     abort_run = true;
                     break;
@@ -464,7 +467,7 @@ pub(super) fn run_validate_split_phase(
                     let rejected_write_start = perf_enabled.then(Instant::now);
                     let rejected_path_value = write_rejected_raw_output(
                         rejected_target,
-                        &input_file,
+                        &local_file,
                         temp_dir,
                         runtime.storage(),
                         &run_context.storage_resolver,
@@ -607,6 +610,9 @@ pub(super) fn run_validate_split_phase(
             ts_ms: event_time_ms(),
         });
 
+        if local_file.is_ephemeral {
+            let _ = std::fs::remove_file(&local_file.local_path);
+        }
         if status == report::FileStatus::Aborted {
             abort_run = true;
             break;

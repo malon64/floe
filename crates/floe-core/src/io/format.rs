@@ -10,11 +10,22 @@ use crate::{check, config, io, ConfigError, FloeResult};
 #[derive(Debug, Clone)]
 pub struct InputFile {
     pub source_uri: String,
-    pub source_local_path: PathBuf,
     pub source_name: String,
     pub source_stem: String,
     pub source_size: Option<u64>,
     pub source_mtime: Option<String>,
+}
+
+/// An `InputFile` paired with a guaranteed local filesystem path.
+///
+/// For local sources the path is the normalized source path (no copy).
+/// For cloud sources the path is a temp file downloaded just-in-time;
+/// `is_ephemeral` is true and the file should be deleted after use.
+#[derive(Debug, Clone)]
+pub struct LocalInputFile {
+    pub file: InputFile,
+    pub local_path: PathBuf,
+    pub is_ephemeral: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -122,14 +133,14 @@ pub trait InputAdapter: Send + Sync {
     fn read_input_columns(
         &self,
         entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError>;
 
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -138,7 +149,7 @@ pub trait InputAdapter: Send + Sync {
     fn read_inputs_with_prechecked_columns(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -382,7 +393,7 @@ pub fn rejected_sink_adapter(format: &str) -> FloeResult<&'static dyn RejectedSi
 }
 
 pub(crate) fn read_input_from_df(
-    input_file: &InputFile,
+    input_file: &LocalInputFile,
     df: &DataFrame,
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
@@ -404,7 +415,7 @@ pub(crate) fn read_input_from_df(
 }
 
 pub(crate) fn finalize_read_input(
-    input_file: &InputFile,
+    input_file: &LocalInputFile,
     mut raw_df: Option<DataFrame>,
     mut typed_df: DataFrame,
     normalize_strategy: Option<&str>,
@@ -416,7 +427,7 @@ pub(crate) fn finalize_read_input(
         crate::checks::normalize::normalize_dataframe_columns(&mut typed_df, strategy)?;
     }
     Ok(ReadInput::Data {
-        input_file: input_file.clone(),
+        input_file: input_file.file.clone(),
         raw_df,
         typed_df,
     })

@@ -6,7 +6,7 @@ use apache_avro::{Reader, Schema};
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
 use crate::checks::normalize::normalize_name;
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct AvroInputAdapter;
@@ -239,10 +239,10 @@ impl InputAdapter for AvroInputAdapter {
     fn read_input_columns(
         &self,
         _entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
-        read_avro_schema_fields(&input_file.source_local_path).map_err(|err| FileReadError {
+        read_avro_schema_fields(&input_file.local_path).map_err(|err| FileReadError {
             rule: err.rule,
             message: err.message,
         })
@@ -251,7 +251,7 @@ impl InputAdapter for AvroInputAdapter {
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -264,7 +264,7 @@ impl InputAdapter for AvroInputAdapter {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
             match read_avro_file(
-                &input_file.source_local_path,
+                &input_file.local_path,
                 cast_mode,
                 &declared_columns,
                 normalize_strategy,
@@ -281,7 +281,7 @@ impl InputAdapter for AvroInputAdapter {
                 }
                 Err(err) => {
                     inputs.push(ReadInput::FileError {
-                        input_file: input_file.clone(),
+                        input_file: input_file.file.clone(),
                         error: FileReadError {
                             rule: err.rule,
                             message: err.message,

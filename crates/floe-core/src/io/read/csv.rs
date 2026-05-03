@@ -6,7 +6,7 @@ use polars::prelude::{
 };
 
 use crate::errors::{IoError, RunError};
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct DelimitedInputAdapter {
@@ -87,23 +87,23 @@ impl InputAdapter for DelimitedInputAdapter {
     fn read_input_columns(
         &self,
         entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
         let default_options = config::SourceOptions::defaults_for_format(self.format);
         let source_options = entity.source.options.as_ref().unwrap_or(&default_options);
-        resolve_input_columns(&input_file.source_local_path, source_options, columns).map_err(
-            |err| FileReadError {
+        resolve_input_columns(&input_file.local_path, source_options, columns).map_err(|err| {
+            FileReadError {
                 rule: format!("{}_read_error", self.format),
                 message: err.to_string(),
-            },
-        )
+            }
+        })
     }
 
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -113,7 +113,7 @@ impl InputAdapter for DelimitedInputAdapter {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
             let input_columns =
-                resolve_input_columns(&input_file.source_local_path, source_options, columns)?;
+                resolve_input_columns(&input_file.local_path, source_options, columns)?;
             inputs.push(read_csv_input_with_columns(
                 input_file,
                 source_options,
@@ -129,7 +129,7 @@ impl InputAdapter for DelimitedInputAdapter {
     fn read_inputs_with_prechecked_columns(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -152,14 +152,14 @@ impl InputAdapter for DelimitedInputAdapter {
 }
 
 fn read_csv_input_with_columns(
-    input_file: &InputFile,
+    input_file: &LocalInputFile,
     source_options: &config::SourceOptions,
     columns: &[config::ColumnConfig],
     normalize_strategy: Option<&str>,
     collect_raw: bool,
     input_columns: Vec<String>,
 ) -> FloeResult<ReadInput> {
-    let path = &input_file.source_local_path;
+    let path = &input_file.local_path;
     let typed_projection = if collect_raw {
         projected_columns(&input_columns, columns)
     } else {

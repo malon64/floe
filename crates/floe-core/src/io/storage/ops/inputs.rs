@@ -3,6 +3,7 @@ use std::time::SystemTime;
 
 use glob::{MatchOptions, Pattern};
 
+use crate::errors::RunError;
 use crate::io::storage::{planner, Target};
 use crate::{config, io, report, FloeResult};
 
@@ -91,6 +92,7 @@ pub fn resolve_inputs(
             let resolved =
                 adapter.resolve_local_inputs(config_dir, &entity.name, &entity.source, storage)?;
             let listed = build_local_listing(&resolved.files, storage_client);
+            // Download mode lists files for processing; ListOnly produces only URIs for dry-run.
             let files = match resolution_mode {
                 ResolveInputsMode::Download => {
                     build_local_inputs(&resolved.files, entity, storage_client)
@@ -120,30 +122,19 @@ fn resolve_cloud_inputs_for_prefix(
     storage: &str,
     location: &str,
     resolution_mode: ResolveInputsMode,
-    temp_dir: Option<&Path>,
+    _temp_dir: Option<&Path>,
 ) -> FloeResult<ResolvedInputs> {
     let objects = list_cloud_objects(client, prefix, adapter, entity, storage, location)?;
     let listed = objects.iter().map(|obj| obj.uri.clone()).collect();
+    // Download mode now lists metadata only; actual downloads happen JIT in the entity run.
     let files = match resolution_mode {
-        ResolveInputsMode::Download => {
-            let temp_dir = require_temp_dir(temp_dir, storage)?;
-            build_cloud_inputs(client, &objects, temp_dir, entity)?
-        }
+        ResolveInputsMode::Download => list_cloud_inputs(&objects, entity),
         ResolveInputsMode::ListOnly => Vec::new(),
     };
     Ok(ResolvedInputs {
         files,
         listed,
         mode: report::ResolvedInputMode::Directory,
-    })
-}
-
-fn require_temp_dir<'a>(temp_dir: Option<&'a Path>, label: &str) -> FloeResult<&'a Path> {
-    temp_dir.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-        Box::new(crate::errors::RunError(format!(
-            "{} tempdir missing",
-            label
-        )))
     })
 }
 
@@ -191,30 +182,28 @@ fn list_cloud_objects(
     Ok(filtered)
 }
 
-fn build_cloud_inputs(
-    client: &dyn crate::io::storage::StorageClient,
+/// Builds `InputFile` metadata from cloud object refs without downloading.
+/// Downloads happen later, JIT per file, via [`localize_input`].
+fn list_cloud_inputs(
     objects: &[io::storage::planner::ObjectRef],
-    temp_dir: &Path,
     entity: &config::EntityConfig,
-) -> FloeResult<Vec<io::format::InputFile>> {
-    let mut inputs = Vec::with_capacity(objects.len());
-    for object in objects {
-        let local_path = client.download_to_temp(&object.uri, temp_dir)?;
-        let source_name =
-            planner::file_name_from_key(&object.key).unwrap_or_else(|| entity.name.clone());
-        let source_stem =
-            planner::file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
-        let source_uri = object.uri.clone();
-        inputs.push(io::format::InputFile {
-            source_uri,
-            source_local_path: local_path,
-            source_name,
-            source_stem,
-            source_size: object.size,
-            source_mtime: object.last_modified.clone(),
-        });
-    }
-    Ok(inputs)
+) -> Vec<io::format::InputFile> {
+    objects
+        .iter()
+        .map(|object| {
+            let source_name =
+                planner::file_name_from_key(&object.key).unwrap_or_else(|| entity.name.clone());
+            let source_stem =
+                planner::file_stem_from_name(&source_name).unwrap_or_else(|| entity.name.clone());
+            io::format::InputFile {
+                source_uri: object.uri.clone(),
+                source_name,
+                source_stem,
+                source_size: object.size,
+                source_mtime: object.last_modified.clone(),
+            }
+        })
+        .collect()
 }
 
 fn build_local_inputs(
@@ -246,7 +235,6 @@ fn build_local_inputs(
                 .unwrap_or_else(|| normalized_path.display().to_string());
             io::format::InputFile {
                 source_uri: uri,
-                source_local_path: normalized_path,
                 source_name,
                 source_stem,
                 source_size: metadata.as_ref().map(|metadata| metadata.len()),
@@ -257,6 +245,54 @@ fn build_local_inputs(
             }
         })
         .collect()
+}
+
+/// Resolves an `InputFile` to a `LocalInputFile` with a guaranteed local path.
+///
+/// For cloud URIs (s3://, gs://, abfs://) the file is downloaded to `temp_dir`
+/// and `is_ephemeral` is set to `true` so callers can delete it after use.
+/// For local URIs the source path is used directly with no copy.
+pub fn localize_input(
+    input_file: io::format::InputFile,
+    storage_client: Option<&dyn crate::io::storage::StorageClient>,
+    temp_dir: Option<&Path>,
+) -> FloeResult<io::format::LocalInputFile> {
+    if is_cloud_uri(&input_file.source_uri) {
+        let client = storage_client.ok_or_else(|| {
+            Box::new(RunError(format!(
+                "storage client required to download {}",
+                input_file.source_uri
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let temp = temp_dir.ok_or_else(|| {
+            Box::new(RunError(format!(
+                "temp_dir required to download {}",
+                input_file.source_uri
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let local_path = client.download_to_temp(&input_file.source_uri, temp)?;
+        Ok(io::format::LocalInputFile {
+            file: input_file,
+            local_path,
+            is_ephemeral: true,
+        })
+    } else {
+        // Local URI: strip the "local://" scheme if present; the rest is the path.
+        let path_str = input_file.source_uri.trim_start_matches("local://");
+        Ok(io::format::LocalInputFile {
+            local_path: PathBuf::from(path_str),
+            file: input_file,
+            is_ephemeral: false,
+        })
+    }
+}
+
+fn is_cloud_uri(uri: &str) -> bool {
+    uri.starts_with("s3://")
+        || uri.starts_with("gs://")
+        || uri.starts_with("abfs://")
+        || uri.starts_with("az://")
+        || uri.starts_with("gcs://")
 }
 
 fn system_time_to_rfc3339(value: SystemTime) -> Option<String> {

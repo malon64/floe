@@ -6,7 +6,7 @@ use calamine::{open_workbook, Data, Reader, Xlsx};
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
 use crate::errors::IoError;
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct XlsxInputAdapter;
@@ -234,23 +234,22 @@ impl InputAdapter for XlsxInputAdapter {
     fn read_input_columns(
         &self,
         entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
         let options = XlsxOptions::from_source_options(entity.source.options.as_ref());
-        let header = read_xlsx_header(&input_file.source_local_path, &options).map_err(|err| {
-            FileReadError {
+        let header =
+            read_xlsx_header(&input_file.local_path, &options).map_err(|err| FileReadError {
                 rule: err.rule,
                 message: err.message,
-            }
-        })?;
+            })?;
         Ok(header)
     }
 
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -258,7 +257,7 @@ impl InputAdapter for XlsxInputAdapter {
         let options = XlsxOptions::from_source_options(entity.source.options.as_ref());
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.source_local_path;
+            let path = &input_file.local_path;
             let df = read_xlsx_file(path, &options).map_err(|err| {
                 Box::new(IoError(err.to_string())) as Box<dyn std::error::Error + Send + Sync>
             })?;

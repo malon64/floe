@@ -74,6 +74,7 @@ pub(super) fn run_precheck(
         });
 
         // JIT download: resolve listed InputFile to a LocalInputFile before any reads.
+        let listed_source_uri = listed_file.source_uri.clone();
         let storage_client = cloud
             .client_for_context(&context.storage_resolver, storage_name, &entity.name)
             .ok()
@@ -91,9 +92,8 @@ pub(super) fn run_precheck(
                 } else {
                     report::MismatchAction::RejectedFile
                 };
-                let source_uri = err.to_string();
                 let file_report = report::FileReport {
-                    input_file: source_uri.clone(),
+                    input_file: listed_source_uri.clone(),
                     status,
                     row_count: 0,
                     accepted_count: 0,
@@ -125,6 +125,22 @@ pub(super) fn run_precheck(
                 totals.errors_total += 1;
                 file_reports.push(file_report);
                 file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+                observer.on_event(crate::run::events::RunEvent::FileFinished {
+                    run_id: context.run_id.clone(),
+                    entity: entity.name.clone(),
+                    input: listed_source_uri.clone(),
+                    status: if status == report::FileStatus::Aborted {
+                        "aborted"
+                    } else {
+                        "rejected"
+                    }
+                    .to_string(),
+                    rows: 0,
+                    accepted: 0,
+                    rejected: 0,
+                    elapsed_ms: file_timer.elapsed().as_millis() as u64,
+                    ts_ms: crate::run::events::event_time_ms(),
+                });
                 if status == report::FileStatus::Aborted {
                     abort_run = true;
                     break;

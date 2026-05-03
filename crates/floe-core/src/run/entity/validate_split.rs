@@ -237,10 +237,13 @@ pub(super) fn run_validate_split_phase(
         let not_null_counts = check::not_null_counts(&df, required_cols)?;
         let not_null_total: u64 = not_null_counts.iter().map(|(_, c)| *c).sum();
         let quick_total = cast_total + not_null_total;
+        let cast_abort_short_circuit = entity.policy.severity == "abort" && cast_total > 0;
 
-        // Unique check — stateful across rows, unchanged.
+        // Unique check — stateful across rows. Skip when abort is already decided by cast errors.
         let mut forced_reject_rows = HashSet::new();
-        let unique_errors = if !unique_tracker.is_empty() {
+        let unique_errors = if cast_abort_short_circuit {
+            check::SparseRowErrors::new(df.height())
+        } else if !unique_tracker.is_empty() {
             unique_tracker.apply_sparse_with_forced_rejects(
                 &df,
                 normalized_columns,
@@ -253,7 +256,9 @@ pub(super) fn run_validate_split_phase(
 
         // Expression-based not_null / cast_mismatch — single columnar Polars pass.
         // Skipped entirely when the count check found zero violations (happy path).
-        let expr_result = if quick_total > 0 {
+        let expr_result = if cast_abort_short_circuit {
+            check::run_expr_checks(&df, &raw_df, &[], normalized_columns, true)?
+        } else if quick_total > 0 {
             check::run_expr_checks(
                 &df,
                 &raw_df,

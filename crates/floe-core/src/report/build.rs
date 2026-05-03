@@ -7,6 +7,103 @@ use crate::{check, config, report};
 const RULE_COUNT: usize = 4;
 const CAST_ERROR_INDEX: usize = 1;
 
+/// Builds rule summaries from expression-check violation counts plus unique errors.
+///
+/// `col_violation_counts` comes from `ExprCheckResult::col_violation_counts`; entries use
+/// the naming convention `_e_nn_<col>` (not_null) and `_e_cast_<col>` (cast_error).
+pub fn summarize_validation_exprs(
+    col_violation_counts: &[(String, u64)],
+    unique_errors: &check::SparseRowErrors,
+    columns: &[config::ColumnConfig],
+    severity: report::Severity,
+    source_map: Option<&HashMap<String, String>>,
+) -> Vec<report::RuleSummary> {
+    let has_expr = col_violation_counts.iter().any(|(_, c)| *c > 0);
+    if !has_expr && unique_errors.is_empty() {
+        return Vec::new();
+    }
+
+    let mut column_types = HashMap::new();
+    for column in columns {
+        column_types.insert(column.name.clone(), column.column_type.clone());
+    }
+
+    let mut accumulators = vec![RuleAccumulator::default(); RULE_COUNT];
+
+    for (err_col_name, count) in col_violation_counts {
+        if *count == 0 {
+            continue;
+        }
+        let (rule_idx, col_name) = if let Some(n) = err_col_name.strip_prefix("_e_nn_") {
+            (0usize, n)
+        } else if let Some(n) = err_col_name.strip_prefix("_e_cast_") {
+            (CAST_ERROR_INDEX, n)
+        } else {
+            continue;
+        };
+        let accumulator = &mut accumulators[rule_idx];
+        accumulator.violations += count;
+        let target_type = if rule_idx == CAST_ERROR_INDEX {
+            column_types.get(col_name).cloned()
+        } else {
+            None
+        };
+        let entry = accumulator
+            .columns
+            .entry(col_name.to_string())
+            .or_insert_with(|| ColumnAccumulator {
+                violations: 0,
+                target_type,
+            });
+        entry.violations += count;
+    }
+
+    for (_, row_errors) in unique_errors.iter() {
+        for error in row_errors {
+            let idx = rule_index(&error.rule);
+            let accumulator = &mut accumulators[idx];
+            accumulator.violations += 1;
+            let target_type = if idx == CAST_ERROR_INDEX {
+                column_types.get(&error.column).cloned()
+            } else {
+                None
+            };
+            let entry = accumulator
+                .columns
+                .entry(error.column.clone())
+                .or_insert_with(|| ColumnAccumulator {
+                    violations: 0,
+                    target_type,
+                });
+            entry.violations += 1;
+        }
+    }
+
+    let mut rules = Vec::new();
+    for (idx, accumulator) in accumulators.iter().enumerate() {
+        if accumulator.violations == 0 {
+            continue;
+        }
+        let mut cols = Vec::with_capacity(accumulator.columns.len());
+        for (name, column_acc) in &accumulator.columns {
+            cols.push(report::ColumnSummary {
+                column: name.clone(),
+                violations: column_acc.violations,
+                target_type: column_acc.target_type.clone(),
+                source: source_map.and_then(|map| map.get(name).cloned()),
+            });
+        }
+        rules.push(report::RuleSummary {
+            rule: rule_from_index(idx),
+            severity,
+            violations: accumulator.violations,
+            columns: cols,
+        });
+    }
+
+    rules
+}
+
 pub fn summarize_validation(
     errors_per_row: &[Vec<check::RowError>],
     columns: &[config::ColumnConfig],

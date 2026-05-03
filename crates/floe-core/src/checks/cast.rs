@@ -1,4 +1,4 @@
-use polars::prelude::{BooleanChunked, DataFrame, StringChunked};
+use polars::prelude::{col, lit, BooleanChunked, DataFrame, Expr, StringChunked, NULL};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
 use crate::errors::RunError;
@@ -101,6 +101,17 @@ pub fn cast_mismatch_errors_sparse(
     Ok(errors)
 }
 
+pub fn cast_mismatch_expr(typed_col: &str, raw_col: &str) -> (String, Expr) {
+    let err_col = format!("_e_cast_{typed_col}");
+    let error_json =
+        RowError::new("cast_error", typed_col, "invalid value for target type").to_json();
+    let expr = polars::prelude::when(col(raw_col).is_not_null().and(col(typed_col).is_null()))
+        .then(lit(error_json))
+        .otherwise(lit(NULL))
+        .alias(&err_col);
+    (err_col, expr)
+}
+
 pub fn cast_mismatch_counts(
     raw_df: &DataFrame,
     typed_df: &DataFrame,
@@ -172,7 +183,7 @@ fn append_cast_errors(
     Ok(())
 }
 
-fn is_string_type(value: &str) -> bool {
+pub(crate) fn is_string_type(value: &str) -> bool {
     let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
     matches!(normalized.as_str(), "string" | "str" | "text")
 }

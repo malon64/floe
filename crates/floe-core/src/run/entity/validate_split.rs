@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
-use polars::prelude::DataFrame;
+use polars::prelude::{BooleanChunked, DataFrame};
 
 use crate::checks::normalize::rename_output_columns;
 use crate::errors::RunError;
-use crate::report::build::summarize_validation_sparse;
+use crate::report::build::summarize_validation_exprs;
 use crate::run::events::{event_time_ms, RunObserver};
 use crate::run::RunContext;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
@@ -226,74 +226,96 @@ pub(super) fn run_validate_split_phase(
                 entity.name
             )))
         })?;
-        let raw_indices = check::column_index_map(&raw_df);
-        let typed_indices = check::column_index_map(&df);
 
+        // Fast-path columnar count check — O(columns), no row iteration.
         let cast_counts = if track_cast_errors {
             check::cast_mismatch_counts(&raw_df, &df, normalized_columns)?
         } else {
             Vec::new()
         };
-        let cast_total = cast_counts.iter().map(|(_, count, _)| *count).sum::<u64>();
+        let cast_total: u64 = cast_counts.iter().map(|(_, c, _)| *c).sum();
+        let not_null_counts = check::not_null_counts(&df, required_cols)?;
+        let not_null_total: u64 = not_null_counts.iter().map(|(_, c)| *c).sum();
+        let quick_total = cast_total + not_null_total;
+        let cast_abort_short_circuit = entity.policy.severity == "abort" && cast_total > 0;
 
-        let mut error_lists = if entity.policy.severity == "abort" && cast_total > 0 {
-            check::cast_mismatch_errors_sparse(
-                &raw_df,
-                &df,
-                normalized_columns,
-                &raw_indices,
-                &typed_indices,
-            )?
-        } else {
-            let not_null_counts = check::not_null_counts(&df, required_cols)?;
-            let not_null_total = not_null_counts.iter().map(|(_, count)| *count).sum::<u64>();
-            let quick_total = cast_total + not_null_total;
-
-            if quick_total == 0 {
-                check::SparseRowErrors::new(row_count as usize)
-            } else {
-                let mut errors = check::not_null_errors_sparse(&df, required_cols, &typed_indices)?;
-                if track_cast_errors && cast_total > 0 {
-                    let cast_errors = check::cast_mismatch_errors_sparse(
-                        &raw_df,
-                        &df,
-                        normalized_columns,
-                        &raw_indices,
-                        &typed_indices,
-                    )?;
-                    errors.merge(cast_errors);
-                }
-                errors
-            }
-        };
-
+        // Unique check — stateful across rows. Skip when abort is already decided by cast errors.
         let mut forced_reject_rows = HashSet::new();
-        if !(unique_tracker.is_empty() || (entity.policy.severity == "abort" && cast_total > 0)) {
-            let unique_errors = unique_tracker.apply_sparse_with_forced_rejects(
+        let unique_errors = if cast_abort_short_circuit {
+            check::SparseRowErrors::new(df.height())
+        } else if !unique_tracker.is_empty() {
+            unique_tracker.apply_sparse_with_forced_rejects(
                 &df,
                 normalized_columns,
                 &mut forced_reject_rows,
-            )?;
-            error_lists.merge(unique_errors);
-        }
+            )?
+        } else {
+            check::SparseRowErrors::new(df.height())
+        };
         let forced_reject_count = forced_reject_rows.len() as u64;
 
-        let accept_rows = error_lists.accept_rows();
-        let errors_json = error_lists.build_errors_formatted(row_error_formatter);
-        let row_error_count = error_lists.error_row_count();
-        let violation_count = error_lists.violation_count();
+        // Expression-based not_null / cast_mismatch — single columnar Polars pass.
+        // Skipped entirely when the count check found zero violations (happy path).
+        let expr_result = if cast_abort_short_circuit {
+            check::run_expr_checks(&df, &raw_df, &[], normalized_columns, true)?
+        } else if quick_total > 0 {
+            check::run_expr_checks(
+                &df,
+                &raw_df,
+                required_cols,
+                normalized_columns,
+                track_cast_errors && cast_total > 0,
+            )?
+        } else {
+            check::ExprCheckResult::all_accepted(df.height())
+        };
 
         drop(raw_df);
-        let accept_count = accept_rows.iter().filter(|accepted| **accepted).count() as u64;
+
+        // Destructure before moving accept_mask so total_violations stays accessible.
+        let check::ExprCheckResult {
+            accept_mask: expr_accept_mask,
+            col_masks,
+            col_violation_counts,
+        } = expr_result;
+
+        // Combine accept masks: expression checks AND unique checks.
+        let accept_mask: BooleanChunked = if unique_errors.is_empty() {
+            expr_accept_mask
+        } else {
+            let (unique_accept, _) = check::build_row_masks(&unique_errors.accept_rows());
+            (&expr_accept_mask & &unique_accept).with_name("floe_accept".into())
+        };
+
+        let violation_count = col_violation_counts.iter().map(|(_, c)| c).sum::<u64>()
+            + unique_errors.violation_count();
+        let accept_count = accept_mask.sum().unwrap_or(0) as u64;
         let reject_count = row_count.saturating_sub(accept_count);
+        let row_error_count = row_count.saturating_sub(accept_count);
         let has_errors = row_error_count > 0;
+
+        // Build per-row formatted error strings — iterates rejected rows only.
+        let errors_json = check::build_errors_formatted_expr(
+            df.height(),
+            &accept_mask,
+            &col_masks,
+            &unique_errors,
+            row_error_formatter,
+        );
+
+        // Derive accept_rows Vec<bool> for filter operations in the split step.
+        let accept_rows: Vec<bool> = (0..df.height())
+            .map(|i| accept_mask.get(i).unwrap_or(false))
+            .collect();
+
         let mut accepted_df_opt: Option<DataFrame> = None;
         let mut rejected_path = None;
         let mut errors_path = None;
         let mut archived_path = None;
         let mut rules = if has_errors {
-            summarize_validation_sparse(
-                &error_lists,
+            summarize_validation_exprs(
+                &col_violation_counts,
+                &unique_errors,
                 normalized_columns,
                 severity,
                 Some(source_column_map),

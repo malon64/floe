@@ -60,8 +60,10 @@ pub(super) fn run_precheck(
     let mismatch_columns =
         check::resolve_mismatch_columns(entity, normalized_columns, normalize_strategy.as_deref())?;
 
-    // Resolve the storage client once for JIT downloads.
-    let storage_name = entity.source.storage.as_deref().unwrap_or("local");
+    // Use the resolved source target's storage name so that default-remote configs
+    // (where source.storage is unset but the resolver default is S3/GCS/ADLS) get
+    // the correct client instead of falling back to "local".
+    let storage_name = resolved_targets.source.storage();
     let temp_dir_path = temp_dir.as_ref().map(|d| d.path());
 
     for listed_file in input_files {

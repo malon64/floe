@@ -183,7 +183,7 @@ fn append_cast_errors(
     Ok(())
 }
 
-fn is_string_type(value: &str) -> bool {
+pub(crate) fn is_string_type(value: &str) -> bool {
     let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
     matches!(normalized.as_str(), "string" | "str" | "text")
 }

@@ -62,6 +62,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -167,6 +168,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg-partition-spec".to_string()),
             entities: Vec::new(),
             dry_run: false,

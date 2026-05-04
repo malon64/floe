@@ -151,6 +151,8 @@ enum Command {
         log_format: LogFormat,
         #[arg(long, help = "Resolve and print inputs/outputs without executing")]
         dry_run: bool,
+        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        profile: Option<String>,
     },
     #[command(
         about = "Generate orchestrator manifest JSON",
@@ -267,6 +269,7 @@ fn main() -> FloeResult<()> {
 
             let options = ValidateOptions {
                 entities: entities.clone(),
+                profile_vars: std::collections::HashMap::new(),
             };
 
             let validation_result =
@@ -321,15 +324,45 @@ fn main() -> FloeResult<()> {
             verbose,
             log_format,
             dry_run,
+            profile,
         } => {
             let started_at = floe_core::report::now_rfc3339();
             let computed_run_id =
                 run_id.unwrap_or_else(|| floe_core::report::run_id_from_timestamp(&started_at));
 
+            let profile_config = if let Some(ref profile_path) = profile {
+                let path = std::path::Path::new(profile_path);
+                let parsed = match parse_profile(path) {
+                    Ok(p) => p,
+                    Err(err) => {
+                        logging::emit_failed_run_events(
+                            &computed_run_id,
+                            err.as_ref(),
+                            &log_format,
+                        );
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
+                if let Err(err) = validate_profile(&parsed) {
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+                Some(parsed)
+            } else {
+                None
+            };
+
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
                 dry_run,
+                profile: profile_config,
             };
             logging::install_observer(log_format.clone());
 
@@ -402,6 +435,7 @@ fn main() -> FloeResult<()> {
 
                 let options = ValidateOptions {
                     entities: entities.clone(),
+                    profile_vars: std::collections::HashMap::new(),
                 };
                 if let Err(err) =
                     validate_with_base(&config_location.path, config_location.base.clone(), options)

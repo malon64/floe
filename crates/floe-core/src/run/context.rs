@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -22,8 +23,9 @@ impl RunContext {
         config_path: &Path,
         config_base: config::ConfigBase,
         options: &RunOptions,
+        profile_vars: HashMap<String, String>,
     ) -> FloeResult<Self> {
-        let config = config::parse_config(config_path)?;
+        let config = config::parse_config_with_vars(config_path, &profile_vars)?;
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
         let catalog_resolver = config::CatalogResolver::new(&config)?;
         let config_dir =

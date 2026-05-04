@@ -159,6 +159,7 @@ fn run_config(path: &Path, run_id: &str) -> floe_core::RunOutcome {
     run(
         path,
         RunOptions {
+            profile: None,
             run_id: Some(run_id.to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -326,6 +327,7 @@ fn incremental_file_mode_fails_on_mismatched_state_entity() {
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("incremental-entity-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -372,6 +374,7 @@ fn incremental_file_mode_fails_on_mismatched_state_schema() {
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("incremental-schema-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,

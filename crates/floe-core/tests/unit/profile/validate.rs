@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use floe_core::{
-    detect_unresolved_placeholders, parse_profile_from_str, validate_merged_vars, validate_profile,
+    detect_unresolved_placeholders, parse_profile_from_str, resolve_vars, validate_merged_vars,
+    validate_profile, VarSources,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,11 +84,30 @@ validation:
 }
 
 // ---------------------------------------------------------------------------
-// validate_profile – failure: unresolved variables
+// validate_profile – cross-variable references are allowed in raw profiles
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validate_profile_unresolved_var_fails() {
+fn validate_profile_allows_cross_references() {
+    // ${VAR} syntax is valid in a raw profile — it is a reference to another
+    // variable that resolve_vars will expand later. validate_profile must not
+    // reject it.
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  BASE_DIR: /data
+  CATALOG: ${BASE_DIR}/catalog
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("cross-references must be accepted by validate_profile");
+}
+
+#[test]
+fn resolve_vars_fails_on_undefined_reference() {
+    // resolve_vars must catch references to keys that are not defined.
     let yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
@@ -97,16 +117,19 @@ variables:
   CATALOG: ${UNDEFINED_VAR}
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
-    let err = validate_profile(&profile).unwrap_err();
-    assert!(
-        err.to_string().contains("unresolved placeholder"),
-        "got: {err}"
-    );
-    assert!(err.to_string().contains("CATALOG"), "got: {err}");
+    let empty = HashMap::new();
+    let err = resolve_vars(VarSources {
+        profile: &profile.variables,
+        cli: &empty,
+        config: &empty,
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("UNDEFINED_VAR"), "got: {err}");
 }
 
 #[test]
-fn validate_profile_unclosed_placeholder_fails() {
+fn resolve_vars_fails_on_unclosed_placeholder() {
+    // resolve_vars must catch unclosed ${ syntax in variable values.
     let yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
@@ -116,11 +139,44 @@ variables:
   PATH_VAR: /some/${UNCLOSED
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse");
+    let empty = HashMap::new();
+    let err = resolve_vars(VarSources {
+        profile: &profile.variables,
+        cli: &empty,
+        config: &empty,
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("unclosed"), "got: {err}");
+}
+
+#[test]
+fn validate_profile_rejects_empty_placeholder() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  BAD: /path/${}
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
     let err = validate_profile(&profile).unwrap_err();
-    assert!(
-        err.to_string().contains("unresolved placeholder"),
-        "got: {err}"
-    );
+    assert!(err.to_string().contains("malformed"), "got: {err}");
+}
+
+#[test]
+fn validate_profile_rejects_unclosed_placeholder() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  BAD: /some/${UNCLOSED
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("malformed"), "got: {err}");
 }
 
 // ---------------------------------------------------------------------------

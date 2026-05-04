@@ -8,8 +8,12 @@ use crate::config::yaml_decode::{load_yaml, yaml_hash, yaml_string};
 use crate::config::{EnvConfig, RootConfig};
 use crate::{ConfigError, FloeResult};
 
-pub fn apply_templates(config: &mut RootConfig, config_dir: &Path) -> FloeResult<()> {
-    let vars = build_env_vars(config_dir, config.env.as_ref())?;
+pub fn apply_templates_with_vars(
+    config: &mut RootConfig,
+    config_dir: &Path,
+    profile_vars: &HashMap<String, String>,
+) -> FloeResult<()> {
+    let vars = build_env_vars(config_dir, config.env.as_ref(), profile_vars)?;
     let mut domain_lookup = HashMap::new();
     for domain in config.domains.iter_mut() {
         let resolved =
@@ -87,17 +91,21 @@ pub fn apply_templates(config: &mut RootConfig, config_dir: &Path) -> FloeResult
 fn build_env_vars(
     config_dir: &Path,
     env: Option<&EnvConfig>,
+    profile_vars: &HashMap<String, String>,
 ) -> FloeResult<HashMap<String, String>> {
-    let mut vars = HashMap::new();
+    // Lowest priority: profile variables
+    let mut vars: HashMap<String, String> = profile_vars.clone();
     let env = match env {
         Some(env) => env,
         None => return Ok(vars),
     };
+    // Then env file (overwrites profile)
     if let Some(file) = env.file.as_ref() {
         let path = resolve_local_path(config_dir, file);
         let file_vars = load_env_file(&path)?;
         vars.extend(file_vars);
     }
+    // Highest priority: inline env.vars (overwrites both)
     vars.extend(env.vars.clone());
     Ok(vars)
 }

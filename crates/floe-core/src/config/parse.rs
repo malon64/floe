@@ -4,7 +4,8 @@ use std::path::Path;
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::Yaml;
 
-use crate::config::apply_templates;
+use crate::config::apply_templates_with_vars;
+use crate::config::storage::resolve_local_path;
 use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
@@ -20,6 +21,70 @@ use crate::config::{
 use crate::{ConfigError, FloeResult};
 
 pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
+    parse_config_with_vars(path, &std::collections::HashMap::new())
+}
+
+/// Read `env.file` and `env.vars` from a config file without full parsing or
+/// template substitution.  Used to seed `VarSources.config` when resolving
+/// profile variables so that config-level overrides (both sources) are
+/// respected during `${REF}` expansion inside profile variable values.
+///
+/// Priority matches `build_env_vars`: `env.vars` overwrites `env.file`.
+pub(crate) fn extract_raw_env_vars(path: &Path) -> FloeResult<HashMap<String, String>> {
+    let docs = load_yaml(path)?;
+    if docs.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let root = match yaml_hash(&docs[0], "root") {
+        Ok(h) => h,
+        Err(_) => return Ok(HashMap::new()),
+    };
+    let env_node = match hash_get(root, "env") {
+        Some(n) => n,
+        None => return Ok(HashMap::new()),
+    };
+    let env_hash = match yaml_hash(env_node, "env") {
+        Ok(h) => h,
+        Err(_) => return Ok(HashMap::new()),
+    };
+
+    let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut vars = HashMap::new();
+
+    // env.file — lower priority, loaded first
+    if let Some(file_node) = hash_get(env_hash, "file") {
+        if let Ok(file_str) = yaml_string(file_node, "env.file") {
+            let file_path = resolve_local_path(config_dir, &file_str);
+            if let Ok(file_docs) = load_yaml(&file_path) {
+                if let Some(doc) = file_docs.first() {
+                    if let Ok(h) = yaml_hash(doc, "env.file") {
+                        for (k, v) in h {
+                            if let (Ok(key), Ok(val)) =
+                                (yaml_string(k, "env.file"), yaml_string(v, "env.file"))
+                            {
+                                vars.insert(key, val);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // env.vars — higher priority, overwrites env.file
+    if let Some(vars_node) = hash_get(env_hash, "vars") {
+        if let Ok(inline) = parse_string_map(vars_node, "env.vars") {
+            vars.extend(inline);
+        }
+    }
+
+    Ok(vars)
+}
+
+pub(crate) fn parse_config_with_vars(
+    path: &Path,
+    profile_vars: &std::collections::HashMap<String, String>,
+) -> FloeResult<RootConfig> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
         return Err(Box::new(ConfigError("YAML is empty".to_string())));
@@ -31,7 +96,7 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     }
     let mut config = parse_root(&docs[0])?;
     let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    apply_templates(&mut config, config_dir)?;
+    apply_templates_with_vars(&mut config, config_dir, profile_vars)?;
     Ok(config)
 }
 

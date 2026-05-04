@@ -201,6 +201,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-partitioned".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -271,6 +272,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-unpartitioned".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -340,6 +342,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -383,6 +386,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-schema-evolution-append".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -487,6 +491,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-schema-evolution-overwrite-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -497,6 +502,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-schema-evolution-overwrite-noop".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -560,6 +566,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-overwrite-empty-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -573,6 +580,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-overwrite-empty-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -641,6 +649,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-append-empty-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -654,6 +663,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-append-empty-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -721,6 +731,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-append-noop-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -734,6 +745,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-append-noop-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -793,6 +805,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-strict-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -834,6 +847,7 @@ entities:
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-strict-extra-column".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -898,6 +912,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -915,6 +930,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1028,6 +1044,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1081,6 +1098,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1203,6 +1221,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-dup-source".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1276,6 +1295,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1293,6 +1313,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1420,6 +1441,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1473,6 +1495,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1614,6 +1637,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1627,6 +1651,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-schema-evolution-empty".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1699,6 +1724,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-noop-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1712,6 +1738,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-noop-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1788,6 +1815,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-custom-cols-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1805,6 +1833,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-custom-cols-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1878,6 +1907,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-compare-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1895,6 +1925,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-compare-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1975,6 +2006,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-compare-normalized-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -1992,6 +2024,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-compare-normalized-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2054,6 +2087,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-nullable-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2067,6 +2101,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-nullable-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2157,6 +2192,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-city-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2199,6 +2235,7 @@ entities:
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd2-city-drift".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2254,6 +2291,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-nonadditive-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2298,6 +2336,7 @@ entities:
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-nonadditive-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2350,6 +2389,7 @@ entities:
     run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-merge-key-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -2394,6 +2434,7 @@ entities:
     let err = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-delta-merge-scd1-merge-key-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,

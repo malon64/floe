@@ -12,6 +12,6 @@ pub use location::{resolve_config_location, ConfigLocation};
 pub use storage::{resolve_local_path, ConfigBase, ResolvedPath, StorageResolver};
 pub use types::*;
 
-pub(crate) use parse::parse_config;
-pub(crate) use template::apply_templates;
+pub(crate) use parse::{extract_raw_env_vars, parse_config, parse_config_with_vars};
+pub(crate) use template::apply_templates_with_vars;
 pub(crate) use validate::validate_config;

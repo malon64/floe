@@ -22,8 +22,8 @@ pub use config::{resolve_config_location, ConfigLocation};
 pub use errors::ConfigError;
 pub use manifest::build_common_manifest_json;
 pub use profile::{
-    detect_unresolved_placeholders, parse_profile, parse_profile_from_str, validate_merged_vars,
-    validate_profile, ProfileConfig,
+    detect_malformed_placeholder, detect_unresolved_placeholders, parse_profile,
+    parse_profile_from_str, validate_merged_vars, validate_profile, ProfileConfig,
 };
 pub use run::events::{set_observer, RunEvent, RunObserver};
 pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
@@ -36,6 +36,7 @@ pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Debug, Default)]
 pub struct ValidateOptions {
     pub entities: Vec<String>,
+    pub profile_vars: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -43,6 +44,7 @@ pub struct RunOptions {
     pub run_id: Option<String>,
     pub entities: Vec<String>,
     pub dry_run: bool,
+    pub profile: Option<ProfileConfig>,
 }
 
 pub fn validate(config_path: &Path, options: ValidateOptions) -> FloeResult<()> {
@@ -55,7 +57,7 @@ pub fn validate_with_base(
     _config_base: config::ConfigBase,
     options: ValidateOptions,
 ) -> FloeResult<()> {
-    let config = config::parse_config(config_path)?;
+    let config = config::parse_config_with_vars(config_path, &options.profile_vars)?;
     config::validate_config(&config)?;
 
     if !options.entities.is_empty() {

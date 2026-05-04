@@ -84,6 +84,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg-glue-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
@@ -146,6 +147,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
     let out1 = run(
         &append_cfg,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg-glue-append1".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -187,6 +189,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
     let out2 = run(
         &append_cfg,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg-glue-append2".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -220,6 +223,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
     let out3 = run(
         &overwrite_cfg,
         RunOptions {
+            profile: None,
             run_id: Some("it-iceberg-glue-overwrite".to_string()),
             entities: Vec::new(),
             dry_run: false,

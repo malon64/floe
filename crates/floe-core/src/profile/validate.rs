@@ -9,7 +9,8 @@ use crate::{ConfigError, FloeResult};
 /// - `metadata.name` is non-empty (guaranteed by parser, double-checked here).
 /// - `execution.runner.type` is one of the recognized values (`local`, `kubernetes_job`, `databricks_job`) when present.
 ///   Orchestration/job-submission for each runner type belongs to connector crates, not floe-core.
-/// - No variable value contains an unresolved `${...}` placeholder.
+/// - No variable value contains a *syntactically malformed* `${...}` placeholder.
+///   Valid `${KEY}` cross-references are allowed — they are expanded by `resolve_vars` later.
 pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
     if profile.metadata.name.trim().is_empty() {
         return Err(Box::new(ConfigError(
@@ -22,7 +23,7 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
         validate_runner_contract(&execution.runner)?;
     }
 
-    validate_no_unresolved_vars(&profile.variables)?;
+    validate_no_malformed_vars(&profile.variables)?;
 
     Ok(())
 }
@@ -68,6 +69,49 @@ pub fn detect_unresolved_placeholders(value: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Detect *syntactically malformed* `${...}` placeholders in a variable value.
+///
+/// Well-formed `${KEY}` references (non-empty key, properly closed brace) are
+/// intentional cross-variable references expanded by `resolve_vars` — they pass
+/// through as `None`.  Only structural errors are returned:
+/// - `${}` — empty key inside the placeholder
+/// - `${UNCLOSED` — `${` with no matching `}`
+pub fn detect_malformed_placeholder(value: &str) -> Option<String> {
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        rest = &rest[start + 2..];
+        match rest.find('}') {
+            Some(end) => {
+                let key = rest[..end].trim();
+                if key.is_empty() {
+                    return Some("${} (empty placeholder)".to_string());
+                }
+                rest = &rest[end + 1..];
+            }
+            None => {
+                return Some(
+                    format!("${{... (unclosed placeholder in: {value:?})}}")
+                        .chars()
+                        .take(120)
+                        .collect(),
+                );
+            }
+        }
+    }
+    None
+}
+
+fn validate_no_malformed_vars(vars: &HashMap<String, String>) -> FloeResult<()> {
+    for (key, value) in vars {
+        if let Some(placeholder) = detect_malformed_placeholder(value) {
+            return Err(Box::new(ConfigError(format!(
+                "profile variable \"{key}\" contains malformed placeholder: {placeholder}"
+            ))));
+        }
+    }
+    Ok(())
 }
 
 fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()> {

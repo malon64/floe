@@ -77,6 +77,7 @@ entities:
     let outcome = run(
         &config_path,
         RunOptions {
+            profile: None,
             run_id: Some("it-composite-unique".to_string()),
             entities: Vec::new(),
             dry_run: false,

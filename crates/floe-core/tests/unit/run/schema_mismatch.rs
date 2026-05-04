@@ -128,6 +128,7 @@ fn run_config(path: &Path) -> floe_core::RunOutcome {
     run(
         path,
         RunOptions {
+            profile: None,
             run_id: Some("test-run".to_string()),
             entities: Vec::new(),
             dry_run: false,

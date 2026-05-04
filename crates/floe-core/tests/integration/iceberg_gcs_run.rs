@@ -64,7 +64,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-iceberg-gcs-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
@@ -120,7 +120,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
     );
     let out1 = run(
         &append_cfg,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-iceberg-gcs-append1".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -140,7 +140,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
     write_csv(&input_dir, "data.csv", "id,name\n3,cara\n");
     let out2 = run(
         &append_cfg,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-iceberg-gcs-append2".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -171,7 +171,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
     );
     let out3 = run(
         &overwrite_cfg,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-iceberg-gcs-overwrite".to_string()),
             entities: Vec::new(),
             dry_run: false,

@@ -60,7 +60,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("unit-delta-merge-dup".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -124,7 +124,7 @@ entities:
 
     run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("unit-delta-merge-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -141,7 +141,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("unit-delta-merge-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -210,7 +210,7 @@ entities:
 
     run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("unit-delta-merge-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -263,7 +263,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("unit-delta-merge-schema-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,

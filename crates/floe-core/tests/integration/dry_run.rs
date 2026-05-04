@@ -62,7 +62,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
@@ -122,7 +122,7 @@ entities:
 
     let err = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-dry-missing".to_string()),
             entities: Vec::new(),
             dry_run: true,

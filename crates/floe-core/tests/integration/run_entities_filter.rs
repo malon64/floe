@@ -90,7 +90,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-run".to_string()),
             entities: vec!["employees".to_string()],
             dry_run: false,

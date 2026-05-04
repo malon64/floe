@@ -59,7 +59,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("fixed-width-parse".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -133,7 +133,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("fixed-width-cast".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -193,7 +193,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("fixed-width-unicode".to_string()),
             entities: Vec::new(),
             dry_run: false,

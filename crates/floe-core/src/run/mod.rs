@@ -100,8 +100,21 @@ pub fn run_with_runtime(
     runtime: &mut dyn Runtime,
 ) -> FloeResult<RunOutcome> {
     init_thread_pool();
+    let profile_vars = options
+        .profile
+        .as_ref()
+        .map(|p| {
+            crate::resolve_vars(crate::VarSources {
+                profile: &p.variables,
+                cli: &std::collections::HashMap::new(),
+                config: &std::collections::HashMap::new(),
+            })
+        })
+        .transpose()?
+        .unwrap_or_default();
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
+        profile_vars,
     };
     crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
     let context = RunContext::new(config_path, config_base, &options)?;

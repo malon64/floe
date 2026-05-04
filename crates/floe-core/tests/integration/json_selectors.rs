@@ -82,7 +82,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-json-strict".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -155,7 +155,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-json-coerce".to_string()),
             entities: Vec::new(),
             dry_run: false,
@@ -235,7 +235,7 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions {
+        RunOptions { profile: None,
             run_id: Some("it-json-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,

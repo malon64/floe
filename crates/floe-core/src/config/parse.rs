@@ -4,7 +4,7 @@ use std::path::Path;
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::Yaml;
 
-use crate::config::apply_templates;
+use crate::config::apply_templates_with_vars;
 use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
@@ -20,6 +20,13 @@ use crate::config::{
 use crate::{ConfigError, FloeResult};
 
 pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
+    parse_config_with_vars(path, &std::collections::HashMap::new())
+}
+
+pub(crate) fn parse_config_with_vars(
+    path: &Path,
+    profile_vars: &std::collections::HashMap<String, String>,
+) -> FloeResult<RootConfig> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
         return Err(Box::new(ConfigError("YAML is empty".to_string())));
@@ -31,7 +38,7 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     }
     let mut config = parse_root(&docs[0])?;
     let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    apply_templates(&mut config, config_dir)?;
+    apply_templates_with_vars(&mut config, config_dir, profile_vars)?;
     Ok(config)
 }
 

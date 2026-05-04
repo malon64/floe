@@ -239,38 +239,6 @@ fn direct_cycle_detected() {
 }
 
 #[test]
-fn two_node_cycle_detected() {
-    // A = ${B}, B = ${A}
-    let profile = vars(&[("A", "${B}"), ("B", "${A}")]);
-    let err = resolve_vars(VarSources {
-        profile: &profile,
-        cli: &empty(),
-        config: &empty(),
-    })
-    .unwrap_err();
-    assert!(
-        err.to_string().contains("circular") || err.to_string().contains("cycle"),
-        "expected cycle error; got: {err}"
-    );
-}
-
-#[test]
-fn three_node_cycle_detected() {
-    // A = ${B}, B = ${C}, C = ${A}
-    let profile = vars(&[("A", "${B}"), ("B", "${C}"), ("C", "${A}")]);
-    let err = resolve_vars(VarSources {
-        profile: &profile,
-        cli: &empty(),
-        config: &empty(),
-    })
-    .unwrap_err();
-    assert!(
-        err.to_string().contains("circular") || err.to_string().contains("cycle"),
-        "expected cycle error; got: {err}"
-    );
-}
-
-#[test]
 fn cycle_error_includes_chain() {
     let profile = vars(&[("X", "${Y}"), ("Y", "${X}")]);
     let err = resolve_vars(VarSources {

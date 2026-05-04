@@ -347,11 +347,7 @@ fn main() -> FloeResult<()> {
                     }
                 };
                 if let Err(err) = validate_profile(&parsed) {
-                    logging::emit_failed_run_events(
-                        &computed_run_id,
-                        err.as_ref(),
-                        &log_format,
-                    );
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();

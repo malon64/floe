@@ -52,7 +52,8 @@ entities:
 
     let outcome = run(
         &config_path,
-        RunOptions { profile: None,
+        RunOptions {
+            profile: None,
             run_id: Some("path-norm-it".to_string()),
             entities: Vec::new(),
             dry_run: false,

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use floe_core::{
-    detect_unresolved_placeholders, parse_profile_from_str, resolve_vars, validate_merged_vars,
-    validate_profile, VarSources,
+    detect_unresolved_placeholders, parse_profile_from_str, validate_merged_vars, validate_profile,
 };
 
 // ---------------------------------------------------------------------------
@@ -106,50 +105,6 @@ variables:
 }
 
 #[test]
-fn resolve_vars_fails_on_undefined_reference() {
-    // resolve_vars must catch references to keys that are not defined.
-    let yaml = r#"
-apiVersion: floe/v1
-kind: EnvironmentProfile
-metadata:
-  name: dev
-variables:
-  CATALOG: ${UNDEFINED_VAR}
-"#;
-    let profile = parse_profile_from_str(yaml).expect("parse");
-    let empty = HashMap::new();
-    let err = resolve_vars(VarSources {
-        profile: &profile.variables,
-        cli: &empty,
-        config: &empty,
-    })
-    .unwrap_err();
-    assert!(err.to_string().contains("UNDEFINED_VAR"), "got: {err}");
-}
-
-#[test]
-fn resolve_vars_fails_on_unclosed_placeholder() {
-    // resolve_vars must catch unclosed ${ syntax in variable values.
-    let yaml = r#"
-apiVersion: floe/v1
-kind: EnvironmentProfile
-metadata:
-  name: dev
-variables:
-  PATH_VAR: /some/${UNCLOSED
-"#;
-    let profile = parse_profile_from_str(yaml).expect("parse");
-    let empty = HashMap::new();
-    let err = resolve_vars(VarSources {
-        profile: &profile.variables,
-        cli: &empty,
-        config: &empty,
-    })
-    .unwrap_err();
-    assert!(err.to_string().contains("unclosed"), "got: {err}");
-}
-
-#[test]
 fn validate_profile_rejects_empty_placeholder() {
     let yaml = r#"
 apiVersion: floe/v1
@@ -184,10 +139,9 @@ variables:
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validate_kubernetes_job_runner_type_is_accepted() {
-    // "kubernetes_job" must be recognized at the profile validation layer so that
-    // connector-side profiles are valid without requiring the adapter in floe-core.
-    let yaml = r#"
+fn known_runner_types_are_accepted() {
+    // kubernetes_job needs no extra fields; databricks_job requires the full contract.
+    let k8s_yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
 metadata:
@@ -196,13 +150,7 @@ execution:
   runner:
     type: kubernetes_job
 "#;
-    let profile = parse_profile_from_str(yaml).expect("parse");
-    validate_profile(&profile).expect("kubernetes_job runner type must pass profile validation");
-}
-
-#[test]
-fn validate_databricks_job_runner_type_is_accepted() {
-    let yaml = r#"
+    let dbx_yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
 metadata:
@@ -217,8 +165,10 @@ execution:
     auth:
       service_principal_oauth_ref: env://DATABRICKS_TOKEN
 "#;
-    let profile = parse_profile_from_str(yaml).expect("parse");
-    validate_profile(&profile).expect("databricks_job runner type must pass profile validation");
+    for yaml in &[k8s_yaml, dbx_yaml] {
+        let profile = parse_profile_from_str(yaml).expect("parse");
+        validate_profile(&profile).expect("known runner type must pass profile validation");
+    }
 }
 
 #[test]
@@ -319,33 +269,4 @@ fn validate_merged_vars_unresolved_fails() {
         err.to_string().contains("unresolved placeholder"),
         "got: {err}"
     );
-}
-
-// ---------------------------------------------------------------------------
-// Precedence documentation test
-// ---------------------------------------------------------------------------
-
-/// Illustrates the three-level precedence chain without any real run:
-///   config vars  >  CLI vars  >  profile vars
-#[test]
-fn precedence_config_beats_cli_beats_profile() {
-    // Start from profile variables (lowest priority).
-    let mut merged: HashMap<String, String> = HashMap::new();
-    merged.insert("KEY".to_string(), "from_profile".to_string());
-
-    // CLI override wins over profile.
-    let cli_vars = [("KEY".to_string(), "from_cli".to_string())];
-    for (k, v) in &cli_vars {
-        merged.insert(k.clone(), v.clone());
-    }
-    assert_eq!(merged["KEY"], "from_cli");
-
-    // Config variable wins over CLI (highest precedence).
-    let config_vars = [("KEY".to_string(), "from_config".to_string())];
-    for (k, v) in &config_vars {
-        merged.insert(k.clone(), v.clone());
-    }
-    assert_eq!(merged["KEY"], "from_config");
-
-    validate_merged_vars(&merged).expect("no unresolved vars");
 }

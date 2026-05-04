@@ -163,15 +163,23 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             use_cross: true
+            archive_ext: tar.gz
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use_cross: true
+            archive_ext: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             use_cross: false
+            archive_ext: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             use_cross: false
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive_ext: zip
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
@@ -187,6 +195,7 @@ jobs:
       - name: Set Cargo versions from tag
         run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Build floe
+        shell: bash
         run: |
           features=""
           if [[ "${{ matrix.target }}" == *unknown-linux* ]]; then
@@ -197,7 +206,8 @@ jobs:
           else
             cargo build -p floe-cli ${features} --release --target ${{ matrix.target }}
           fi
-      - name: Package binary
+      - name: Package binary (Unix)
+        if: matrix.archive_ext == 'tar.gz'
         shell: bash
         run: |
           set -euo pipefail
@@ -220,6 +230,27 @@ jobs:
           sha_path = tarball.with_suffix(tarball.suffix + ".sha256")
           sha_path.write_text(f"{sha}  {tarball.name}\n", encoding="utf-8")
           PY
+      - name: Package binary (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: python
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          import hashlib, os, zipfile
+          from pathlib import Path
+
+          target = os.environ["TARGET"]
+          version = os.environ["VERSION"]
+          bin_path = Path(f"target/{target}/release/floe.exe")
+          if not bin_path.exists():
+              raise FileNotFoundError(f"Binary not found: {bin_path}")
+          archive_path = Path(f"dist/floe-v{version}-{target}.zip")
+          archive_path.parent.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+              zf.write(bin_path, "floe.exe")
+          sha = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          sha_path = Path(str(archive_path) + ".sha256")
+          sha_path.write_text(f"{sha}  {archive_path.name}\n", encoding="utf-8")
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -254,9 +285,11 @@ jobs:
           linux="dist/floe-v${version}-x86_64-unknown-linux-gnu.tar.gz.sha256"
           mac_x86="dist/floe-v${version}-x86_64-apple-darwin.tar.gz.sha256"
           mac_arm="dist/floe-v${version}-aarch64-apple-darwin.tar.gz.sha256"
+          windows="dist/floe-v${version}-x86_64-pc-windows-msvc.zip.sha256"
           echo "linux_sha=$(cut -d ' ' -f1 "${linux}")" >> "$GITHUB_OUTPUT"
           echo "mac_x86_sha=$(cut -d ' ' -f1 "${mac_x86}")" >> "$GITHUB_OUTPUT"
           echo "mac_arm_sha=$(cut -d ' ' -f1 "${mac_arm}")" >> "$GITHUB_OUTPUT"
+          echo "windows_sha=$(cut -d ' ' -f1 "${windows}")" >> "$GITHUB_OUTPUT"
       - name: Verify Homebrew tap token
         run: |
           if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
@@ -289,6 +322,40 @@ jobs:
           git add Formula/floe.rb
           if git diff --cached --quiet; then
             echo "No Homebrew changes to commit."
+            exit 0
+          fi
+          git commit -m "bump floe to v${VERSION}"
+          git push
+      - name: Verify Scoop bucket token
+        run: |
+          if [ -z "${SCOOP_BUCKET_TOKEN}" ]; then
+            echo "SCOOP_BUCKET_TOKEN is required to update the Scoop bucket."
+            exit 1
+          fi
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+      - name: Checkout Scoop bucket
+        uses: actions/checkout@v4
+        with:
+          repository: malon64/scoop-floe
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop
+      - name: Render Scoop manifest
+        run: |
+          python .github/scripts/render_scoop_manifest.py \
+            --version "${VERSION}" \
+            --windows-sha "${{ steps.shas.outputs.windows_sha }}" \
+            --out "scoop/bucket/floe.json"
+      - name: Commit and push Scoop manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/floe.json
+          if git diff --cached --quiet; then
+            echo "No Scoop changes to commit."
             exit 0
           fi
           git commit -m "bump floe to v${VERSION}"

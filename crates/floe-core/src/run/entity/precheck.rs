@@ -6,10 +6,11 @@ use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 use super::super::output::{validate_rejected_target, write_rejected_raw_output};
 use super::ResolvedEntityTargets;
 use crate::run::RunContext;
-use io::format::InputAdapter;
+use io::format::{InputAdapter, InputFile, LocalInputFile};
+use io::storage::inputs::localize_input;
 
 pub(super) struct PrecheckedInput {
-    pub(super) input_file: io::format::InputFile,
+    pub(super) input_file: LocalInputFile,
     pub(super) input_columns: Vec<String>,
     pub(super) mismatch: check::MismatchOutcome,
     pub(super) file_timer: Instant,
@@ -37,7 +38,7 @@ pub(super) struct PrecheckContext<'a> {
 
 pub(super) fn run_precheck(
     context: PrecheckContext<'_>,
-    input_files: Vec<io::format::InputFile>,
+    input_files: Vec<InputFile>,
 ) -> FloeResult<PrecheckResult> {
     let PrecheckContext {
         context,
@@ -58,16 +59,100 @@ pub(super) fn run_precheck(
     let normalize_strategy = resolve_normalize_strategy(entity)?;
     let mismatch_columns =
         check::resolve_mismatch_columns(entity, normalized_columns, normalize_strategy.as_deref())?;
-    for input_file in input_files {
+
+    // Use the resolved source target's storage name so that default-remote configs
+    // (where source.storage is unset but the resolver default is S3/GCS/ADLS) get
+    // the correct client instead of falling back to "local".
+    let storage_name = resolved_targets.source.storage();
+    let temp_dir_path = temp_dir.as_ref().map(|d| d.path());
+
+    for listed_file in input_files {
         let file_timer = Instant::now();
         observer.on_event(crate::run::events::RunEvent::FileStarted {
             run_id: context.run_id.clone(),
             entity: entity.name.clone(),
-            input: input_file.source_uri.clone(),
+            input: listed_file.source_uri.clone(),
             ts_ms: crate::run::events::event_time_ms(),
         });
+
+        // JIT download: resolve listed InputFile to a LocalInputFile before any reads.
+        let listed_source_uri = listed_file.source_uri.clone();
+        let storage_client = cloud
+            .client_for_context(&context.storage_resolver, storage_name, &entity.name)
+            .ok()
+            .map(|c| c as &dyn io::storage::StorageClient);
+        let local_file = match localize_input(listed_file, storage_client, temp_dir_path) {
+            Ok(f) => f,
+            Err(err) => {
+                let status = if entity.policy.severity == "abort" {
+                    report::FileStatus::Aborted
+                } else {
+                    report::FileStatus::Rejected
+                };
+                let mismatch_action = if status == report::FileStatus::Aborted {
+                    report::MismatchAction::Aborted
+                } else {
+                    report::MismatchAction::RejectedFile
+                };
+                let file_report = report::FileReport {
+                    input_file: listed_source_uri.clone(),
+                    status,
+                    row_count: 0,
+                    accepted_count: 0,
+                    rejected_count: 0,
+                    mismatch: report::FileMismatch {
+                        declared_columns_count: mismatch_columns.len() as u64,
+                        input_columns_count: 0,
+                        missing_columns: Vec::new(),
+                        extra_columns: Vec::new(),
+                        mismatch_action,
+                        error: Some(report::MismatchIssue {
+                            rule: "download_error".to_string(),
+                            message: format!("entity.name={} {err}", entity.name),
+                        }),
+                        warning: None,
+                    },
+                    output: report::FileOutput {
+                        accepted_path: None,
+                        rejected_path: None,
+                        errors_path: None,
+                        archived_path: None,
+                    },
+                    validation: report::FileValidation {
+                        errors: 1,
+                        warnings: 0,
+                        rules: Vec::new(),
+                    },
+                };
+                totals.errors_total += 1;
+                file_reports.push(file_report);
+                file_timings_ms.push(Some(file_timer.elapsed().as_millis() as u64));
+                observer.on_event(crate::run::events::RunEvent::FileFinished {
+                    run_id: context.run_id.clone(),
+                    entity: entity.name.clone(),
+                    input: listed_source_uri.clone(),
+                    status: if status == report::FileStatus::Aborted {
+                        "aborted"
+                    } else {
+                        "rejected"
+                    }
+                    .to_string(),
+                    rows: 0,
+                    accepted: 0,
+                    rejected: 0,
+                    elapsed_ms: file_timer.elapsed().as_millis() as u64,
+                    ts_ms: crate::run::events::event_time_ms(),
+                });
+                if status == report::FileStatus::Aborted {
+                    abort_run = true;
+                    break;
+                }
+                continue;
+            }
+        };
+
         let input_columns =
-            match input_adapter.read_input_columns(entity, &input_file, normalized_columns) {
+            match input_adapter.read_input_columns(entity, &local_file, normalized_columns) {
                 Ok(columns) => columns,
                 Err(error) => {
                     let status = if entity.policy.severity == "abort" {
@@ -87,8 +172,8 @@ pub(super) fn run_precheck(
                         .map(|target| {
                             write_rejected_raw_output(
                                 target,
-                                &input_file,
-                                temp_dir.as_ref().map(|dir| dir.path()),
+                                &local_file,
+                                temp_dir_path,
                                 cloud,
                                 &context.storage_resolver,
                                 entity,
@@ -97,7 +182,7 @@ pub(super) fn run_precheck(
                         .transpose()?;
 
                     let file_report = report::FileReport {
-                        input_file: input_file.source_uri.clone(),
+                        input_file: local_file.file.source_uri.clone(),
                         status,
                         row_count: 0,
                         accepted_count: 0,
@@ -133,7 +218,7 @@ pub(super) fn run_precheck(
                     observer.on_event(crate::run::events::RunEvent::FileFinished {
                         run_id: context.run_id.clone(),
                         entity: entity.name.clone(),
-                        input: input_file.source_uri.clone(),
+                        input: local_file.file.source_uri.clone(),
                         status: if status == report::FileStatus::Aborted {
                             "aborted"
                         } else {
@@ -147,6 +232,9 @@ pub(super) fn run_precheck(
                         ts_ms: crate::run::events::event_time_ms(),
                     });
 
+                    if local_file.is_ephemeral {
+                        let _ = std::fs::remove_file(&local_file.local_path);
+                    }
                     if status == report::FileStatus::Aborted {
                         abort_run = true;
                         break;
@@ -160,7 +248,7 @@ pub(super) fn run_precheck(
             warnings::emit(
                 &context.run_id,
                 Some(&entity.name),
-                Some(&input_file.source_uri),
+                Some(&local_file.file.source_uri),
                 Some("schema_mismatch_warn_override"),
                 message,
             );
@@ -180,8 +268,8 @@ pub(super) fn run_precheck(
             })?;
             let rejected_path = Some(write_rejected_raw_output(
                 rejected_target,
-                &input_file,
-                temp_dir.as_ref().map(|dir| dir.path()),
+                &local_file,
+                temp_dir_path,
                 cloud,
                 &context.storage_resolver,
                 entity,
@@ -193,7 +281,7 @@ pub(super) fn run_precheck(
                 &context.run_id,
                 entity,
                 archive_target,
-                &input_file,
+                &local_file.file,
             )?;
 
             let status = if mismatch.aborted {
@@ -208,7 +296,7 @@ pub(super) fn run_precheck(
             let warnings = mismatch.warnings;
 
             let file_report = report::FileReport {
-                input_file: input_file.source_uri.clone(),
+                input_file: local_file.file.source_uri.clone(),
                 status,
                 row_count,
                 accepted_count,
@@ -237,7 +325,7 @@ pub(super) fn run_precheck(
             observer.on_event(crate::run::events::RunEvent::FileFinished {
                 run_id: context.run_id.clone(),
                 entity: entity.name.clone(),
-                input: input_file.source_uri.clone(),
+                input: local_file.file.source_uri.clone(),
                 status: if status == report::FileStatus::Aborted {
                     "aborted"
                 } else {
@@ -251,6 +339,9 @@ pub(super) fn run_precheck(
                 ts_ms: crate::run::events::event_time_ms(),
             });
 
+            if local_file.is_ephemeral {
+                let _ = std::fs::remove_file(&local_file.local_path);
+            }
             if mismatch.aborted {
                 abort_run = true;
                 break;
@@ -259,7 +350,7 @@ pub(super) fn run_precheck(
         }
 
         prechecked_inputs.push(PrecheckedInput {
-            input_file,
+            input_file: local_file,
             input_columns,
             mismatch,
             file_timer,

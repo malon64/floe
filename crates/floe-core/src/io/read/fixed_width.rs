@@ -4,7 +4,7 @@ use std::path::Path;
 
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct FixedWidthInputAdapter;
@@ -36,7 +36,7 @@ impl InputAdapter for FixedWidthInputAdapter {
     fn read_input_columns(
         &self,
         _entity: &config::EntityConfig,
-        _input_file: &InputFile,
+        _input_file: &LocalInputFile,
         columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
         let specs = build_specs(columns).map_err(|err| FileReadError {
@@ -49,14 +49,14 @@ impl InputAdapter for FixedWidthInputAdapter {
     fn read_inputs(
         &self,
         _entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.source_local_path;
+            let path = &input_file.local_path;
             match read_fixed_width_file(path, columns) {
                 Ok(df) => {
                     let input = format::read_input_from_df(
@@ -70,7 +70,7 @@ impl InputAdapter for FixedWidthInputAdapter {
                 }
                 Err(err) => {
                     inputs.push(ReadInput::FileError {
-                        input_file: input_file.clone(),
+                        input_file: input_file.file.clone(),
                         error: FileReadError {
                             rule: err.rule,
                             message: err.message,

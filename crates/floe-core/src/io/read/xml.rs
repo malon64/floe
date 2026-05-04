@@ -4,7 +4,7 @@ use std::path::Path;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use roxmltree::{Document, Node};
 
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::io::read::xml_selector::{parse_selector, SelectorToken};
 use crate::{config, FloeResult};
 
@@ -285,7 +285,7 @@ impl InputAdapter for XmlInputAdapter {
     fn read_input_columns(
         &self,
         entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
         let (row_tag, namespace, _value_tag) =
@@ -293,21 +293,18 @@ impl InputAdapter for XmlInputAdapter {
                 rule: err.rule,
                 message: err.message,
             })?;
-        read_xml_columns(
-            &input_file.source_local_path,
-            &row_tag,
-            namespace.as_deref(),
-        )
-        .map_err(|err| FileReadError {
-            rule: err.rule,
-            message: err.message,
+        read_xml_columns(&input_file.local_path, &row_tag, namespace.as_deref()).map_err(|err| {
+            FileReadError {
+                rule: err.rule,
+                message: err.message,
+            }
         })
     }
 
     fn read_inputs(
         &self,
         entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
@@ -318,7 +315,7 @@ impl InputAdapter for XmlInputAdapter {
             Err(err) => {
                 for input_file in files {
                     inputs.push(ReadInput::FileError {
-                        input_file: input_file.clone(),
+                        input_file: input_file.file.clone(),
                         error: FileReadError {
                             rule: err.rule.clone(),
                             message: err.message.clone(),
@@ -330,7 +327,7 @@ impl InputAdapter for XmlInputAdapter {
         };
 
         for input_file in files {
-            let path = &input_file.source_local_path;
+            let path = &input_file.local_path;
             let read_result = read_xml_file(
                 path,
                 columns,
@@ -351,7 +348,7 @@ impl InputAdapter for XmlInputAdapter {
                 }
                 Err(err) => {
                     inputs.push(ReadInput::FileError {
-                        input_file: input_file.clone(),
+                        input_file: input_file.file.clone(),
                         error: FileReadError {
                             rule: err.rule,
                             message: err.message,

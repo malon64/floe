@@ -5,7 +5,7 @@ use polars::prelude::DataFrame;
 use crate::errors::RunError;
 use crate::{check, config, io, ConfigError, FloeResult};
 
-use io::format::{self, InputFile};
+use io::format::{self, LocalInputFile};
 use io::storage::Target;
 
 pub(super) struct AcceptedOutputContext<'a> {
@@ -89,7 +89,7 @@ pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeR
 
 pub(super) fn write_rejected_raw_output(
     target: &Target,
-    input_file: &InputFile,
+    input_file: &LocalInputFile,
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
@@ -98,13 +98,13 @@ pub(super) fn write_rejected_raw_output(
     io::storage::output::write_output(
         target,
         io::storage::OutputPlacement::Output,
-        &input_file.source_name,
+        &input_file.file.source_name,
         temp_dir,
         cloud,
         resolver,
         entity,
         |path| {
-            io::write::write_rejected_raw(&input_file.source_local_path, path)?;
+            io::write::write_rejected_raw(&input_file.local_path, path)?;
             Ok(())
         },
     )

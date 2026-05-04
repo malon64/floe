@@ -9,7 +9,7 @@ use orc_rust::projection::ProjectionMask;
 use polars::prelude::DataFrame;
 
 use crate::errors::IoError;
-use crate::io::format::{self, FileReadError, InputAdapter, InputFile, ReadInput};
+use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
 struct OrcInputAdapter;
@@ -107,10 +107,10 @@ impl InputAdapter for OrcInputAdapter {
     fn read_input_columns(
         &self,
         _entity: &config::EntityConfig,
-        input_file: &InputFile,
+        input_file: &LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, FileReadError> {
-        read_orc_schema_names(&input_file.source_local_path).map_err(|err| FileReadError {
+        read_orc_schema_names(&input_file.local_path).map_err(|err| FileReadError {
             rule: "orc_read_error".to_string(),
             message: err.to_string(),
         })
@@ -119,14 +119,14 @@ impl InputAdapter for OrcInputAdapter {
     fn read_inputs(
         &self,
         _entity: &config::EntityConfig,
-        files: &[InputFile],
+        files: &[LocalInputFile],
         columns: &[config::ColumnConfig],
         normalize_strategy: Option<&str>,
         collect_raw: bool,
     ) -> FloeResult<Vec<ReadInput>> {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
-            let path = &input_file.source_local_path;
+            let path = &input_file.local_path;
             let input_columns = read_orc_schema_names(path)?;
             let projection = projected_columns(&input_columns, columns);
             let df = read_orc_df(path, projection.as_deref())?;

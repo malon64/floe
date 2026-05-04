@@ -150,7 +150,7 @@ impl io::format::InputAdapter for MockAdapter {
     fn read_input_columns(
         &self,
         _entity: &config::EntityConfig,
-        _input_file: &io::format::InputFile,
+        _input_file: &io::format::LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, io::format::FileReadError> {
         Ok(vec!["id".to_string()])
@@ -159,7 +159,7 @@ impl io::format::InputAdapter for MockAdapter {
     fn read_inputs(
         &self,
         _entity: &config::EntityConfig,
-        _files: &[io::format::InputFile],
+        _files: &[io::format::LocalInputFile],
         _columns: &[config::ColumnConfig],
         _normalize_strategy: Option<&str>,
         _collect_raw: bool,
@@ -182,7 +182,7 @@ impl io::format::InputAdapter for MockParquetAdapter {
     fn read_input_columns(
         &self,
         _entity: &config::EntityConfig,
-        _input_file: &io::format::InputFile,
+        _input_file: &io::format::LocalInputFile,
         _columns: &[config::ColumnConfig],
     ) -> Result<Vec<String>, io::format::FileReadError> {
         Ok(vec!["id".to_string()])
@@ -191,7 +191,7 @@ impl io::format::InputAdapter for MockParquetAdapter {
     fn read_inputs(
         &self,
         _entity: &config::EntityConfig,
-        _files: &[io::format::InputFile],
+        _files: &[io::format::LocalInputFile],
         _columns: &[config::ColumnConfig],
         _normalize_strategy: Option<&str>,
         _collect_raw: bool,
@@ -277,9 +277,6 @@ fn resolve_inputs_s3_filters_and_downloads() -> FloeResult<()> {
     assert_eq!(resolved.listed.len(), 2);
     assert!(resolved.files[0].source_uri.ends_with("data/a.csv"));
     assert!(resolved.files[1].source_uri.ends_with("data/b.csv"));
-    for input in resolved.files {
-        assert!(input.source_local_path.exists());
-    }
     Ok(())
 }
 
@@ -508,7 +505,6 @@ fn resolve_inputs_local_normalizes_resolved_file_paths() -> FloeResult<()> {
 
     assert_eq!(resolved.files.len(), 1);
     let normalized = temp_dir.path().join("in/data.csv");
-    assert_eq!(resolved.files[0].source_local_path, normalized);
     assert_eq!(
         resolved.files[0].source_uri,
         normalized.display().to_string()

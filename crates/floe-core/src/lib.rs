@@ -5,6 +5,7 @@ pub mod checks;
 pub mod config;
 pub mod errors;
 pub mod io;
+pub(crate) mod log;
 pub mod manifest;
 pub mod profile;
 pub mod report;

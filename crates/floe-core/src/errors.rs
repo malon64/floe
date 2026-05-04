@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::run::events::{event_time_ms, is_observer_set, RunEvent};
+use crate::log::emit_log;
 
 #[derive(Debug)]
 pub struct ConfigError(pub String);
@@ -46,10 +46,6 @@ impl fmt::Display for IoError {
 
 impl std::error::Error for IoError {}
 
-fn emit_stderr(message: &str) {
-    eprintln!("error: {message}");
-}
-
 pub fn emit(
     run_id: &str,
     entity: Option<&str>,
@@ -57,19 +53,5 @@ pub fn emit(
     code: Option<&str>,
     message: &str,
 ) {
-    if is_observer_set() {
-        let observer = crate::run::events::default_observer();
-        observer.on_event(RunEvent::Log {
-            run_id: run_id.to_string(),
-            log_level: "error".to_string(),
-            code: code.map(ToString::to_string),
-            message: message.to_string(),
-            entity: entity.map(ToString::to_string),
-            input: input.map(ToString::to_string),
-            ts_ms: event_time_ms(),
-        });
-        return;
-    }
-
-    emit_stderr(message);
+    emit_log("error", run_id, entity, input, code, message);
 }

@@ -1,17 +1,6 @@
-use std::fs;
-use std::path::PathBuf;
-
 use floe_core::{validate, ValidateOptions};
 
-fn write_temp_config(contents: &str) -> PathBuf {
-    let file = tempfile::Builder::new()
-        .prefix("floe-config-validation-")
-        .suffix(".yml")
-        .tempfile()
-        .expect("create temp config");
-    fs::write(file.path(), contents).expect("write temp config");
-    file.into_temp_path().keep().expect("persist temp config")
-}
+use super::super::common::write_temp_config;
 
 fn assert_validation_error(contents: &str, expected_parts: &[&str]) {
     let path = write_temp_config(contents);

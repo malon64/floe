@@ -1,20 +1,9 @@
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use floe_core::config::{RootConfig, StorageResolver};
 use floe_core::load_config;
 
-fn write_temp_config(contents: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    path.push(format!("floe-config-{nanos}.yml"));
-    fs::write(&path, contents).expect("write temp config");
-    path
-}
+use super::super::common::write_temp_config;
 
 fn load_temp_config(contents: &str) -> (PathBuf, RootConfig) {
     let path = write_temp_config(contents);

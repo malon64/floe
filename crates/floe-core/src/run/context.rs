@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::io::storage::Target;
-use crate::{config, report, vars, FloeResult, RunOptions};
+use crate::{config, report, FloeResult, RunOptions};
 
 pub struct RunContext {
     pub config: config::RootConfig,
@@ -22,19 +23,8 @@ impl RunContext {
         config_path: &Path,
         config_base: config::ConfigBase,
         options: &RunOptions,
+        profile_vars: HashMap<String, String>,
     ) -> FloeResult<Self> {
-        let profile_vars = options
-            .profile
-            .as_ref()
-            .map(|p| {
-                vars::resolve_vars(vars::VarSources {
-                    profile: &p.variables,
-                    cli: &std::collections::HashMap::new(),
-                    config: &std::collections::HashMap::new(),
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
         let config = config::parse_config_with_vars(config_path, &profile_vars)?;
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
         let catalog_resolver = config::CatalogResolver::new(&config)?;

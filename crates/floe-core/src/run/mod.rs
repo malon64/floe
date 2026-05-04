@@ -115,10 +115,10 @@ pub fn run_with_runtime(
         .unwrap_or_default();
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
-        profile_vars,
+        profile_vars: profile_vars.clone(),
     };
     crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
-    let context = RunContext::new(config_path, config_base, &options)?;
+    let context = RunContext::new(config_path, config_base, &options, profile_vars)?;
     if !options.entities.is_empty() {
         validate_entities(&context.config, &options.entities)?;
     }

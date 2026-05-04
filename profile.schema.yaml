@@ -89,9 +89,44 @@ $defs:
         type: string
         enum:
           - local
+          - kubernetes_job
+          - databricks_job
         description: >
-          Runner kind. Currently only "local" is supported.
-          Future values: "kubernetes", "databricks", "snowflake" (not yet implemented).
+          Runner kind.
+            - "local": execute directly on the current machine (default).
+            - "kubernetes_job": delegate execution to a Kubernetes Job (connector-side).
+            - "databricks_job": delegate execution to a Databricks Job (connector-side).
+      workspace_url:
+        type: string
+        description: >
+          Databricks workspace URL (required when type = "databricks_job").
+          Example: https://adb-1234567890.1.azuredatabricks.net
+      existing_cluster_id:
+        type: string
+        description: >
+          ID of the Databricks all-purpose cluster to run the job on
+          (required when type = "databricks_job").
+      config_uri:
+        type: string
+        description: >
+          DBFS or workspace path to the Floe config file used inside the Databricks job
+          (required when type = "databricks_job").
+      python_file_uri:
+        type: string
+        description: >
+          DBFS or workspace path to the Floe Python entry-point file
+          (required when type = "databricks_job").
+      auth:
+        type: object
+        additionalProperties: false
+        description: Authentication settings for the Databricks runner.
+        properties:
+          service_principal_oauth_ref:
+            type: string
+            description: >
+              Reference to the OAuth credential for service-principal authentication
+              (required when type = "databricks_job").
+              Example: env://DATABRICKS_TOKEN
 
   variables:
     type: object
@@ -102,10 +137,14 @@ $defs:
       runtime via {{VAR}} placeholder substitution.
 
       Precedence (highest wins):
-        config variables  >  CLI overrides  >  profile variables
+        config env.vars  >  config env.file  >  profile variables
 
-      Variable values must not contain unresolved ${VAR} placeholders —
-      the validator will fail fast if any are detected.
+      Values may contain ${KEY} cross-references to other variables in the same
+      profile (e.g. OUT_PATH: ${BASE_PATH}/accepted). These are resolved before
+      config substitution, respecting the precedence chain above.
+
+      Syntactically malformed placeholders (${ without a closing }, or ${} with
+      an empty key) are rejected at profile validation time.
 
   profile_validation:
     type: object

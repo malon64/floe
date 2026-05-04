@@ -2,69 +2,73 @@
 
 # Floe
 
-Technical ingestion on a single node, driven by YAML contracts.
+**Floe** is a single-node, YAML-driven data ingestion framework written in Rust.  
+You describe your data contract in a config file; Floe reads raw files, enforces your schema and quality rules, and writes clean accepted rows to your sink — routing invalid rows to a separate rejected output.
 
-Floe is a Rust + Polars tool for technical ingestion on a single node. It
-ingests raw files into typed datasets using YAML contracts, applies schema
-enforcement and data quality rules, and produces clear, auditable outputs.
+## Architecture
 
-Start here: [docs/summary.md](docs/summary.md)
+![Floe architecture](docs/assets/architecture.png)
+
+> Save the architecture diagram as `docs/assets/architecture.png` to render this image.
+
+Each `floe run` executes a four-stage pipeline per entity:
+
+| Stage | What happens |
+|---|---|
+| **1. Resolve inputs** | Discover and download source files from local or cloud storage |
+| **2. File-level checks** | Validate schema structure, file format, and headers |
+| **3. Row-level checks** | Apply type casting and `not_null` checks row by row |
+| **4. Entity-level checks** | Apply `unique` / primary-key checks across all input rows plus existing accepted data (SCD-aware) |
+
+Rows that pass all checks go to the **accepted** sink. Rows that fail go to the **rejected** sink. The severity policy (`warn` / `reject` / `abort`) controls how failures are handled. A JSON run report is written after every run.
 
 ## What Floe solves
 
-- Schema enforcement and type casting (`strict` vs `coerce`)
-- Nullability checks (`not_null`)
-- Uniqueness checks (`unique`)
-- Incremental ingestion with per-entity file state tracking (`incremental_mode: file`)
-- Policy behavior: `warn` / `reject` / `abort`
-- Accepted vs rejected outputs for clean separation
-- JSON run reports for observability and audit
-
-## Why Polars + Rust
-
-- Polars provides fast, columnar execution on a single node without JVM overhead.
-- Rust gives predictable performance and low-level control while keeping memory usage tight.
-- The combo fits contract-driven ingestion: schema checks, deterministic outputs, and stable reports.
+- **Schema enforcement** — strict or coerce cast modes, column type checking
+- **Data quality** — `not_null`, `unique`, primary-key checks
+- **Clean separation** — accepted and rejected outputs in the same run
+- **Incremental ingestion** — per-entity file-state tracking to skip unchanged files
+- **Auditability** — per-entity and summary JSON reports on every run
+- **Cloud-native paths** — S3, ADLS, GCS sources and sinks via a storage registry
 
 ## Minimal config example
 
 ```yaml
-version: "0.1"
+version: "0.3"
 report:
   path: "./reports"
 entities:
-  - name: "customer"
+  - name: customer
     source:
-      format: "csv"
-      path: "./example/in/customer"
+      format: csv
+      path: ./in/customer
     sink:
       accepted:
-        format: "parquet"
-        path: "./example/out/accepted/customer"
+        format: parquet
+        path: ./out/accepted/customer
       rejected:
-        format: "csv"
-        path: "./example/out/rejected/customer"
+        format: csv
+        path: ./out/rejected/customer
     policy:
-      severity: "reject"
+      severity: reject
     schema:
       columns:
-        - name: "customer_id"
-          type: "string"
+        - name: customer_id
+          type: string
           nullable: false
           unique: true
-        - name: "created_at"
-          type: "datetime"
+        - name: created_at
+          type: datetime
           nullable: true
 ```
 
-Full example: [example/config.yml](example/config.yml)
-
-Config reference: [docs/config.md](docs/config.md)
+Full example: [example/config.yml](example/config.yml)  
+Config reference: [docs/config.md](docs/config.md)  
 Support matrix: [docs/support-matrix.md](docs/support-matrix.md)
 
-## Quickstart (Homebrew)
+## Quickstart
 
-### Install
+### Install (Homebrew)
 
 ```bash
 brew tap malon64/floe
@@ -72,16 +76,14 @@ brew install floe
 floe --version
 ```
 
-### Validate
+Alternatives: download a prebuilt binary from [GitHub Releases](https://github.com/malon64/floe/releases) or `cargo install floe-cli`.
+
+Full installation guide: [docs/installation.md](docs/installation.md)
+
+### Validate a config
 
 ```bash
 floe validate -c example/config.yml
-```
-
-Automation / orchestrators (single JSON object on stdout):
-
-```bash
-floe validate -c example/config.yml --output json
 ```
 
 ### Run
@@ -90,131 +92,96 @@ floe validate -c example/config.yml --output json
 floe run -c example/config.yml
 ```
 
-### Troubleshooting
+### Run with an environment profile
 
-If Homebrew is unavailable:
+Use a profile to inject environment-specific values (bucket names, paths, etc.) into `{{VAR}}` placeholders in your config without editing the config itself:
 
-- GitHub Releases: download the prebuilt binary from the latest release
-- Cargo: `cargo install floe-cli`
+```yaml
+# profiles/prod.yaml
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+variables:
+  BUCKET: my-prod-bucket
+  BASE_PATH: /data/prod
+  # Cross-variable references are supported:
+  OUT_PATH: ${BASE_PATH}/accepted
+```
 
-More CLI details: [docs/cli.md](docs/cli.md)
-Full installation guide: [docs/installation.md](docs/installation.md)
+```bash
+floe run -c config.yml --profile profiles/prod.yaml
+```
 
-## Run with Docker
+Variable priority (highest wins): `env.vars` in config → `env.file` → profile variables.
 
-### Pull
+### Run with Docker
 
 ```bash
 docker pull ghcr.io/malon64/floe:latest
-```
-
-### Run (mount local folder)
-
-Run Floe against the repo example config by mounting the current directory to `/work`:
-
-```bash
 docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe:latest run -c /work/example/config.yml
 ```
 
-Notes:
-- All CLI arguments are identical to local usage.
-- Cloud credentials are passed via environment variables (or runtime identity), not baked into the image.
+Cloud credentials are passed via environment variables, not baked into the image.
 
-## Sample console output
+More CLI details: [docs/cli.md](docs/cli.md)
+
+## Sample output
 
 ```text
-run id: run-123
+run id: run-20240501-abc123
 report base: ./reports
 ==> entity customer (severity=reject, format=csv)
-  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12 accepted_out=customer rejected_out=customers_rejected.csv
+  REJECTED customers.csv rows=10 accepted=8 rejected=2 elapsed_ms=12
 Totals: files=1 rows=10 accepted=8 rejected=2
 Overall: rejected (exit_code=0)
-Run summary: ./reports/run_run-123/run.summary.json
+Run summary: ./reports/run_run-20240501-abc123/run.summary.json
 ```
-
-## Outputs explained
-
-- Accepted output: `entities[].sink.accepted.path`
-- Rejected output: `entities[].sink.rejected.path`
-- Reports: `<report.path>/run_<run_id>/<entity.name>/run.json`
-
-Reports include per-entity JSON, a run summary, and key counters (rows, accepted/rejected, errors).
-
-Report details: [docs/report.md](docs/report.md)
 
 ## Severity policy
 
-- `warn`: keep all rows and report violations
-- `reject`: reject only rows with violations; keep valid rows
-- `abort`: reject the entire file on first violation
+| Policy | Behaviour |
+|---|---|
+| `warn` | Keep all rows, surface violations in the report |
+| `reject` | Route violating rows to rejected sink, keep valid rows |
+| `abort` | Fail the entire entity on first violation |
 
 Checks and policy details: [docs/checks.md](docs/checks.md)
 
 ## Incremental ingestion
 
-For file-based incremental ingestion, set `incremental_mode: "file"` on an entity.
-Floe records processed file metadata in a per-entity state file and skips files it
-has already ingested unchanged on later runs.
-
-By default the state file lives under the source root:
-
-- local source dir `./in/customer` → `./in/customer/.floe/state/customer/state.json`
-- local source file `./in/customer.csv` → `./in/.floe/state/customer/state.json`
-
-You can override the location with `state.path` when you want the state file in a
-separate local directory.
-
-Inspect or intentionally reset that state with:
+Set `incremental_mode: file` on an entity to enable file-level state tracking. Floe records
+processed file metadata and skips unchanged files on subsequent runs.
 
 ```bash
 floe state inspect -c example/config.yml --entity customer
-floe state reset -c example/config.yml --entity customer --yes
+floe state reset   -c example/config.yml --entity customer --yes
 ```
 
 ## Supported formats
 
-Inputs:
-- CSV (local + S3/ADLS/GCS via temp download)
-- Fixed-width (local + S3/ADLS/GCS via temp download)
-- TSV (tab-delimited; local + S3/ADLS/GCS via temp download)
-- JSON (array/ndjson; local + S3/ADLS/GCS via temp download)
-- ORC (local + S3/ADLS/GCS via temp download)
-- Parquet (local + S3/ADLS/GCS via temp download)
-- XLSX (local + S3/ADLS/GCS via temp download)
-- Avro (local + S3/ADLS/GCS via temp download)
-- XML (local + S3/ADLS/GCS via temp download)
+**Inputs** (local + S3 / ADLS / GCS):  
+CSV · TSV · JSON (array/ndjson) · Parquet · ORC · Avro · XLSX · XML · Fixed-width
 
-Outputs:
-- Accepted: Parquet (local + cloud via temp upload), Delta (local + cloud via object_store)
-- Rejected: CSV (local + cloud via temp upload)
-- Reports: JSON (local + cloud via temp upload)
+**Accepted outputs:**  
+Parquet · Delta Lake (append, overwrite, merge SCD1/SCD2) · Apache Iceberg
 
-Sink details:
-- Options: [docs/sinks/options.md](docs/sinks/options.md)
-- Delta: [docs/sinks/delta.md](docs/sinks/delta.md)
-- Iceberg: [docs/sinks/iceberg.md](docs/sinks/iceberg.md)
-- Support matrix: [docs/support-matrix.md](docs/support-matrix.md)
+**Rejected outputs:** CSV  
+**Reports:** JSON
 
-## Cloud integration and storages
+Sink details: [docs/sinks/options.md](docs/sinks/options.md) · [Delta](docs/sinks/delta.md) · [Iceberg](docs/sinks/iceberg.md)
 
-Floe resolves all paths through a storage registry in the config. By default,
-paths use `local://`. To use cloud storage, define a storage (with credentials
-or bucket info) and reference it on `source`/`sink`. S3, ADLS, and GCS are
-implemented; `dbfs://` (Databricks) is on the roadmap.
+## Cloud storage
 
-Example (S3 storage):
+Define a storage in your config and reference it on source/sink:
 
 ```yaml
 storages:
-  default: local
   definitions:
-    - name: local
-      type: local
     - name: s3_raw
       type: s3
       bucket: my-bucket
       region: eu-west-1
-      # credentials via standard AWS env vars or profile
 entities:
   - name: customer
     source:
@@ -222,16 +189,25 @@ entities:
       path: raw/customer/
 ```
 
-Storage guides:
-- [docs/storages/s3.md](docs/storages/s3.md)
-- [docs/storages/adls.md](docs/storages/adls.md)
-- [docs/storages/gcs.md](docs/storages/gcs.md)
+Storage guides: [S3](docs/storages/s3.md) · [ADLS](docs/storages/adls.md) · [GCS](docs/storages/gcs.md)
+
+## Orchestration
+
+`floe manifest generate` produces a JSON manifest that orchestrators can read to schedule
+entities as individual tasks:
+
+```bash
+floe manifest generate -c config.yml --output manifest.json
+```
+
+Connectors: [dagster-floe](https://github.com/malon64/dagster-floe) · [airflow-floe](https://github.com/malon64/airflow-floe)
 
 ## More docs
 
-- How it works: [docs/how-it-works.md](docs/how-it-works.md)
-- Checks: [docs/checks.md](docs/checks.md)
-- Reports: [docs/report.md](docs/report.md)
+- [How it works](docs/how-it-works.md)
+- [Checks reference](docs/checks.md)
+- [Reports](docs/report.md)
+- [Full summary](docs/summary.md)
 
 ## License
 

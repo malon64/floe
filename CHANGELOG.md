@@ -2,6 +2,14 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.6
+
+- Added `--profile <path>` flag to `floe run` for environment-specific variable injection into `{{VAR}}` config placeholders.
+- Profile variables support `${KEY}` cross-references; precedence chain: `env.vars` > `env.file` > profile variables.
+- Updated `profile.schema.yaml` with `kubernetes_job`/`databricks_job` runner types and accurate variable semantics.
+- Internal cleanup: shared test helper, consolidated `emit_log`, removed 8 redundant unit tests.
+- README rewrite: architecture diagram, pipeline stage table, `--profile` example.
+
 ## v0.3.5
 
 - Incremental ingestion release finalization:

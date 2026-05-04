@@ -1,17 +1,6 @@
-use std::fs;
-use std::path::PathBuf;
-
 use floe_core::{validate, ValidateOptions};
 
-fn write_temp_config(contents: &str) -> PathBuf {
-    let file = tempfile::Builder::new()
-        .prefix("floe-config-validation-")
-        .suffix(".yml")
-        .tempfile()
-        .expect("create temp config");
-    fs::write(file.path(), contents).expect("write temp config");
-    file.into_temp_path().keep().expect("persist temp config")
-}
+use super::super::common::write_temp_config;
 
 fn assert_validation_error(contents: &str, expected_parts: &[&str]) {
     let path = write_temp_config(contents);
@@ -121,13 +110,10 @@ entities:
 }
 
 #[test]
-fn config_version_0_2_is_valid() {
-    assert_validation_ok(&base_config_with_version("0.2", &base_entity("customer")));
-}
-
-#[test]
-fn config_version_0_3_is_valid() {
-    assert_validation_ok(&base_config_with_version("0.3", &base_entity("customer")));
+fn supported_config_versions_are_valid() {
+    for version in &["0.2", "0.3"] {
+        assert_validation_ok(&base_config_with_version(version, &base_entity("customer")));
+    }
 }
 
 #[test]
@@ -502,7 +488,7 @@ fn schema_evolution_is_rejected_for_version_0_1() {
 }
 
 #[test]
-fn schema_evolution_add_columns_is_valid_for_delta_on_version_0_2() {
+fn schema_evolution_add_columns_is_valid_for_delta() {
     let entity = r#"  - name: "orders"
     source:
       format: "csv"
@@ -520,29 +506,9 @@ fn schema_evolution_add_columns_is_valid_for_delta_on_version_0_2() {
         - name: "order_id"
           type: "string"
 "#;
-    assert_validation_ok(&base_config_with_version("0.2", entity));
-}
-
-#[test]
-fn schema_evolution_add_columns_is_valid_for_delta_on_higher_version() {
-    let entity = r#"  - name: "orders"
-    source:
-      format: "csv"
-      path: "/tmp/input"
-    sink:
-      accepted:
-        format: "delta"
-        path: "/tmp/out"
-    policy:
-      severity: "warn"
-    schema:
-      schema_evolution:
-        mode: "add_columns"
-      columns:
-        - name: "order_id"
-          type: "string"
-"#;
-    assert_validation_ok(&base_config_with_version("0.3", entity));
+    for version in &["0.2", "0.3"] {
+        assert_validation_ok(&base_config_with_version(version, entity));
+    }
 }
 
 #[test]

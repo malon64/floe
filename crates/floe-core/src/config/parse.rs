@@ -23,6 +23,31 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     parse_config_with_vars(path, &std::collections::HashMap::new())
 }
 
+/// Read only the `env.vars` section from a config file without full parsing or
+/// template substitution.  Used to seed `VarSources.config` when resolving
+/// profile variables so that config-level overrides are respected during
+/// `${REF}` expansion inside profile variable values.
+pub(crate) fn extract_raw_env_vars(path: &Path) -> FloeResult<HashMap<String, String>> {
+    let docs = load_yaml(path)?;
+    if docs.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let root = match yaml_hash(&docs[0], "root") {
+        Ok(h) => h,
+        Err(_) => return Ok(HashMap::new()),
+    };
+    match hash_get(root, "env") {
+        Some(env_node) => match yaml_hash(env_node, "env") {
+            Ok(env_hash) => match hash_get(env_hash, "vars") {
+                Some(vars_node) => parse_string_map(vars_node, "env.vars"),
+                None => Ok(HashMap::new()),
+            },
+            Err(_) => Ok(HashMap::new()),
+        },
+        None => Ok(HashMap::new()),
+    }
+}
+
 pub(crate) fn parse_config_with_vars(
     path: &Path,
     profile_vars: &std::collections::HashMap<String, String>,

@@ -149,6 +149,36 @@ variables:
     assert!(err.to_string().contains("unclosed"), "got: {err}");
 }
 
+#[test]
+fn validate_profile_rejects_empty_placeholder() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  BAD: /path/${}
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("malformed"), "got: {err}");
+}
+
+#[test]
+fn validate_profile_rejects_unclosed_placeholder() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  BAD: /some/${UNCLOSED
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("malformed"), "got: {err}");
+}
+
 // ---------------------------------------------------------------------------
 // validate_profile – runner type acceptance
 // ---------------------------------------------------------------------------

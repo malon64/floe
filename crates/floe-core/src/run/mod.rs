@@ -100,6 +100,7 @@ pub fn run_with_runtime(
     runtime: &mut dyn Runtime,
 ) -> FloeResult<RunOutcome> {
     init_thread_pool();
+    let raw_config_env_vars = config::extract_raw_env_vars(config_path).unwrap_or_default();
     let profile_vars = options
         .profile
         .as_ref()
@@ -107,7 +108,7 @@ pub fn run_with_runtime(
             crate::resolve_vars(crate::VarSources {
                 profile: &p.variables,
                 cli: &std::collections::HashMap::new(),
-                config: &std::collections::HashMap::new(),
+                config: &raw_config_env_vars,
             })
         })
         .transpose()?

@@ -22,8 +22,6 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
         validate_runner_contract(&execution.runner)?;
     }
 
-    validate_no_unresolved_vars(&profile.variables)?;
-
     Ok(())
 }
 

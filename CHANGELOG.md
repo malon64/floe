@@ -2,7 +2,24 @@
 
 All notable changes to Floe are documented in this file.
 
-## v0.3.5
+## v0.3.6
+
+- Environment profile support (`floe run --profile`):
+  - new `--profile <path>` flag on `floe run` to inject environment-specific variables into `{{VAR}}` placeholders in the config at run time
+  - profile variables support `${VAR}` cross-references (e.g. `OUT: ${BASE}/data`) resolved before config substitution
+  - variable precedence chain: `env.vars` in config > `env.file` > profile variables
+  - `env.file` values are included when resolving `${VAR}` references inside profile variables so all config-level overrides are respected
+  - validation and run context use the same resolved variable map (no mismatch between what is validated and what executes)
+  - `validate_profile` rejects syntactically malformed placeholders (`${}`, unclosed `${`) while allowing valid `${KEY}` cross-references
+  - updated `profile.schema.yaml` with correct runner types (`local`, `kubernetes_job`, `databricks_job`) and accurate variable description
+- Codebase cleanup:
+  - extracted shared `write_temp_config` test helper into `tests/unit/common.rs` (removed four identical per-file copies)
+  - consolidated duplicated observer dispatch in `errors::emit` / `warnings::emit` into a shared `log::emit_log`
+  - removed 8 redundant unit tests (trivial version-string variants, cycle-length duplicates, cross-file duplicates)
+- Documentation:
+  - rewrote README with architecture diagram, 4-stage pipeline table, `--profile` usage example, and orchestration section
+  - bumped `floe-core` and `floe-cli` to `0.3.6`
+
 
 - Incremental ingestion release finalization:
   - documented `incremental_mode: file`, entity `state.path`, and the `floe state inspect/reset` CLI flow

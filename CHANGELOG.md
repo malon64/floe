@@ -2,6 +2,12 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.7
+
+- Windows binary now distributed via [Scoop](https://github.com/malon64/scoop-floe): `scoop bucket add floe https://github.com/malon64/scoop-floe` then `scoop install floe`.
+- Release pipeline extended with a `x86_64-pc-windows-msvc` build target; artifact packaged as `.zip`.
+- GitHub Actions upgraded to Node.js 24 runtime across all workflows.
+
 ## v0.3.6
 
 - Added `--profile <path>` flag to `floe run` for environment-specific variable injection into `{{VAR}}` config placeholders.

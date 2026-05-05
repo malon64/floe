@@ -4,7 +4,6 @@ use std::path::Path;
 use arrow::record_batch::RecordBatch;
 use deltalake::table::builder::DeltaTableBuilder;
 use df_interchange::Interchange;
-use url::Url;
 
 use crate::checks::normalize::{
     output_column_mapping, rename_output_columns, resolve_normalize_strategy,
@@ -362,8 +361,8 @@ fn iceberg_table_name(entity_name: &str) -> String {
 fn seed_from_delta(
     unique_tracker: &mut check::UniqueTracker,
     target: &Target,
-    temp_dir: Option<&Path>,
-    cloud: &mut io::storage::CloudClient,
+    _temp_dir: Option<&Path>,
+    _cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
     unique_columns: &[String],
@@ -387,32 +386,11 @@ fn seed_from_delta(
             other => return Err(Box::new(RunError(format!("delta load failed: {other}")))),
         },
     };
-    let file_uris = table
-        .get_file_uris()
-        .map_err(|err| Box::new(RunError(format!("delta list files failed: {err}"))))?
-        .collect::<Vec<_>>();
-    for uri in file_uris {
-        let local_path = match target {
-            Target::Local { .. } => {
-                let parsed = Url::parse(&uri)
-                    .ok()
-                    .and_then(|url| url.to_file_path().ok())
-                    .unwrap_or_else(|| Path::new(&uri).to_path_buf());
-                parsed
-            }
-            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
-                let temp_dir = temp_dir.ok_or_else(|| {
-                    Box::new(StorageError(format!(
-                        "entity.name={} missing temp dir for delta read",
-                        entity.name
-                    )))
-                })?;
-                let client = cloud.client_for(resolver, target.storage(), entity)?;
-                client.download_to_temp(&uri, temp_dir)?
-            }
-        };
-        seed_from_parquet_path(unique_tracker, &local_path, &scan_cols, &rename_back)?;
-    }
-
-    Ok(())
+    let batches = runtime
+        .block_on(async {
+            let (_t, stream) = table.scan_table().with_columns(scan_cols.clone()).await?;
+            deltalake::operations::collect_sendable_stream(stream).await
+        })
+        .map_err(|err| Box::new(RunError(format!("delta scan failed: {err}"))))?;
+    seed_from_batches(unique_tracker, batches, &rename_back)
 }

@@ -6,7 +6,7 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
-version="$1"
+version="${1//$'\r'/}"
 
 VERSION="${version}" python - <<'PY'
 import os

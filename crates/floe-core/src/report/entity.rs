@@ -139,6 +139,8 @@ fn build_unique_constraint_reports(
             report::UniqueConstraintReport {
                 columns: result.columns.clone(),
                 duplicates_count: result.duplicates_count,
+                batch_duplicates_count: result.batch_duplicates_count,
+                target_duplicates_count: result.target_duplicates_count,
                 affected_rows_count: result.affected_rows_count,
                 action: action.to_string(),
                 status_effect: status_effect.to_string(),

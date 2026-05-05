@@ -21,7 +21,7 @@ use super::metrics;
 mod context;
 mod data_files;
 mod glue;
-mod metadata;
+pub(crate) mod metadata;
 mod schema;
 
 use self::context::{
@@ -36,7 +36,8 @@ struct IcebergAcceptedAdapter;
 
 static ICEBERG_ACCEPTED_ADAPTER: IcebergAcceptedAdapter = IcebergAcceptedAdapter;
 
-const ICEBERG_NAMESPACE: &str = "floe";
+pub(crate) const ICEBERG_NAMESPACE: &str = "floe";
+pub(crate) const ICEBERG_CATALOG_NAME: &str = "floe_iceberg";
 
 pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &ICEBERG_ACCEPTED_ADAPTER

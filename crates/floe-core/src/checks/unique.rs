@@ -49,6 +49,8 @@ pub struct UniqueConstraintSample {
 pub struct UniqueConstraintResult {
     pub columns: Vec<String>,
     pub duplicates_count: u64,
+    pub batch_duplicates_count: u64,
+    pub target_duplicates_count: u64,
     pub affected_rows_count: u64,
     pub samples: Vec<UniqueConstraintSample>,
 }
@@ -57,7 +59,10 @@ pub struct UniqueConstraintResult {
 struct ConstraintState {
     constraint: UniqueConstraint,
     seen: HashSet<CompositeKey>,
+    seeded_keys: HashSet<CompositeKey>,
     duplicates_count: u64,
+    batch_duplicates_count: u64,
+    target_duplicates_count: u64,
     sample_counts: HashMap<CompositeKey, u64>,
 }
 
@@ -85,7 +90,10 @@ impl UniqueTracker {
             .map(|constraint| ConstraintState {
                 constraint,
                 seen: HashSet::new(),
+                seeded_keys: HashSet::new(),
                 duplicates_count: 0,
+                batch_duplicates_count: 0,
+                target_duplicates_count: 0,
                 sample_counts: HashMap::new(),
             })
             .collect();
@@ -120,6 +128,7 @@ impl UniqueTracker {
                     Some(key) => key,
                     None => continue,
                 };
+                state.seeded_keys.insert(key.clone());
                 state.seen.insert(key);
             }
         }
@@ -180,6 +189,11 @@ impl UniqueTracker {
                         forced_reject_rows.insert(row_idx);
                     }
                     state.duplicates_count += 1;
+                    if state.seeded_keys.contains(&key) {
+                        state.target_duplicates_count += 1;
+                    } else {
+                        state.batch_duplicates_count += 1;
+                    }
                     let counter = state.sample_counts.entry(key).or_insert(0);
                     *counter += 1;
                 } else {
@@ -222,6 +236,8 @@ impl UniqueTracker {
                 UniqueConstraintResult {
                     columns: state.constraint.report_columns.clone(),
                     duplicates_count: state.duplicates_count,
+                    batch_duplicates_count: state.batch_duplicates_count,
+                    target_duplicates_count: state.target_duplicates_count,
                     affected_rows_count: state.duplicates_count,
                     samples,
                 }

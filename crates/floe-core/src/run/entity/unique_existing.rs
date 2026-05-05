@@ -215,15 +215,20 @@ async fn seed_iceberg_file_uris(
     let table_name = iceberg_table_name(entity_name);
     let table_ident = TableIdent::new(namespace, table_name);
 
-    let table = match catalog.register_table(&table_ident, metadata_location).await {
-        Ok(table) => table,
-        Err(_) => return Ok(Vec::new()),
-    };
+    let table = catalog
+        .register_table(&table_ident, metadata_location)
+        .await?;
 
     let scan = table.scan().build()?;
     let mut file_stream = scan.plan_files().await?;
     let mut file_uris = Vec::new();
     while let Some(task) = file_stream.try_next().await? {
+        // Skip files that carry associated delete entries: applying position/equality
+        // deletes during seeding is not supported, so we exclude those files entirely
+        // rather than risk seeding keys for logically-deleted rows.
+        if !task.deletes.is_empty() {
+            continue;
+        }
         file_uris.push(task.data_file_path().to_string());
     }
     Ok(file_uris)

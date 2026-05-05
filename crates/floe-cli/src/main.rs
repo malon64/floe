@@ -121,6 +121,8 @@ enum Command {
             help = "Comma-separated list of entity names"
         )]
         entities: Vec<String>,
+        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        profile: Option<String>,
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
@@ -256,7 +258,11 @@ fn main() -> FloeResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Validate { config, entities } => {
+        Command::Validate {
+            config,
+            entities,
+            profile,
+        } => {
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
                 Err(err) => {
@@ -267,9 +273,43 @@ fn main() -> FloeResult<()> {
                 }
             };
 
+            let profile_vars = if let Some(ref profile_path) = profile {
+                let path = std::path::Path::new(profile_path);
+                let parsed = match parse_profile(path) {
+                    Ok(p) => p,
+                    Err(err) => {
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
+                if let Err(err) = validate_profile(&parsed) {
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: {err}");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+                match floe_core::resolve_vars(floe_core::VarSources {
+                    profile: &parsed.variables,
+                    cli: &std::collections::HashMap::new(),
+                    config: &std::collections::HashMap::new(),
+                }) {
+                    Ok(vars) => vars,
+                    Err(err) => {
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                std::collections::HashMap::new()
+            };
+
             let options = ValidateOptions {
                 entities: entities.clone(),
-                profile_vars: std::collections::HashMap::new(),
+                profile_vars,
             };
 
             let validation_result =

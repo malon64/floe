@@ -214,6 +214,7 @@ pub(super) fn run_entity(
         temp_dir.as_ref().map(|dir| dir.path()),
         runtime.storage(),
         &context.storage_resolver,
+        &context.catalog_resolver,
         entity,
     )?;
     // Phase B: row-level validation + entity-level accumulation.

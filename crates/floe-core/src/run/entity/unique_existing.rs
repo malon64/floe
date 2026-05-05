@@ -24,6 +24,7 @@ pub fn seed_unique_tracker_for_append(
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
+    catalogs: &config::CatalogResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<()> {
     if write_mode != config::WriteMode::Append || unique_tracker.is_empty() {
@@ -58,6 +59,7 @@ pub fn seed_unique_tracker_for_append(
             temp_dir,
             cloud,
             resolver,
+            catalogs,
             entity,
             &unique_columns,
         ),
@@ -129,12 +131,14 @@ fn seed_from_iceberg(
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
+    catalogs: &config::CatalogResolver,
     entity: &config::EntityConfig,
     unique_columns: &[String],
 ) -> FloeResult<()> {
-    let store = object_store::iceberg_store_config(target, resolver, entity)?;
+    let seed_target = resolve_iceberg_seed_target(target, resolver, catalogs, entity)?;
+    let store = object_store::iceberg_store_config(&seed_target, resolver, entity)?;
 
-    let metadata_location: Option<String> = match target {
+    let metadata_location: Option<String> = match &seed_target {
         Target::Local { base_path, .. } => {
             latest_local_metadata_location(Path::new(base_path))?
         }
@@ -167,7 +171,7 @@ fn seed_from_iceberg(
         .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
 
     for uri in file_uris {
-        let local_path = match target {
+        let local_path = match &seed_target {
             Target::Local { .. } => Url::parse(&uri)
                 .ok()
                 .and_then(|url| url.to_file_path().ok())
@@ -179,7 +183,7 @@ fn seed_from_iceberg(
                         entity.name
                     )))
                 })?;
-                let client = cloud.client_for(resolver, target.storage(), entity)?;
+                let client = cloud.client_for(resolver, seed_target.storage(), entity)?;
                 client.download_to_temp(&uri, temp_dir)?
             }
         };
@@ -187,6 +191,22 @@ fn seed_from_iceberg(
     }
 
     Ok(())
+}
+
+fn resolve_iceberg_seed_target(
+    target: &Target,
+    resolver: &config::StorageResolver,
+    catalogs: &config::CatalogResolver,
+    entity: &config::EntityConfig,
+) -> FloeResult<Target> {
+    if let Some(glue_target) =
+        catalogs.resolve_iceberg_target(resolver, entity, &entity.sink.accepted)?
+    {
+        if glue_target.catalog_type == "glue" {
+            return Target::from_resolved(&glue_target.table_location);
+        }
+    }
+    Ok(target.clone())
 }
 
 async fn seed_iceberg_file_uris(

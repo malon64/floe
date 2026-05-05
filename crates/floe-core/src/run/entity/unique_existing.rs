@@ -199,6 +199,9 @@ fn resolve_iceberg_seed_target(
     catalogs: &config::CatalogResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<Target> {
+    if !matches!(target, Target::S3 { .. }) {
+        return Ok(target.clone());
+    }
     if let Some(glue_target) =
         catalogs.resolve_iceberg_target(resolver, entity, &entity.sink.accepted)?
     {

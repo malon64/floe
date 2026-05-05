@@ -192,9 +192,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Install NASM (Windows MSVC)
-        if: matrix.os == 'windows-latest'
-        uses: ilammy/setup-nasm@v1
       - name: Set Cargo versions from tag
         if: startsWith(github.ref, 'refs/tags/')
         run: bash .github/scripts/set_versions.sh "${VERSION}"

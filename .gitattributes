@@ -1,0 +1,20 @@
+# Ensure consistent line endings across platforms.
+# Shell scripts must always be checked out with LF so bash on Windows
+# does not include \r in variable assignments.
+*.sh        text eol=lf
+
+# YAML and TOML are text files — normalise to LF in the repo.
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.py        text eol=lf
+*.rb        text eol=lf
+*.json      text eol=lf
+
+# Binaries — never touch line endings.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gz        binary
+*.zip       binary

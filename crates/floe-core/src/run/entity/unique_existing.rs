@@ -1,11 +1,17 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use deltalake::table::builder::DeltaTableBuilder;
+use futures::TryStreamExt;
 use url::Url;
 
 use crate::errors::{RunError, StorageError};
 use crate::io::read::parquet::read_parquet_lazy;
 use crate::io::storage::{object_store, Target};
+use crate::io::write::iceberg::metadata::{
+    latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
+};
+use crate::io::write::iceberg::{ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE};
 use crate::io::write::{parts, strategy};
 use crate::{check, config, io, FloeResult};
 
@@ -38,6 +44,15 @@ pub fn seed_unique_tracker_for_append(
             &unique_columns,
         ),
         "delta" => seed_from_delta(
+            unique_tracker,
+            target,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            &unique_columns,
+        ),
+        "iceberg" => seed_from_iceberg(
             unique_tracker,
             target,
             temp_dir,
@@ -106,6 +121,128 @@ fn seed_from_parquet_path(
     let df = read_parquet_lazy(path, Some(unique_columns))?;
     unique_tracker.seed_from_df(&df)?;
     Ok(())
+}
+
+fn seed_from_iceberg(
+    unique_tracker: &mut check::UniqueTracker,
+    target: &Target,
+    temp_dir: Option<&Path>,
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    unique_columns: &[String],
+) -> FloeResult<()> {
+    let store = object_store::iceberg_store_config(target, resolver, entity)?;
+
+    let metadata_location: Option<String> = match target {
+        Target::Local { base_path, .. } => {
+            latest_local_metadata_location(Path::new(base_path))?
+        }
+        Target::S3 { storage, base_key, .. } => {
+            let client = cloud.client_for(resolver, storage, entity)?;
+            latest_s3_metadata_location(client, base_key)?
+        }
+        Target::Gcs { storage, base_key, .. } => {
+            let client = cloud.client_for(resolver, storage, entity)?;
+            latest_gcs_metadata_location(client, base_key)?
+        }
+        Target::Adls { .. } => return Ok(()),
+    };
+    let Some(metadata_location) = metadata_location else {
+        return Ok(());
+    };
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| Box::new(RunError(format!("iceberg seed runtime init failed: {err}"))))?;
+
+    let file_uris = runtime
+        .block_on(seed_iceberg_file_uris(
+            metadata_location,
+            store.file_io_props,
+            store.warehouse_location,
+            &entity.name,
+        ))
+        .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
+
+    for uri in file_uris {
+        let local_path = match target {
+            Target::Local { .. } => Url::parse(&uri)
+                .ok()
+                .and_then(|url| url.to_file_path().ok())
+                .unwrap_or_else(|| Path::new(&uri).to_path_buf()),
+            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
+                let temp_dir = temp_dir.ok_or_else(|| {
+                    Box::new(StorageError(format!(
+                        "entity.name={} missing temp dir for iceberg seed read",
+                        entity.name
+                    )))
+                })?;
+                let client = cloud.client_for(resolver, target.storage(), entity)?;
+                client.download_to_temp(&uri, temp_dir)?
+            }
+        };
+        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
+    }
+
+    Ok(())
+}
+
+async fn seed_iceberg_file_uris(
+    metadata_location: String,
+    catalog_props: HashMap<String, String>,
+    warehouse_location: String,
+    entity_name: &str,
+) -> Result<Vec<String>, iceberg::Error> {
+    use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
+    use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+
+    let mut props = catalog_props;
+    props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), warehouse_location);
+
+    let catalog = MemoryCatalogBuilder::default()
+        .load(ICEBERG_CATALOG_NAME, props)
+        .await?;
+
+    let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
+    if !catalog.namespace_exists(&namespace).await? {
+        catalog
+            .create_namespace(&namespace, HashMap::new())
+            .await?;
+    }
+
+    let table_name = iceberg_table_name(entity_name);
+    let table_ident = TableIdent::new(namespace, table_name);
+
+    let table = match catalog.register_table(&table_ident, metadata_location).await {
+        Ok(table) => table,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let scan = table.scan().build()?;
+    let mut file_stream = scan.plan_files().await?;
+    let mut file_uris = Vec::new();
+    while let Some(task) = file_stream.try_next().await? {
+        file_uris.push(task.data_file_path().to_string());
+    }
+    Ok(file_uris)
+}
+
+fn iceberg_table_name(entity_name: &str) -> String {
+    let mut out = String::with_capacity(entity_name.len());
+    for ch in entity_name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "table".to_string()
+    } else {
+        out
+    }
 }
 
 fn seed_from_delta(

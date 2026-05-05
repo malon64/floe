@@ -6,6 +6,15 @@ use floe_core::io::write::parts;
 use floe_core::{run, RunOptions};
 use polars::prelude::{ParquetReader, SerReader};
 
+#[allow(dead_code)]
+fn read_parquet_rows(path: &Path) -> usize {
+    let file = fs::File::open(path).expect("open parquet");
+    ParquetReader::new(file)
+        .finish()
+        .expect("read parquet")
+        .height()
+}
+
 fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
     let nanos = SystemTime::now()
@@ -470,6 +479,82 @@ entities:
         .part_files
         .iter()
         .all(|file| parts::is_part_filename(file, "parquet")));
+    let rejected_path = second.entity_outcomes[0]
+        .report
+        .files
+        .first()
+        .and_then(|file| file.output.rejected_path.as_ref())
+        .expect("missing rejected output path");
+    let rejected_path = rejected_path.trim_start_matches("local://");
+    assert!(Path::new(rejected_path).exists());
+}
+
+#[test]
+fn accepted_output_delta_append_rejects_duplicates_across_runs() {
+    let root = temp_dir("floe-entity-accepted-delta-unique");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let rejected_dir = root.join("out/rejected");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    fs::create_dir_all(&accepted_dir).expect("create accepted dir");
+    write_csv(&input_dir, "a.csv", "id;name\n1;alice\n2;bob\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+          unique: true
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let first = run_config(&config_path);
+    assert_eq!(first.entity_outcomes[0].report.results.accepted_total, 2);
+    assert_eq!(first.entity_outcomes[0].report.results.rejected_total, 0);
+
+    let first_constraints = &first.entity_outcomes[0].report.unique_constraints;
+    assert_eq!(first_constraints.len(), 1);
+    assert_eq!(first_constraints[0].duplicates_count, 0);
+    assert_eq!(first_constraints[0].target_duplicates_count, 0);
+
+    write_csv(&input_dir, "a.csv", "id;name\n2;bob\n3;carol\n");
+
+    let second = run_config(&config_path);
+    assert_eq!(second.entity_outcomes[0].report.results.accepted_total, 1);
+    assert_eq!(second.entity_outcomes[0].report.results.rejected_total, 1);
+
+    let second_constraints = &second.entity_outcomes[0].report.unique_constraints;
+    assert_eq!(second_constraints.len(), 1);
+    assert_eq!(second_constraints[0].duplicates_count, 1);
+    assert_eq!(second_constraints[0].target_duplicates_count, 1);
+    assert_eq!(second_constraints[0].batch_duplicates_count, 0);
+
     let rejected_path = second.entity_outcomes[0]
         .report
         .files

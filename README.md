@@ -68,11 +68,21 @@ Support matrix: [docs/support-matrix.md](docs/support-matrix.md)
 
 ## Quickstart
 
-### Install (Homebrew)
+### Install
+
+**macOS / Linux — [Homebrew](https://brew.sh)**
 
 ```bash
 brew tap malon64/floe
 brew install floe
+floe --version
+```
+
+**Windows — [Scoop](https://scoop.sh)**
+
+```bash
+scoop bucket add floe https://github.com/malon64/scoop-floe
+scoop install floe
 floe --version
 ```
 

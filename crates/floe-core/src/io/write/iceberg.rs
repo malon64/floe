@@ -28,7 +28,8 @@ use self::context::{
     build_iceberg_write_context, create_table, ensure_namespace, sanitize_table_name,
 };
 use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
-use self::glue::{load_glue_table_state, upsert_glue_table};
+pub(crate) use self::glue::load_glue_table_state;
+use self::glue::upsert_glue_table;
 use self::metadata::parse_metadata_version_from_location;
 use self::schema::{ensure_partition_spec_matches, ensure_schema_matches, prepare_iceberg_write};
 
@@ -80,12 +81,12 @@ struct IcebergWriteContext {
 }
 
 #[derive(Debug, Clone)]
-struct GlueIcebergCatalogConfig {
-    catalog_name: String,
-    region: String,
-    database: String,
-    namespace: String,
-    table: String,
+pub(crate) struct GlueIcebergCatalogConfig {
+    pub(crate) catalog_name: String,
+    pub(crate) region: String,
+    pub(crate) database: String,
+    pub(crate) namespace: String,
+    pub(crate) table: String,
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {

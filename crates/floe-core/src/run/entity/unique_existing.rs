@@ -11,7 +11,9 @@ use crate::io::storage::{object_store, Target};
 use crate::io::write::iceberg::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
-use crate::io::write::iceberg::{ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE};
+use crate::io::write::iceberg::{
+    load_glue_table_state, GlueIcebergCatalogConfig, ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
+};
 use crate::io::write::{parts, strategy};
 use crate::{check, config, io, FloeResult};
 
@@ -24,6 +26,7 @@ pub fn seed_unique_tracker_for_append(
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
+    catalogs: &config::CatalogResolver,
     entity: &config::EntityConfig,
 ) -> FloeResult<()> {
     if write_mode != config::WriteMode::Append || unique_tracker.is_empty() {
@@ -58,6 +61,7 @@ pub fn seed_unique_tracker_for_append(
             temp_dir,
             cloud,
             resolver,
+            catalogs,
             entity,
             &unique_columns,
         ),
@@ -129,9 +133,29 @@ fn seed_from_iceberg(
     temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
+    catalogs: &config::CatalogResolver,
     entity: &config::EntityConfig,
     unique_columns: &[String],
 ) -> FloeResult<()> {
+    // When a Glue catalog is configured, the writer uses glue_target.table_location as the
+    // real table root (not target). Seed from the same location so duplicate detection is
+    // consistent with what was actually written.
+    if let Some(glue_target) =
+        catalogs.resolve_iceberg_target(resolver, entity, &entity.sink.accepted)?
+    {
+        if glue_target.catalog_type == "glue" {
+            return seed_from_glue_iceberg(
+                unique_tracker,
+                &glue_target,
+                temp_dir,
+                cloud,
+                resolver,
+                entity,
+                unique_columns,
+            );
+        }
+    }
+
     let store = object_store::iceberg_store_config(target, resolver, entity)?;
 
     let metadata_location: Option<String> = match target {
@@ -182,6 +206,79 @@ fn seed_from_iceberg(
                     )))
                 })?;
                 let client = cloud.client_for(resolver, target.storage(), entity)?;
+                client.download_to_temp(&uri, temp_dir)?
+            }
+        };
+        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
+    }
+
+    Ok(())
+}
+
+fn seed_from_glue_iceberg(
+    unique_tracker: &mut check::UniqueTracker,
+    glue_target: &config::ResolvedIcebergCatalogTarget,
+    temp_dir: Option<&Path>,
+    cloud: &mut io::storage::CloudClient,
+    resolver: &config::StorageResolver,
+    entity: &config::EntityConfig,
+    unique_columns: &[String],
+) -> FloeResult<()> {
+    let catalog_target = Target::from_resolved(&glue_target.table_location)?;
+    let store = object_store::iceberg_store_config(&catalog_target, resolver, entity)?;
+
+    let glue_cfg = GlueIcebergCatalogConfig {
+        catalog_name: glue_target.catalog_name.clone(),
+        region: glue_target.region.clone(),
+        database: glue_target.database.clone(),
+        namespace: glue_target.namespace.clone(),
+        table: glue_target.table.clone(),
+    };
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "glue iceberg seed runtime init failed: {err}"
+            )))
+        })?;
+
+    let glue_state = runtime
+        .block_on(load_glue_table_state(&glue_cfg))
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "glue get_table for iceberg seed failed: {err}"
+            )))
+        })?;
+
+    let Some(metadata_location) = glue_state.metadata_location else {
+        return Ok(());
+    };
+
+    let file_uris = runtime
+        .block_on(seed_iceberg_file_uris(
+            metadata_location,
+            store.file_io_props,
+            store.warehouse_location,
+            &entity.name,
+        ))
+        .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
+
+    for uri in file_uris {
+        let local_path = match &catalog_target {
+            Target::Local { .. } => Url::parse(&uri)
+                .ok()
+                .and_then(|url| url.to_file_path().ok())
+                .unwrap_or_else(|| Path::new(&uri).to_path_buf()),
+            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
+                let temp_dir = temp_dir.ok_or_else(|| {
+                    Box::new(StorageError(format!(
+                        "entity.name={} missing temp dir for glue iceberg seed read",
+                        entity.name
+                    )))
+                })?;
+                let client = cloud.client_for(resolver, catalog_target.storage(), entity)?;
                 client.download_to_temp(&uri, temp_dir)?
             }
         };

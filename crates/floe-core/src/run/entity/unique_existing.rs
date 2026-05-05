@@ -135,14 +135,16 @@ fn seed_from_iceberg(
     let store = object_store::iceberg_store_config(target, resolver, entity)?;
 
     let metadata_location: Option<String> = match target {
-        Target::Local { base_path, .. } => {
-            latest_local_metadata_location(Path::new(base_path))?
-        }
-        Target::S3 { storage, base_key, .. } => {
+        Target::Local { base_path, .. } => latest_local_metadata_location(Path::new(base_path))?,
+        Target::S3 {
+            storage, base_key, ..
+        } => {
             let client = cloud.client_for(resolver, storage, entity)?;
             latest_s3_metadata_location(client, base_key)?
         }
-        Target::Gcs { storage, base_key, .. } => {
+        Target::Gcs {
+            storage, base_key, ..
+        } => {
             let client = cloud.client_for(resolver, storage, entity)?;
             latest_gcs_metadata_location(client, base_key)?
         }
@@ -207,9 +209,7 @@ async fn seed_iceberg_file_uris(
 
     let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
     if !catalog.namespace_exists(&namespace).await? {
-        catalog
-            .create_namespace(&namespace, HashMap::new())
-            .await?;
+        catalog.create_namespace(&namespace, HashMap::new()).await?;
     }
 
     let table_name = iceberg_table_name(entity_name);

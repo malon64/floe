@@ -240,7 +240,8 @@ async fn seed_iceberg_file_uris(
 
     let table = match catalog.register_table(&table_ident, metadata_location).await {
         Ok(table) => table,
-        Err(_) => return Ok(Vec::new()),
+        Err(err) if is_iceberg_not_found_error(&err) => return Ok(Vec::new()),
+        Err(err) => return Err(err),
     };
 
     let scan = table.scan().build()?;
@@ -250,6 +251,12 @@ async fn seed_iceberg_file_uris(
         file_uris.push(task.data_file_path().to_string());
     }
     Ok(file_uris)
+}
+
+
+fn is_iceberg_not_found_error(err: &iceberg::Error) -> bool {
+    let msg = err.to_string().to_ascii_lowercase();
+    msg.contains("not found") || msg.contains("does not exist")
 }
 
 fn iceberg_table_name(entity_name: &str) -> String {

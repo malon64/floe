@@ -290,10 +290,12 @@ fn main() -> FloeResult<()> {
                     let _ = err_out.flush();
                     std::process::exit(1);
                 }
+                let config_env_vars =
+                    floe_core::extract_config_env_vars(&config_location.path).unwrap_or_default();
                 match floe_core::resolve_vars(floe_core::VarSources {
                     profile: &parsed.variables,
                     cli: &std::collections::HashMap::new(),
-                    config: &std::collections::HashMap::new(),
+                    config: &config_env_vars,
                 }) {
                     Ok(vars) => vars,
                     Err(err) => {

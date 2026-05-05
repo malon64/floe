@@ -6,6 +6,9 @@ use deltalake::table::builder::DeltaTableBuilder;
 use df_interchange::Interchange;
 use url::Url;
 
+use crate::checks::normalize::{
+    output_column_mapping, rename_output_columns, resolve_normalize_strategy,
+};
 use crate::errors::{RunError, StorageError};
 use crate::io::read::parquet::read_parquet_lazy;
 use crate::io::storage::{object_store, Target};
@@ -127,6 +130,30 @@ fn seed_from_parquet_path(
     Ok(())
 }
 
+// Builds two parallel lists from unique_columns (runtime/input names):
+// - scan_cols: the stored/output names to project from the Iceberg table
+// - rename_back: map from stored name -> runtime name, for columns that differ
+fn iceberg_scan_projection(
+    entity: &config::EntityConfig,
+    unique_columns: &[String],
+) -> FloeResult<(Vec<String>, HashMap<String, String>)> {
+    let strategy = resolve_normalize_strategy(entity)?;
+    // maps runtime_name -> output_name for columns that differ
+    let runtime_to_output = output_column_mapping(&entity.schema.columns, strategy.as_deref())?;
+
+    let mut scan_cols = Vec::with_capacity(unique_columns.len());
+    let mut rename_back = HashMap::new();
+    for runtime in unique_columns {
+        if let Some(output) = runtime_to_output.get(runtime) {
+            scan_cols.push(output.clone());
+            rename_back.insert(output.clone(), runtime.clone());
+        } else {
+            scan_cols.push(runtime.clone());
+        }
+    }
+    Ok((scan_cols, rename_back))
+}
+
 fn seed_from_iceberg(
     unique_tracker: &mut check::UniqueTracker,
     target: &Target,
@@ -175,6 +202,8 @@ fn seed_from_iceberg(
         return Ok(());
     };
 
+    let (scan_cols, rename_back) = iceberg_scan_projection(entity, unique_columns)?;
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -186,11 +215,11 @@ fn seed_from_iceberg(
             store.file_io_props,
             store.warehouse_location,
             &entity.name,
-            unique_columns,
+            &scan_cols,
         ))
         .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
 
-    seed_from_batches(unique_tracker, batches)
+    seed_from_batches(unique_tracker, batches, &rename_back)
 }
 
 fn seed_from_glue_iceberg(
@@ -210,6 +239,8 @@ fn seed_from_glue_iceberg(
         namespace: glue_target.namespace.clone(),
         table: glue_target.table.clone(),
     };
+
+    let (scan_cols, rename_back) = iceberg_scan_projection(entity, unique_columns)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -238,11 +269,11 @@ fn seed_from_glue_iceberg(
             store.file_io_props,
             store.warehouse_location,
             &entity.name,
-            unique_columns,
+            &scan_cols,
         ))
         .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
 
-    seed_from_batches(unique_tracker, batches)
+    seed_from_batches(unique_tracker, batches, &rename_back)
 }
 
 // Uses table.scan().to_arrow() so the Iceberg reader applies positional and equality deletes
@@ -252,7 +283,7 @@ async fn collect_iceberg_batches(
     catalog_props: HashMap<String, String>,
     warehouse_location: String,
     entity_name: &str,
-    unique_columns: &[String],
+    scan_columns: &[String],
 ) -> Result<Vec<RecordBatch>, iceberg::Error> {
     use futures::TryStreamExt;
     use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
@@ -277,10 +308,7 @@ async fn collect_iceberg_batches(
         .register_table(&table_ident, metadata_location)
         .await?;
 
-    let scan = table
-        .scan()
-        .select(unique_columns.iter().cloned())
-        .build()?;
+    let scan = table.scan().select(scan_columns.iter().cloned()).build()?;
     let batch_stream = scan.to_arrow().await?;
     batch_stream
         .try_filter(|b| std::future::ready(b.num_rows() > 0))
@@ -291,15 +319,19 @@ async fn collect_iceberg_batches(
 fn seed_from_batches(
     unique_tracker: &mut check::UniqueTracker,
     batches: Vec<RecordBatch>,
+    // Maps stored/output column name -> runtime/input name, for columns that differ.
+    // Applied after converting to DataFrame so seed_from_df sees runtime names.
+    rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
     for batch in batches {
-        let df = Interchange::from_arrow_57(vec![batch])
+        let mut df = Interchange::from_arrow_57(vec![batch])
             .and_then(|ic| ic.to_polars_0_52())
             .map_err(|err| {
                 Box::new(RunError(format!(
                     "iceberg batch to DataFrame conversion failed: {err}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
+        rename_output_columns(&mut df, rename_back)?;
         unique_tracker.seed_from_df(&df)?;
     }
     Ok(())

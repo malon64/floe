@@ -81,12 +81,13 @@ fn seed_from_parquet(
     entity: &config::EntityConfig,
     unique_columns: &[String],
 ) -> FloeResult<()> {
+    let (scan_cols, rename_back) = accepted_scan_projection(entity, unique_columns)?;
     match target {
         Target::Local { base_path, .. } => {
             let base_path = Path::new(base_path);
             let part_files = parts::list_local_part_paths(base_path, "parquet")?;
             for part_path in part_files {
-                seed_from_parquet_path(unique_tracker, &part_path, unique_columns)?;
+                seed_from_parquet_path(unique_tracker, &part_path, &scan_cols, &rename_back)?;
             }
         }
         Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
@@ -113,7 +114,7 @@ fn seed_from_parquet(
                 .filter(|obj| parts::is_part_key(&obj.key, spec.extension))
             {
                 let local_path = client.download_to_temp(&object.uri, temp_dir)?;
-                seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
+                seed_from_parquet_path(unique_tracker, &local_path, &scan_cols, &rename_back)?;
             }
         }
     }
@@ -123,17 +124,22 @@ fn seed_from_parquet(
 fn seed_from_parquet_path(
     unique_tracker: &mut check::UniqueTracker,
     path: &Path,
-    unique_columns: &[String],
+    scan_cols: &[String],
+    rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
-    let df = read_parquet_lazy(path, Some(unique_columns))?;
+    let mut df = read_parquet_lazy(path, Some(scan_cols))?;
+    rename_output_columns(&mut df, rename_back)?;
     unique_tracker.seed_from_df(&df)?;
     Ok(())
 }
 
 // Builds two parallel lists from unique_columns (runtime/input names):
-// - scan_cols: the stored/output names to project from the Iceberg table
+// - scan_cols: the stored/output names to project from the accepted sink files
 // - rename_back: map from stored name -> runtime name, for columns that differ
-fn iceberg_scan_projection(
+//
+// Used by all three seeding paths (parquet, delta, iceberg) because accepted files
+// always contain output names after rename_output_columns is applied before writing.
+fn accepted_scan_projection(
     entity: &config::EntityConfig,
     unique_columns: &[String],
 ) -> FloeResult<(Vec<String>, HashMap<String, String>)> {
@@ -202,7 +208,7 @@ fn seed_from_iceberg(
         return Ok(());
     };
 
-    let (scan_cols, rename_back) = iceberg_scan_projection(entity, unique_columns)?;
+    let (scan_cols, rename_back) = accepted_scan_projection(entity, unique_columns)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -240,7 +246,7 @@ fn seed_from_glue_iceberg(
         table: glue_target.table.clone(),
     };
 
-    let (scan_cols, rename_back) = iceberg_scan_projection(entity, unique_columns)?;
+    let (scan_cols, rename_back) = accepted_scan_projection(entity, unique_columns)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -362,6 +368,7 @@ fn seed_from_delta(
     entity: &config::EntityConfig,
     unique_columns: &[String],
 ) -> FloeResult<()> {
+    let (scan_cols, rename_back) = accepted_scan_projection(entity, unique_columns)?;
     let store = object_store::delta_store_config(target, resolver, entity)?;
     let table_url = store.table_url;
     let storage_options = store.storage_options;
@@ -404,7 +411,7 @@ fn seed_from_delta(
                 client.download_to_temp(&uri, temp_dir)?
             }
         };
-        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
+        seed_from_parquet_path(unique_tracker, &local_path, &scan_cols, &rename_back)?;
     }
 
     Ok(())

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use arrow::record_batch::RecordBatch;
 use deltalake::table::builder::DeltaTableBuilder;
-use futures::TryStreamExt;
+use df_interchange::Interchange;
 use url::Url;
 
 use crate::errors::{RunError, StorageError};
@@ -58,7 +59,6 @@ pub fn seed_unique_tracker_for_append(
         "iceberg" => seed_from_iceberg(
             unique_tracker,
             target,
-            temp_dir,
             cloud,
             resolver,
             catalogs,
@@ -130,7 +130,6 @@ fn seed_from_parquet_path(
 fn seed_from_iceberg(
     unique_tracker: &mut check::UniqueTracker,
     target: &Target,
-    temp_dir: Option<&Path>,
     cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     catalogs: &config::CatalogResolver,
@@ -147,8 +146,6 @@ fn seed_from_iceberg(
             return seed_from_glue_iceberg(
                 unique_tracker,
                 &glue_target,
-                temp_dir,
-                cloud,
                 resolver,
                 entity,
                 unique_columns,
@@ -183,43 +180,22 @@ fn seed_from_iceberg(
         .build()
         .map_err(|err| Box::new(RunError(format!("iceberg seed runtime init failed: {err}"))))?;
 
-    let file_uris = runtime
-        .block_on(seed_iceberg_file_uris(
+    let batches = runtime
+        .block_on(collect_iceberg_batches(
             metadata_location,
             store.file_io_props,
             store.warehouse_location,
             &entity.name,
+            unique_columns,
         ))
         .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
 
-    for uri in file_uris {
-        let local_path = match target {
-            Target::Local { .. } => Url::parse(&uri)
-                .ok()
-                .and_then(|url| url.to_file_path().ok())
-                .unwrap_or_else(|| Path::new(&uri).to_path_buf()),
-            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
-                let temp_dir = temp_dir.ok_or_else(|| {
-                    Box::new(StorageError(format!(
-                        "entity.name={} missing temp dir for iceberg seed read",
-                        entity.name
-                    )))
-                })?;
-                let client = cloud.client_for(resolver, target.storage(), entity)?;
-                client.download_to_temp(&uri, temp_dir)?
-            }
-        };
-        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
-    }
-
-    Ok(())
+    seed_from_batches(unique_tracker, batches)
 }
 
 fn seed_from_glue_iceberg(
     unique_tracker: &mut check::UniqueTracker,
     glue_target: &config::ResolvedIcebergCatalogTarget,
-    temp_dir: Option<&Path>,
-    cloud: &mut io::storage::CloudClient,
     resolver: &config::StorageResolver,
     entity: &config::EntityConfig,
     unique_columns: &[String],
@@ -256,44 +232,29 @@ fn seed_from_glue_iceberg(
         return Ok(());
     };
 
-    let file_uris = runtime
-        .block_on(seed_iceberg_file_uris(
+    let batches = runtime
+        .block_on(collect_iceberg_batches(
             metadata_location,
             store.file_io_props,
             store.warehouse_location,
             &entity.name,
+            unique_columns,
         ))
         .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
 
-    for uri in file_uris {
-        let local_path = match &catalog_target {
-            Target::Local { .. } => Url::parse(&uri)
-                .ok()
-                .and_then(|url| url.to_file_path().ok())
-                .unwrap_or_else(|| Path::new(&uri).to_path_buf()),
-            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
-                let temp_dir = temp_dir.ok_or_else(|| {
-                    Box::new(StorageError(format!(
-                        "entity.name={} missing temp dir for glue iceberg seed read",
-                        entity.name
-                    )))
-                })?;
-                let client = cloud.client_for(resolver, catalog_target.storage(), entity)?;
-                client.download_to_temp(&uri, temp_dir)?
-            }
-        };
-        seed_from_parquet_path(unique_tracker, &local_path, unique_columns)?;
-    }
-
-    Ok(())
+    seed_from_batches(unique_tracker, batches)
 }
 
-async fn seed_iceberg_file_uris(
+// Uses table.scan().to_arrow() so the Iceberg reader applies positional and equality deletes
+// before returning rows — only live rows are seeded.
+async fn collect_iceberg_batches(
     metadata_location: String,
     catalog_props: HashMap<String, String>,
     warehouse_location: String,
     entity_name: &str,
-) -> Result<Vec<String>, iceberg::Error> {
+    unique_columns: &[String],
+) -> Result<Vec<RecordBatch>, iceberg::Error> {
+    use futures::TryStreamExt;
     use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 
@@ -316,19 +277,32 @@ async fn seed_iceberg_file_uris(
         .register_table(&table_ident, metadata_location)
         .await?;
 
-    let scan = table.scan().build()?;
-    let mut file_stream = scan.plan_files().await?;
-    let mut file_uris = Vec::new();
-    while let Some(task) = file_stream.try_next().await? {
-        // Skip files that carry associated delete entries: applying position/equality
-        // deletes during seeding is not supported, so we exclude those files entirely
-        // rather than risk seeding keys for logically-deleted rows.
-        if !task.deletes.is_empty() {
-            continue;
-        }
-        file_uris.push(task.data_file_path().to_string());
+    let scan = table
+        .scan()
+        .select(unique_columns.iter().cloned())
+        .build()?;
+    let batch_stream = scan.to_arrow().await?;
+    batch_stream
+        .try_filter(|b| std::future::ready(b.num_rows() > 0))
+        .try_collect()
+        .await
+}
+
+fn seed_from_batches(
+    unique_tracker: &mut check::UniqueTracker,
+    batches: Vec<RecordBatch>,
+) -> FloeResult<()> {
+    for batch in batches {
+        let df = Interchange::from_arrow_57(vec![batch])
+            .and_then(|ic| ic.to_polars_0_52())
+            .map_err(|err| {
+                Box::new(RunError(format!(
+                    "iceberg batch to DataFrame conversion failed: {err}"
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+        unique_tracker.seed_from_df(&df)?;
     }
-    Ok(file_uris)
+    Ok(())
 }
 
 fn iceberg_table_name(entity_name: &str) -> String {

@@ -16,7 +16,6 @@ mod incremental;
 mod precheck;
 mod process;
 mod resolve;
-mod unique_existing;
 mod validate_split;
 pub(crate) use resolve::{resolve_entity_targets, ResolvedEntityTargets};
 
@@ -206,7 +205,7 @@ pub(super) fn run_entity(
     let mut accepted_accum = Vec::new();
     let temp_dir_path = temp_dir.as_ref().map(|dir| dir.path());
     let mut unique_tracker = check::UniqueTracker::with_constraints(unique_constraints);
-    unique_existing::seed_unique_tracker_for_append(
+    io::unique_seed::seed_unique_tracker_for_append(
         &mut unique_tracker,
         write_mode,
         entity.sink.accepted.format.as_str(),

@@ -86,27 +86,16 @@ impl CatalogResolver {
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        let region = definition.region.clone().ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "catalogs.definitions name={} requires region for type {}",
-                definition.name, definition.catalog_type
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?;
-        let database = normalize_glue_ident(definition.database.as_deref().ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "catalogs.definitions name={} requires database for type {}",
-                definition.name, definition.catalog_type
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?);
+        let (region, database) = resolve_catalog_type_fields(&definition)?;
 
         let namespace_source = iceberg_cfg
             .namespace
             .as_deref()
             .or(entity.domain.as_deref())
             .unwrap_or(database.as_str());
-        let namespace = normalize_glue_ident(namespace_source);
+        let namespace = normalize_catalog_ident(namespace_source);
         let table_source = iceberg_cfg.table.as_deref().unwrap_or(entity.name.as_str());
-        let table = normalize_glue_ident(table_source);
+        let table = normalize_catalog_ident(table_source);
 
         let table_location = if let Some(location) = iceberg_cfg.location.as_deref() {
             let storage_name = definition
@@ -167,7 +156,37 @@ impl CatalogResolver {
     }
 }
 
-fn normalize_glue_ident(value: &str) -> String {
+// Validates and extracts the fields required by each catalog type.
+// Returns an error for unknown types, making the set of supported catalogs explicit.
+fn resolve_catalog_type_fields(definition: &CatalogDefinition) -> FloeResult<(String, String)> {
+    match definition.catalog_type.as_str() {
+        "glue" => {
+            let region = definition.region.clone().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "catalogs.definitions name={} type=glue requires region",
+                    definition.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let database =
+                normalize_catalog_ident(definition.database.as_deref().ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} type=glue requires database",
+                        definition.name
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?);
+            Ok((region, database))
+        }
+        other => Err(Box::new(ConfigError(format!(
+            "catalogs.definitions name={} has unsupported catalog_type={} (supported: glue)",
+            definition.name, other
+        )))),
+    }
+}
+
+/// Normalizes an identifier for use as a catalog namespace, table, or database name.
+/// Lowercases the value, replaces non-alphanumeric/non-underscore/non-hyphen chars with `_`,
+/// and trims leading/trailing underscores.
+pub(crate) fn normalize_catalog_ident(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
         let mapped = if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {

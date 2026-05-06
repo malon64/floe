@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::io::storage::ObjectRef;
 use crate::{io, FloeResult};
 
-pub(super) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
+pub(crate) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
     let metadata_dir = table_root.join("metadata");
     if !metadata_dir.exists() {
         return Ok(None);
@@ -40,7 +40,7 @@ pub(super) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Op
     Ok(best.map(|(_, path)| path.display().to_string()))
 }
 
-pub(super) fn latest_s3_metadata_location(
+pub(crate) fn latest_s3_metadata_location(
     client: &mut dyn io::storage::StorageClient,
     base_key: &str,
 ) -> FloeResult<Option<String>> {
@@ -53,7 +53,7 @@ pub(super) fn latest_s3_metadata_location(
     latest_metadata_location_from_objects(listed)
 }
 
-pub(super) fn latest_gcs_metadata_location(
+pub(crate) fn latest_gcs_metadata_location(
     client: &mut dyn io::storage::StorageClient,
     base_key: &str,
 ) -> FloeResult<Option<String>> {

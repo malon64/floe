@@ -11,9 +11,9 @@ use crate::FloeResult;
 use super::GlueIcebergCatalogConfig;
 
 #[derive(Debug, Clone)]
-pub(super) struct GlueTableState {
-    pub(super) metadata_location: Option<String>,
-    pub(super) version_id: Option<String>,
+pub(crate) struct GlueTableState {
+    pub(crate) metadata_location: Option<String>,
+    pub(crate) version_id: Option<String>,
 }
 
 async fn build_glue_client(region: &str) -> FloeResult<GlueClient> {
@@ -26,7 +26,7 @@ async fn build_glue_client(region: &str) -> FloeResult<GlueClient> {
     Ok(GlueClient::new(&config))
 }
 
-pub(super) async fn load_glue_table_state(
+pub(crate) async fn load_glue_table_state(
     glue_cfg: &GlueIcebergCatalogConfig,
 ) -> FloeResult<GlueTableState> {
     let client = build_glue_client(&glue_cfg.region).await?;

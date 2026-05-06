@@ -72,6 +72,12 @@ pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
 }
 
+pub fn extract_config_env_vars(
+    config_path: &Path,
+) -> FloeResult<std::collections::HashMap<String, String>> {
+    Ok(config::extract_raw_env_vars(config_path).unwrap_or_default())
+}
+
 pub fn validate_config_for_tests(config: &config::RootConfig) -> FloeResult<()> {
     config::validate_config(config)
 }

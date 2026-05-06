@@ -30,7 +30,7 @@ pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
 /// respected during `${REF}` expansion inside profile variable values.
 ///
 /// Priority matches `build_env_vars`: `env.vars` overwrites `env.file`.
-pub(crate) fn extract_raw_env_vars(path: &Path) -> FloeResult<HashMap<String, String>> {
+pub fn extract_raw_env_vars(path: &Path) -> FloeResult<HashMap<String, String>> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
         return Ok(HashMap::new());

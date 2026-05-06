@@ -206,12 +206,22 @@ pub struct SchemaEvolutionSummary {
 pub struct UniqueConstraintReport {
     pub columns: Vec<String>,
     pub duplicates_count: u64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub batch_duplicates_count: u64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub target_duplicates_count: u64,
     pub affected_rows_count: u64,
     pub action: String,
     pub status_effect: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub samples: Vec<UniqueConstraintSampleReport>,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

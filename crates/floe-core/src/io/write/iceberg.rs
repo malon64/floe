@@ -24,9 +24,8 @@ mod glue;
 pub(crate) mod metadata;
 mod schema;
 
-use self::context::{
-    build_iceberg_write_context, create_table, ensure_namespace, sanitize_table_name,
-};
+pub(crate) use self::context::sanitize_table_name;
+use self::context::{build_iceberg_write_context, create_table, ensure_namespace};
 use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
@@ -77,7 +76,64 @@ struct IcebergWriteContext {
     catalog_name: &'static str,
     catalog_props: HashMap<String, String>,
     metadata_location: Option<String>,
-    glue_catalog: Option<GlueIcebergCatalogConfig>,
+    catalog: Option<IcebergCatalogConfig>,
+}
+
+/// Per-catalog-type configuration used at write and seed time.
+/// Add a new variant here when supporting a new catalog type.
+#[derive(Debug, Clone)]
+pub(crate) enum IcebergCatalogConfig {
+    Glue(GlueIcebergCatalogConfig),
+}
+
+impl IcebergCatalogConfig {
+    /// Constructs the catalog config from a resolved catalog target.
+    /// This is the single dispatch point for catalog_type → variant mapping.
+    /// Add a new arm here when supporting a new catalog type.
+    pub(crate) fn from_resolved(
+        resolved: &config::ResolvedIcebergCatalogTarget,
+    ) -> FloeResult<Self> {
+        match &resolved.type_config {
+            config::CatalogTypeConfig::Glue {
+                region,
+                database,
+                create_database_if_missing,
+                allow_takeover,
+            } => Ok(Self::Glue(GlueIcebergCatalogConfig {
+                catalog_name: resolved.catalog_name.clone(),
+                region: region.clone(),
+                database: database.clone(),
+                namespace: resolved.namespace.clone(),
+                table: resolved.table.clone(),
+                create_database_if_missing: *create_database_if_missing,
+                allow_takeover: *allow_takeover,
+            })),
+        }
+    }
+
+    pub(crate) fn catalog_name(&self) -> &str {
+        match self {
+            Self::Glue(cfg) => &cfg.catalog_name,
+        }
+    }
+
+    pub(crate) fn database(&self) -> Option<&str> {
+        match self {
+            Self::Glue(cfg) => Some(&cfg.database),
+        }
+    }
+
+    pub(crate) fn namespace(&self) -> &str {
+        match self {
+            Self::Glue(cfg) => &cfg.namespace,
+        }
+    }
+
+    pub(crate) fn table(&self) -> &str {
+        match self {
+            Self::Glue(cfg) => &cfg.table,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +143,8 @@ pub(crate) struct GlueIcebergCatalogConfig {
     pub(crate) database: String,
     pub(crate) namespace: String,
     pub(crate) table: String,
+    pub(crate) create_database_if_missing: bool,
+    pub(crate) allow_takeover: bool,
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
@@ -195,13 +253,13 @@ async fn write_iceberg_table_async(
         catalog_name,
         mut catalog_props,
         mut metadata_location,
-        glue_catalog,
+        catalog: catalog_cfg,
     } = write_ctx;
-    let mut glue_table_state = None;
-    if let Some(glue_cfg) = glue_catalog.as_ref() {
+    let mut glue_state = None;
+    if let Some(IcebergCatalogConfig::Glue(glue_cfg)) = catalog_cfg.as_ref() {
         let state = load_glue_table_state(glue_cfg).await?;
         metadata_location = state.metadata_location.clone();
-        glue_table_state = Some(state);
+        glue_state = Some(state);
     }
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
@@ -209,15 +267,15 @@ async fn write_iceberg_table_async(
         .load(catalog_name, catalog_props)
         .await
         .map_err(map_iceberg_err("iceberg catalog init failed"))?;
-    let namespace_name = glue_catalog
+    let namespace_name = catalog_cfg
         .as_ref()
-        .map(|cfg| cfg.namespace.clone())
+        .map(|cfg| cfg.namespace().to_string())
         .unwrap_or_else(|| ICEBERG_NAMESPACE.to_string());
     let namespace = NamespaceIdent::new(namespace_name);
     ensure_namespace(&catalog, &namespace).await?;
-    let table_name = glue_catalog
+    let table_name = catalog_cfg
         .as_ref()
-        .map(|cfg| cfg.table.clone())
+        .map(|cfg| cfg.table().to_string())
         .unwrap_or_else(|| sanitize_table_name(&entity.name));
     let table_ident = TableIdent::new(namespace.clone(), table_name);
 
@@ -346,12 +404,12 @@ async fn write_iceberg_table_async(
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-    if let Some(glue_cfg) = glue_catalog.as_ref() {
+    if let Some(IcebergCatalogConfig::Glue(glue_cfg)) = catalog_cfg.as_ref() {
         upsert_glue_table(
             glue_cfg,
             &table_root_uri,
             &final_metadata_location,
-            glue_table_state
+            glue_state
                 .as_ref()
                 .and_then(|state| state.version_id.as_deref()),
         )
@@ -372,10 +430,14 @@ async fn write_iceberg_table_async(
         file_paths,
         metrics,
         table_root_uri,
-        iceberg_catalog_name: glue_catalog.as_ref().map(|cfg| cfg.catalog_name.clone()),
-        iceberg_database: glue_catalog.as_ref().map(|cfg| cfg.database.clone()),
-        iceberg_namespace: glue_catalog.as_ref().map(|cfg| cfg.namespace.clone()),
-        iceberg_table: glue_catalog.as_ref().map(|cfg| cfg.table.clone()),
+        iceberg_catalog_name: catalog_cfg
+            .as_ref()
+            .map(|cfg| cfg.catalog_name().to_string()),
+        iceberg_database: catalog_cfg
+            .as_ref()
+            .and_then(|cfg| cfg.database().map(ToOwned::to_owned)),
+        iceberg_namespace: catalog_cfg.as_ref().map(|cfg| cfg.namespace().to_string()),
+        iceberg_table: catalog_cfg.as_ref().map(|cfg| cfg.table().to_string()),
         perf,
     })
 }

@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use crate::config::{
-    CatalogDefinition, EntityConfig, IncrementalMode, RootConfig, SourceOptions, StorageDefinition,
+    CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, RootConfig, SourceOptions,
+    StorageDefinition,
 };
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
@@ -15,7 +16,6 @@ const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
-const ALLOWED_CATALOG_TYPES: &[&str] = &["glue"];
 const ALLOWED_ICEBERG_PARTITION_TRANSFORMS: &[&str] = &["identity", "year", "month", "day", "hour"];
 const MIN_SUPPORTED_CONFIG_VERSION: ConfigVersion = ConfigVersion::new(0, 1);
 const MIN_SCHEMA_EVOLUTION_CONFIG_VERSION: ConfigVersion = ConfigVersion::new(0, 2);
@@ -599,9 +599,9 @@ fn validate_iceberg_catalog_binding(
     let accepted_storage_type = storages
         .definition_type(accepted_storage)
         .unwrap_or("local");
-    if accepted_storage_type != "s3" {
+    if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 (got {})",
+            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
             entity.name, accepted_storage_type
         ))));
     }
@@ -623,12 +623,6 @@ fn validate_iceberg_catalog_binding(
             entity.name, catalog_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
-    if definition.catalog_type != "glue" {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.iceberg.catalog={} uses unsupported catalog type {} (allowed: glue)",
-            entity.name, catalog_name, definition.catalog_type
-        ))));
-    }
     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
         let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
             Box::new(ConfigError(format!(
@@ -1081,39 +1075,24 @@ impl CatalogRegistry {
 
         let mut definitions = std::collections::HashMap::new();
         for definition in &catalogs.definitions {
-            if !ALLOWED_CATALOG_TYPES.contains(&definition.catalog_type.as_str()) {
-                return Err(Box::new(ConfigError(format!(
-                    "catalogs.definitions name={} type={} is unsupported (allowed: {})",
-                    definition.name,
-                    definition.catalog_type,
-                    ALLOWED_CATALOG_TYPES.join(", ")
-                ))));
-            }
-            if definition.catalog_type == "glue" {
-                if definition.region.is_none() {
-                    return Err(Box::new(ConfigError(format!(
-                        "catalogs.definitions name={} requires region for type glue",
-                        definition.name
-                    ))));
-                }
-                if definition.database.is_none() {
-                    return Err(Box::new(ConfigError(format!(
-                        "catalogs.definitions name={} requires database for type glue",
-                        definition.name
-                    ))));
-                }
-                if let Some(storage_name) = definition.warehouse_storage.as_deref() {
-                    let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
-                        Box::new(ConfigError(format!(
-                            "catalogs.definitions name={} warehouse_storage references unknown storage {}",
-                            definition.name, storage_name
-                        ))) as Box<dyn std::error::Error + Send + Sync>
-                    })?;
-                    if storage_type != "s3" {
-                        return Err(Box::new(ConfigError(format!(
-                            "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
-                            definition.name, storage_type
-                        ))));
+            // catalog type is validated at parse time via CatalogTypeConfig enum
+            match &definition.type_config {
+                CatalogTypeConfig::Glue { .. } => {
+                    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+                        let storage_type =
+                            storages.definition_type(storage_name).ok_or_else(|| {
+                                Box::new(ConfigError(format!(
+                                    "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                                    definition.name, storage_name
+                                )))
+                                    as Box<dyn std::error::Error + Send + Sync>
+                            })?;
+                        if storage_type != "s3" {
+                            return Err(Box::new(ConfigError(format!(
+                                "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                                definition.name, storage_type
+                            ))));
+                        }
                     }
                 }
             }

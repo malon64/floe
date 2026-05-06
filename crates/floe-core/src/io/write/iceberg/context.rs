@@ -12,7 +12,7 @@ use crate::{config, io, FloeResult};
 use super::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
-use super::{map_iceberg_err, GlueIcebergCatalogConfig, IcebergRemoteContext, IcebergWriteContext};
+use super::{map_iceberg_err, IcebergCatalogConfig, IcebergRemoteContext, IcebergWriteContext};
 
 pub(super) fn build_iceberg_write_context(
     target: &Target,
@@ -36,7 +36,7 @@ pub(super) fn build_iceberg_write_context(
                 catalog_name: "floe_iceberg",
                 catalog_props: HashMap::new(),
                 metadata_location,
-                glue_catalog: None,
+                catalog: None,
             })
         }
         Target::S3 {
@@ -47,28 +47,13 @@ pub(super) fn build_iceberg_write_context(
         } => {
             if let Some(ctx) = remote.as_mut() {
                 let ctx = &mut **ctx;
-                if let Some(glue_target) = ctx.catalogs.resolve_iceberg_target(
+                if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
                     ctx.resolver,
                     entity,
                     &entity.sink.accepted,
                 )? {
-                    if glue_target.catalog_type == "glue" {
-                        let catalog_target = Target::from_resolved(&glue_target.table_location)?;
-                        let store = iceberg_store_config(&catalog_target, ctx.resolver, entity)?;
-                        return Ok(IcebergWriteContext {
-                            table_root_uri: store.warehouse_location,
-                            catalog_name: "floe_iceberg",
-                            catalog_props: store.file_io_props,
-                            metadata_location: None,
-                            glue_catalog: Some(GlueIcebergCatalogConfig {
-                                catalog_name: glue_target.catalog_name,
-                                region: glue_target.region,
-                                database: glue_target.database,
-                                namespace: glue_target.namespace,
-                                table: glue_target.table,
-                            }),
-                        });
-                    }
+                    let catalog_cfg = build_catalog_config(ctx, entity, &resolved)?;
+                    return Ok(catalog_cfg);
                 }
             }
 
@@ -97,7 +82,7 @@ pub(super) fn build_iceberg_write_context(
                         catalog_name: "floe_iceberg",
                         catalog_props: store.file_io_props,
                         metadata_location,
-                        glue_catalog: None,
+                        catalog: None,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -105,7 +90,7 @@ pub(super) fn build_iceberg_write_context(
                     catalog_name: "floe_iceberg",
                     catalog_props: HashMap::new(),
                     metadata_location,
-                    glue_catalog: None,
+                    catalog: None,
                 }),
             }
         }
@@ -115,6 +100,18 @@ pub(super) fn build_iceberg_write_context(
             bucket,
             base_key,
         } => {
+            if let Some(ctx) = remote.as_mut() {
+                let ctx = &mut **ctx;
+                if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
+                    ctx.resolver,
+                    entity,
+                    &entity.sink.accepted,
+                )? {
+                    let catalog_cfg = build_catalog_config(ctx, entity, &resolved)?;
+                    return Ok(catalog_cfg);
+                }
+            }
+
             let metadata_location = if matches!(mode, config::WriteMode::Append) {
                 match remote.as_mut() {
                     Some(ctx) => {
@@ -140,7 +137,7 @@ pub(super) fn build_iceberg_write_context(
                         catalog_name: "floe_iceberg",
                         catalog_props: store.file_io_props,
                         metadata_location,
-                        glue_catalog: None,
+                        catalog: None,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -148,7 +145,7 @@ pub(super) fn build_iceberg_write_context(
                     catalog_name: "floe_iceberg",
                     catalog_props: HashMap::new(),
                     metadata_location,
-                    glue_catalog: None,
+                    catalog: None,
                 }),
             }
         }
@@ -198,7 +195,30 @@ pub(super) async fn create_table(
         .map_err(map_iceberg_err("iceberg create table failed"))
 }
 
-pub(super) fn sanitize_table_name(name: &str) -> String {
+/// Builds an IcebergWriteContext from a resolved catalog target.
+fn build_catalog_config(
+    ctx: &mut IcebergRemoteContext<'_>,
+    entity: &config::EntityConfig,
+    resolved: &config::ResolvedIcebergCatalogTarget,
+) -> FloeResult<IcebergWriteContext> {
+    let catalog = IcebergCatalogConfig::from_resolved(resolved).map_err(|err| {
+        Box::new(crate::errors::RunError(format!(
+            "entity.name={} catalog config: {err}",
+            entity.name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    let catalog_target = Target::from_resolved(&resolved.table_location)?;
+    let store = iceberg_store_config(&catalog_target, ctx.resolver, entity)?;
+    Ok(IcebergWriteContext {
+        table_root_uri: store.warehouse_location,
+        catalog_name: "floe_iceberg",
+        catalog_props: store.file_io_props,
+        metadata_location: None,
+        catalog: Some(catalog),
+    })
+}
+
+pub(crate) fn sanitize_table_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {

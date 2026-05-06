@@ -10,13 +10,13 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::config::{
-    ArchiveTarget, CatalogDefinition, CatalogsConfig, ColumnConfig, DomainConfig, EntityConfig,
-    EntityMetadata, EntityStateConfig, EnvConfig, IcebergPartitionFieldConfig,
-    IcebergSinkTargetConfig, IncrementalMode, MergeOptionsConfig, MergeScd2OptionsConfig,
-    NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
-    SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode,
-    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
-    StorageDefinition, StoragesConfig, WriteMode,
+    ArchiveTarget, CatalogDefinition, CatalogTypeConfig, CatalogsConfig, ColumnConfig,
+    DomainConfig, EntityConfig, EntityMetadata, EntityStateConfig, EnvConfig,
+    IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, MergeOptionsConfig,
+    MergeScd2OptionsConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig,
+    RootConfig, SchemaConfig, SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction,
+    SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig,
+    SourceOptions, StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -708,18 +708,45 @@ fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
             "type",
             "region",
             "database",
+            "create_database_if_missing",
+            "allow_takeover",
             "warehouse_storage",
             "warehouse_prefix",
         ],
     )?;
+    let name = get_string(hash, "name", "catalogs.definitions")?;
+    let catalog_type = get_string(hash, "type", "catalogs.definitions")?;
+    let type_config = parse_catalog_type_config(&name, &catalog_type, hash)?;
     Ok(CatalogDefinition {
-        name: get_string(hash, "name", "catalogs.definitions")?,
-        catalog_type: get_string(hash, "type", "catalogs.definitions")?,
-        region: opt_string(hash, "region", "catalogs.definitions")?,
-        database: opt_string(hash, "database", "catalogs.definitions")?,
+        name,
+        type_config,
         warehouse_storage: opt_string(hash, "warehouse_storage", "catalogs.definitions")?,
         warehouse_prefix: opt_string(hash, "warehouse_prefix", "catalogs.definitions")?,
     })
+}
+
+fn parse_catalog_type_config(
+    name: &str,
+    catalog_type: &str,
+    hash: &yaml_rust2::yaml::Hash,
+) -> FloeResult<CatalogTypeConfig> {
+    match catalog_type {
+        "glue" => Ok(CatalogTypeConfig::Glue {
+            region: get_string(hash, "region", "catalogs.definitions")?,
+            database: get_string(hash, "database", "catalogs.definitions")?,
+            create_database_if_missing: opt_bool(
+                hash,
+                "create_database_if_missing",
+                "catalogs.definitions",
+            )?
+            .unwrap_or(true),
+            allow_takeover: opt_bool(hash, "allow_takeover", "catalogs.definitions")?
+                .unwrap_or(false),
+        }),
+        other => Err(Box::new(crate::errors::ConfigError(format!(
+            "catalogs.definitions name={name} has unsupported type={other} (supported: glue)"
+        )))),
+    }
 }
 
 fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {

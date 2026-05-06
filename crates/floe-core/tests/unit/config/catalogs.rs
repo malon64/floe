@@ -31,9 +31,12 @@ fn base_root() -> config::RootConfig {
             default: Some("glue_main".to_string()),
             definitions: vec![config::CatalogDefinition {
                 name: "glue_main".to_string(),
-                catalog_type: "glue".to_string(),
-                region: Some("us-east-1".to_string()),
-                database: Some("lakehouse".to_string()),
+                type_config: config::CatalogTypeConfig::Glue {
+                    region: "us-east-1".to_string(),
+                    database: "lakehouse".to_string(),
+                    create_database_if_missing: true,
+                    allow_takeover: false,
+                },
                 warehouse_storage: Some("s3_wh".to_string()),
                 warehouse_prefix: Some("iceberg".to_string()),
             }],
@@ -108,8 +111,9 @@ fn catalog_resolver_derives_glue_identity_and_warehouse_location() {
         .expect("glue target");
 
     assert_eq!(resolved.catalog_name, "glue_main");
-    assert_eq!(resolved.catalog_type, "glue");
-    assert_eq!(resolved.database, "lakehouse");
+    assert!(
+        matches!(resolved.type_config, config::CatalogTypeConfig::Glue { ref database, .. } if database == "lakehouse")
+    );
     assert_eq!(resolved.namespace, "sales_ops");
     assert_eq!(resolved.table, "customer_orders");
     assert_eq!(

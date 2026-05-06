@@ -769,11 +769,10 @@ entities:
     let catalogs = config.catalogs.as_ref().expect("catalogs");
     assert_eq!(catalogs.default.as_deref(), Some("glue_main"));
     assert_eq!(catalogs.definitions.len(), 1);
-    assert_eq!(catalogs.definitions[0].catalog_type, "glue");
-    assert_eq!(
-        catalogs.definitions[0].database.as_deref(),
-        Some("lakehouse")
-    );
+    assert!(matches!(
+        catalogs.definitions[0].type_config,
+        floe_core::config::CatalogTypeConfig::Glue { ref database, .. } if database == "lakehouse"
+    ));
     assert_eq!(
         catalogs.definitions[0].warehouse_prefix.as_deref(),
         Some("iceberg")

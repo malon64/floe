@@ -9,7 +9,8 @@ use crate::io::write::iceberg::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
 use crate::io::write::iceberg::{
-    load_glue_table_state, IcebergCatalogConfig, ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
+    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, ICEBERG_CATALOG_NAME,
+    ICEBERG_NAMESPACE,
 };
 use crate::{check, config, io, FloeResult};
 
@@ -190,7 +191,7 @@ async fn collect_iceberg_batches(
         catalog.create_namespace(&namespace, HashMap::new()).await?;
     }
 
-    let table_name = iceberg_table_name(entity_name);
+    let table_name = sanitize_table_name(entity_name);
     let table_ident = TableIdent::new(namespace, table_name);
 
     let table = catalog
@@ -203,20 +204,4 @@ async fn collect_iceberg_batches(
         .try_filter(|b| std::future::ready(b.num_rows() > 0))
         .try_collect()
         .await
-}
-
-fn iceberg_table_name(entity_name: &str) -> String {
-    let mut out = String::with_capacity(entity_name.len());
-    for ch in entity_name.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    if out.is_empty() {
-        "table".to_string()
-    } else {
-        out
-    }
 }

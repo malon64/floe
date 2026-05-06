@@ -100,6 +100,18 @@ pub(super) fn build_iceberg_write_context(
             bucket,
             base_key,
         } => {
+            if let Some(ctx) = remote.as_mut() {
+                let ctx = &mut **ctx;
+                if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
+                    ctx.resolver,
+                    entity,
+                    &entity.sink.accepted,
+                )? {
+                    let catalog_cfg = build_catalog_config(ctx, entity, &resolved)?;
+                    return Ok(catalog_cfg);
+                }
+            }
+
             let metadata_location = if matches!(mode, config::WriteMode::Append) {
                 match remote.as_mut() {
                     Some(ctx) => {
@@ -206,7 +218,7 @@ fn build_catalog_config(
     })
 }
 
-pub(super) fn sanitize_table_name(name: &str) -> String {
+pub(crate) fn sanitize_table_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {

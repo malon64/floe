@@ -328,12 +328,33 @@ pub struct CatalogsConfig {
     pub definitions: Vec<CatalogDefinition>,
 }
 
+/// Type-specific configuration for a catalog definition.
+/// Each variant carries only the fields relevant to that catalog type.
+/// Add a new variant here when supporting a new catalog type.
+#[derive(Debug, Clone)]
+pub enum CatalogTypeConfig {
+    Glue {
+        region: String,
+        database: String,
+        /// Create the Glue database if it does not exist (default: true).
+        create_database_if_missing: bool,
+        /// Allow Floe to take ownership of a Glue table it did not create (default: false).
+        allow_takeover: bool,
+    },
+}
+
+impl CatalogTypeConfig {
+    pub fn catalog_type_str(&self) -> &'static str {
+        match self {
+            Self::Glue { .. } => "glue",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CatalogDefinition {
     pub name: String,
-    pub catalog_type: String,
-    pub region: Option<String>,
-    pub database: Option<String>,
+    pub type_config: CatalogTypeConfig,
     pub warehouse_storage: Option<String>,
     pub warehouse_prefix: Option<String>,
 }

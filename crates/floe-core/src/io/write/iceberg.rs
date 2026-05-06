@@ -24,9 +24,8 @@ mod glue;
 pub(crate) mod metadata;
 mod schema;
 
-use self::context::{
-    build_iceberg_write_context, create_table, ensure_namespace, sanitize_table_name,
-};
+pub(crate) use self::context::sanitize_table_name;
+use self::context::{build_iceberg_write_context, create_table, ensure_namespace};
 use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
@@ -94,17 +93,21 @@ impl IcebergCatalogConfig {
     pub(crate) fn from_resolved(
         resolved: &config::ResolvedIcebergCatalogTarget,
     ) -> FloeResult<Self> {
-        match resolved.catalog_type.as_str() {
-            "glue" => Ok(Self::Glue(GlueIcebergCatalogConfig {
+        match &resolved.type_config {
+            config::CatalogTypeConfig::Glue {
+                region,
+                database,
+                create_database_if_missing,
+                allow_takeover,
+            } => Ok(Self::Glue(GlueIcebergCatalogConfig {
                 catalog_name: resolved.catalog_name.clone(),
-                region: resolved.region.clone(),
-                database: resolved.database.clone(),
+                region: region.clone(),
+                database: database.clone(),
                 namespace: resolved.namespace.clone(),
                 table: resolved.table.clone(),
+                create_database_if_missing: *create_database_if_missing,
+                allow_takeover: *allow_takeover,
             })),
-            other => Err(Box::new(RunError(format!(
-                "catalog_type={other} is not yet supported"
-            )))),
         }
     }
 
@@ -140,6 +143,8 @@ pub(crate) struct GlueIcebergCatalogConfig {
     pub(crate) database: String,
     pub(crate) namespace: String,
     pub(crate) table: String,
+    pub(crate) create_database_if_missing: bool,
+    pub(crate) allow_takeover: bool,
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {

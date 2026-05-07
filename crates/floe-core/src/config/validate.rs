@@ -646,9 +646,12 @@ fn validate_iceberg_catalog_binding(
                 }
             }
             CatalogTypeConfig::Rest { .. } => {
-                if storage_type != "s3" && storage_type != "gcs" {
+                if storage_type == "s3" || storage_type == "gcs" {
+                    // Cloud data-file writes through a REST catalog require iceberg-storage-opendal,
+                    // which is not yet available in the crates.io registry for iceberg 0.9.x.
+                    // Until that dependency is published, REST catalogs only support local storage.
                     return Err(Box::new(ConfigError(format!(
-                        "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
+                        "catalogs.definitions name={} warehouse_storage references {} storage, but REST catalog cloud FileIO requires iceberg-storage-opendal which is not yet available; use local storage or omit warehouse_storage",
                         definition.name, storage_type
                     ))));
                 }

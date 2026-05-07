@@ -341,12 +341,28 @@ pub enum CatalogTypeConfig {
         /// Allow Floe to take ownership of a Glue table it did not create (default: false).
         allow_takeover: bool,
     },
+    Rest {
+        /// Base URI of the REST catalog (e.g. https://api.tabular.io/ws).
+        uri: String,
+        /// Credential string.  Routing:
+        ///   "token:<value>"                   → bearer PAT (Unity Catalog / Nessie)
+        ///   "client_credentials:<id>:<secret>" → OAuth2 client-credentials (Polaris / Snowflake)
+        ///   anything else                     → raw credential property
+        credential: Option<String>,
+        /// Warehouse / catalog name sent to the REST endpoint (optional).
+        warehouse: Option<String>,
+        /// Override the OAuth2 token endpoint (optional).
+        oauth2_server_uri: Option<String>,
+        /// OAuth2 scope (optional).
+        scope: Option<String>,
+    },
 }
 
 impl CatalogTypeConfig {
     pub fn catalog_type_str(&self) -> &'static str {
         match self {
             Self::Glue { .. } => "glue",
+            Self::Rest { .. } => "rest",
         }
     }
 }

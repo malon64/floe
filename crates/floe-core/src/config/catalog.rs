@@ -115,6 +115,8 @@ impl CatalogResolver {
         // namespace and table names use the shared normalizer — same rules for all catalog types
         let database_for_namespace = match &definition.type_config {
             CatalogTypeConfig::Glue { database, .. } => database.as_str(),
+            // REST catalogs fall back to "default" as the namespace source, never the warehouse.
+            CatalogTypeConfig::Rest { .. } => "default",
         };
         let namespace_source = iceberg_cfg
             .namespace

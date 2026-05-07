@@ -710,6 +710,11 @@ fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
             "database",
             "create_database_if_missing",
             "allow_takeover",
+            "uri",
+            "credential",
+            "oauth2_server_uri",
+            "scope",
+            "warehouse",
             "warehouse_storage",
             "warehouse_prefix",
         ],
@@ -743,8 +748,15 @@ fn parse_catalog_type_config(
             allow_takeover: opt_bool(hash, "allow_takeover", "catalogs.definitions")?
                 .unwrap_or(false),
         }),
+        "rest" => Ok(CatalogTypeConfig::Rest {
+            uri: get_string(hash, "uri", "catalogs.definitions")?,
+            credential: opt_string(hash, "credential", "catalogs.definitions")?,
+            warehouse: opt_string(hash, "warehouse", "catalogs.definitions")?,
+            oauth2_server_uri: opt_string(hash, "oauth2_server_uri", "catalogs.definitions")?,
+            scope: opt_string(hash, "scope", "catalogs.definitions")?,
+        }),
         other => Err(Box::new(crate::errors::ConfigError(format!(
-            "catalogs.definitions name={name} has unsupported type={other} (supported: glue)"
+            "catalogs.definitions name={name} has unsupported type={other} (supported: glue, rest)"
         )))),
     }
 }

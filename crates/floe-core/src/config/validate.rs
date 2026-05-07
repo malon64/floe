@@ -596,16 +596,7 @@ fn validate_iceberg_catalog_binding(
         return Ok(());
     };
 
-    let accepted_storage_type = storages
-        .definition_type(accepted_storage)
-        .unwrap_or("local");
-    if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
-            entity.name, accepted_storage_type
-        ))));
-    }
-
+    // Resolve the catalog definition first so we can make type-specific decisions below.
     let catalog_name = if let Some(name) = iceberg_cfg.catalog.as_deref() {
         name.to_string()
     } else if let Some(name) = catalogs.default_name() {
@@ -623,6 +614,21 @@ fn validate_iceberg_catalog_binding(
             entity.name, catalog_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
+
+    // The S3/GCS accepted-storage check applies only to Glue catalogs.
+    // REST catalogs accept any storage type (local for Nessie/dev, cloud for Unity/Polaris).
+    if matches!(definition.type_config, CatalogTypeConfig::Glue { .. }) {
+        let accepted_storage_type = storages
+            .definition_type(accepted_storage)
+            .unwrap_or("local");
+        if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
+                entity.name, accepted_storage_type
+            ))));
+        }
+    }
+
     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
         let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
             Box::new(ConfigError(format!(
@@ -630,11 +636,23 @@ fn validate_iceberg_catalog_binding(
                 definition.name, storage_name
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
-        if storage_type != "s3" {
-            return Err(Box::new(ConfigError(format!(
-                "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
-                definition.name, storage_type
-            ))));
+        match &definition.type_config {
+            CatalogTypeConfig::Glue { .. } => {
+                if storage_type != "s3" {
+                    return Err(Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                        definition.name, storage_type
+                    ))));
+                }
+            }
+            CatalogTypeConfig::Rest { .. } => {
+                if storage_type != "s3" && storage_type != "gcs" {
+                    return Err(Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
+                        definition.name, storage_type
+                    ))));
+                }
+            }
         }
     }
 
@@ -1090,6 +1108,24 @@ impl CatalogRegistry {
                         if storage_type != "s3" {
                             return Err(Box::new(ConfigError(format!(
                                 "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                                definition.name, storage_type
+                            ))));
+                        }
+                    }
+                }
+                CatalogTypeConfig::Rest { .. } => {
+                    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+                        let storage_type =
+                            storages.definition_type(storage_name).ok_or_else(|| {
+                                Box::new(ConfigError(format!(
+                                    "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                                    definition.name, storage_name
+                                )))
+                                    as Box<dyn std::error::Error + Send + Sync>
+                            })?;
+                        if storage_type != "s3" && storage_type != "gcs" {
+                            return Err(Box::new(ConfigError(format!(
+                                "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
                                 definition.name, storage_type
                             ))));
                         }

@@ -172,7 +172,7 @@ fn catalog_resolver_rest_derives_namespace_and_location() {
 }
 
 #[test]
-fn catalog_resolver_rest_uses_warehouse_as_namespace_fallback() {
+fn catalog_resolver_rest_uses_default_namespace_fallback() {
     let mut root = base_root();
     root.catalogs = Some(config::CatalogsConfig {
         default: Some("polaris_main".to_string()),
@@ -181,7 +181,7 @@ fn catalog_resolver_rest_uses_warehouse_as_namespace_fallback() {
             type_config: config::CatalogTypeConfig::Rest {
                 uri: "https://my-polaris.example.com/api/catalog".to_string(),
                 credential: None,
-                warehouse: Some("my_catalog".to_string()),
+                warehouse: Some("my_catalog.my_schema".to_string()),
                 oauth2_server_uri: None,
                 scope: None,
             },
@@ -192,7 +192,8 @@ fn catalog_resolver_rest_uses_warehouse_as_namespace_fallback() {
     let resolver = config::StorageResolver::from_path(&root, std::path::Path::new("./config.yml"))
         .expect("storage resolver");
     let catalogs = config::CatalogResolver::new(&root).expect("catalog resolver");
-    // Entity with no domain — namespace should fall back to warehouse value
+    // Entity with no domain or namespace — should fall back to "default", not the warehouse value
+    // (warehouse is a catalog/bucket identifier, not a namespace).
     let mut entity = entity();
     entity.domain = None;
     entity.sink.accepted.iceberg = Some(config::IcebergSinkTargetConfig {
@@ -207,7 +208,7 @@ fn catalog_resolver_rest_uses_warehouse_as_namespace_fallback() {
         .expect("resolve")
         .expect("rest target");
 
-    assert_eq!(resolved.namespace, "my_catalog");
+    assert_eq!(resolved.namespace, "default");
     assert_eq!(resolved.table, "customer_orders");
 }
 

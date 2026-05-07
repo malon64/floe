@@ -120,9 +120,13 @@ fn seed_from_catalog(
             scan_cols,
             rename_back,
         ),
-        IcebergCatalogConfig::Rest(rest_cfg) => {
-            seed_from_rest(unique_tracker, rest_cfg, file_io_props, scan_cols, rename_back)
-        }
+        IcebergCatalogConfig::Rest(rest_cfg) => seed_from_rest(
+            unique_tracker,
+            rest_cfg,
+            file_io_props,
+            scan_cols,
+            rename_back,
+        ),
     }
 }
 

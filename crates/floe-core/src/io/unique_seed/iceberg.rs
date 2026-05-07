@@ -9,8 +9,8 @@ use crate::io::write::iceberg::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
 use crate::io::write::iceberg::{
-    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, RestIcebergCatalogConfig,
-    ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
+    load_glue_table_state, sanitize_table_name, storage_factory_for_location, IcebergCatalogConfig,
+    RestIcebergCatalogConfig, ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
 };
 use crate::{check, config, io, FloeResult};
 
@@ -124,6 +124,7 @@ fn seed_from_catalog(
             unique_tracker,
             rest_cfg,
             file_io_props,
+            warehouse_location,
             scan_cols,
             rename_back,
         ),
@@ -177,13 +178,11 @@ fn seed_from_rest(
     unique_tracker: &mut check::UniqueTracker,
     rest_cfg: &RestIcebergCatalogConfig,
     file_io_props: HashMap<String, String>,
+    warehouse_location: String,
     scan_cols: &[String],
     rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
-    use std::sync::Arc;
-
     use futures::TryStreamExt;
-    use iceberg::io::LocalFsStorageFactory;
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
     use iceberg_catalog_rest::RestCatalogBuilder;
 
@@ -224,9 +223,10 @@ fn seed_from_rest(
             }
 
             // iceberg-catalog-rest 0.9.x requires a StorageFactory for table FileIO.
-            // LocalFsStorageFactory covers local and test scenarios.
+            // Match the factory to the resolved warehouse/table root so duplicate
+            // seeding works for local, S3, and GCS-backed REST tables.
             let catalog = RestCatalogBuilder::default()
-                .with_storage_factory(Arc::new(LocalFsStorageFactory))
+                .with_storage_factory(storage_factory_for_location(&warehouse_location))
                 .load(&rest_cfg.catalog_name, props)
                 .await
                 .map_err(|e| iceberg::Error::new(iceberg::ErrorKind::Unexpected, e.to_string()))?;

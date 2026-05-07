@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Instant;
 
-use iceberg::io::LocalFsStorageFactory;
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 use iceberg_catalog_rest::RestCatalogBuilder;
@@ -16,7 +14,10 @@ use super::context::{create_table, ensure_namespace, sanitize_table_name};
 use super::data_files::write_data_files;
 use super::metadata::parse_metadata_version_from_location;
 use super::schema::{ensure_partition_spec_matches, ensure_schema_matches};
-use super::{map_iceberg_err, IcebergWriteResult, PreparedIcebergWrite, RestIcebergCatalogConfig};
+use super::{
+    map_iceberg_err, storage_factory_for_location, IcebergWriteResult, PreparedIcebergWrite,
+    RestIcebergCatalogConfig,
+};
 
 pub(super) async fn write_via_rest_catalog(
     rest_cfg: &RestIcebergCatalogConfig,
@@ -27,7 +28,7 @@ pub(super) async fn write_via_rest_catalog(
     mode: config::WriteMode,
     small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
-    let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
+    let catalog = build_rest_catalog(rest_cfg, &table_root_uri, file_io_props).await?;
 
     let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
     ensure_namespace(&catalog, &namespace).await?;
@@ -177,6 +178,7 @@ pub(super) async fn write_via_rest_catalog(
 
 pub(crate) async fn build_rest_catalog(
     cfg: &RestIcebergCatalogConfig,
+    table_root_uri: &str,
     file_io_props: HashMap<String, String>,
 ) -> FloeResult<impl Catalog> {
     // Start with any storage props (e.g. S3 region) so the REST catalog can build
@@ -208,10 +210,10 @@ pub(crate) async fn build_rest_catalog(
     }
 
     // iceberg-catalog-rest 0.9.x requires a StorageFactory for materializing
-    // table FileIO. LocalFsStorageFactory covers local and test scenarios;
-    // cloud-backed REST catalogs (S3, GCS) need iceberg-storage-opendal.
+    // table FileIO. Match the factory to the resolved table root so REST
+    // catalogs can write/read local, S3, and GCS-backed table locations.
     RestCatalogBuilder::default()
-        .with_storage_factory(Arc::new(LocalFsStorageFactory))
+        .with_storage_factory(storage_factory_for_location(table_root_uri))
         .load(&cfg.catalog_name, props)
         .await
         .map_err(map_iceberg_err("iceberg rest catalog init failed"))

@@ -4,11 +4,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arrow::record_batch::RecordBatch;
-use iceberg::io::LocalFsStorageFactory;
+use iceberg::io::{LocalFsStorageFactory, StorageFactory};
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+use iceberg_storage_opendal::OpenDalStorageFactory;
 use polars::prelude::DataFrame;
 
 use crate::errors::RunError;
@@ -41,6 +42,24 @@ static ICEBERG_ACCEPTED_ADAPTER: IcebergAcceptedAdapter = IcebergAcceptedAdapter
 
 pub(crate) const ICEBERG_NAMESPACE: &str = "floe";
 pub(crate) const ICEBERG_CATALOG_NAME: &str = "floe_iceberg";
+
+pub(crate) fn storage_factory_for_location(location: &str) -> Arc<dyn StorageFactory> {
+    if location.starts_with("s3a://") {
+        Arc::new(OpenDalStorageFactory::S3 {
+            configured_scheme: "s3a".to_string(),
+            customized_credential_load: None,
+        })
+    } else if location.starts_with("s3://") {
+        Arc::new(OpenDalStorageFactory::S3 {
+            configured_scheme: "s3".to_string(),
+            customized_credential_load: None,
+        })
+    } else if location.starts_with("gs://") {
+        Arc::new(OpenDalStorageFactory::Gcs)
+    } else {
+        Arc::new(LocalFsStorageFactory)
+    }
+}
 
 pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
     &ICEBERG_ACCEPTED_ADAPTER

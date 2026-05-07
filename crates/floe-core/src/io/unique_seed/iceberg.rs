@@ -203,6 +203,17 @@ fn seed_from_rest(
         .block_on(async {
             let catalog = build_rest_catalog(rest_cfg, &warehouse_location, file_io_props).await?;
             let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
+
+            // Guard against catalogs that error (rather than return false) for table_exists
+            // when the namespace does not yet exist — treat a missing namespace as empty.
+            if !catalog
+                .namespace_exists(&namespace)
+                .await
+                .map_err(map_err("rest iceberg seed namespace_exists check failed"))?
+            {
+                return Ok(Vec::new());
+            }
+
             let table_ident = TableIdent::new(namespace, rest_cfg.table.clone());
 
             if !catalog

@@ -175,7 +175,10 @@ fn seed_from_rest(
     scan_cols: &[String],
     rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
+    use std::sync::Arc;
+
     use futures::TryStreamExt;
+    use iceberg::io::LocalFsStorageFactory;
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
     use iceberg_catalog_rest::RestCatalogBuilder;
 
@@ -193,7 +196,13 @@ fn seed_from_rest(
             let mut props = std::collections::HashMap::new();
             props.insert("uri".to_string(), rest_cfg.uri.clone());
             if let Some(cred) = &rest_cfg.credential {
-                props.insert("credential".to_string(), cred.clone());
+                // Static bearer tokens use the "token" key; OAuth2 client credentials
+                // use "credential". Unity Catalog encodes PATs as "token:<value>".
+                if let Some(token) = cred.strip_prefix("token:") {
+                    props.insert("token".to_string(), token.to_string());
+                } else {
+                    props.insert("credential".to_string(), cred.clone());
+                }
             }
             if let Some(wh) = &rest_cfg.warehouse {
                 props.insert("warehouse".to_string(), wh.clone());
@@ -205,7 +214,10 @@ fn seed_from_rest(
                 props.insert("scope".to_string(), scope.clone());
             }
 
+            // iceberg-catalog-rest 0.9.x requires a StorageFactory for table FileIO.
+            // LocalFsStorageFactory covers local and test scenarios.
             let catalog = RestCatalogBuilder::default()
+                .with_storage_factory(Arc::new(LocalFsStorageFactory))
                 .load(&rest_cfg.catalog_name, props)
                 .await
                 .map_err(|e| iceberg::Error::new(iceberg::ErrorKind::Unexpected, e.to_string()))?;

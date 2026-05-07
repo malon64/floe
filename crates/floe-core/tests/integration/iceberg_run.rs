@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use floe_core::{run, RunOptions};
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::Transform;
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
@@ -210,6 +212,7 @@ fn load_local_iceberg_table(
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
         let catalog = MemoryCatalogBuilder::default()
+            .with_storage_factory(Arc::new(LocalFsStorageFactory))
             .load(
                 "floe_test",
                 HashMap::from([(

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 use iceberg_catalog_rest::RestCatalogBuilder;
@@ -176,7 +178,14 @@ pub(crate) async fn build_rest_catalog(cfg: &RestIcebergCatalogConfig) -> FloeRe
     let mut props = HashMap::new();
     props.insert("uri".to_string(), cfg.uri.clone());
     if let Some(cred) = &cfg.credential {
-        props.insert("credential".to_string(), cred.clone());
+        // iceberg-catalog-rest distinguishes static bearer tokens ("token" key) from
+        // OAuth2 client credentials ("credential" key). The Unity Catalog convention
+        // encodes static PATs as "token:<value>"; detect and remap accordingly.
+        if let Some(token) = cred.strip_prefix("token:") {
+            props.insert("token".to_string(), token.to_string());
+        } else {
+            props.insert("credential".to_string(), cred.clone());
+        }
     }
     if let Some(wh) = &cfg.warehouse {
         props.insert("warehouse".to_string(), wh.clone());
@@ -188,7 +197,11 @@ pub(crate) async fn build_rest_catalog(cfg: &RestIcebergCatalogConfig) -> FloeRe
         props.insert("scope".to_string(), scope.clone());
     }
 
+    // iceberg-catalog-rest 0.9.x requires a StorageFactory for materializing
+    // table FileIO. LocalFsStorageFactory covers local and test scenarios;
+    // cloud-backed REST catalogs (S3, GCS) need iceberg-storage-opendal.
     RestCatalogBuilder::default()
+        .with_storage_factory(Arc::new(LocalFsStorageFactory))
         .load(&cfg.catalog_name, props)
         .await
         .map_err(map_iceberg_err("iceberg rest catalog init failed"))

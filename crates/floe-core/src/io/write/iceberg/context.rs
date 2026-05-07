@@ -37,6 +37,7 @@ pub(super) fn build_iceberg_write_context(
                 catalog_props: HashMap::new(),
                 metadata_location,
                 catalog: None,
+                use_local_fs: true,
             })
         }
         Target::S3 {
@@ -83,6 +84,7 @@ pub(super) fn build_iceberg_write_context(
                         catalog_props: store.file_io_props,
                         metadata_location,
                         catalog: None,
+                        use_local_fs: false,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -91,6 +93,7 @@ pub(super) fn build_iceberg_write_context(
                     catalog_props: HashMap::new(),
                     metadata_location,
                     catalog: None,
+                    use_local_fs: false,
                 }),
             }
         }
@@ -138,6 +141,7 @@ pub(super) fn build_iceberg_write_context(
                         catalog_props: store.file_io_props,
                         metadata_location,
                         catalog: None,
+                        use_local_fs: false,
                     })
                 }
                 None => Ok(IcebergWriteContext {
@@ -146,6 +150,7 @@ pub(super) fn build_iceberg_write_context(
                     catalog_props: HashMap::new(),
                     metadata_location,
                     catalog: None,
+                    use_local_fs: false,
                 }),
             }
         }
@@ -215,6 +220,7 @@ fn build_catalog_config(
         catalog_props: store.file_io_props,
         metadata_location: None,
         catalog: Some(catalog),
+        use_local_fs: false,
     })
 }
 

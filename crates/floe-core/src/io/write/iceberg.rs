@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use arrow::record_batch::RecordBatch;
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
@@ -78,6 +80,7 @@ struct IcebergWriteContext {
     catalog_props: HashMap<String, String>,
     metadata_location: Option<String>,
     catalog: Option<IcebergCatalogConfig>,
+    use_local_fs: bool,
 }
 
 /// Per-catalog-type configuration used at write and seed time.
@@ -301,6 +304,7 @@ async fn write_iceberg_table_async(
         mut catalog_props,
         mut metadata_location,
         catalog: catalog_cfg,
+        use_local_fs,
     } = write_ctx;
     let mut glue_state = None;
     if let Some(IcebergCatalogConfig::Glue(glue_cfg)) = catalog_cfg.as_ref() {
@@ -310,10 +314,20 @@ async fn write_iceberg_table_async(
     }
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
-    let catalog = MemoryCatalogBuilder::default()
-        .load(catalog_name, catalog_props)
-        .await
-        .map_err(map_iceberg_err("iceberg catalog init failed"))?;
+    // Local filesystem targets require LocalFsStorageFactory so that metadata JSON
+    // and Parquet data files are written to disk rather than held in-memory.
+    let catalog = if use_local_fs {
+        MemoryCatalogBuilder::default()
+            .with_storage_factory(Arc::new(LocalFsStorageFactory))
+            .load(catalog_name, catalog_props)
+            .await
+            .map_err(map_iceberg_err("iceberg catalog init failed"))?
+    } else {
+        MemoryCatalogBuilder::default()
+            .load(catalog_name, catalog_props)
+            .await
+            .map_err(map_iceberg_err("iceberg catalog init failed"))?
+    };
     let namespace_name = catalog_cfg
         .as_ref()
         .map(|cfg| cfg.namespace().to_string())

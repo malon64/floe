@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use arrow::array::Int64Array;
 use floe_core::io::storage::Target;
 use floe_core::io::write::iceberg::write_iceberg_table;
 use floe_core::{config, FloeResult};
 use futures::TryStreamExt;
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::Transform;
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
@@ -574,7 +576,10 @@ async fn load_table(table_path: &Path) -> FloeResult<iceberg::table::Table> {
             "missing iceberg metadata file".to_string(),
         )) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    // LocalFsStorageFactory is required so that register_table can read the
+    // metadata JSON from disk and the subsequent scan reads Parquet files from disk.
     let catalog = MemoryCatalogBuilder::default()
+        .with_storage_factory(Arc::new(LocalFsStorageFactory))
         .load(
             "floe_test",
             HashMap::from([(

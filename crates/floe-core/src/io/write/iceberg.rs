@@ -290,6 +290,7 @@ async fn write_iceberg_table_async(
         return rest::write_via_rest_catalog(
             rest_cfg,
             write_ctx.table_root_uri,
+            write_ctx.catalog_props,
             prepared,
             entity,
             mode,

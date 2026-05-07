@@ -121,7 +121,7 @@ fn seed_from_catalog(
             rename_back,
         ),
         IcebergCatalogConfig::Rest(rest_cfg) => {
-            seed_from_rest(unique_tracker, rest_cfg, scan_cols, rename_back)
+            seed_from_rest(unique_tracker, rest_cfg, file_io_props, scan_cols, rename_back)
         }
     }
 }
@@ -172,6 +172,7 @@ fn seed_from_glue(
 fn seed_from_rest(
     unique_tracker: &mut check::UniqueTracker,
     rest_cfg: &RestIcebergCatalogConfig,
+    file_io_props: HashMap<String, String>,
     scan_cols: &[String],
     rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
@@ -193,13 +194,17 @@ fn seed_from_rest(
 
     let batches = runtime
         .block_on(async {
-            let mut props = std::collections::HashMap::new();
+            // Start with any storage props (e.g. S3 region) for cloud FileIO.
+            let mut props = file_io_props;
             props.insert("uri".to_string(), rest_cfg.uri.clone());
             if let Some(cred) = &rest_cfg.credential {
-                // Static bearer tokens use the "token" key; OAuth2 client credentials
-                // use "credential". Unity Catalog encodes PATs as "token:<value>".
+                // "token:<value>"                  → static PAT (Unity Catalog)
+                // "client_credentials:<id>:<secret>" → OAuth2 client-credentials pair
+                // anything else                    → raw OAuth2 credential string
                 if let Some(token) = cred.strip_prefix("token:") {
                     props.insert("token".to_string(), token.to_string());
+                } else if let Some(cred_pair) = cred.strip_prefix("client_credentials:") {
+                    props.insert("credential".to_string(), cred_pair.to_string());
                 } else {
                     props.insert("credential".to_string(), cred.clone());
                 }

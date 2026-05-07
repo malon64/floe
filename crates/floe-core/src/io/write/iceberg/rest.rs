@@ -21,12 +21,13 @@ use super::{map_iceberg_err, IcebergWriteResult, PreparedIcebergWrite, RestIcebe
 pub(super) async fn write_via_rest_catalog(
     rest_cfg: &RestIcebergCatalogConfig,
     table_root_uri: String,
+    file_io_props: HashMap<String, String>,
     prepared: PreparedIcebergWrite,
     entity: &config::EntityConfig,
     mode: config::WriteMode,
     small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
-    let catalog = build_rest_catalog(rest_cfg).await?;
+    let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
 
     let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
     ensure_namespace(&catalog, &namespace).await?;
@@ -174,15 +175,24 @@ pub(super) async fn write_via_rest_catalog(
     })
 }
 
-pub(crate) async fn build_rest_catalog(cfg: &RestIcebergCatalogConfig) -> FloeResult<impl Catalog> {
-    let mut props = HashMap::new();
+pub(crate) async fn build_rest_catalog(
+    cfg: &RestIcebergCatalogConfig,
+    file_io_props: HashMap<String, String>,
+) -> FloeResult<impl Catalog> {
+    // Start with any storage props (e.g. S3 region) so the REST catalog can build
+    // FileIO for cloud table locations; catalog-specific keys are added below.
+    let mut props = file_io_props;
     props.insert("uri".to_string(), cfg.uri.clone());
     if let Some(cred) = &cfg.credential {
         // iceberg-catalog-rest distinguishes static bearer tokens ("token" key) from
-        // OAuth2 client credentials ("credential" key). The Unity Catalog convention
-        // encodes static PATs as "token:<value>"; detect and remap accordingly.
+        // OAuth2 client credentials ("credential" key).
+        // "token:<value>"              → static PAT (Unity Catalog convention)
+        // "client_credentials:<id>:<secret>" → OAuth2 client-credentials pair
+        // anything else               → raw OAuth2 credential string
         if let Some(token) = cred.strip_prefix("token:") {
             props.insert("token".to_string(), token.to_string());
+        } else if let Some(cred_pair) = cred.strip_prefix("client_credentials:") {
+            props.insert("credential".to_string(), cred_pair.to_string());
         } else {
             props.insert("credential".to_string(), cred.clone());
         }

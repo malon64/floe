@@ -920,6 +920,8 @@ entities:
 "#;
 
     let path = write_temp_config(yaml);
-    let config = load_config(&path).expect("REST catalog with warehouse_storage should validate when accepted storage is local");
+    let config = load_config(&path).expect(
+        "REST catalog with warehouse_storage should validate when accepted storage is local",
+    );
     assert_eq!(config.entities[0].name, "orders");
 }

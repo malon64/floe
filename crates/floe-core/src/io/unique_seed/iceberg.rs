@@ -249,15 +249,24 @@ async fn collect_iceberg_batches(
     scan_columns: &[String],
 ) -> Result<Vec<RecordBatch>, iceberg::Error> {
     use futures::TryStreamExt;
+    use iceberg::io::LocalFsStorageFactory;
     use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+
+    let is_local = !warehouse_location.starts_with("s3://")
+        && !warehouse_location.starts_with("gs://")
+        && !warehouse_location.starts_with("az://")
+        && !warehouse_location.starts_with("abfss://");
 
     let mut props = catalog_props;
     props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), warehouse_location);
 
-    let catalog = MemoryCatalogBuilder::default()
-        .load(ICEBERG_CATALOG_NAME, props)
-        .await?;
+    let mut catalog_builder = MemoryCatalogBuilder::default();
+    if is_local {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    }
+    let catalog = catalog_builder.load(ICEBERG_CATALOG_NAME, props).await?;
 
     let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
     if !catalog.namespace_exists(&namespace).await? {

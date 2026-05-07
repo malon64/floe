@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use arrow::record_batch::RecordBatch;
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
@@ -293,7 +294,16 @@ async fn write_iceberg_table_async(
     }
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
-    let catalog = MemoryCatalogBuilder::default()
+    let is_local = !table_root_uri.starts_with("s3://")
+        && !table_root_uri.starts_with("gs://")
+        && !table_root_uri.starts_with("az://")
+        && !table_root_uri.starts_with("abfss://");
+    let mut catalog_builder = MemoryCatalogBuilder::default();
+    if is_local {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    }
+    let catalog = catalog_builder
         .load(catalog_name, catalog_props)
         .await
         .map_err(map_iceberg_err("iceberg catalog init failed"))?;

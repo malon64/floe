@@ -596,16 +596,6 @@ fn validate_iceberg_catalog_binding(
         return Ok(());
     };
 
-    let accepted_storage_type = storages
-        .definition_type(accepted_storage)
-        .unwrap_or("local");
-    if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
-            entity.name, accepted_storage_type
-        ))));
-    }
-
     let catalog_name = if let Some(name) = iceberg_cfg.catalog.as_deref() {
         name.to_string()
     } else if let Some(name) = catalogs.default_name() {
@@ -623,6 +613,23 @@ fn validate_iceberg_catalog_binding(
             entity.name, catalog_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
+
+    // REST catalogs with warehouse_storage use that storage as the actual table root, so
+    // accepted_storage is not required to be cloud-backed. The warehouse_storage block below
+    // enforces the s3/gcs constraint for REST independently.
+    let rest_with_warehouse = matches!(&definition.type_config, CatalogTypeConfig::Rest { .. })
+        && definition.warehouse_storage.is_some();
+    if !rest_with_warehouse {
+        let accepted_storage_type = storages
+            .definition_type(accepted_storage)
+            .unwrap_or("local");
+        if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
+                entity.name, accepted_storage_type
+            ))));
+        }
+    }
     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
         let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
             Box::new(ConfigError(format!(

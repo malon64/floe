@@ -872,3 +872,54 @@ entities:
     assert_eq!(snowflake.warehouse_storage.as_deref(), Some("s3_out"));
     assert_eq!(snowflake.warehouse_prefix.as_deref(), Some("iceberg"));
 }
+
+#[test]
+fn parse_config_rest_catalog_warehouse_storage_satisfies_binding_without_cloud_accepted_storage() {
+    // When a REST catalog has warehouse_storage, the entity's accepted storage doesn't
+    // need to be cloud-backed — the catalog's warehouse_storage is the actual table root.
+    let yaml = r#"
+version: "0.1"
+storages:
+  default: "local_staging"
+  definitions:
+    - name: "local_staging"
+      type: "local"
+    - name: "s3_wh"
+      type: "s3"
+      bucket: "iceberg-bucket"
+      region: "us-east-1"
+      prefix: "tables"
+catalogs:
+  default: "unity_main"
+  definitions:
+    - name: "unity_main"
+      type: "rest"
+      uri: "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
+      credential: "token:my_pat"
+      warehouse: "my_catalog.my_schema"
+      warehouse_storage: "s3_wh"
+domains:
+  - name: "sales"
+    incoming_dir: "/tmp/incoming"
+entities:
+  - name: "orders"
+    domain: "sales"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "orders_table"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "number"
+"#;
+
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("REST catalog with warehouse_storage should validate when accepted storage is local");
+    assert_eq!(config.entities[0].name, "orders");
+}

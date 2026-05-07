@@ -643,7 +643,7 @@ fn validate_iceberg_catalog_binding(
             }
         }
         CatalogTypeConfig::Rest { .. } => {
-            // REST catalog cloud FileIO requires iceberg-storage-opendal (not yet on crates.io).
+            // REST catalog FileIO only supports local storage until iceberg-storage-opendal ships.
             // Check the effective storage: warehouse_storage if set, else the accepted sink storage.
             let effective_storage = definition
                 .warehouse_storage
@@ -652,9 +652,9 @@ fn validate_iceberg_catalog_binding(
             let effective_type = storages
                 .definition_type(effective_storage)
                 .unwrap_or("local");
-            if effective_type == "s3" || effective_type == "gcs" {
+            if effective_type != "local" {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} REST catalog {} effective storage {} is {}: cloud FileIO requires iceberg-storage-opendal which is not yet available; use local storage",
+                    "entity.name={} REST catalog {} effective storage {} is {}: only local storage is supported until iceberg-storage-opendal is available",
                     entity.name, catalog_name, effective_storage, effective_type
                 ))));
             }
@@ -1128,11 +1128,10 @@ impl CatalogRegistry {
                                 )))
                                     as Box<dyn std::error::Error + Send + Sync>
                             })?;
-                        // Cloud warehouse_storage for REST requires iceberg-storage-opendal.
-                        // Local storage (Nessie, dev) is allowed.
-                        if storage_type == "s3" || storage_type == "gcs" {
+                        // REST catalog only supports local storage until iceberg-storage-opendal ships.
+                        if storage_type != "local" {
                             return Err(Box::new(ConfigError(format!(
-                                "catalogs.definitions name={} warehouse_storage references {} storage, but REST catalog cloud FileIO requires iceberg-storage-opendal which is not yet available; use local storage or omit warehouse_storage",
+                                "catalogs.definitions name={} warehouse_storage references {} storage, but REST catalog only supports local storage until iceberg-storage-opendal is available; use local storage or omit warehouse_storage",
                                 definition.name, storage_type
                             ))));
                         }

@@ -925,3 +925,43 @@ entities:
     );
     assert_eq!(config.entities[0].name, "orders");
 }
+
+#[test]
+fn parse_config_rest_catalog_without_warehouse_storage_accepts_local_storage() {
+    // REST catalogs (e.g. Nessie in dev) don't require cloud-backed accepted storage;
+    // the S3/GCS constraint only applies to Glue catalogs.
+    let yaml = r#"
+version: "0.1"
+catalogs:
+  default: "nessie"
+  definitions:
+    - name: "nessie"
+      type: "rest"
+      uri: "http://localhost:19120/api/v1"
+      warehouse: "my_warehouse"
+domains:
+  - name: "sales"
+    incoming_dir: "/tmp/incoming"
+entities:
+  - name: "orders"
+    domain: "sales"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "orders_table"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "number"
+"#;
+
+    let path = write_temp_config(yaml);
+    let config = load_config(&path)
+        .expect("REST catalog without warehouse_storage should validate with local storage");
+    assert_eq!(config.entities[0].name, "orders");
+}

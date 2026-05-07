@@ -614,12 +614,10 @@ fn validate_iceberg_catalog_binding(
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
 
-    // REST catalogs with warehouse_storage use that storage as the actual table root, so
-    // accepted_storage is not required to be cloud-backed. The warehouse_storage block below
-    // enforces the s3/gcs constraint for REST independently.
-    let rest_with_warehouse = matches!(&definition.type_config, CatalogTypeConfig::Rest { .. })
-        && definition.warehouse_storage.is_some();
-    if !rest_with_warehouse {
+    // Glue catalogs require cloud-backed accepted storage. REST catalogs support any storage
+    // (local for Nessie/dev, cloud for Unity/Polaris); when warehouse_storage is set the block
+    // below enforces the s3/gcs constraint on that storage independently.
+    if matches!(&definition.type_config, CatalogTypeConfig::Glue { .. }) {
         let accepted_storage_type = storages
             .definition_type(accepted_storage)
             .unwrap_or("local");

@@ -341,12 +341,25 @@ pub enum CatalogTypeConfig {
         /// Allow Floe to take ownership of a Glue table it did not create (default: false).
         allow_takeover: bool,
     },
+    Rest {
+        /// REST catalog endpoint URI (e.g. `https://<host>/api/catalog`).
+        uri: String,
+        /// Credential string: `"token:<token>"` or `"client_credentials:<id>:<secret>"`.
+        credential: Option<String>,
+        /// Warehouse / catalog identifier (e.g. `"my_catalog"` or `"my_catalog.my_schema"`).
+        warehouse: Option<String>,
+        /// OAuth2 token endpoint URI (required for Snowflake Polaris).
+        oauth2_server_uri: Option<String>,
+        /// OAuth2 scope (e.g. `"PRINCIPAL_ROLE:ALL"` for Snowflake).
+        scope: Option<String>,
+    },
 }
 
 impl CatalogTypeConfig {
     pub fn catalog_type_str(&self) -> &'static str {
         match self {
             Self::Glue { .. } => "glue",
+            Self::Rest { .. } => "rest",
         }
     }
 }

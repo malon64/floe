@@ -789,3 +789,86 @@ entities:
     assert_eq!(iceberg.table.as_deref(), Some("orders_fact"));
     assert_eq!(iceberg.location.as_deref(), Some("custom/orders"));
 }
+
+#[test]
+fn parse_config_supports_rest_catalog() {
+    let yaml = r#"
+version: "0.1"
+storages:
+  default: "s3_out"
+  definitions:
+    - name: "s3_out"
+      type: "s3"
+      bucket: "data-bucket"
+      region: "us-east-1"
+      prefix: "accepted"
+catalogs:
+  default: "unity_main"
+  definitions:
+    - name: "unity_main"
+      type: "rest"
+      uri: "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
+      credential: "token:my_token"
+      warehouse: "my_catalog.my_schema"
+    - name: "snowflake_main"
+      type: "rest"
+      uri: "https://account.snowflakecomputing.com/polaris/api/catalog"
+      credential: "client_credentials:client_id:client_secret"
+      warehouse: "my_catalog"
+      oauth2_server_uri: "https://account.snowflakecomputing.com/oauth/token"
+      scope: "PRINCIPAL_ROLE:ALL"
+      warehouse_storage: "s3_out"
+      warehouse_prefix: "iceberg"
+domains:
+  - name: "sales"
+    incoming_dir: "/tmp/incoming"
+entities:
+  - name: "orders"
+    domain: "sales"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "orders_table"
+        storage: "s3_out"
+        iceberg:
+          catalog: "unity_main"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "number"
+"#;
+
+    let path = write_temp_config(yaml);
+    let config = load_config(&path).expect("parse config");
+    let catalogs = config.catalogs.as_ref().expect("catalogs");
+    assert_eq!(catalogs.default.as_deref(), Some("unity_main"));
+    assert_eq!(catalogs.definitions.len(), 2);
+
+    let unity = &catalogs.definitions[0];
+    assert_eq!(unity.name, "unity_main");
+    assert!(matches!(
+        &unity.type_config,
+        floe_core::config::CatalogTypeConfig::Rest { uri, credential, warehouse, oauth2_server_uri, scope }
+        if uri == "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
+            && credential.as_deref() == Some("token:my_token")
+            && warehouse.as_deref() == Some("my_catalog.my_schema")
+            && oauth2_server_uri.is_none()
+            && scope.is_none()
+    ));
+
+    let snowflake = &catalogs.definitions[1];
+    assert_eq!(snowflake.name, "snowflake_main");
+    assert!(matches!(
+        &snowflake.type_config,
+        floe_core::config::CatalogTypeConfig::Rest { oauth2_server_uri, scope, .. }
+        if oauth2_server_uri.as_deref() == Some("https://account.snowflakecomputing.com/oauth/token")
+            && scope.as_deref() == Some("PRINCIPAL_ROLE:ALL")
+    ));
+    assert_eq!(snowflake.warehouse_storage.as_deref(), Some("s3_out"));
+    assert_eq!(snowflake.warehouse_prefix.as_deref(), Some("iceberg"));
+}

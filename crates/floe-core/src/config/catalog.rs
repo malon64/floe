@@ -115,6 +115,7 @@ impl CatalogResolver {
         // namespace and table names use the shared normalizer — same rules for all catalog types
         let database_for_namespace = match &definition.type_config {
             CatalogTypeConfig::Glue { database, .. } => database.as_str(),
+            CatalogTypeConfig::Rest { warehouse, .. } => warehouse.as_deref().unwrap_or("default"),
         };
         let namespace_source = iceberg_cfg
             .namespace

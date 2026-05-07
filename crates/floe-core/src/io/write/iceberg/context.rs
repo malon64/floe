@@ -156,8 +156,8 @@ pub(super) fn build_iceberg_write_context(
     }
 }
 
-pub(super) async fn ensure_namespace(
-    catalog: &iceberg::MemoryCatalog,
+pub(super) async fn ensure_namespace<C: Catalog>(
+    catalog: &C,
     namespace: &NamespaceIdent,
 ) -> FloeResult<()> {
     let exists = catalog
@@ -173,8 +173,8 @@ pub(super) async fn ensure_namespace(
     Ok(())
 }
 
-pub(super) async fn create_table(
-    catalog: &iceberg::MemoryCatalog,
+pub(super) async fn create_table<C: Catalog>(
+    catalog: &C,
     namespace: &NamespaceIdent,
     table_ident: &TableIdent,
     table_root: String,

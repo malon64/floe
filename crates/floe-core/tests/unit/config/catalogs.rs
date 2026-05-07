@@ -123,6 +123,95 @@ fn catalog_resolver_derives_glue_identity_and_warehouse_location() {
 }
 
 #[test]
+fn catalog_resolver_rest_derives_namespace_and_location() {
+    let mut root = base_root();
+    root.catalogs = Some(config::CatalogsConfig {
+        default: Some("unity_main".to_string()),
+        definitions: vec![config::CatalogDefinition {
+            name: "unity_main".to_string(),
+            type_config: config::CatalogTypeConfig::Rest {
+                uri: "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
+                    .to_string(),
+                credential: Some("token:my_token".to_string()),
+                warehouse: Some("my_catalog.my_schema".to_string()),
+                oauth2_server_uri: None,
+                scope: None,
+            },
+            warehouse_storage: Some("s3_wh".to_string()),
+            warehouse_prefix: Some("iceberg".to_string()),
+        }],
+    });
+    let resolver = config::StorageResolver::from_path(&root, std::path::Path::new("./config.yml"))
+        .expect("storage resolver");
+    let catalogs = config::CatalogResolver::new(&root).expect("catalog resolver");
+    let mut entity = entity();
+    entity.sink.accepted.iceberg = Some(config::IcebergSinkTargetConfig {
+        catalog: Some("unity_main".to_string()),
+        namespace: None,
+        table: None,
+        location: None,
+    });
+
+    let resolved = catalogs
+        .resolve_iceberg_target(&resolver, &entity, &entity.sink.accepted)
+        .expect("resolve")
+        .expect("rest target");
+
+    assert_eq!(resolved.catalog_name, "unity_main");
+    assert!(matches!(
+        resolved.type_config,
+        config::CatalogTypeConfig::Rest { ref uri, .. } if uri == "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
+    ));
+    // namespace falls back to entity domain "Sales Ops" normalized
+    assert_eq!(resolved.namespace, "sales_ops");
+    assert_eq!(resolved.table, "customer_orders");
+    assert_eq!(
+        resolved.table_location.uri,
+        "s3://warehouse-bucket/warehouse/iceberg/sales_ops/customer_orders"
+    );
+}
+
+#[test]
+fn catalog_resolver_rest_uses_warehouse_as_namespace_fallback() {
+    let mut root = base_root();
+    root.catalogs = Some(config::CatalogsConfig {
+        default: Some("polaris_main".to_string()),
+        definitions: vec![config::CatalogDefinition {
+            name: "polaris_main".to_string(),
+            type_config: config::CatalogTypeConfig::Rest {
+                uri: "https://my-polaris.example.com/api/catalog".to_string(),
+                credential: None,
+                warehouse: Some("my_catalog".to_string()),
+                oauth2_server_uri: None,
+                scope: None,
+            },
+            warehouse_storage: Some("s3_wh".to_string()),
+            warehouse_prefix: None,
+        }],
+    });
+    let resolver = config::StorageResolver::from_path(&root, std::path::Path::new("./config.yml"))
+        .expect("storage resolver");
+    let catalogs = config::CatalogResolver::new(&root).expect("catalog resolver");
+    // Entity with no domain — namespace should fall back to warehouse value
+    let mut entity = entity();
+    entity.domain = None;
+    entity.sink.accepted.iceberg = Some(config::IcebergSinkTargetConfig {
+        catalog: Some("polaris_main".to_string()),
+        namespace: None,
+        table: None,
+        location: None,
+    });
+
+    let resolved = catalogs
+        .resolve_iceberg_target(&resolver, &entity, &entity.sink.accepted)
+        .expect("resolve")
+        .expect("rest target");
+
+    assert_eq!(resolved.namespace, "my_catalog");
+    assert_eq!(resolved.table, "customer_orders");
+}
+
+#[test]
 fn catalog_resolver_honors_explicit_location_override() {
     let root = base_root();
     let resolver = config::StorageResolver::from_path(&root, std::path::Path::new("./config.yml"))

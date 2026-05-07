@@ -9,8 +9,8 @@ use crate::io::write::iceberg::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
 use crate::io::write::iceberg::{
-    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, ICEBERG_CATALOG_NAME,
-    ICEBERG_NAMESPACE,
+    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, RestIcebergCatalogConfig,
+    ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
 };
 use crate::{check, config, io, FloeResult};
 
@@ -120,6 +120,9 @@ fn seed_from_catalog(
             scan_cols,
             rename_back,
         ),
+        IcebergCatalogConfig::Rest(rest_cfg) => {
+            seed_from_rest(unique_tracker, rest_cfg, scan_cols, rename_back)
+        }
     }
 }
 
@@ -162,6 +165,70 @@ fn seed_from_glue(
             scan_cols,
         ))
         .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
+
+    seed_from_batches(unique_tracker, batches, rename_back)
+}
+
+fn seed_from_rest(
+    unique_tracker: &mut check::UniqueTracker,
+    rest_cfg: &RestIcebergCatalogConfig,
+    scan_cols: &[String],
+    rename_back: &HashMap<String, String>,
+) -> FloeResult<()> {
+    use futures::TryStreamExt;
+    use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+    use iceberg_catalog_rest::RestCatalogBuilder;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "rest iceberg seed runtime init failed: {err}"
+            )))
+        })?;
+
+    let batches = runtime
+        .block_on(async {
+            let mut props = std::collections::HashMap::new();
+            props.insert("uri".to_string(), rest_cfg.uri.clone());
+            if let Some(cred) = &rest_cfg.credential {
+                props.insert("credential".to_string(), cred.clone());
+            }
+            if let Some(wh) = &rest_cfg.warehouse {
+                props.insert("warehouse".to_string(), wh.clone());
+            }
+            if let Some(oauth_uri) = &rest_cfg.oauth2_server_uri {
+                props.insert("oauth2-server-uri".to_string(), oauth_uri.clone());
+            }
+            if let Some(scope) = &rest_cfg.scope {
+                props.insert("scope".to_string(), scope.clone());
+            }
+
+            let catalog = RestCatalogBuilder::default()
+                .load(&rest_cfg.catalog_name, props)
+                .await
+                .map_err(|e| iceberg::Error::new(iceberg::ErrorKind::Unexpected, e.to_string()))?;
+
+            let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
+            let table_name = sanitize_table_name(&rest_cfg.table);
+            let table_ident = TableIdent::new(namespace, table_name);
+
+            if !catalog.table_exists(&table_ident).await? {
+                return Ok(vec![]);
+            }
+            let table = catalog.load_table(&table_ident).await?;
+            let scan = table.scan().select(scan_cols.iter().cloned()).build()?;
+            let batch_stream = scan.to_arrow().await?;
+            batch_stream
+                .try_filter(|b| std::future::ready(b.num_rows() > 0))
+                .try_collect::<Vec<_>>()
+                .await
+        })
+        .map_err(|err: iceberg::Error| {
+            Box::new(RunError(format!("rest iceberg seed failed: {err}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
     seed_from_batches(unique_tracker, batches, rename_back)
 }

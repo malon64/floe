@@ -22,6 +22,7 @@ mod context;
 mod data_files;
 mod glue;
 pub(crate) mod metadata;
+mod rest;
 mod schema;
 
 pub(crate) use self::context::sanitize_table_name;
@@ -84,6 +85,7 @@ struct IcebergWriteContext {
 #[derive(Debug, Clone)]
 pub(crate) enum IcebergCatalogConfig {
     Glue(GlueIcebergCatalogConfig),
+    Rest(RestIcebergCatalogConfig),
 }
 
 impl IcebergCatalogConfig {
@@ -108,30 +110,50 @@ impl IcebergCatalogConfig {
                 create_database_if_missing: *create_database_if_missing,
                 allow_takeover: *allow_takeover,
             })),
+            config::CatalogTypeConfig::Rest {
+                uri,
+                credential,
+                warehouse,
+                oauth2_server_uri,
+                scope,
+            } => Ok(Self::Rest(RestIcebergCatalogConfig {
+                catalog_name: resolved.catalog_name.clone(),
+                uri: uri.clone(),
+                credential: credential.clone(),
+                warehouse: warehouse.clone(),
+                oauth2_server_uri: oauth2_server_uri.clone(),
+                scope: scope.clone(),
+                namespace: resolved.namespace.clone(),
+                table: resolved.table.clone(),
+            })),
         }
     }
 
     pub(crate) fn catalog_name(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.catalog_name,
+            Self::Rest(cfg) => &cfg.catalog_name,
         }
     }
 
     pub(crate) fn database(&self) -> Option<&str> {
         match self {
             Self::Glue(cfg) => Some(&cfg.database),
+            Self::Rest(_) => None,
         }
     }
 
     pub(crate) fn namespace(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.namespace,
+            Self::Rest(cfg) => &cfg.namespace,
         }
     }
 
     pub(crate) fn table(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.table,
+            Self::Rest(cfg) => &cfg.table,
         }
     }
 }
@@ -145,6 +167,18 @@ pub(crate) struct GlueIcebergCatalogConfig {
     pub(crate) table: String,
     pub(crate) create_database_if_missing: bool,
     pub(crate) allow_takeover: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RestIcebergCatalogConfig {
+    pub(crate) catalog_name: String,
+    pub(crate) uri: String,
+    pub(crate) credential: Option<String>,
+    pub(crate) warehouse: Option<String>,
+    pub(crate) oauth2_server_uri: Option<String>,
+    pub(crate) scope: Option<String>,
+    pub(crate) namespace: String,
+    pub(crate) table: String,
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
@@ -248,6 +282,19 @@ async fn write_iceberg_table_async(
     mode: config::WriteMode,
     small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
+    // REST catalog: write directly through RestCatalog; no MemoryCatalog + manual sync.
+    if let Some(IcebergCatalogConfig::Rest(rest_cfg)) = &write_ctx.catalog {
+        return rest::write_via_rest_catalog(
+            rest_cfg,
+            write_ctx.table_root_uri,
+            prepared,
+            entity,
+            mode,
+            small_file_threshold_bytes,
+        )
+        .await;
+    }
+
     let IcebergWriteContext {
         table_root_uri,
         catalog_name,

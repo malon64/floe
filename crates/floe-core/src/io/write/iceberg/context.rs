@@ -28,6 +28,17 @@ pub(super) fn build_iceberg_write_context(
     }
     match target {
         Target::Local { base_path, .. } => {
+            if let Some(ctx) = remote.as_mut() {
+                let ctx = &mut **ctx;
+                if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
+                    ctx.resolver,
+                    entity,
+                    &entity.sink.accepted,
+                )? {
+                    let catalog_cfg = build_catalog_config(ctx, entity, &resolved)?;
+                    return Ok(catalog_cfg);
+                }
+            }
             let table_root = PathBuf::from(base_path);
             fs::create_dir_all(&table_root)?;
             let metadata_location = latest_local_metadata_location(&table_root)?;

@@ -18,7 +18,7 @@ use super::data_files::write_data_files;
 use super::metadata::parse_metadata_version_from_location;
 use super::{map_iceberg_err, IcebergWriteResult, PreparedIcebergWrite};
 
-/// Build a REST catalog from the given config, table root URI, and file I/O props.
+/// Build a REST catalog from the given config and file I/O props.
 ///
 /// Credential routing:
 ///  - `"token:<value>"` → `"token"` property (bearer PAT: Unity Catalog, Nessie)
@@ -26,7 +26,6 @@ use super::{map_iceberg_err, IcebergWriteResult, PreparedIcebergWrite};
 ///  - anything else → raw `"credential"` property
 pub(crate) async fn build_rest_catalog(
     rest_cfg: &RestIcebergCatalogConfig,
-    table_root_uri: &str,
     file_io_props: HashMap<String, String>,
 ) -> FloeResult<iceberg_catalog_rest::RestCatalog> {
     let mut props: HashMap<String, String> = file_io_props;
@@ -38,12 +37,8 @@ pub(crate) async fn build_rest_catalog(
             REST_CATALOG_PROP_WAREHOUSE.to_string(),
             warehouse.to_string(),
         );
-    } else {
-        // Fall back to the table root URI as the warehouse hint.
-        props.insert(
-            REST_CATALOG_PROP_WAREHOUSE.to_string(),
-            table_root_uri.to_string(),
-        );
+        // When warehouse is not configured, omit the property so the REST server
+        // uses its own default warehouse rather than receiving an arbitrary path.
     }
 
     if let Some(credential) = rest_cfg.credential.as_deref() {
@@ -129,7 +124,7 @@ pub(crate) async fn write_via_rest_catalog(
     mode: config::WriteMode,
     small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
-    let catalog = build_rest_catalog(rest_cfg, &table_root_uri, file_io_props).await?;
+    let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
 
     let namespace_name = rest_cfg.namespace.clone();
     let namespace = NamespaceIdent::new(namespace_name);

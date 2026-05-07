@@ -180,14 +180,13 @@ fn seed_from_rest(
     unique_tracker: &mut check::UniqueTracker,
     rest_cfg: &RestIcebergCatalogConfig,
     file_io_props: HashMap<String, String>,
-    warehouse_location: String,
+    _warehouse_location: String,
     _entity: &config::EntityConfig,
     scan_cols: &[String],
     rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
     use futures::TryStreamExt;
     use iceberg::{Catalog, NamespaceIdent, TableIdent};
-
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -201,7 +200,7 @@ fn seed_from_rest(
 
     let batches = runtime
         .block_on(async {
-            let catalog = build_rest_catalog(rest_cfg, &warehouse_location, file_io_props).await?;
+            let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
             let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
 
             // Guard against catalogs that error (rather than return false) for table_exists

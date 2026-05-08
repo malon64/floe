@@ -26,9 +26,15 @@ impl RunObserver for MutablePythonObserver {
         let Some(ref cb) = *guard else { return };
 
         Python::with_gil(|py| {
-            let Ok(s) = serde_json::to_string(&event) else { return };
-            let Ok(json_mod) = py.import_bound("json") else { return };
-            let Ok(event_dict) = json_mod.call_method1("loads", (&s,)) else { return };
+            let Ok(s) = serde_json::to_string(&event) else {
+                return;
+            };
+            let Ok(json_mod) = py.import_bound("json") else {
+                return;
+            };
+            let Ok(event_dict) = json_mod.call_method1("loads", (&s,)) else {
+                return;
+            };
             // Ignore callback errors so a buggy observer never aborts the run
             let _ = cb.call1(py, (event_dict,));
         });

@@ -102,16 +102,14 @@ pub fn inspect_entity_state(
     d.set_item("path_uri", &inspection.path.uri)?;
     d.set_item(
         "path_local",
-        inspection
-            .path
-            .local_path
-            .as_ref()
-            .and_then(|p| p.to_str()),
+        inspection.path.local_path.as_ref().and_then(|p| p.to_str()),
     )?;
     if let Some(state) = &inspection.state {
         let state_json = serde_json::to_string(state)
             .map_err(|e| FloeError::new_err(format!("failed to serialize state: {e}")))?;
-        let state_dict = py.import_bound("json")?.call_method1("loads", (&state_json,))?;
+        let state_dict = py
+            .import_bound("json")?
+            .call_method1("loads", (&state_json,))?;
         d.set_item("state", state_dict)?;
     } else {
         d.set_item("state", py.None())?;
@@ -120,11 +118,7 @@ pub fn inspect_entity_state(
 }
 
 #[pyfunction]
-pub fn reset_entity_state(
-    py: Python<'_>,
-    config_path: &str,
-    entity_name: &str,
-) -> PyResult<bool> {
+pub fn reset_entity_state(py: Python<'_>, config_path: &str, entity_name: &str) -> PyResult<bool> {
     let path = PathBuf::from(config_path);
     let entity_name = entity_name.to_string();
     py.allow_threads(|| {

@@ -11,9 +11,15 @@ use types::outcome::PyRunOutcome;
 fn _floe(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Exception hierarchy
     m.add("FloeError", m.py().get_type_bound::<FloeError>())?;
-    m.add("FloeConfigError", m.py().get_type_bound::<FloeConfigError>())?;
+    m.add(
+        "FloeConfigError",
+        m.py().get_type_bound::<FloeConfigError>(),
+    )?;
     m.add("FloeRunError", m.py().get_type_bound::<FloeRunError>())?;
-    m.add("FloeStorageError", m.py().get_type_bound::<FloeStorageError>())?;
+    m.add(
+        "FloeStorageError",
+        m.py().get_type_bound::<FloeStorageError>(),
+    )?;
     m.add("FloeIoError", m.py().get_type_bound::<FloeIoError>())?;
 
     // Types

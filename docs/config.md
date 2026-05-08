@@ -86,17 +86,32 @@ entities:
   - Defines named storage clients for `source.storage` and `sink.*.storage`.
   - If omitted, `local` is assumed.
 - `catalogs` (optional)
-  - Defines named external catalogs for Iceberg sinks.
-  - Current supported type: `glue` (AWS Glue Data Catalog, S3-backed tables).
+  - Defines named external catalogs for Iceberg and Delta sinks.
+  - Supported types: `glue`, `rest`, `unity`.
   - Keys:
-    - `default` (optional): default catalog name used by `sink.accepted.iceberg.catalog` when omitted.
+    - `default` (optional): default catalog name used by `sink.accepted.iceberg.catalog` or `sink.accepted.delta.catalog` when omitted.
     - `definitions` (required): array of catalog definitions.
       - `name` (required)
-      - `type` (required): `glue`
-      - `region` (required for `glue`)
-      - `database` (required for `glue`)
-      - `warehouse_storage` (optional, `glue`): storage name (must resolve to S3)
-      - `warehouse_prefix` (optional, `glue`): prefix used for deterministic table locations
+      - `type` (required): `glue`, `rest`, or `unity`
+      - **`glue`** — AWS Glue Data Catalog (Iceberg, S3-backed):
+        - `region` (required)
+        - `database` (required)
+        - `warehouse_storage` (optional): storage name, must resolve to S3
+        - `warehouse_prefix` (optional): prefix for deterministic table locations
+      - **`rest`** — Iceberg REST catalog (Unity Catalog Iceberg endpoint, Polaris, Nessie, Snowflake Open Catalog, etc.):
+        - `uri` (required): REST catalog base URI
+        - `credential` (optional): `token:<pat>` or `client_credentials:<id>:<secret>`
+        - `warehouse` (optional): warehouse/prefix hint forwarded to the REST catalog
+        - `oauth2_server_uri` (optional): override OAuth2 server URL for client-credentials flow
+        - `scope` (optional): OAuth2 scope
+        - `warehouse_storage` (optional): storage name for table location resolution
+        - `warehouse_prefix` (optional): prefix for deterministic table locations
+      - **`unity`** — Databricks Unity Catalog (Delta Lake external table registration):
+        - `host` (required): Databricks workspace URL, e.g. `https://my-workspace.azuredatabricks.net`
+        - `catalog` (required): Unity catalog name
+        - `schema` (required): default schema name
+        - `token` (required): Personal Access Token; accepts a literal value or a single `${ENV_VAR}` reference resolved from the OS environment at run time
+        - `create_schema_if_missing` (optional, default `false`): create the Unity schema if absent
 - `env` (optional)
   - Enables variable templating for string fields using `{{var}}` syntax.
   - `env.file` (optional) loads variables from a YAML file (path relative to the
@@ -232,7 +247,8 @@ is available for templating within that entity.
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
   - `format`: `parquet`, `delta`, or `iceberg`.
-    - `iceberg`: local/S3/GCS filesystem-catalog sink, with optional AWS Glue catalog registration for S3-backed tables; append/overwrite supported; no schema evolution.
+    - `delta`: Delta Lake transactional sink; optional Unity Catalog registration via `sink.accepted.delta`.
+    - `iceberg`: local/S3/GCS filesystem-catalog sink, with optional AWS Glue or REST catalog registration; append/overwrite supported; no schema evolution.
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)
@@ -277,18 +293,26 @@ is available for templating within that entity.
   - `iceberg` (optional, `sink.accepted.format: iceberg`)
     - Enables Iceberg catalog-specific options.
     - `catalog` (optional)
-      - Catalog name from `catalogs.definitions`.
+      - Catalog name from `catalogs.definitions` (type `glue` or `rest`).
       - If omitted, `catalogs.default` is used when set.
-      - When set (or defaulted), current implementation uses AWS Glue catalog semantics and requires S3 storage.
     - `namespace` (optional)
       - Iceberg namespace identifier reported with the run.
-      - Defaults to `entity.domain` when present, otherwise the catalog `database`.
+      - Defaults to `entity.domain` when present, otherwise the catalog `database` / REST warehouse value.
     - `table` (optional)
       - Logical table name for the catalog registration.
-      - Defaults to `entity.name` (sanitized/lowercased for Glue compatibility).
+      - Defaults to `entity.name` (normalized).
     - `location` (optional)
       - Overrides the Iceberg table root location.
       - Resolved via `warehouse_storage` when defined, otherwise via the sink storage.
+  - `delta` (optional, `sink.accepted.format: delta`)
+    - Enables Unity Catalog registration after the Delta write.
+    - `catalog` (optional)
+      - Catalog name from `catalogs.definitions` (must be type `unity`).
+      - If omitted, `catalogs.default` is used when set.
+    - `schema` (optional)
+      - Unity schema identifier. Defaults to `entity.domain` (normalized), then the catalog-level `schema`.
+    - `table` (optional)
+      - Unity table name. Defaults to `entity.name` (normalized).
   - Accepted output reports may include file sizing metrics (`files_written`,
     `total_bytes_written`, `avg_file_size_mb`, `small_files_count`) when collected by the writer.
     - Parquet: populated from written parquet files.

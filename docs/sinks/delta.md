@@ -94,6 +94,82 @@ GCS notes:
 - Authentication uses Application Default Credentials via
   `GOOGLE_APPLICATION_CREDENTIALS`.
 
+## Unity Catalog registration (Databricks)
+
+After writing a Delta table to cloud storage, Floe can register (or confirm) it
+as an EXTERNAL DELTA table in Databricks Unity Catalog via the REST API.
+
+### Catalog definition
+
+```yaml
+catalogs:
+  default: "databricks"          # optional — omit if using per-entity override
+  definitions:
+    - name: "databricks"
+      type: "unity"
+      host: "https://my-workspace.azuredatabricks.net"
+      catalog: "my_catalog"      # Unity catalog name
+      schema: "my_schema"        # default schema (overridable per entity)
+      token: "${DATABRICKS_TOKEN}"
+      create_schema_if_missing: false  # create the schema if it does not exist yet
+```
+
+`token` accepts a literal PAT or a single `${ENV_VAR}` reference (e.g.
+`token: "${DATABRICKS_TOKEN}"`), which is resolved from the OS environment at
+run time. The PAT is sent only as a `Bearer` authorization header and is never
+written to reports or logs.
+
+### Entity config
+
+```yaml
+entities:
+  - name: orders
+    domain: "sales"
+    sink:
+      write_mode: append
+      accepted:
+        format: delta
+        storage: s3_out
+        path: warehouse/orders
+        delta:
+          catalog: "databricks"  # optional if catalogs.default is set
+          schema: "sales_ops"    # optional; defaults to entity.domain → catalog schema
+          table: "orders_v2"     # optional; defaults to entity.name (normalized)
+```
+
+### Registration logic
+
+1. `GET /api/2.1/unity-catalog/tables/<catalog>.<schema>.<table>` — if the
+   table already exists its `storage_location` is compared to the current write
+   target. A location mismatch (stale config or name collision) is returned as
+   an error. An absent `storage_location` (managed table / view collision) is
+   also an error.
+2. `404` → optionally create the schema (`create_schema_if_missing: true`), then
+   `POST /api/2.1/unity-catalog/tables` with `table_type: EXTERNAL` and
+   `data_source_format: DELTA`.
+3. Any other HTTP status is propagated as a run error.
+
+### ADLS note
+
+Floe normalises `abfs://` storage URIs to `abfss://` before passing them to
+Unity Catalog, matching the secure scheme Databricks external locations expect.
+
+### Validation
+
+- `sink.accepted.delta` is rejected unless `sink.accepted.format: delta`.
+- Only `unity` catalog type is accepted for `sink.accepted.delta.catalog`
+  (Glue and REST catalog types are for Iceberg only).
+- Unity Catalog registration requires cloud-backed storage (S3, GCS, or ADLS);
+  local storage raises a validation error.
+
+### Report fields
+
+Successful registration populates three additional fields in the entity report
+`accepted_output`:
+- `delta_catalog_name` — catalog definition name (e.g. `"databricks"`)
+- `delta_catalog_schema` — resolved schema identifier
+- `delta_catalog_table` — resolved table identifier
+
 Operational note:
 - Floe writes data and reports write-time metrics. Table optimization/maintenance
   (for example `OPTIMIZE`/compaction and `VACUUM`) should run as separate jobs.

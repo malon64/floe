@@ -69,6 +69,9 @@ fn sample_outcome() -> RunOutcome {
             target_rows_before: None,
             target_rows_after: None,
             merge_elapsed_ms: None,
+            delta_catalog_name: None,
+            delta_catalog_schema: None,
+            delta_catalog_table: None,
         },
         schema_evolution: report::SchemaEvolutionSummary {
             enabled: false,

@@ -4,18 +4,20 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::config::LineageConfig;
+use crate::config::{EntityConfig, LineageConfig};
 use crate::run::events::{RunEvent, RunObserver};
 
 pub struct OpenLineageObserver {
     client: reqwest::blocking::Client,
     config: LineageConfig,
     entity_start_ms: Mutex<HashMap<String, u128>>,
+    entity_run_ids: Mutex<HashMap<String, String>>,
     run_start_ms: Mutex<Option<u128>>,
+    entity_schemas: HashMap<String, Vec<(String, String)>>,
 }
 
 impl OpenLineageObserver {
-    pub fn new(config: &LineageConfig) -> crate::FloeResult<Self> {
+    pub fn new(config: &LineageConfig, entities: &[EntityConfig]) -> crate::FloeResult<Self> {
         let timeout = Duration::from_secs(config.timeout_secs.unwrap_or(5));
         let client = reqwest::blocking::Client::builder()
             .timeout(timeout)
@@ -25,11 +27,27 @@ impl OpenLineageObserver {
                     "lineage: failed to build HTTP client: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
+
+        let entity_schemas = entities
+            .iter()
+            .map(|e| {
+                let fields: Vec<(String, String)> = e
+                    .schema
+                    .columns
+                    .iter()
+                    .map(|c| (c.name.clone(), c.column_type.clone()))
+                    .collect();
+                (e.name.clone(), fields)
+            })
+            .collect();
+
         Ok(Self {
             client,
             config: config.clone(),
             entity_start_ms: Mutex::new(HashMap::new()),
+            entity_run_ids: Mutex::new(HashMap::new()),
             run_start_ms: Mutex::new(None),
+            entity_schemas,
         })
     }
 
@@ -39,14 +57,27 @@ impl OpenLineageObserver {
         if let Some(api_key) = self.config.api_key.as_deref() {
             req = req.bearer_auth(api_key);
         }
-        if let Err(e) = req.send() {
-            crate::warnings::emit(
-                "",
-                None,
-                None,
-                Some("lineage_http_error"),
-                &format!("lineage: POST {url} failed: {e}"),
-            );
+        match req.send() {
+            Err(e) => {
+                crate::warnings::emit(
+                    "",
+                    None,
+                    None,
+                    Some("lineage_http_error"),
+                    &format!("lineage: POST {url} failed: {e}"),
+                );
+            }
+            Ok(resp) => {
+                if let Err(e) = resp.error_for_status() {
+                    crate::warnings::emit(
+                        "",
+                        None,
+                        None,
+                        Some("lineage_http_error"),
+                        &format!("lineage: POST {url} returned error status: {e}"),
+                    );
+                }
+            }
         }
     }
 
@@ -93,35 +124,42 @@ impl OpenLineageObserver {
 
     fn emit_entity_run_event(
         &self,
-        run_id: &str,
+        entity_run_id: &str,
         name: &str,
         event_type: &str,
         ts_ms: u128,
         stats: Option<EntityStats>,
     ) {
         let event_time = ms_to_iso8601(ts_ms);
-        let job_name = format!("{}.{}", run_id, name);
+        let job_name = format!("{}.{name}", self.config.namespace);
 
         let mut run_facets = json!({});
         if let Some(parent) = self.parent_run_facet() {
             run_facets["parent"] = parent;
         }
 
-        let mut facets = json!({});
-        if let Some(ref s) = stats {
-            facets["dataQualityMetrics"] = json!({
+        // Build inputs with all facets for COMPLETE events; empty for START.
+        let inputs = if let Some(ref s) = stats {
+            let rejection_rate = if s.rows > 0 {
+                s.rejected as f64 / s.rows as f64
+            } else {
+                0.0
+            };
+            let schema_facet = json!({
+                "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
+                    json!({ "name": col_name, "type": col_type })
+                }).collect::<Vec<_>>(),
+                "_producer": self.producer(),
+                "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
+            });
+            let dq_facet = json!({
                 "rowCount": s.rows,
                 "validCount": s.accepted,
                 "invalidCount": s.rejected,
                 "_producer": self.producer(),
                 "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
             });
-            let rejection_rate = if s.rows > 0 {
-                s.rejected as f64 / s.rows as f64
-            } else {
-                0.0
-            };
-            facets["floeQualityRun"] = json!({
+            let floe_facet = json!({
                 "entity": name,
                 "rejectionRate": rejection_rate,
                 "files": s.files,
@@ -133,13 +171,24 @@ impl OpenLineageObserver {
                 "_producer": self.producer(),
                 "_schemaURL": "https://github.com/malon64/floe/schemas/FloeQualityRunFacet.json"
             });
-        }
+            json!([{
+                "namespace": self.config.namespace,
+                "name": name,
+                "facets": {
+                    "schema": schema_facet,
+                    "dataQualityMetrics": dq_facet,
+                    "floeQualityRun": floe_facet
+                }
+            }])
+        } else {
+            json!([])
+        };
 
         let body = json!({
             "eventType": event_type,
             "eventTime": event_time,
             "run": {
-                "runId": run_id,
+                "runId": entity_run_id,
                 "facets": run_facets
             },
             "job": {
@@ -147,50 +196,12 @@ impl OpenLineageObserver {
                 "name": job_name,
                 "facets": {}
             },
-            "inputs": [],
+            "inputs": inputs,
             "outputs": [],
             "producer": self.producer(),
             "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent"
         });
         self.post_event(body);
-
-        if event_type == "COMPLETE" {
-            if let Some(ref s) = stats {
-                let schema_facet = json!({
-                    "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
-                        json!({ "name": col_name, "type": col_type })
-                    }).collect::<Vec<_>>(),
-                    "_producer": self.producer(),
-                    "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
-                });
-                let complete_body = json!({
-                    "eventType": "COMPLETE",
-                    "eventTime": event_time,
-                    "run": {
-                        "runId": run_id,
-                        "facets": run_facets
-                    },
-                    "job": {
-                        "namespace": self.config.namespace,
-                        "name": job_name,
-                        "facets": {}
-                    },
-                    "inputs": [{
-                        "namespace": self.config.namespace,
-                        "name": name,
-                        "facets": {
-                            "schema": schema_facet,
-                            "dataQualityMetrics": facets.get("dataQualityMetrics").cloned().unwrap_or(json!(null)),
-                            "floeQualityRun": facets.get("floeQualityRun").cloned().unwrap_or(json!(null))
-                        }
-                    }],
-                    "outputs": [],
-                    "producer": self.producer(),
-                    "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent"
-                });
-                self.post_event(complete_body);
-            }
-        }
     }
 }
 
@@ -226,12 +237,21 @@ impl RunObserver for OpenLineageObserver {
                     *guard = Some(ts_ms);
                 }
             }
-            RunEvent::EntityStarted { name, ts_ms, .. } => {
+            RunEvent::EntityStarted {
+                run_id,
+                name,
+                ts_ms,
+            } => {
+                // Use a per-entity run_id (overall_run_id.entity.name) so that
+                // the START and COMPLETE events for the same entity share the same run_id.
+                let entity_run_id = format!("{run_id}.entity.{name}");
                 if let Ok(mut guard) = self.entity_start_ms.lock() {
                     guard.insert(name.clone(), ts_ms);
                 }
-                // emit START event
-                self.emit_entity_run_event(&format!("entity-{name}"), &name, "START", ts_ms, None);
+                if let Ok(mut guard) = self.entity_run_ids.lock() {
+                    guard.insert(name.clone(), entity_run_id.clone());
+                }
+                self.emit_entity_run_event(&entity_run_id, &name, "START", ts_ms, None);
             }
             RunEvent::EntityFinished {
                 run_id,
@@ -245,6 +265,13 @@ impl RunObserver for OpenLineageObserver {
                 ts_ms,
                 ..
             } => {
+                let entity_run_id = self
+                    .entity_run_ids
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.get(&name).cloned())
+                    .unwrap_or_else(|| format!("{run_id}.entity.{name}"));
+                let schema_fields = self.entity_schemas.get(&name).cloned().unwrap_or_default();
                 let stats = EntityStats {
                     files,
                     rows,
@@ -252,9 +279,9 @@ impl RunObserver for OpenLineageObserver {
                     rejected,
                     warnings,
                     errors,
-                    schema_fields: vec![],
+                    schema_fields,
                 };
-                self.emit_entity_run_event(&run_id, &name, "COMPLETE", ts_ms, Some(stats));
+                self.emit_entity_run_event(&entity_run_id, &name, "COMPLETE", ts_ms, Some(stats));
             }
             RunEvent::RunFinished {
                 run_id,
@@ -292,7 +319,10 @@ impl RunObserver for OpenLineageObserver {
     }
 }
 
-pub fn build_observer(config: &LineageConfig) -> crate::FloeResult<Arc<dyn RunObserver>> {
-    let obs = OpenLineageObserver::new(config)?;
+pub fn build_observer(
+    config: &LineageConfig,
+    entities: &[EntityConfig],
+) -> crate::FloeResult<Arc<dyn RunObserver>> {
+    let obs = OpenLineageObserver::new(config, entities)?;
     Ok(Arc::new(obs))
 }

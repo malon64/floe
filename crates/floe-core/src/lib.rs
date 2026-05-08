@@ -75,6 +75,13 @@ pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
 }
 
+pub fn load_config_with_profile_vars(
+    config_path: &Path,
+    profile_vars: &std::collections::HashMap<String, String>,
+) -> FloeResult<config::RootConfig> {
+    config::parse_config_with_vars(config_path, profile_vars)
+}
+
 pub fn load_config_with_profile_overrides(
     config_path: &Path,
     profile_vars: &std::collections::HashMap<String, String>,

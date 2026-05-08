@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base, load_config,
-    load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
-    resolve_config_location, run_with_base, set_observer, validate_profile, validate_with_base,
-    AddEntityOptions, FloeResult, MultiObserver, RunOptions, ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
+    load_config_with_profile_overrides, load_config_with_profile_vars, parse_profile,
+    reset_entity_state_with_base, resolve_config_location, run_with_base, set_observer,
+    validate_profile, validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunOptions,
+    ValidateOptions,
 };
 use std::io::Write;
 
@@ -417,6 +418,12 @@ fn main() -> FloeResult<()> {
                 None
             };
 
+            // Extract profile vars before moving profile_config into RunOptions.
+            let profile_vars_for_lineage = profile_config
+                .as_ref()
+                .map(|p| p.variables.clone())
+                .unwrap_or_default();
+
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
@@ -436,21 +443,23 @@ fn main() -> FloeResult<()> {
             };
 
             // Load config early to check for lineage block so we can install
-            // a composed observer before run_with_base.
-            let early_config = load_config(&config_location.path);
+            // a composed observer before run_with_base. Apply profile vars so
+            // that {{VAR}} placeholders in lineage.url / lineage.api_key are expanded.
+            let early_config =
+                load_config_with_profile_vars(&config_location.path, &profile_vars_for_lineage);
             let lineage_observer = early_config
                 .as_ref()
                 .ok()
-                .and_then(|c| c.lineage.as_ref())
-                .and_then(
-                    |lineage_cfg| match floe_core::lineage::build_observer(lineage_cfg) {
+                .and_then(|c| c.lineage.as_ref().map(|l| (l, c.entities.as_slice())))
+                .and_then(|(lineage_cfg, entities)| {
+                    match floe_core::lineage::build_observer(lineage_cfg, entities) {
                         Ok(obs) => Some(obs),
                         Err(err) => {
                             eprintln!("Warning: lineage observer disabled: {err}");
                             None
                         }
-                    },
-                );
+                    }
+                });
 
             let mut obs_vec = Vec::new();
             if let Some(log_obs) = logging::build_log_observer(log_format.clone()) {

@@ -117,20 +117,27 @@ pub(crate) async fn register_unity_table(
 
     match get_resp.status().as_u16() {
         200 => {
-            // Table already registered — verify location matches to catch stale config.
+            // Table already registered — verify location matches to catch stale config or name
+            // collisions with managed tables/views that don't expose storage_location.
             let body = get_resp.text().await.unwrap_or_default();
-            if let Ok(existing) = serde_json::from_str::<TableGetResponse>(&body) {
-                if let Some(existing_loc) = existing.storage_location {
-                    let norm_existing = existing_loc.trim_end_matches('/');
-                    let norm_new = table_uri.trim_end_matches('/');
-                    if norm_existing != norm_new {
-                        return Err(Box::new(RunError(format!(
-                            "unity catalog {catalog_def} table {full_name} is already registered \
-                             at {existing_loc} but the current write targets {table_uri}: \
-                             update sink.accepted.path or choose a different table name"
-                        ))));
-                    }
-                }
+            let existing_loc = serde_json::from_str::<TableGetResponse>(&body)
+                .ok()
+                .and_then(|r| r.storage_location)
+                .ok_or_else(|| {
+                    Box::new(RunError(format!(
+                        "unity catalog {catalog_def} table {full_name} already exists but its \
+                         storage_location could not be read from the GET response (managed table \
+                         or view name collision?): rename the entity or choose a different table name"
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            let norm_existing = existing_loc.trim_end_matches('/');
+            let norm_new = table_uri.trim_end_matches('/');
+            if norm_existing != norm_new {
+                return Err(Box::new(RunError(format!(
+                    "unity catalog {catalog_def} table {full_name} is already registered \
+                     at {existing_loc} but the current write targets {table_uri}: \
+                     update sink.accepted.path or choose a different table name"
+                ))));
             }
             return Ok(());
         }

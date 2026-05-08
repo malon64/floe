@@ -45,6 +45,17 @@ pub struct ResolvedIcebergCatalogTarget {
     pub table_location: ResolvedPath,
 }
 
+/// Fully resolved Unity Catalog target for a single Delta write operation.
+/// The table storage location is taken directly from the write `Target` — Unity Catalog
+/// is a post-write registration step and does not influence the write path.
+#[derive(Debug, Clone)]
+pub struct ResolvedDeltaCatalogTarget {
+    pub catalog_name: String,
+    pub type_config: CatalogTypeConfig,
+    pub schema: String,
+    pub table: String,
+}
+
 impl CatalogResolver {
     pub fn new(config: &RootConfig) -> FloeResult<Self> {
         let Some(catalogs) = &config.catalogs else {
@@ -115,8 +126,16 @@ impl CatalogResolver {
         // namespace and table names use the shared normalizer — same rules for all catalog types
         let database_for_namespace = match &definition.type_config {
             CatalogTypeConfig::Glue { database, .. } => database.as_str(),
-            // REST catalogs fall back to "default" as the namespace source, never the warehouse.
+            // REST warehouse is a catalog/bucket identifier (e.g. "my_catalog.my_schema"),
+            // not a namespace — use "default" so callers always set namespace/domain explicitly.
             CatalogTypeConfig::Rest { .. } => "default",
+            // Unity catalogs are for Delta, not Iceberg — validate.rs prevents this path.
+            CatalogTypeConfig::Unity { .. } => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.iceberg.catalog references a unity catalog, which only supports Delta Lake",
+                    entity.name
+                ))) as Box<dyn std::error::Error + Send + Sync>);
+            }
         };
         let namespace_source = iceberg_cfg
             .namespace
@@ -180,6 +199,54 @@ impl CatalogResolver {
             namespace,
             table,
             table_location,
+        }))
+    }
+
+    /// Resolves a Unity Catalog target for a Delta Lake write.
+    ///
+    /// Returns `Ok(None)` when `sink.delta` is absent (no catalog registration requested).
+    pub fn resolve_delta_target(
+        &self,
+        entity: &EntityConfig,
+        sink: &SinkTarget,
+    ) -> FloeResult<Option<ResolvedDeltaCatalogTarget>> {
+        let Some(delta_cfg) = sink.delta.as_ref() else {
+            return Ok(None);
+        };
+
+        let catalog_name = match delta_cfg.catalog.as_deref() {
+            Some(name) => name.to_string(),
+            None => self.default_name.clone().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.delta.catalog is required when no catalogs.default is set",
+                    entity.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?,
+        };
+
+        let definition = self.definition(&catalog_name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.delta.catalog references unknown catalog {}",
+                entity.name, catalog_name
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        // Schema resolution: entity override → entity domain → catalog definition schema field.
+        let schema_source = delta_cfg.schema.as_deref().or(entity.domain.as_deref());
+        let schema = match (schema_source, &definition.type_config) {
+            (Some(s), _) => normalize_catalog_ident(s),
+            (None, CatalogTypeConfig::Unity { schema, .. }) => normalize_catalog_ident(schema),
+            (None, _) => "default".to_string(),
+        };
+
+        let table_source = delta_cfg.table.as_deref().unwrap_or(entity.name.as_str());
+        let table = normalize_catalog_ident(table_source);
+
+        Ok(Some(ResolvedDeltaCatalogTarget {
+            catalog_name,
+            type_config: definition.type_config,
+            schema,
+            table,
         }))
     }
 }

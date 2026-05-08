@@ -120,6 +120,11 @@ impl IcebergCatalogConfig {
                     resolved.table.clone(),
                 )?))
             }
+            // Unity catalogs are Delta-only; validate.rs blocks this path.
+            config::CatalogTypeConfig::Unity { .. } => Err(Box::new(RunError(format!(
+                "IcebergCatalogConfig::from_resolved called on unity catalog '{}'",
+                resolved.catalog_name
+            )))),
         }
     }
 
@@ -239,6 +244,9 @@ fn write_iceberg_table_with_remote_context(
         iceberg_database: result.iceberg_database,
         iceberg_namespace: result.iceberg_namespace,
         iceberg_table: result.iceberg_table,
+        delta_catalog_name: None,
+        delta_catalog_schema: None,
+        delta_catalog_table: None,
         metrics: result.metrics,
         merge: None,
         schema_evolution: crate::io::format::AcceptedSchemaEvolution {

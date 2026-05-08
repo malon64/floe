@@ -7,7 +7,7 @@ mod types;
 mod validate;
 pub(crate) mod yaml_decode;
 
-pub use catalog::{CatalogResolver, ResolvedIcebergCatalogTarget};
+pub use catalog::{CatalogResolver, ResolvedDeltaCatalogTarget, ResolvedIcebergCatalogTarget};
 pub use location::{resolve_config_location, ConfigLocation};
 pub use storage::{resolve_local_path, ConfigBase, ResolvedPath, StorageResolver};
 pub use types::*;

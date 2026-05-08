@@ -659,6 +659,7 @@ fn build_entity(
                 write_mode,
                 partition_by: None,
                 partition_spec: None,
+                delta: None,
             },
             rejected: None,
             archive: None,

@@ -66,7 +66,7 @@ impl ConnectorRunStatus {
 /// is not a recognized value.
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use floe_core::runner::parse_run_status_from_logs;
 /// use floe_core::report::RunStatus;
 ///

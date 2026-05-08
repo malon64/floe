@@ -226,6 +226,7 @@ fn mock_entity(name: &str) -> config::EntityConfig {
                 write_mode: config::WriteMode::Overwrite,
                 partition_by: None,
                 partition_spec: None,
+                delta: None,
             },
             rejected: None,
             archive: None,

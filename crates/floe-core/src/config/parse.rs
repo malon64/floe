@@ -6,6 +6,7 @@ use yaml_rust2::Yaml;
 
 use crate::config::apply_templates_with_vars;
 use crate::config::storage::resolve_local_path;
+use crate::config::types::DeltaSinkTargetConfig;
 use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
@@ -458,6 +459,7 @@ fn parse_sink_target(
             "options",
             "merge",
             "iceberg",
+            "delta",
             "partition_by",
             "partition_spec",
         ]);
@@ -502,6 +504,14 @@ fn parse_sink_target(
     } else {
         None
     };
+    let delta = if allow_options {
+        match hash_get(hash, "delta") {
+            Some(value) => Some(parse_sink_delta_options(value, &format!("{ctx}.delta"))?),
+            None => None,
+        }
+    } else {
+        None
+    };
     let partition_spec = if allow_options {
         match hash_get(hash, "partition_spec") {
             Some(value) => Some(parse_iceberg_partition_spec(
@@ -520,6 +530,7 @@ fn parse_sink_target(
         options,
         merge,
         iceberg,
+        delta,
         partition_by,
         partition_spec,
         write_mode,
@@ -624,6 +635,16 @@ fn parse_sink_iceberg_options(value: &Yaml, ctx: &str) -> FloeResult<IcebergSink
     })
 }
 
+fn parse_sink_delta_options(value: &Yaml, ctx: &str) -> FloeResult<DeltaSinkTargetConfig> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["catalog", "schema", "table"])?;
+    Ok(DeltaSinkTargetConfig {
+        catalog: opt_string(hash, "catalog", ctx)?,
+        schema: opt_string(hash, "schema", ctx)?,
+        table: opt_string(hash, "table", ctx)?,
+    })
+}
+
 fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
     let hash = yaml_hash(value, "storages")?;
     validate_known_keys(hash, "storages", &["default", "definitions"])?;
@@ -706,17 +727,25 @@ fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
         &[
             "name",
             "type",
+            // Glue-specific:
             "region",
             "database",
             "create_database_if_missing",
             "allow_takeover",
+            // REST-specific:
             "uri",
             "credential",
+            "warehouse",
             "oauth2_server_uri",
             "scope",
-            "warehouse",
+            // Shared:
             "warehouse_storage",
             "warehouse_prefix",
+            "host",
+            "catalog",
+            "schema",
+            "token",
+            "create_schema_if_missing",
         ],
     )?;
     let name = get_string(hash, "name", "catalogs.definitions")?;
@@ -755,8 +784,16 @@ fn parse_catalog_type_config(
             oauth2_server_uri: opt_string(hash, "oauth2_server_uri", "catalogs.definitions")?,
             scope: opt_string(hash, "scope", "catalogs.definitions")?,
         }),
+        "unity" => Ok(CatalogTypeConfig::Unity {
+            host: get_string(hash, "host", "catalogs.definitions")?,
+            catalog: get_string(hash, "catalog", "catalogs.definitions")?,
+            schema: get_string(hash, "schema", "catalogs.definitions")?,
+            token: get_string(hash, "token", "catalogs.definitions")?,
+            create_schema_if_missing: opt_bool(hash, "create_schema_if_missing", "catalogs.definitions")?
+                .unwrap_or(false),
+        }),
         other => Err(Box::new(crate::errors::ConfigError(format!(
-            "catalogs.definitions name={name} has unsupported type={other} (supported: glue, rest)"
+            "catalogs.definitions name={name} has unsupported type={other} (supported: glue, rest, unity)"
         )))),
     }
 }

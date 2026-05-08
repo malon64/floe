@@ -261,6 +261,7 @@ pub struct SinkTarget {
     pub options: Option<SinkOptions>,
     pub merge: Option<MergeOptionsConfig>,
     pub iceberg: Option<IcebergSinkTargetConfig>,
+    pub delta: Option<DeltaSinkTargetConfig>,
     pub partition_by: Option<Vec<String>>,
     pub partition_spec: Option<Vec<IcebergPartitionFieldConfig>>,
     pub write_mode: WriteMode,
@@ -306,6 +307,16 @@ pub struct IcebergSinkTargetConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct DeltaSinkTargetConfig {
+    /// Name of the catalog definition to use (falls back to `catalogs.default`).
+    pub catalog: Option<String>,
+    /// Override the Unity schema for this entity (falls back to the catalog definition's `schema`).
+    pub schema: Option<String>,
+    /// Override the table name (defaults to the entity name).
+    pub table: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct StoragesConfig {
     pub default: Option<String>,
     pub definitions: Vec<StorageDefinition>,
@@ -342,19 +353,30 @@ pub enum CatalogTypeConfig {
         allow_takeover: bool,
     },
     Rest {
-        /// Base URI of the REST catalog (e.g. https://api.tabular.io/ws).
+        /// REST catalog endpoint URI (e.g. `https://<host>/api/catalog`).
         uri: String,
-        /// Credential string.  Routing:
-        ///   "token:<value>"                   → bearer PAT (Unity Catalog / Nessie)
-        ///   "client_credentials:<id>:<secret>" → OAuth2 client-credentials (Polaris / Snowflake)
-        ///   anything else                     → raw credential property
+        /// Credential string: `"token:<token>"` or `"client_credentials:<id>:<secret>"`.
         credential: Option<String>,
-        /// Warehouse / catalog name sent to the REST endpoint (optional).
+        /// Warehouse / catalog identifier (e.g. `"my_catalog"` or `"my_catalog.my_schema"`).
         warehouse: Option<String>,
-        /// Override the OAuth2 token endpoint (optional).
+        /// OAuth2 token endpoint URI (required for Snowflake Polaris).
         oauth2_server_uri: Option<String>,
-        /// OAuth2 scope (optional).
+        /// OAuth2 scope (e.g. `"PRINCIPAL_ROLE:ALL"` for Snowflake).
         scope: Option<String>,
+    },
+    /// Unity Catalog (Databricks) — post-write Delta table registration via the
+    /// Unity Catalog REST API.  Compatible with OSS Unity Catalog as well.
+    Unity {
+        /// Workspace URL, e.g. "https://my-workspace.azuredatabricks.net".
+        host: String,
+        /// Unity catalog name (e.g. "my_catalog").
+        catalog: String,
+        /// Unity schema (database) name (e.g. "my_schema").
+        schema: String,
+        /// Personal Access Token or value from env-var substitution.
+        token: String,
+        /// Create the Unity schema if it does not already exist (default: false).
+        create_schema_if_missing: bool,
     },
 }
 
@@ -363,6 +385,7 @@ impl CatalogTypeConfig {
         match self {
             Self::Glue { .. } => "glue",
             Self::Rest { .. } => "rest",
+            Self::Unity { .. } => "unity",
         }
     }
 }

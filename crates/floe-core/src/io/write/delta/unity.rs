@@ -72,6 +72,11 @@ struct CreateSchemaRequest<'a> {
 }
 
 #[derive(Deserialize)]
+struct TableGetResponse {
+    storage_location: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct ErrorResponse {
     error_code: Option<String>,
     message: Option<String>,
@@ -112,7 +117,21 @@ pub(crate) async fn register_unity_table(
 
     match get_resp.status().as_u16() {
         200 => {
-            // Table already registered — Delta log reflects the latest state.
+            // Table already registered — verify location matches to catch stale config.
+            let body = get_resp.text().await.unwrap_or_default();
+            if let Ok(existing) = serde_json::from_str::<TableGetResponse>(&body) {
+                if let Some(existing_loc) = existing.storage_location {
+                    let norm_existing = existing_loc.trim_end_matches('/');
+                    let norm_new = table_uri.trim_end_matches('/');
+                    if norm_existing != norm_new {
+                        return Err(Box::new(RunError(format!(
+                            "unity catalog {catalog_def} table {full_name} is already registered \
+                             at {existing_loc} but the current write targets {table_uri}: \
+                             update sink.accepted.path or choose a different table name"
+                        ))));
+                    }
+                }
+            }
             return Ok(());
         }
         404 => {

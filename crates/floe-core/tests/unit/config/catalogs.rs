@@ -447,3 +447,19 @@ fn validate_config_accepts_s3_storage_for_unity_catalog() {
 
     floe_core::validate_config_for_tests(&root).expect("s3 + unity catalog should be valid");
 }
+
+#[test]
+fn validate_config_rejects_delta_block_on_non_delta_format() {
+    let mut root = unity_root();
+    let mut entity = delta_entity();
+    // Switch format to parquet but keep the delta catalog block — should be rejected.
+    entity.sink.accepted.format = "parquet".to_string();
+    root.entities.push(entity);
+
+    let err = floe_core::validate_config_for_tests(&root)
+        .expect_err("delta block on non-delta format should be rejected");
+    assert!(
+        err.to_string().contains("format=delta"),
+        "error should mention format=delta: {err}"
+    );
+}

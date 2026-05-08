@@ -671,7 +671,18 @@ fn validate_delta_catalog_binding(
     catalogs: &CatalogRegistry,
     accepted_storage: &str,
 ) -> FloeResult<()> {
-    let Some(delta_cfg) = entity.sink.accepted.delta.as_ref() else {
+    let accepted = &entity.sink.accepted;
+    if accepted.format != "delta" {
+        if accepted.delta.is_some() {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.delta is only supported for sink.accepted.format=delta",
+                entity.name
+            ))));
+        }
+        return Ok(());
+    }
+
+    let Some(delta_cfg) = accepted.delta.as_ref() else {
         return Ok(());
     };
 

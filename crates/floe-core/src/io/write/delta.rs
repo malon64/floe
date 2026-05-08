@@ -229,6 +229,9 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
 fn target_uri(target: &Target) -> String {
     match target {
         Target::Local { base_path, .. } => base_path.clone(),
-        Target::S3 { uri, .. } | Target::Gcs { uri, .. } | Target::Adls { uri, .. } => uri.clone(),
+        Target::S3 { uri, .. } | Target::Gcs { uri, .. } => uri.clone(),
+        // Unity Catalog external locations require the secure abfss:// scheme; Floe stores ADLS
+        // targets with abfs:// internally, so normalise here before registration.
+        Target::Adls { uri, .. } => uri.replacen("abfs://", "abfss://", 1),
     }
 }

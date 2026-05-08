@@ -164,6 +164,9 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             iceberg_database: None,
             iceberg_namespace: None,
             iceberg_table: None,
+            delta_catalog_name: None,
+            delta_catalog_schema: None,
+            delta_catalog_table: None,
             metrics,
             merge: None,
             schema_evolution: io::format::AcceptedSchemaEvolution {

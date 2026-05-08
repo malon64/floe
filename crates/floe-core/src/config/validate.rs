@@ -326,6 +326,7 @@ fn validate_sink(
         }
     }
     validate_iceberg_catalog_binding(entity, storages, catalogs, &accepted_storage)?;
+    validate_delta_catalog_binding(entity, storages, catalogs, &accepted_storage)?;
 
     let _ = storages.definition_type(&accepted_storage);
 
@@ -596,7 +597,6 @@ fn validate_iceberg_catalog_binding(
         return Ok(());
     };
 
-    // Resolve the catalog definition first so we can make type-specific decisions below.
     let catalog_name = if let Some(name) = iceberg_cfg.catalog.as_deref() {
         name.to_string()
     } else if let Some(name) = catalogs.default_name() {
@@ -615,50 +615,102 @@ fn validate_iceberg_catalog_binding(
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
 
-    match &definition.type_config {
-        CatalogTypeConfig::Glue { .. } => {
-            // Glue catalog requires the accepted sink to be S3 or GCS.
-            let accepted_storage_type = storages
-                .definition_type(accepted_storage)
-                .unwrap_or("local");
-            if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
+    if matches!(&definition.type_config, CatalogTypeConfig::Unity { .. }) {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.iceberg.catalog={} has type=unity: unity catalogs only support Delta Lake, not Iceberg",
+            entity.name, catalog_name
+        ))));
+    }
+
+    // REST catalogs with warehouse_storage use that storage as the actual table root, so
+    // accepted_storage is not required to be cloud-backed. The warehouse_storage block below
+    // enforces the s3/gcs constraint for REST independently.
+    let rest_with_warehouse = matches!(&definition.type_config, CatalogTypeConfig::Rest { .. })
+        && definition.warehouse_storage.is_some();
+    if !rest_with_warehouse {
+        let accepted_storage_type = storages
+            .definition_type(accepted_storage)
+            .unwrap_or("local");
+        if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
+                entity.name, accepted_storage_type
+            ))));
+        }
+    }
+    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+        let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
+            Box::new(ConfigError(format!(
+                "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                definition.name, storage_name
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        match &definition.type_config {
+            CatalogTypeConfig::Glue { .. } if storage_type != "s3" => {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
-                    entity.name, accepted_storage_type
+                    "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                    definition.name, storage_type
                 ))));
             }
-            if let Some(storage_name) = definition.warehouse_storage.as_deref() {
-                let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
-                    Box::new(ConfigError(format!(
-                        "catalogs.definitions name={} warehouse_storage references unknown storage {}",
-                        definition.name, storage_name
-                    ))) as Box<dyn std::error::Error + Send + Sync>
-                })?;
-                if storage_type != "s3" {
-                    return Err(Box::new(ConfigError(format!(
-                        "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
-                        definition.name, storage_type
-                    ))));
-                }
-            }
-        }
-        CatalogTypeConfig::Rest { .. } => {
-            // REST catalog FileIO only supports local storage until iceberg-storage-opendal ships.
-            // Check the effective storage: warehouse_storage if set, else the accepted sink storage.
-            let effective_storage = definition
-                .warehouse_storage
-                .as_deref()
-                .unwrap_or(accepted_storage);
-            let effective_type = storages
-                .definition_type(effective_storage)
-                .unwrap_or("local");
-            if effective_type != "local" {
+            CatalogTypeConfig::Rest { .. } if storage_type != "s3" && storage_type != "gcs" => {
                 return Err(Box::new(ConfigError(format!(
-                    "entity.name={} REST catalog {} effective storage {} is {}: only local storage is supported until iceberg-storage-opendal is available",
-                    entity.name, catalog_name, effective_storage, effective_type
+                    "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
+                    definition.name, storage_type
                 ))));
             }
+            _ => {}
         }
+    }
+
+    Ok(())
+}
+
+fn validate_delta_catalog_binding(
+    entity: &EntityConfig,
+    storages: &StorageRegistry,
+    catalogs: &CatalogRegistry,
+    accepted_storage: &str,
+) -> FloeResult<()> {
+    let Some(delta_cfg) = entity.sink.accepted.delta.as_ref() else {
+        return Ok(());
+    };
+
+    let catalog_name = match delta_cfg.catalog.as_deref() {
+        Some(name) => name.to_string(),
+        None => match catalogs.default_name() {
+            Some(name) => name.to_string(),
+            None => {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.delta.catalog is required when no catalogs.default is set",
+                    entity.name
+                ))));
+            }
+        },
+    };
+
+    let definition = catalogs.definition(&catalog_name).ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.delta.catalog references unknown catalog {}",
+            entity.name, catalog_name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+
+    if !matches!(definition.type_config, CatalogTypeConfig::Unity { .. }) {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.delta.catalog={} has type={}: only unity catalogs support Delta Lake registration",
+            entity.name, catalog_name, definition.type_config.catalog_type_str()
+        ))));
+    }
+
+    // Unity Catalog registration only makes sense for cloud-backed storage (not local).
+    let storage_type = storages
+        .definition_type(accepted_storage)
+        .unwrap_or("local");
+    if storage_type == "local" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.delta.catalog={} requires cloud storage (s3, gcs, or adls), got local",
+            entity.name, catalog_name
+        ))));
     }
 
     Ok(())
@@ -1128,15 +1180,16 @@ impl CatalogRegistry {
                                 )))
                                     as Box<dyn std::error::Error + Send + Sync>
                             })?;
-                        // REST catalog only supports local storage until iceberg-storage-opendal ships.
-                        if storage_type != "local" {
+                        if storage_type != "s3" && storage_type != "gcs" {
                             return Err(Box::new(ConfigError(format!(
-                                "catalogs.definitions name={} warehouse_storage references {} storage, but REST catalog only supports local storage until iceberg-storage-opendal is available; use local storage or omit warehouse_storage",
+                                "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
                                 definition.name, storage_type
                             ))));
                         }
                     }
                 }
+                // Unity catalogs use the entity sink path as the storage location; no warehouse_storage.
+                CatalogTypeConfig::Unity { .. } => {}
             }
             if definitions
                 .insert(definition.name.clone(), definition.clone())

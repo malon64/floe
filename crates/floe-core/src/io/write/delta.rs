@@ -14,6 +14,7 @@ use crate::{config, io, FloeResult};
 mod commit_metrics;
 mod options;
 pub(crate) mod record_batch;
+mod unity;
 
 use self::commit_metrics::delta_commit_metrics_for_target;
 pub use self::commit_metrics::{
@@ -172,25 +173,62 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
         _temp_dir: Option<&Path>,
         _cloud: &mut io::storage::CloudClient,
         resolver: &config::StorageResolver,
-        _catalogs: &config::CatalogResolver,
+        catalogs: &config::CatalogResolver,
         entity: &config::EntityConfig,
     ) -> FloeResult<AcceptedWriteOutput> {
         let result = write_delta_table_with_metrics(df, target, resolver, entity, mode)?;
+
+        // Post-write Unity Catalog registration (no-op if delta.catalog is not configured).
+        let table_uri = target_uri(target);
+        let unity_output = match catalogs.resolve_delta_target(entity, &entity.sink.accepted)? {
+            Some(resolved) => {
+                let cfg = unity::UnityCatalogConfig::from_resolved(&resolved)?;
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|err| {
+                        Box::new(RunError(format!(
+                            "unity catalog runtime init failed: {err}"
+                        )))
+                    })?;
+                runtime
+                    .block_on(unity::register_unity_table(&cfg, &table_uri))
+                    .map_err(|err| {
+                        Box::new(RunError(format!(
+                            "entity.name={} unity catalog registration failed: {err}",
+                            entity.name
+                        )))
+                    })?;
+                Some(resolved)
+            }
+            None => None,
+        };
+
         Ok(AcceptedWriteOutput {
             files_written: result.files_written,
             parts_written: 1,
             part_files: result.part_files,
             table_version: Some(result.version),
             snapshot_id: None,
-            table_root_uri: None,
+            table_root_uri: unity_output.as_ref().map(|_| table_uri),
             iceberg_catalog_name: None,
             iceberg_database: None,
             iceberg_namespace: None,
             iceberg_table: None,
+            delta_catalog_name: unity_output.as_ref().map(|r| r.catalog_name.clone()),
+            delta_catalog_schema: unity_output.as_ref().map(|r| r.schema.clone()),
+            delta_catalog_table: unity_output.as_ref().map(|r| r.table.clone()),
             metrics: result.metrics,
             merge: result.merge,
             schema_evolution: result.schema_evolution,
             perf: Some(result.perf),
         })
+    }
+}
+
+fn target_uri(target: &Target) -> String {
+    match target {
+        Target::Local { base_path, .. } => base_path.clone(),
+        Target::S3 { uri, .. } | Target::Gcs { uri, .. } | Target::Adls { uri, .. } => uri.clone(),
     }
 }

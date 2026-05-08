@@ -158,6 +158,15 @@ pub struct AcceptedOutputSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iceberg_table: Option<String>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_catalog_name: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_catalog_schema: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_catalog_table: Option<String>,
+    #[serde(default)]
     pub total_bytes_written: Option<u64>,
     #[serde(default)]
     pub avg_file_size_mb: Option<f64>,

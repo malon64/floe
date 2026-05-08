@@ -26,6 +26,7 @@ fn base_entity() -> config::EntityConfig {
                 write_mode: config::WriteMode::Overwrite,
                 partition_by: None,
                 partition_spec: None,
+                delta: None,
             },
             rejected: None,
             archive: None,

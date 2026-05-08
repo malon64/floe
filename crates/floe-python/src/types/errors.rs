@@ -15,7 +15,7 @@ pub fn to_py_err(err: Box<dyn std::error::Error + Send + Sync>) -> PyErr {
         FloeRunError::new_err(msg)
     } else if err.is::<StorageError>() {
         FloeStorageError::new_err(msg)
-    } else if err.is::<IoError>() {
+    } else if err.is::<IoError>() || err.is::<std::io::Error>() {
         FloeIoError::new_err(msg)
     } else {
         FloeError::new_err(msg)

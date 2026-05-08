@@ -1,3 +1,7 @@
+// PyO3's #[pyfunction] macro emits identity From<PyErr> conversions and
+// create_exception! emits cfg(gil-refs) checks — both are known false positives.
+#![allow(clippy::useless_conversion, unexpected_cfgs)]
+
 mod functions;
 mod observer;
 mod types;

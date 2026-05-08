@@ -9,7 +9,10 @@ use crate::types::errors::FloeError;
 /// The Python-side callable is stored in a Mutex so it can be swapped
 /// between notebook cells without reinstalling the observer.
 pub struct MutablePythonObserver {
-    callback: Mutex<Option<PyObject>>,
+    // Arc<PyObject> so we can clone the handle cheaply (no GIL needed)
+    // before releasing the lock, preventing deadlock if the callback
+    // itself calls set_observer/clear_observer.
+    callback: Mutex<Option<Arc<PyObject>>>,
 }
 
 // SAFETY: PyObject is not Send by default, but we only access it
@@ -19,11 +22,12 @@ unsafe impl Sync for MutablePythonObserver {}
 
 impl RunObserver for MutablePythonObserver {
     fn on_event(&self, event: RunEvent) {
-        let guard = match self.callback.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let Some(ref cb) = *guard else { return };
+        // Clone the Arc while holding the lock, then drop the guard before
+        // entering Python. Arc::clone is GIL-free and cheap. Holding the
+        // MutexGuard across with_gil would deadlock if the callback calls
+        // set_observer/clear_observer (which lock the same mutex).
+        let cb: Option<Arc<PyObject>> = self.callback.lock().ok().and_then(|g| (*g).clone());
+        let Some(cb) = cb else { return };
 
         Python::with_gil(|py| {
             let Ok(s) = serde_json::to_string(&event) else {
@@ -66,7 +70,7 @@ pub fn set_observer(py: Python<'_>, callback: PyObject) -> PyResult<bool> {
         .callback
         .lock()
         .map_err(|_| FloeError::new_err("observer lock poisoned"))?;
-    *guard = Some(callback);
+    *guard = Some(Arc::new(callback));
     Ok(true)
 }
 

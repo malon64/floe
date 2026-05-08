@@ -1,0 +1,46 @@
+{
+  "spec_version": "0.1",
+  "tool": {
+    "name": "floe",
+    "version": "0.3.8"
+  },
+  "run": {
+    "run_id": "2026-05-08T11-46-47.158166288Z",
+    "started_at": "2026-05-08T11:46:47.158166288Z",
+    "finished_at": "2026-05-08T11:46:47.182472435Z",
+    "duration_ms": 24,
+    "status": "success",
+    "exit_code": 0
+  },
+  "config": {
+    "path": "/home/user/floe/crates/floe-python/tests/fixtures/config.yml",
+    "version": "0.1"
+  },
+  "report": {
+    "path": "/home/user/floe/crates/floe-python/tests/fixtures/report",
+    "report_file": "/home/user/floe/crates/floe-python/tests/fixtures/report/run_2026-05-08T11-46-47.158166288Z/run.summary.json"
+  },
+  "results": {
+    "files_total": 1,
+    "rows_total": 5,
+    "accepted_total": 5,
+    "rejected_total": 0,
+    "warnings_total": 0,
+    "errors_total": 0
+  },
+  "entities": [
+    {
+      "name": "customer",
+      "status": "success",
+      "results": {
+        "files_total": 1,
+        "rows_total": 5,
+        "accepted_total": 5,
+        "rejected_total": 0,
+        "warnings_total": 0,
+        "errors_total": 0
+      },
+      "report_file": "/home/user/floe/crates/floe-python/tests/fixtures/report/run_2026-05-08T11-46-47.158166288Z/customer/run.json"
+    }
+  ]
+}

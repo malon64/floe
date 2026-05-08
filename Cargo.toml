@@ -2,5 +2,6 @@
 members = [
   "crates/floe-core",
   "crates/floe-cli",
+  "crates/floe-python",
 ]
 resolver = "2"

@@ -45,7 +45,7 @@ impl From<&EntityConfig> for PyEntityConfig {
             accepted_format: e.sink.accepted.format.clone(),
             accepted_path: e.sink.accepted.path.clone(),
             accepted_storage: e.sink.accepted.storage.clone(),
-            incremental_mode: format!("{:?}", e.incremental_mode),
+            incremental_mode: e.incremental_mode.as_str().to_string(),
         }
     }
 }

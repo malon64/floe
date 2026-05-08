@@ -97,7 +97,7 @@ pub fn inspect_entity_state(
     d.set_item("entity_name", &inspection.entity_name)?;
     d.set_item(
         "incremental_mode",
-        format!("{:?}", inspection.incremental_mode),
+        inspection.incremental_mode.as_str(),
     )?;
     d.set_item("path_uri", &inspection.path.uri)?;
     d.set_item(

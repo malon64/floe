@@ -110,7 +110,7 @@ entities:
         - `host` (required): Databricks workspace URL, e.g. `https://my-workspace.azuredatabricks.net`
         - `catalog` (required): Unity catalog name
         - `schema` (required): default schema name
-        - `token` (required): Personal Access Token; supports `${ENV_VAR}` substitution
+        - `token` (required): Personal Access Token; accepts a literal value or a single `${ENV_VAR}` reference resolved from the OS environment at run time
         - `create_schema_if_missing` (optional, default `false`): create the Unity schema if absent
 - `env` (optional)
   - Enables variable templating for string fields using `{{var}}` syntax.

@@ -114,9 +114,10 @@ catalogs:
       create_schema_if_missing: false  # create the schema if it does not exist yet
 ```
 
-`token` supports `${ENV_VAR}` substitution via Floe's variable templating. The
-PAT is sent only as a `Bearer` authorization header and is never written to
-reports or logs.
+`token` accepts a literal PAT or a single `${ENV_VAR}` reference (e.g.
+`token: "${DATABRICKS_TOKEN}"`), which is resolved from the OS environment at
+run time. The PAT is sent only as a `Bearer` authorization header and is never
+written to reports or logs.
 
 ### Entity config
 

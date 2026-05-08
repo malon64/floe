@@ -17,7 +17,7 @@ All notable changes to Floe are documented in this file.
     rejected for Iceberg sinks; local storage rejected for Unity targets.
   - Three new report fields: `delta_catalog_name`, `delta_catalog_schema`,
     `delta_catalog_table`.
-  - `token` supports `${ENV_VAR}` substitution.
+  - `token` accepts a literal PAT or a single `${ENV_VAR}` reference resolved from the OS environment at run time.
 
 ## v0.3.7
 

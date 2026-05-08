@@ -38,7 +38,7 @@ impl UnityCatalogConfig {
                 unity_catalog: catalog.clone(),
                 schema: resolved.schema.clone(),
                 table: resolved.table.clone(),
-                token: token.clone(),
+                token: expand_env_token(token, &resolved.catalog_name)?,
                 create_schema_if_missing: *create_schema_if_missing,
             }),
             // The resolved target is guaranteed to be Unity by validate_delta_catalog_binding.
@@ -49,6 +49,25 @@ impl UnityCatalogConfig {
             )))),
         }
     }
+}
+
+/// Expands a single `${VAR_NAME}` reference in the token string using the OS environment.
+/// The token must be either a literal value or a single `${VAR_NAME}` reference; mixing
+/// literal text and references in one string is not supported.
+fn expand_env_token(token: &str, catalog_name: &str) -> FloeResult<String> {
+    let Some(inner) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
+        return Ok(token.to_string());
+    };
+    if inner.is_empty() || inner.contains('{') || inner.contains('}') {
+        return Err(Box::new(RunError(format!(
+            "unity catalog {catalog_name} token has invalid syntax: {token}"
+        ))));
+    }
+    std::env::var(inner).map_err(|_| {
+        Box::new(RunError(format!(
+            "unity catalog {catalog_name} token references env var {inner} which is not set"
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
 }
 
 // ---------------------------------------------------------------------------

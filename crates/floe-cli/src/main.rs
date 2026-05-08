@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
+    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base, load_config,
     load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
-    resolve_config_location, run_with_base, validate_profile, validate_with_base, AddEntityOptions,
-    FloeResult, RunOptions, ValidateOptions,
+    resolve_config_location, run_with_base, set_observer, validate_profile, validate_with_base,
+    AddEntityOptions, FloeResult, MultiObserver, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -423,7 +423,6 @@ fn main() -> FloeResult<()> {
                 dry_run,
                 profile: profile_config,
             };
-            logging::install_observer(log_format.clone());
 
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
@@ -435,6 +434,34 @@ fn main() -> FloeResult<()> {
                     std::process::exit(1);
                 }
             };
+
+            // Load config early to check for lineage block so we can install
+            // a composed observer before run_with_base.
+            let early_config = load_config(&config_location.path);
+            let lineage_observer = early_config
+                .as_ref()
+                .ok()
+                .and_then(|c| c.lineage.as_ref())
+                .and_then(
+                    |lineage_cfg| match floe_core::lineage::build_observer(lineage_cfg) {
+                        Ok(obs) => Some(obs),
+                        Err(err) => {
+                            eprintln!("Warning: lineage observer disabled: {err}");
+                            None
+                        }
+                    },
+                );
+
+            let mut obs_vec = Vec::new();
+            if let Some(log_obs) = logging::build_log_observer(log_format.clone()) {
+                obs_vec.push(log_obs);
+            }
+            if let Some(lin_obs) = lineage_observer {
+                obs_vec.push(lin_obs);
+            }
+            if !obs_vec.is_empty() {
+                let _ = set_observer(std::sync::Arc::new(MultiObserver::new(obs_vec)));
+            }
 
             let outcome =
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {

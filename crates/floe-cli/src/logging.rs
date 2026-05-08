@@ -1,5 +1,5 @@
 use clap::ValueEnum;
-use floe_core::{set_observer, RunEvent, RunObserver};
+use floe_core::{RunEvent, RunObserver};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -10,14 +10,14 @@ pub enum LogFormat {
     Json,
 }
 
-pub fn install_observer(format: LogFormat) {
+pub fn build_log_observer(format: LogFormat) -> Option<Arc<dyn RunObserver>> {
     if matches!(format, LogFormat::Off) {
-        return;
+        return None;
     }
-    let _ = set_observer(Arc::new(CliObserver {
+    Some(Arc::new(CliObserver {
         format,
         lock: std::sync::Mutex::new(()),
-    }));
+    }))
 }
 
 struct CliObserver {

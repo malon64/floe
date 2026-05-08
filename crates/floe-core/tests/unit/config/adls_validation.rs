@@ -67,6 +67,7 @@ fn adls_missing_required_fields_errors() {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: vec![base_entity()],
     };
 
@@ -99,6 +100,7 @@ fn adls_referenced_errors_until_implemented() {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: vec![base_entity()],
     };
 

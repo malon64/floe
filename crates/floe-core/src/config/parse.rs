@@ -13,9 +13,10 @@ use crate::config::yaml_decode::{
 use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogTypeConfig, CatalogsConfig, ColumnConfig,
     DomainConfig, EntityConfig, EntityMetadata, EntityStateConfig, EnvConfig,
-    IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, MergeOptionsConfig,
-    MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig, PiiConfig, PiiStrategy,
-    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
+    IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, LineageConfig,
+    MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig,
+    PiiConfig, PiiStrategy, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
+    SchemaEvolutionConfig,
     SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
     SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
     WriteMode,
@@ -116,6 +117,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
             "env",
             "domains",
             "report",
+            "lineage",
             "entities",
         ],
     )?;
@@ -159,6 +161,10 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
             storage: None,
         }),
     };
+    let lineage = match hash_get(root, "lineage") {
+        Some(value) => Some(parse_lineage_config(value)?),
+        None => None,
+    };
     let entities_yaml = get_array(root, "entities", "root")?;
     let mut entities = Vec::with_capacity(entities_yaml.len());
     for (index, entity_yaml) in entities_yaml.iter().enumerate() {
@@ -181,6 +187,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
         env,
         domains,
         report,
+        lineage,
         entities,
     })
 }
@@ -1097,5 +1104,21 @@ fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
         strategy,
         mask_pattern: opt_string(hash, "mask_pattern", "pii.columns")?,
         redact_value: opt_string(hash, "redact_value", "pii.columns")?,
+    })
+}
+
+fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
+    let hash = yaml_hash(value, "lineage")?;
+    validate_known_keys(
+        hash,
+        "lineage",
+        &["url", "api_key", "timeout_secs", "namespace", "producer"],
+    )?;
+    Ok(LineageConfig {
+        url: get_string(hash, "url", "lineage")?,
+        api_key: opt_string(hash, "api_key", "lineage")?,
+        timeout_secs: opt_u64(hash, "timeout_secs", "lineage")?,
+        namespace: get_string(hash, "namespace", "lineage")?,
+        producer: opt_string(hash, "producer", "lineage")?,
     })
 }

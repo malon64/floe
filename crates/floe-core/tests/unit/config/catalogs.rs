@@ -44,6 +44,7 @@ fn base_root() -> config::RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }
@@ -279,6 +280,7 @@ fn unity_root() -> config::RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }

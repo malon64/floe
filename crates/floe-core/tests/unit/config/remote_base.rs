@@ -17,6 +17,7 @@ fn base_root(definition: StorageDefinition) -> RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }
@@ -31,6 +32,7 @@ fn local_base_resolves_relative_paths() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver = StorageResolver::from_path(&config, Path::new("/tmp/config.yml"))?;

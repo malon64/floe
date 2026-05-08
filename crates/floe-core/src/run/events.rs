@@ -87,6 +87,24 @@ impl RunObserver for NoopObserver {
     fn on_event(&self, _event: RunEvent) {}
 }
 
+pub struct MultiObserver {
+    observers: Vec<Arc<dyn RunObserver>>,
+}
+
+impl MultiObserver {
+    pub fn new(observers: Vec<Arc<dyn RunObserver>>) -> Self {
+        Self { observers }
+    }
+}
+
+impl RunObserver for MultiObserver {
+    fn on_event(&self, event: RunEvent) {
+        for obs in &self.observers {
+            obs.on_event(event.clone());
+        }
+    }
+}
+
 static NOOP_OBSERVER: NoopObserver = NoopObserver;
 
 static OBSERVER: OnceLock<Arc<dyn RunObserver>> = OnceLock::new();

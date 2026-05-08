@@ -74,6 +74,9 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     if let Some(report) = &config.report {
         validate_report(report, &storage_registry)?;
     }
+    if let Some(lineage) = &config.lineage {
+        validate_lineage(lineage)?;
+    }
 
     let mut names = HashSet::new();
     for entity in &config.entities {
@@ -86,6 +89,20 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_lineage(lineage: &crate::config::LineageConfig) -> FloeResult<()> {
+    if lineage.url.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "lineage.url must not be empty".to_string(),
+        )));
+    }
+    if lineage.namespace.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "lineage.namespace must not be empty".to_string(),
+        )));
+    }
     Ok(())
 }
 

@@ -11,6 +11,7 @@ fn base_root() -> config::RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }

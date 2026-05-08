@@ -5,6 +5,7 @@ pub mod checks;
 pub mod config;
 pub mod errors;
 pub mod io;
+pub mod lineage;
 pub(crate) mod log;
 pub mod manifest;
 pub mod profile;
@@ -26,7 +27,7 @@ pub use profile::{
     detect_malformed_placeholder, detect_unresolved_placeholders, parse_profile,
     parse_profile_from_str, validate_merged_vars, validate_profile, ProfileConfig,
 };
-pub use run::events::{set_observer, RunEvent, RunObserver};
+pub use run::events::{set_observer, MultiObserver, RunEvent, RunObserver};
 pub use run::{run, run_with_base, DryRunEntityPreview, EntityOutcome, RunOutcome};
 pub use runner::{parse_run_status_from_logs, ConnectorRunStatus};
 pub use runtime::{DefaultRuntime, Runtime};

@@ -210,6 +210,7 @@ fn load_local_iceberg_table(
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
         let catalog = MemoryCatalogBuilder::default()
+            .with_storage_factory(std::sync::Arc::new(iceberg::io::LocalFsStorageFactory))
             .load(
                 "floe_test",
                 HashMap::from([(

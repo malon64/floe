@@ -596,16 +596,7 @@ fn validate_iceberg_catalog_binding(
         return Ok(());
     };
 
-    let accepted_storage_type = storages
-        .definition_type(accepted_storage)
-        .unwrap_or("local");
-    if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
-            entity.name, accepted_storage_type
-        ))));
-    }
-
+    // Resolve the catalog definition first so we can make type-specific decisions below.
     let catalog_name = if let Some(name) = iceberg_cfg.catalog.as_deref() {
         name.to_string()
     } else if let Some(name) = catalogs.default_name() {
@@ -623,18 +614,50 @@ fn validate_iceberg_catalog_binding(
             entity.name, catalog_name
         ))) as Box<dyn std::error::Error + Send + Sync>
     })?;
-    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
-        let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "catalogs.definitions name={} warehouse_storage references unknown storage {}",
-                definition.name, storage_name
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?;
-        if storage_type != "s3" {
-            return Err(Box::new(ConfigError(format!(
-                "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
-                definition.name, storage_type
-            ))));
+
+    match &definition.type_config {
+        CatalogTypeConfig::Glue { .. } => {
+            // Glue catalog requires the accepted sink to be S3 or GCS.
+            let accepted_storage_type = storages
+                .definition_type(accepted_storage)
+                .unwrap_or("local");
+            if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
+                    entity.name, accepted_storage_type
+                ))));
+            }
+            if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+                let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
+                    Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                        definition.name, storage_name
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?;
+                if storage_type != "s3" {
+                    return Err(Box::new(ConfigError(format!(
+                        "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                        definition.name, storage_type
+                    ))));
+                }
+            }
+        }
+        CatalogTypeConfig::Rest { .. } => {
+            // REST catalog FileIO only supports local storage until iceberg-storage-opendal ships.
+            // Check the effective storage: warehouse_storage if set, else the accepted sink storage.
+            let effective_storage = definition
+                .warehouse_storage
+                .as_deref()
+                .unwrap_or(accepted_storage);
+            let effective_type = storages
+                .definition_type(effective_storage)
+                .unwrap_or("local");
+            if effective_type != "local" {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} REST catalog {} effective storage {} is {}: only local storage is supported until iceberg-storage-opendal is available",
+                    entity.name, catalog_name, effective_storage, effective_type
+                ))));
+            }
         }
     }
 
@@ -1090,6 +1113,25 @@ impl CatalogRegistry {
                         if storage_type != "s3" {
                             return Err(Box::new(ConfigError(format!(
                                 "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
+                                definition.name, storage_type
+                            ))));
+                        }
+                    }
+                }
+                CatalogTypeConfig::Rest { .. } => {
+                    if let Some(storage_name) = definition.warehouse_storage.as_deref() {
+                        let storage_type =
+                            storages.definition_type(storage_name).ok_or_else(|| {
+                                Box::new(ConfigError(format!(
+                                    "catalogs.definitions name={} warehouse_storage references unknown storage {}",
+                                    definition.name, storage_name
+                                )))
+                                    as Box<dyn std::error::Error + Send + Sync>
+                            })?;
+                        // REST catalog only supports local storage until iceberg-storage-opendal ships.
+                        if storage_type != "local" {
+                            return Err(Box::new(ConfigError(format!(
+                                "catalogs.definitions name={} warehouse_storage references {} storage, but REST catalog only supports local storage until iceberg-storage-opendal is available; use local storage or omit warehouse_storage",
                                 definition.name, storage_type
                             ))));
                         }

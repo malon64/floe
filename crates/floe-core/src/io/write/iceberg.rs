@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use arrow::record_batch::RecordBatch;
+use iceberg::io::LocalFsStorageFactory;
 use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
@@ -22,6 +23,7 @@ mod context;
 mod data_files;
 mod glue;
 pub(crate) mod metadata;
+pub(crate) mod rest;
 mod schema;
 
 pub(crate) use self::context::sanitize_table_name;
@@ -30,6 +32,7 @@ use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
 use self::metadata::parse_metadata_version_from_location;
+pub(crate) use self::rest::{write_via_rest_catalog, RestIcebergCatalogConfig};
 use self::schema::{ensure_partition_spec_matches, ensure_schema_matches, prepare_iceberg_write};
 
 struct IcebergAcceptedAdapter;
@@ -44,14 +47,14 @@ pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
 }
 
 #[derive(Debug)]
-struct PreparedIcebergWrite {
-    iceberg_schema: Schema,
-    partition_spec: Option<UnboundPartitionSpec>,
-    batch: RecordBatch,
+pub(crate) struct PreparedIcebergWrite {
+    pub(crate) iceberg_schema: Schema,
+    pub(crate) partition_spec: Option<UnboundPartitionSpec>,
+    pub(crate) batch: RecordBatch,
 }
 
 #[derive(Debug)]
-struct IcebergWriteResult {
+pub(crate) struct IcebergWriteResult {
     files_written: u64,
     snapshot_id: Option<i64>,
     metadata_version: Option<i64>,
@@ -84,6 +87,7 @@ struct IcebergWriteContext {
 #[derive(Debug, Clone)]
 pub(crate) enum IcebergCatalogConfig {
     Glue(GlueIcebergCatalogConfig),
+    Rest(RestIcebergCatalogConfig),
 }
 
 impl IcebergCatalogConfig {
@@ -108,30 +112,42 @@ impl IcebergCatalogConfig {
                 create_database_if_missing: *create_database_if_missing,
                 allow_takeover: *allow_takeover,
             })),
+            config::CatalogTypeConfig::Rest { .. } => {
+                Ok(Self::Rest(RestIcebergCatalogConfig::from_type_config(
+                    resolved.catalog_name.clone(),
+                    &resolved.type_config,
+                    resolved.namespace.clone(),
+                    resolved.table.clone(),
+                )?))
+            }
         }
     }
 
     pub(crate) fn catalog_name(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.catalog_name,
+            Self::Rest(cfg) => &cfg.catalog_name,
         }
     }
 
     pub(crate) fn database(&self) -> Option<&str> {
         match self {
             Self::Glue(cfg) => Some(&cfg.database),
+            Self::Rest(_) => None,
         }
     }
 
     pub(crate) fn namespace(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.namespace,
+            Self::Rest(cfg) => &cfg.namespace,
         }
     }
 
     pub(crate) fn table(&self) -> &str {
         match self {
             Self::Glue(cfg) => &cfg.table,
+            Self::Rest(cfg) => &cfg.table,
         }
     }
 }
@@ -255,6 +271,21 @@ async fn write_iceberg_table_async(
         mut metadata_location,
         catalog: catalog_cfg,
     } = write_ctx;
+
+    // REST catalog takes a completely different code path: it connects to a remote server.
+    if let Some(IcebergCatalogConfig::Rest(rest_cfg)) = catalog_cfg.as_ref() {
+        return write_via_rest_catalog(
+            rest_cfg,
+            table_root_uri,
+            catalog_props,
+            prepared,
+            entity,
+            mode,
+            small_file_threshold_bytes,
+        )
+        .await;
+    }
+
     let mut glue_state = None;
     if let Some(IcebergCatalogConfig::Glue(glue_cfg)) = catalog_cfg.as_ref() {
         let state = load_glue_table_state(glue_cfg).await?;
@@ -263,7 +294,16 @@ async fn write_iceberg_table_async(
     }
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
-    let catalog = MemoryCatalogBuilder::default()
+    let is_local = !table_root_uri.starts_with("s3://")
+        && !table_root_uri.starts_with("gs://")
+        && !table_root_uri.starts_with("az://")
+        && !table_root_uri.starts_with("abfss://");
+    let mut catalog_builder = MemoryCatalogBuilder::default();
+    if is_local {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    }
+    let catalog = catalog_builder
         .load(catalog_name, catalog_props)
         .await
         .map_err(map_iceberg_err("iceberg catalog init failed"))?;
@@ -442,7 +482,7 @@ async fn write_iceberg_table_async(
     })
 }
 
-fn map_iceberg_err(
+pub(crate) fn map_iceberg_err(
     context: &'static str,
 ) -> impl FnOnce(iceberg::Error) -> Box<dyn std::error::Error + Send + Sync> {
     move |err| Box::new(RunError(format!("{context}: {err}")))

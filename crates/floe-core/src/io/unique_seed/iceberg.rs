@@ -8,9 +8,10 @@ use crate::io::storage::{object_store, Target};
 use crate::io::write::iceberg::metadata::{
     latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
 };
+use crate::io::write::iceberg::rest::build_rest_catalog;
 use crate::io::write::iceberg::{
-    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, ICEBERG_CATALOG_NAME,
-    ICEBERG_NAMESPACE,
+    load_glue_table_state, sanitize_table_name, IcebergCatalogConfig, RestIcebergCatalogConfig,
+    ICEBERG_CATALOG_NAME, ICEBERG_NAMESPACE,
 };
 use crate::{check, config, io, FloeResult};
 
@@ -120,6 +121,15 @@ fn seed_from_catalog(
             scan_cols,
             rename_back,
         ),
+        IcebergCatalogConfig::Rest(rest_cfg) => seed_from_rest(
+            unique_tracker,
+            rest_cfg,
+            file_io_props,
+            warehouse_location,
+            entity,
+            scan_cols,
+            rename_back,
+        ),
     }
 }
 
@@ -166,6 +176,79 @@ fn seed_from_glue(
     seed_from_batches(unique_tracker, batches, rename_back)
 }
 
+fn seed_from_rest(
+    unique_tracker: &mut check::UniqueTracker,
+    rest_cfg: &RestIcebergCatalogConfig,
+    file_io_props: HashMap<String, String>,
+    _warehouse_location: String,
+    _entity: &config::EntityConfig,
+    scan_cols: &[String],
+    rename_back: &HashMap<String, String>,
+) -> FloeResult<()> {
+    use futures::TryStreamExt;
+    use iceberg::{Catalog, NamespaceIdent, TableIdent};
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "rest iceberg seed runtime init failed: {err}"
+            )))
+        })?;
+
+    let map_err = crate::io::write::iceberg::map_iceberg_err;
+
+    let batches = runtime
+        .block_on(async {
+            let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
+            let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
+
+            // Guard against catalogs that error (rather than return false) for table_exists
+            // when the namespace does not yet exist — treat a missing namespace as empty.
+            if !catalog
+                .namespace_exists(&namespace)
+                .await
+                .map_err(map_err("rest iceberg seed namespace_exists check failed"))?
+            {
+                return Ok(Vec::new());
+            }
+
+            let table_ident = TableIdent::new(namespace, rest_cfg.table.clone());
+
+            if !catalog
+                .table_exists(&table_ident)
+                .await
+                .map_err(map_err("rest iceberg seed table_exists check failed"))?
+            {
+                return Ok(Vec::new());
+            }
+
+            let table = catalog
+                .load_table(&table_ident)
+                .await
+                .map_err(map_err("rest iceberg seed load_table failed"))?;
+
+            let scan = table
+                .scan()
+                .select(scan_cols.iter().cloned())
+                .build()
+                .map_err(map_err("rest iceberg seed scan build failed"))?;
+
+            scan.to_arrow()
+                .await
+                .map_err(map_err("rest iceberg seed to_arrow failed"))?
+                .try_filter(|b| std::future::ready(b.num_rows() > 0))
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(map_err("rest iceberg seed collect failed"))
+        })
+        .map_err(|err: Box<dyn std::error::Error + Send + Sync>| {
+            Box::new(RunError(format!("rest iceberg seed failed: {err}")))
+        })?;
+
+    seed_from_batches(unique_tracker, batches, rename_back)
+}
+
 // Uses table.scan().to_arrow() so the Iceberg reader applies positional and equality deletes
 // before returning rows — only live rows are seeded.
 async fn collect_iceberg_batches(
@@ -176,15 +259,24 @@ async fn collect_iceberg_batches(
     scan_columns: &[String],
 ) -> Result<Vec<RecordBatch>, iceberg::Error> {
     use futures::TryStreamExt;
+    use iceberg::io::LocalFsStorageFactory;
     use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+
+    let is_local = !warehouse_location.starts_with("s3://")
+        && !warehouse_location.starts_with("gs://")
+        && !warehouse_location.starts_with("az://")
+        && !warehouse_location.starts_with("abfss://");
 
     let mut props = catalog_props;
     props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), warehouse_location);
 
-    let catalog = MemoryCatalogBuilder::default()
-        .load(ICEBERG_CATALOG_NAME, props)
-        .await?;
+    let mut catalog_builder = MemoryCatalogBuilder::default();
+    if is_local {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    }
+    let catalog = catalog_builder.load(ICEBERG_CATALOG_NAME, props).await?;
 
     let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
     if !catalog.namespace_exists(&namespace).await? {

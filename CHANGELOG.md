@@ -2,6 +2,23 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.8
+
+- Delta Lake + Unity Catalog registration:
+  - new `unity` catalog type — after writing a Delta table to cloud storage, Floe
+    optionally registers (or confirms) it as an EXTERNAL DELTA table in Databricks
+    Unity Catalog via the REST API (`POST /api/2.1/unity-catalog/tables`).
+  - existing-table safety: location mismatch and missing `storage_location`
+    (managed table / view collision) are returned as explicit errors.
+  - ADLS: `abfs://` URIs are normalised to `abfss://` before registration.
+  - new `sink.accepted.delta` block: `catalog`, `schema`, `table` overrides.
+  - `create_schema_if_missing` flag on the catalog definition.
+  - Validation: `sink.accepted.delta` rejected on non-delta formats; Unity type
+    rejected for Iceberg sinks; local storage rejected for Unity targets.
+  - Three new report fields: `delta_catalog_name`, `delta_catalog_schema`,
+    `delta_catalog_table`.
+  - `token` supports `${ENV_VAR}` substitution.
+
 ## v0.3.7
 
 - Windows binary now distributed via [Scoop](https://github.com/malon64/scoop-floe): `scoop bucket add floe https://github.com/malon64/scoop-floe` then `scoop install floe`.

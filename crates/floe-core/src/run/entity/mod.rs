@@ -13,6 +13,7 @@ use io::storage::Target;
 
 mod accepted_write;
 mod incremental;
+mod pii;
 mod precheck;
 mod process;
 mod resolve;

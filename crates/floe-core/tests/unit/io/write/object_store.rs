@@ -78,6 +78,7 @@ fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = delta_store_config(&target, &resolver, &entity)?;
@@ -141,6 +142,7 @@ fn iceberg_store_config_builds_s3_warehouse_and_region_props() -> FloeResult<()>
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = iceberg_store_config(&target, &resolver, &entity)?;
@@ -216,6 +218,7 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
     let store = delta_store_config(&target, &resolver, &entity)?;
     assert_eq!(store.storage_options.len(), 0);
@@ -280,6 +283,7 @@ fn iceberg_store_config_builds_local_warehouse_without_props() -> FloeResult<()>
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = iceberg_store_config(&target, &resolver, &entity)?;
@@ -356,6 +360,7 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = delta_store_config(&target, &resolver, &entity)?;
@@ -448,6 +453,7 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = iceberg_store_config(&target, &resolver, &entity)?;
@@ -527,6 +533,7 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let err = iceberg_store_config(&target, &resolver, &entity).expect_err("adls unsupported");
@@ -602,6 +609,7 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     };
 
     let store = delta_store_config(&target, &resolver, &entity)?;

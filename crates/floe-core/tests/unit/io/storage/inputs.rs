@@ -242,6 +242,7 @@ fn mock_entity(name: &str) -> config::EntityConfig {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     }
 }
 

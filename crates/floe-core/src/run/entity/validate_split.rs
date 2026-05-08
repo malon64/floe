@@ -362,6 +362,9 @@ pub(super) fn run_validate_split_phase(
                     })?
                 };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
+                if let Some(pii) = entity.pii.as_ref() {
+                    super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                }
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target {
@@ -408,6 +411,10 @@ pub(super) fn run_validate_split_phase(
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     rename_output_columns(&mut rejected_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                        super::pii::apply_pii_masking(&mut rejected_df, pii)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
@@ -452,6 +459,9 @@ pub(super) fn run_validate_split_phase(
                 } else {
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                 }
             }
@@ -494,6 +504,9 @@ pub(super) fn run_validate_split_phase(
                 } else {
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                 }
             }

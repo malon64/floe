@@ -46,6 +46,8 @@ df-interchange = { version = "0.3.2", features = ["arrow_57", "polars_0_52"] }
 orc-rust = "0.7.1"
 
 reqwest = { version = "0.12", default-features = true, features = ["native-tls-vendored", "json"] }
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 rust_xlsxwriter = "0.67"

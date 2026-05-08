@@ -14,10 +14,11 @@ use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogTypeConfig, CatalogsConfig, ColumnConfig,
     DomainConfig, EntityConfig, EntityMetadata, EntityStateConfig, EnvConfig,
     IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, MergeOptionsConfig,
-    MergeScd2OptionsConfig, NormalizeColumnsConfig, PolicyConfig, ProjectMetadata, ReportConfig,
-    RootConfig, SchemaConfig, SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction,
-    SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig,
-    SourceOptions, StorageDefinition, StoragesConfig, WriteMode,
+    MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig, PiiConfig, PiiStrategy,
+    PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig, SchemaEvolutionConfig,
+    SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
+    SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
+    WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -209,6 +210,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
             "sink",
             "policy",
             "schema",
+            "pii",
         ],
     )?;
     let name = get_string(hash, "name", "entity")?;
@@ -231,6 +233,10 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
     let sink = parse_sink(get_value(hash, "sink", "entity")?)?;
     let policy = parse_policy(get_value(hash, "policy", "entity")?)?;
     let schema = parse_schema(get_value(hash, "schema", "entity")?)?;
+    let pii = match hash_get(hash, "pii") {
+        Some(value) => Some(parse_pii_config(value)?),
+        None => None,
+    };
 
     Ok(EntityConfig {
         name,
@@ -242,6 +248,7 @@ fn parse_entity(value: &Yaml) -> FloeResult<EntityConfig> {
         sink,
         policy,
         schema,
+        pii,
     })
 }
 
@@ -1046,4 +1053,49 @@ fn opt_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
             )))),
         },
     }
+}
+
+fn parse_pii_config(value: &Yaml) -> FloeResult<PiiConfig> {
+    let hash = yaml_hash(value, "pii")?;
+    validate_known_keys(hash, "pii", &["columns"])?;
+    let columns_yaml = get_array(hash, "columns", "pii")?;
+    let mut columns = Vec::with_capacity(columns_yaml.len());
+    for (index, col_yaml) in columns_yaml.iter().enumerate() {
+        let col = parse_pii_column(col_yaml).map_err(|err| {
+            Box::new(ConfigError(format!("pii.columns[{index}]: {err}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        columns.push(col);
+    }
+    Ok(PiiConfig { columns })
+}
+
+fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
+    let hash = yaml_hash(value, "pii.columns")?;
+    validate_known_keys(
+        hash,
+        "pii.columns",
+        &["name", "strategy", "mask_pattern", "redact_value"],
+    )?;
+    let name = get_string(hash, "name", "pii.columns")?;
+    let strategy_str = get_string(hash, "strategy", "pii.columns")?;
+    let strategy = match strategy_str.trim().to_ascii_lowercase().as_str() {
+        "hash" => PiiStrategy::Hash,
+        "drop" => PiiStrategy::Drop,
+        "nullify" => PiiStrategy::Nullify,
+        "redact" => PiiStrategy::Redact,
+        "mask" => PiiStrategy::Mask,
+        "tokenize" => PiiStrategy::Tokenize,
+        other => {
+            return Err(Box::new(ConfigError(format!(
+                "pii.columns[name={name}].strategy={other} is unsupported (allowed: hash, drop, nullify, redact, mask)"
+            ))))
+        }
+    };
+    Ok(PiiColumnConfig {
+        name,
+        strategy,
+        mask_pattern: opt_string(hash, "mask_pattern", "pii.columns")?,
+        redact_value: opt_string(hash, "redact_value", "pii.columns")?,
+    })
 }

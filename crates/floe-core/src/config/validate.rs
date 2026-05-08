@@ -120,7 +120,85 @@ fn validate_entity(
     validate_policy(entity)?;
     validate_sink(entity, storages, catalogs)?;
     validate_schema(entity, config_version)?;
+    if let Some(pii) = &entity.pii {
+        validate_pii(entity, pii)?;
+    }
     Ok(())
+}
+
+fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeResult<()> {
+    use crate::config::PiiStrategy;
+    let schema_cols: std::collections::HashSet<&str> = entity
+        .schema
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    let primary_keys: std::collections::HashSet<&str> = entity
+        .schema
+        .primary_key
+        .iter()
+        .flatten()
+        .map(|s| s.as_str())
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for col in &pii.columns {
+        if !seen.insert(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns: column name {} is duplicated",
+                entity.name, col.name
+            ))));
+        }
+        if !schema_cols.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns: {} is not an unknown schema column",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Tokenize {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=tokenize is not yet supported",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Drop && primary_keys.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=drop cannot be applied to a primary_key column",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Mask {
+            let pattern = col.mask_pattern.as_deref().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} pii.columns[name={}].strategy=mask requires mask_pattern",
+                    entity.name, col.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let has_last = extract_last_n(pattern).is_some();
+            let has_first = extract_first_n(pattern).is_some();
+            if !has_last && !has_first {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} pii.columns[name={}].mask_pattern must contain at least one token ({{firstN}} or {{lastN}})",
+                    entity.name, col.name
+                ))));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn extract_last_n(pattern: &str) -> Option<usize> {
+    let start = pattern.find("{last")?;
+    let rest = &pattern[start + 5..];
+    let end = rest.find('}')?;
+    rest[..end].parse::<usize>().ok().filter(|&n| n > 0)
+}
+
+pub(crate) fn extract_first_n(pattern: &str) -> Option<usize> {
+    let start = pattern.find("{first")?;
+    let rest = &pattern[start + 6..];
+    let end = rest.find('}')?;
+    rest[..end].parse::<usize>().ok().filter(|&n| n > 0)
 }
 
 fn validate_state(entity: &EntityConfig) -> FloeResult<()> {

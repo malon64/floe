@@ -114,7 +114,7 @@ enum Command {
     #[command(about = "Validate a config file", long_about = VALIDATE_LONG_ABOUT)]
     Validate {
         #[arg(short, long, help = "Path or URI to the Floe config file")]
-        config: String,
+        config: Option<String>,
         #[arg(
             long,
             value_delimiter = ',',
@@ -263,33 +263,50 @@ fn main() -> FloeResult<()> {
             entities,
             profile,
         } => {
-            let config_location = match resolve_config_location(&config) {
-                Ok(location) => location,
-                Err(err) => {
-                    let mut err_out = std::io::stderr().lock();
-                    let _ = writeln!(err_out, "Error: {err}");
-                    let _ = err_out.flush();
-                    std::process::exit(1);
-                }
-            };
-
-            let profile_vars = if let Some(ref profile_path) = profile {
+            let parsed_profile = if let Some(ref profile_path) = profile {
                 let path = std::path::Path::new(profile_path);
                 let parsed = match parse_profile(path) {
                     Ok(p) => p,
-                    Err(err) => {
-                        let mut err_out = std::io::stderr().lock();
-                        let _ = writeln!(err_out, "Error: {err}");
-                        let _ = err_out.flush();
-                        std::process::exit(1);
-                    }
+                    Err(err) => exit_with_error(err),
                 };
                 if let Err(err) = validate_profile(&parsed) {
-                    let mut err_out = std::io::stderr().lock();
-                    let _ = writeln!(err_out, "Error: {err}");
-                    let _ = err_out.flush();
-                    std::process::exit(1);
+                    exit_with_error(err);
                 }
+                Some(parsed)
+            } else {
+                None
+            };
+
+            let Some(config) = config else {
+                match parsed_profile {
+                    Some(profile) => {
+                        println!("Profile valid: {}", profile.metadata.name);
+                        println!("Schema: {}/{}", profile.api_version, profile.kind);
+                        println!(
+                            "Catalogs: {}",
+                            profile
+                                .catalogs
+                                .as_ref()
+                                .map(|catalogs| catalogs.definitions.len())
+                                .unwrap_or(0)
+                        );
+                        let _ = std::io::stdout().lock().flush();
+                        return Ok(());
+                    }
+                    None => {
+                        exit_with_error(Box::new(floe_core::ConfigError(
+                            "floe validate requires --config unless --profile is provided".to_string(),
+                        )));
+                    }
+                }
+            };
+
+            let config_location = match resolve_config_location(&config) {
+                Ok(location) => location,
+                Err(err) => exit_with_error(err),
+            };
+
+            let profile_vars = if let Some(ref parsed) = parsed_profile {
                 let config_env_vars =
                     floe_core::extract_config_env_vars(&config_location.path).unwrap_or_default();
                 match floe_core::resolve_vars(floe_core::VarSources {
@@ -298,12 +315,7 @@ fn main() -> FloeResult<()> {
                     config: &config_env_vars,
                 }) {
                     Ok(vars) => vars,
-                    Err(err) => {
-                        let mut err_out = std::io::stderr().lock();
-                        let _ = writeln!(err_out, "Error: {err}");
-                        let _ = err_out.flush();
-                        std::process::exit(1);
-                    }
+                    Err(err) => exit_with_error(err),
                 }
             } else {
                 std::collections::HashMap::new()
@@ -312,6 +324,9 @@ fn main() -> FloeResult<()> {
             let options = ValidateOptions {
                 entities: entities.clone(),
                 profile_vars,
+                profile_catalogs: parsed_profile
+                    .as_ref()
+                    .and_then(|profile| profile.catalogs.clone()),
             };
 
             let validation_result =
@@ -350,12 +365,7 @@ fn main() -> FloeResult<()> {
                     let _ = std::io::stdout().lock().flush();
                     Ok(())
                 }
-                Err(err) => {
-                    let mut err_out = std::io::stderr().lock();
-                    let _ = writeln!(err_out, "Error: {err}");
-                    let _ = err_out.flush();
-                    std::process::exit(1);
-                }
+                Err(err) => exit_with_error(err),
             }
         }
         Command::Run {
@@ -475,40 +485,32 @@ fn main() -> FloeResult<()> {
                     }
                 };
 
-                let options = ValidateOptions {
-                    entities: entities.clone(),
-                    profile_vars: std::collections::HashMap::new(),
-                };
-                if let Err(err) =
-                    validate_with_base(&config_location.path, config_location.base.clone(), options)
-                {
-                    let mut err_out = std::io::stderr().lock();
-                    let _ = writeln!(err_out, "Error: {err}");
-                    let _ = err_out.flush();
-                    std::process::exit(1);
-                }
-
                 let profile_config = if let Some(ref profile_path) = profile {
                     let path = std::path::Path::new(profile_path);
                     let parsed = match parse_profile(path) {
                         Ok(p) => p,
-                        Err(err) => {
-                            let mut err_out = std::io::stderr().lock();
-                            let _ = writeln!(err_out, "Error: {err}");
-                            let _ = err_out.flush();
-                            std::process::exit(1);
-                        }
+                        Err(err) => exit_with_error(err),
                     };
                     if let Err(err) = validate_profile(&parsed) {
-                        let mut err_out = std::io::stderr().lock();
-                        let _ = writeln!(err_out, "Error: {err}");
-                        let _ = err_out.flush();
-                        std::process::exit(1);
+                        exit_with_error(err);
                     }
                     Some(parsed)
                 } else {
                     None
                 };
+
+                let options = ValidateOptions {
+                    entities: entities.clone(),
+                    profile_vars: std::collections::HashMap::new(),
+                    profile_catalogs: profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.catalogs.clone()),
+                };
+                if let Err(err) =
+                    validate_with_base(&config_location.path, config_location.base.clone(), options)
+                {
+                    exit_with_error(err);
+                }
 
                 let config = load_config(&config_location.path)?;
                 let manifest_json = build_common_manifest_json(

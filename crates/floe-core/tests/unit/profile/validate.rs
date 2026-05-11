@@ -270,3 +270,47 @@ fn validate_merged_vars_unresolved_fails() {
         "got: {err}"
     );
 }
+
+#[test]
+fn validate_profile_accepts_catalogs() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+catalogs:
+  default: prod_glue
+  definitions:
+    - name: prod_glue
+      type: glue
+      region: eu-west-1
+      database: bronze
+      warehouse_storage: lake_s3
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    validate_profile(&profile).expect("catalog profile should validate");
+    assert_eq!(profile.catalogs.unwrap().definitions.len(), 1);
+}
+
+#[test]
+fn validate_profile_rejects_catalog_default_without_definition() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+catalogs:
+  default: missing
+  definitions:
+    - name: prod_glue
+      type: glue
+      region: eu-west-1
+      database: bronze
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(
+        err.to_string().contains("catalogs.default=missing"),
+        "got: {err}"
+    );
+}

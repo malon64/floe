@@ -38,6 +38,7 @@ pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub struct ValidateOptions {
     pub entities: Vec<String>,
     pub profile_vars: std::collections::HashMap<String, String>,
+    pub profile_catalogs: Option<config::CatalogsConfig>,
 }
 
 #[derive(Debug, Default)]
@@ -58,7 +59,8 @@ pub fn validate_with_base(
     _config_base: config::ConfigBase,
     options: ValidateOptions,
 ) -> FloeResult<()> {
-    let config = config::parse_config_with_vars(config_path, &options.profile_vars)?;
+    let mut config = config::parse_config_with_vars(config_path, &options.profile_vars)?;
+    apply_profile_catalogs(&mut config, options.profile_catalogs.as_ref());
     config::validate_config(&config)?;
 
     if !options.entities.is_empty() {
@@ -70,6 +72,21 @@ pub fn validate_with_base(
 
 pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
+}
+
+pub fn validate_profile_file(profile_path: &Path) -> FloeResult<ProfileConfig> {
+    let profile = parse_profile(profile_path)?;
+    validate_profile(&profile)?;
+    Ok(profile)
+}
+
+pub(crate) fn apply_profile_catalogs(
+    config: &mut config::RootConfig,
+    profile_catalogs: Option<&config::CatalogsConfig>,
+) {
+    if let Some(catalogs) = profile_catalogs {
+        config.catalogs = Some(catalogs.clone());
+    }
 }
 
 pub fn extract_config_env_vars(

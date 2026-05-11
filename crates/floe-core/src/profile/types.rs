@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::config::CatalogsConfig;
+
 /// Top-level profile document (apiVersion + kind + sections).
 #[derive(Debug, Clone)]
 pub struct ProfileConfig {
@@ -8,6 +10,7 @@ pub struct ProfileConfig {
     pub metadata: ProfileMetadata,
     pub execution: Option<ProfileExecution>,
     pub variables: HashMap<String, String>,
+    pub catalogs: Option<CatalogsConfig>,
     pub validation: Option<ProfileValidation>,
 }
 

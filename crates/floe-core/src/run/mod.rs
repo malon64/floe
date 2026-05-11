@@ -116,6 +116,7 @@ pub fn run_with_runtime(
     let validate_options = ValidateOptions {
         entities: options.entities.clone(),
         profile_vars: profile_vars.clone(),
+        profile_catalogs: options.profile.as_ref().and_then(|profile| profile.catalogs.clone()),
     };
     crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
     let context = RunContext::new(config_path, config_base, &options, profile_vars)?;

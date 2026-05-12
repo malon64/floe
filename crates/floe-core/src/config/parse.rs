@@ -713,7 +713,9 @@ pub(crate) fn parse_catalogs_with_context(
     let mut definitions = Vec::with_capacity(definitions_yaml.len());
     for (index, item) in definitions_yaml.iter().enumerate() {
         let definition = parse_catalog_definition(item, &definitions_context).map_err(|err| {
-            Box::new(ConfigError(format!("{definitions_context}[{index}]: {err}")))
+            Box::new(ConfigError(format!(
+                "{definitions_context}[{index}]: {err}"
+            )))
         })?;
         definitions.push(definition);
     }

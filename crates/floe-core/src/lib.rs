@@ -74,6 +74,16 @@ pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
 }
 
+pub fn load_config_with_profile_overrides(
+    config_path: &Path,
+    profile_vars: &std::collections::HashMap<String, String>,
+    profile_catalogs: Option<&config::CatalogsConfig>,
+) -> FloeResult<config::RootConfig> {
+    let mut config = config::parse_config_with_vars(config_path, profile_vars)?;
+    apply_profile_catalogs(&mut config, profile_catalogs);
+    Ok(config)
+}
+
 pub fn validate_profile_file(profile_path: &Path) -> FloeResult<ProfileConfig> {
     let profile = parse_profile(profile_path)?;
     validate_profile(&profile)?;

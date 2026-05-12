@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base, load_config,
-    parse_profile, reset_entity_state_with_base, resolve_config_location, run_with_base,
-    validate_profile, validate_with_base, AddEntityOptions, FloeResult, RunOptions,
-    ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
+    load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
+    resolve_config_location, run_with_base, validate_profile, validate_with_base, AddEntityOptions,
+    FloeResult, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -295,7 +295,8 @@ fn main() -> FloeResult<()> {
                     }
                     None => {
                         exit_with_error(Box::new(floe_core::ConfigError(
-                            "floe validate requires --config unless --profile is provided".to_string(),
+                            "floe validate requires --config unless --profile is provided"
+                                .to_string(),
                         )));
                     }
                 }
@@ -323,7 +324,7 @@ fn main() -> FloeResult<()> {
 
             let options = ValidateOptions {
                 entities: entities.clone(),
-                profile_vars,
+                profile_vars: profile_vars.clone(),
                 profile_catalogs: parsed_profile
                     .as_ref()
                     .and_then(|profile| profile.catalogs.clone()),
@@ -334,7 +335,13 @@ fn main() -> FloeResult<()> {
 
             match validation_result {
                 Ok(()) => {
-                    let config = load_config(&config_location.path)?;
+                    let config = load_config_with_profile_overrides(
+                        &config_location.path,
+                        &profile_vars,
+                        parsed_profile
+                            .as_ref()
+                            .and_then(|profile| profile.catalogs.as_ref()),
+                    )?;
                     println!("Config valid: {}", config_location.display);
                     println!("Version: {}", config.version);
                     println!(
@@ -499,9 +506,24 @@ fn main() -> FloeResult<()> {
                     None
                 };
 
+                let profile_vars = if let Some(ref parsed) = profile_config {
+                    let config_env_vars = floe_core::extract_config_env_vars(&config_location.path)
+                        .unwrap_or_default();
+                    match floe_core::resolve_vars(floe_core::VarSources {
+                        profile: &parsed.variables,
+                        cli: &std::collections::HashMap::new(),
+                        config: &config_env_vars,
+                    }) {
+                        Ok(vars) => vars,
+                        Err(err) => exit_with_error(err),
+                    }
+                } else {
+                    std::collections::HashMap::new()
+                };
+
                 let options = ValidateOptions {
                     entities: entities.clone(),
-                    profile_vars: std::collections::HashMap::new(),
+                    profile_vars: profile_vars.clone(),
                     profile_catalogs: profile_config
                         .as_ref()
                         .and_then(|profile| profile.catalogs.clone()),
@@ -512,7 +534,13 @@ fn main() -> FloeResult<()> {
                     exit_with_error(err);
                 }
 
-                let config = load_config(&config_location.path)?;
+                let config = load_config_with_profile_overrides(
+                    &config_location.path,
+                    &profile_vars,
+                    profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.catalogs.as_ref()),
+                )?;
                 let manifest_json = build_common_manifest_json(
                     &config_location,
                     &config,

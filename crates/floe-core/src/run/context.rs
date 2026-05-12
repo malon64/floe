@@ -28,7 +28,10 @@ impl RunContext {
         let mut config = config::parse_config_with_vars(config_path, &profile_vars)?;
         crate::apply_profile_catalogs(
             &mut config,
-            options.profile.as_ref().and_then(|profile| profile.catalogs.as_ref()),
+            options
+                .profile
+                .as_ref()
+                .and_then(|profile| profile.catalogs.as_ref()),
         );
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
         let catalog_resolver = config::CatalogResolver::new(&config)?;

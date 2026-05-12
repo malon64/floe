@@ -55,5 +55,7 @@ fn validate_profile_only_output_is_human_text() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Profile valid: dev"))
-        .stdout(predicate::str::contains("Schema: floe/v1/EnvironmentProfile"));
+        .stdout(predicate::str::contains(
+            "Schema: floe/v1/EnvironmentProfile",
+        ));
 }

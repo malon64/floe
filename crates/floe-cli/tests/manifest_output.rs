@@ -212,3 +212,73 @@ fn manifest_generate_with_missing_profile_fails() {
         .failure()
         .stderr(predicate::str::contains("Error:"));
 }
+
+#[test]
+fn manifest_generate_applies_profile_variables_to_config() {
+    let tmp = tempdir().expect("create temp dir");
+    let config_path = tmp.path().join("config.yml");
+    let profile_path = tmp.path().join("profile.yml");
+
+    fs::write(
+        &config_path,
+        r#"version: "0.1"
+report:
+  path: "{{REPORT_DIR}}"
+entities:
+  - name: customers
+    source:
+      format: csv
+      path: "{{INCOMING_DIR}}/customers.csv"
+    sink:
+      accepted:
+        format: parquet
+        path: "{{OUTPUT_DIR}}/customers/"
+    policy:
+      severity: warn
+    schema:
+      columns:
+        - name: customer_id
+          type: string
+          nullable: false
+"#,
+    )
+    .expect("write config");
+    fs::write(
+        &profile_path,
+        r#"apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: dev
+variables:
+  REPORT_DIR: ./reports-dev
+  INCOMING_DIR: ./in-dev
+  OUTPUT_DIR: ./out-dev
+"#,
+    )
+    .expect("write profile");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg(&profile_path)
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+    assert!(value["report_base_uri"]
+        .as_str()
+        .expect("report base uri")
+        .contains("reports-dev"));
+    assert!(value["entities"][0]["source"]["path"]
+        .as_str()
+        .expect("source path")
+        .contains("in-dev"));
+    assert!(value["entities"][0]["sinks"]["accepted"]["path"]
+        .as_str()
+        .expect("accepted path")
+        .contains("out-dev"));
+}

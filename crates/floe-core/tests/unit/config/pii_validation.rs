@@ -498,3 +498,37 @@ entities:
         &["hash", "unique-key", "write_mode=append", "duplicates"],
     );
 }
+
+#[test]
+fn pii_legacy_unique_ignored_when_unique_keys_set() {
+    // columns[].unique=true is ignored at runtime when schema.unique_keys is
+    // present; validate_pii must not reject PII on such columns.
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      unique_keys:
+        - ["email"]
+      columns:
+        - name: "order_id"
+          type: "string"
+          unique: true
+        - name: "email"
+          type: "string"
+    pii:
+      columns:
+        - name: "order_id"
+          strategy: "nullify""#;
+    assert_validation_ok(config);
+}

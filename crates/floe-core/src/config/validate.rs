@@ -191,9 +191,15 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
             }
         }
     }
-    for schema_col in &entity.schema.columns {
-        if schema_col.unique == Some(true) {
-            unique_key_cols.insert(schema_col.name.as_str());
+    // Legacy columns[].unique=true is ignored at runtime when schema.unique_keys
+    // is set (validate_schema_unique_keys warns about this). Only honour it here
+    // when unique_keys is absent so we don't reject PII on columns whose uniqueness
+    // constraint no longer exists.
+    if entity.schema.unique_keys.is_none() {
+        for schema_col in &entity.schema.columns {
+            if schema_col.unique == Some(true) {
+                unique_key_cols.insert(schema_col.name.as_str());
+            }
         }
     }
     let mut seen = std::collections::HashSet::new();

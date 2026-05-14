@@ -342,7 +342,9 @@ entities:
 }
 
 #[test]
-fn pii_hash_on_unique_key_is_valid() {
+fn pii_hash_on_unique_key_errors() {
+    // hash on a unique-key column leaks raw values into the run report via
+    // UniqueTracker samples (recorded before masking runs).
     let config = r#"version: "0.1"
 report:
   path: "/tmp/reports"
@@ -369,7 +371,18 @@ entities:
       columns:
         - name: "email"
           strategy: "hash""#;
-    assert_validation_ok(config);
+    assert_validation_error(config, &["hash", "unique-key", "run report"]);
+}
+
+#[test]
+fn pii_hash_on_non_unique_key_is_valid() {
+    // hash is fine on columns that are not part of any uniqueness constraint.
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "credit_card"
+          strategy: "hash""#,
+    );
+    assert_validation_ok(&config);
 }
 
 #[test]
@@ -465,7 +478,8 @@ fn pii_nullify_on_non_string_column_is_valid() {
 }
 
 #[test]
-fn pii_hash_on_unique_key_with_append_errors() {
+fn pii_hash_on_unique_key_also_errors_in_append_mode() {
+    // Confirm the rejection applies regardless of write_mode.
     let config = r#"version: "0.1"
 report:
   path: "/tmp/reports"
@@ -493,10 +507,7 @@ entities:
       columns:
         - name: "email"
           strategy: "hash""#;
-    assert_validation_error(
-        config,
-        &["hash", "unique-key", "write_mode=append", "duplicates"],
-    );
+    assert_validation_error(config, &["hash", "unique-key", "run report"]);
 }
 
 #[test]

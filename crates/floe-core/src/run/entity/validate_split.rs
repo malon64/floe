@@ -363,7 +363,7 @@ pub(super) fn run_validate_split_phase(
                 };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
                 if let Some(pii) = entity.pii.as_ref() {
-                    super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                    super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
                 }
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
@@ -412,8 +412,8 @@ pub(super) fn run_validate_split_phase(
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     rename_output_columns(&mut rejected_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
-                        super::pii::apply_pii_masking(&mut rejected_df, pii)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
+                        super::pii::apply_pii_masking(&mut rejected_df, pii, output_column_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
@@ -460,7 +460,7 @@ pub(super) fn run_validate_split_phase(
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                 }
@@ -505,7 +505,7 @@ pub(super) fn run_validate_split_phase(
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                 }

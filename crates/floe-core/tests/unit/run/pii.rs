@@ -9,21 +9,18 @@ mod mask_pattern_math {
     ) -> String {
         let fn_val = first_n.unwrap_or(0);
         let ln_val = last_n.unwrap_or(0);
-        if value.len() < fn_val + ln_val {
+        let char_count = value.chars().count();
+        if char_count < fn_val + ln_val {
             return value.to_string();
         }
-        let prefix = &value[..fn_val];
-        let suffix = if ln_val > 0 {
-            &value[value.len() - ln_val..]
-        } else {
-            ""
-        };
+        let prefix: String = value.chars().take(fn_val).collect();
+        let suffix: String = value.chars().skip(char_count - ln_val).collect();
         let mut result = pattern.to_string();
         if fn_val > 0 {
-            result = result.replace(&format!("{{first{fn_val}}}"), prefix);
+            result = result.replace(&format!("{{first{fn_val}}}"), &prefix);
         }
         if ln_val > 0 {
-            result = result.replace(&format!("{{last{ln_val}}}"), suffix);
+            result = result.replace(&format!("{{last{ln_val}}}"), &suffix);
         }
         result
     }
@@ -57,6 +54,19 @@ mod mask_pattern_math {
     fn mask_exact_length_last4() {
         let out = apply_mask("12345678", "****{last4}", None, Some(4));
         assert_eq!(out, "****5678");
+    }
+
+    #[test]
+    fn mask_multibyte_chars_last2() {
+        // "éàü" are 2-byte UTF-8 chars; slicing by byte would panic
+        let out = apply_mask("éàüXY", "**{last2}", None, Some(2));
+        assert_eq!(out, "**XY");
+    }
+
+    #[test]
+    fn mask_multibyte_chars_first2() {
+        let out = apply_mask("éàüXY", "{first2}**", Some(2), None);
+        assert_eq!(out, "éà**");
     }
 }
 

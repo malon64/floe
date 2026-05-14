@@ -128,6 +128,16 @@ fn validate_entity(
 
 fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeResult<()> {
     use crate::config::PiiStrategy;
+    // Abort severity copies the raw input file to the rejected sink without loading
+    // a DataFrame, so PII masking cannot be applied to that path.
+    if entity.policy.severity == "abort" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} pii: masking is not applied when policy.severity=abort \
+             because the raw file is written to sink.rejected without DataFrame processing; \
+             use severity=reject or severity=warn",
+            entity.name
+        ))));
+    }
     let schema_cols: std::collections::HashSet<&str> = entity
         .schema
         .columns

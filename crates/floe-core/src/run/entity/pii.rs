@@ -1,59 +1,80 @@
+use std::collections::HashMap;
+
 use polars::prelude::*;
 use sha2::{Digest, Sha256};
 
 use crate::config::{extract_first_n, extract_last_n, PiiColumnConfig, PiiConfig, PiiStrategy};
 use crate::FloeResult;
 
-pub fn apply_pii_masking(df: &mut DataFrame, pii: &PiiConfig) -> FloeResult<()> {
+/// Apply PII masking to all configured columns.
+///
+/// `output_column_map` maps declared schema names to their runtime names after
+/// `rename_output_columns` (e.g. `"Credit Card"` → `"credit_card"`). Pass an
+/// empty map when calling before any rename step.
+pub fn apply_pii_masking(
+    df: &mut DataFrame,
+    pii: &PiiConfig,
+    output_column_map: &HashMap<String, String>,
+) -> FloeResult<()> {
     for col_cfg in &pii.columns {
-        apply_pii_column(df, col_cfg)?;
+        apply_pii_column(df, col_cfg, output_column_map)?;
     }
     Ok(())
 }
 
-fn apply_pii_column(df: &mut DataFrame, col_cfg: &PiiColumnConfig) -> FloeResult<()> {
-    let col_name = col_cfg.name.as_str();
+fn apply_pii_column(
+    df: &mut DataFrame,
+    col_cfg: &PiiColumnConfig,
+    output_column_map: &HashMap<String, String>,
+) -> FloeResult<()> {
+    let declared_name = col_cfg.name.as_str();
+    // After rename_output_columns the column may carry a normalized name.
+    // Resolve the runtime name via the mapping; fall back to the declared name.
+    let runtime_name = output_column_map
+        .get(declared_name)
+        .map(|s| s.as_str())
+        .unwrap_or(declared_name);
 
     // If column was removed by a prior `drop` or doesn't exist, skip silently.
-    if df.column(col_name).is_err() {
+    if df.column(runtime_name).is_err() {
         return Ok(());
     }
 
     match col_cfg.strategy {
         PiiStrategy::Hash => {
-            let col = df.column(col_name)?;
-            let new_series = hash_column(col, col_name)?;
+            let col = df.column(runtime_name)?;
+            let new_series = hash_column(col, runtime_name)?;
             df.with_column(new_series).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
-                    "PII hash: failed to replace column {col_name}: {e}"
+                    "PII hash: failed to replace column {runtime_name}: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
         PiiStrategy::Drop => {
-            df.drop_in_place(col_name).map_err(|e| {
+            df.drop_in_place(runtime_name).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
-                    "PII drop: failed to drop column {col_name}: {e}"
+                    "PII drop: failed to drop column {runtime_name}: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
         PiiStrategy::Nullify => {
-            let col = df.column(col_name)?;
+            let col = df.column(runtime_name)?;
             let len = col.len();
             let dtype = col.dtype().clone();
-            let null_series = Series::full_null(col_name.into(), len, &dtype);
+            let null_series = Series::full_null(runtime_name.into(), len, &dtype);
             df.with_column(null_series).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
-                    "PII nullify: failed to replace column {col_name}: {e}"
+                    "PII nullify: failed to replace column {runtime_name}: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
         PiiStrategy::Redact => {
             let redact_value = col_cfg.redact_value.as_deref().unwrap_or("[REDACTED]");
-            let col = df.column(col_name)?;
-            let new_series = redact_column(col, col_name, redact_value)?;
+            let col = df.column(runtime_name)?;
+            let new_series = redact_column(col, runtime_name, redact_value)?;
             df.with_column(new_series).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
-                    "PII redact: failed to replace column {col_name}: {e}"
+                    "PII redact: failed to replace column {runtime_name}: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
@@ -61,11 +82,11 @@ fn apply_pii_column(df: &mut DataFrame, col_cfg: &PiiColumnConfig) -> FloeResult
             let pattern = col_cfg.mask_pattern.as_deref().unwrap_or("");
             let first_n = extract_first_n(pattern);
             let last_n = extract_last_n(pattern);
-            let col = df.column(col_name)?;
-            let new_series = mask_column(col, col_name, pattern, first_n, last_n)?;
+            let col = df.column(runtime_name)?;
+            let new_series = mask_column(col, runtime_name, pattern, first_n, last_n)?;
             df.with_column(new_series).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
-                    "PII mask: failed to replace column {col_name}: {e}"
+                    "PII mask: failed to replace column {runtime_name}: {e}"
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
@@ -128,28 +149,32 @@ fn mask_column(
     Ok(s)
 }
 
-fn apply_mask(value: &str, pattern: &str, first_n: Option<usize>, last_n: Option<usize>) -> String {
+pub(crate) fn apply_mask(
+    value: &str,
+    pattern: &str,
+    first_n: Option<usize>,
+    last_n: Option<usize>,
+) -> String {
     let fn_val = first_n.unwrap_or(0);
     let ln_val = last_n.unwrap_or(0);
 
+    // Count Unicode scalar values, not bytes, to avoid splitting multi-byte chars.
+    let char_count = value.chars().count();
+
     // If the value is too short to safely extract both prefix and suffix, return unchanged.
-    if value.len() < fn_val + ln_val {
+    if char_count < fn_val + ln_val {
         return value.to_string();
     }
 
-    let prefix = &value[..fn_val];
-    let suffix = if ln_val > 0 {
-        &value[value.len() - ln_val..]
-    } else {
-        ""
-    };
+    let prefix: String = value.chars().take(fn_val).collect();
+    let suffix: String = value.chars().skip(char_count - ln_val).collect();
 
     let mut result = pattern.to_string();
     if fn_val > 0 {
-        result = result.replace(&format!("{{first{fn_val}}}"), prefix);
+        result = result.replace(&format!("{{first{fn_val}}}"), &prefix);
     }
     if ln_val > 0 {
-        result = result.replace(&format!("{{last{ln_val}}}"), suffix);
+        result = result.replace(&format!("{{last{ln_val}}}"), &suffix);
     }
     result
 }

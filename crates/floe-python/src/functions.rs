@@ -22,6 +22,7 @@ pub fn validate(
     let options = ValidateOptions {
         entities: entities.unwrap_or_default(),
         profile_vars: profile_vars.unwrap_or_default(),
+        profile_catalogs: None,
     };
     py.allow_threads(|| floe_core::validate(&path, options))
         .map_err(to_py_err)
@@ -50,6 +51,7 @@ pub fn run(
         execution: None,
         variables: vars,
         validation: None,
+        catalogs: None,
     });
     let options = RunOptions {
         run_id,

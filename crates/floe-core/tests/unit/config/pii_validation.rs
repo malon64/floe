@@ -463,3 +463,38 @@ fn pii_nullify_on_non_string_column_is_valid() {
     );
     assert_validation_ok(&config);
 }
+
+#[test]
+fn pii_hash_on_unique_key_with_append_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      write_mode: "append"
+    policy:
+      severity: "warn"
+    schema:
+      unique_keys:
+        - ["email"]
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "email"
+          type: "string"
+    pii:
+      columns:
+        - name: "email"
+          strategy: "hash""#;
+    assert_validation_error(
+        config,
+        &["hash", "unique-key", "write_mode=append", "duplicates"],
+    );
+}

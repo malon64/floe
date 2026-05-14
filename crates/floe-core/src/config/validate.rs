@@ -268,6 +268,22 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 entity.name, col.name, col.strategy
             ))));
         }
+        // With write_mode=append, the unique tracker is seeded from previously-written
+        // accepted data that already contains hashed values. Incoming raw rows are then
+        // compared against those hashed values, so a repeated raw value passes the
+        // uniqueness check and is hashed into a duplicate in the accepted output.
+        if col.strategy == PiiStrategy::Hash
+            && unique_key_cols.contains(col.name.as_str())
+            && write_mode == crate::config::WriteMode::Append
+        {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=hash cannot be applied to a \
+                 unique-key column with write_mode=append: existing accepted data contains \
+                 hashed values but incoming rows are compared raw, so duplicate values pass \
+                 the uniqueness check and are written as duplicates",
+                entity.name, col.name
+            ))));
+        }
         if col.strategy == PiiStrategy::Drop
             && (accepted_format == "iceberg" || accepted_format == "delta")
         {

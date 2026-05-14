@@ -438,6 +438,19 @@ fn main() -> FloeResult<()> {
                 }
             };
 
+            // Resolve inter-variable references (e.g. "${HOST}/api") using the
+            // same resolve_vars path the runner uses, now that we have config_location.
+            let profile_vars_for_lineage = {
+                let config_env_vars =
+                    floe_core::extract_config_env_vars(&config_location.path).unwrap_or_default();
+                floe_core::resolve_vars(floe_core::VarSources {
+                    profile: &profile_vars_for_lineage,
+                    cli: &std::collections::HashMap::new(),
+                    config: &config_env_vars,
+                })
+                .unwrap_or(profile_vars_for_lineage)
+            };
+
             // Load config early to check for lineage block so we can install
             // a composed observer before run_with_base. Apply profile vars so
             // that {{VAR}} placeholders in lineage.url / lineage.api_key are expanded.

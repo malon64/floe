@@ -186,5 +186,34 @@ entities:
       columns:
         - name: "credit_card"
           strategy: "hash""#;
-    assert_validation_error(config, &["abort", "severity=reject"]);
+    assert_validation_error(config, &["abort", "DataFrame processing"]);
+}
+
+#[test]
+fn pii_drop_on_iceberg_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "iceberg"
+        path: "warehouse/orders"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "credit_card"
+          strategy: "drop""#;
+    assert_validation_error(config, &["drop", "iceberg", "declared schema"]);
 }

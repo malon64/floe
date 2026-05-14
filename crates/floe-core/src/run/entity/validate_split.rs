@@ -150,18 +150,39 @@ pub(super) fn run_validate_split_phase(
                     report::MismatchAction::RejectedFile
                 };
 
-                let rejected_path = rejected_target
-                    .map(|target| {
-                        write_rejected_raw_output(
-                            target,
-                            &local_file,
-                            temp_dir,
-                            runtime.storage(),
-                            &run_context.storage_resolver,
-                            entity,
-                        )
-                    })
-                    .transpose()?;
+                // When PII masking is configured, skip writing the raw file to
+                // the rejected sink: an unreadable file cannot be loaded as a
+                // DataFrame so masking cannot be applied, and writing it would
+                // leak unmasked data.
+                let rejected_path = if entity.pii.is_some() {
+                    if rejected_target.is_some() {
+                        warnings::emit(
+                            &run_context.run_id,
+                            Some(&entity.name),
+                            Some(&input_file.source_uri),
+                            Some("pii_file_error_drop"),
+                            &format!(
+                                "entity.name={} pii: rejected file not written to sink.rejected \
+                                 because PII masking cannot be applied to unparseable input",
+                                entity.name
+                            ),
+                        );
+                    }
+                    None
+                } else {
+                    rejected_target
+                        .map(|target| {
+                            write_rejected_raw_output(
+                                target,
+                                &local_file,
+                                temp_dir,
+                                runtime.storage(),
+                                &run_context.storage_resolver,
+                                entity,
+                            )
+                        })
+                        .transpose()?
+                };
 
                 let mismatch_report = mismatch.report;
                 let file_report = report::FileReport {

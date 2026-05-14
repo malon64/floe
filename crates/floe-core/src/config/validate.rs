@@ -128,16 +128,16 @@ fn validate_entity(
 
 fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeResult<()> {
     use crate::config::PiiStrategy;
-    // Abort severity copies the raw input file to the rejected sink without loading
-    // a DataFrame, so PII masking cannot be applied to that path.
+    // Abort severity writes the raw input file to the rejected sink without
+    // loading a DataFrame, bypassing masking entirely.
     if entity.policy.severity == "abort" {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} pii: masking is not applied when policy.severity=abort \
-             because the raw file is written to sink.rejected without DataFrame processing; \
-             use severity=reject or severity=warn",
+             because the raw file is written to sink.rejected without DataFrame processing",
             entity.name
         ))));
     }
+    let accepted_format = entity.sink.accepted.format.as_str();
     let schema_cols: std::collections::HashSet<&str> = entity
         .schema
         .columns
@@ -174,6 +174,15 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         if col.strategy == PiiStrategy::Drop && primary_keys.contains(col.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} pii.columns[name={}].strategy=drop cannot be applied to a primary_key column",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Drop
+            && (accepted_format == "iceberg" || accepted_format == "delta")
+        {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=drop is not supported with \
+                 format={accepted_format} because the sink enforces the full declared schema",
                 entity.name, col.name
             ))));
         }

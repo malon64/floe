@@ -156,6 +156,26 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
     );
+    // Collect every column that participates in any uniqueness constraint.
+    // Strategies that collapse values (nullify, redact, mask, drop) violate
+    // uniqueness when applied to these columns; hash is allowed because
+    // SHA-256 of distinct values are distinct.
+    let mut unique_key_cols: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for k in entity.schema.primary_key.iter().flatten() {
+        unique_key_cols.insert(k.as_str());
+    }
+    if let Some(groups) = &entity.schema.unique_keys {
+        for group in groups {
+            for col_name in group {
+                unique_key_cols.insert(col_name.as_str());
+            }
+        }
+    }
+    for schema_col in &entity.schema.columns {
+        if schema_col.unique == Some(true) {
+            unique_key_cols.insert(schema_col.name.as_str());
+        }
+    }
     let mut seen = std::collections::HashSet::new();
     for col in &pii.columns {
         if !seen.insert(col.name.as_str()) {
@@ -197,6 +217,18 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 "entity.name={} pii.columns[name={}]: PII strategy cannot be applied to a \
                  primary_key column with write_mode={}: masking the merge key corrupts the merge predicate",
                 entity.name, col.name, write_mode.as_str()
+            ))));
+        }
+        let collapses_values = matches!(
+            col.strategy,
+            PiiStrategy::Drop | PiiStrategy::Nullify | PiiStrategy::Redact | PiiStrategy::Mask
+        );
+        if collapses_values && unique_key_cols.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy={:?} cannot be applied to a \
+                 unique-key column: the strategy collapses or removes values, violating \
+                 uniqueness constraints",
+                entity.name, col.name, col.strategy
             ))));
         }
         if col.strategy == PiiStrategy::Drop

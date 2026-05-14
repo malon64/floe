@@ -279,3 +279,95 @@ entities:
           strategy: "hash""#;
     assert_validation_error(config, &["primary_key", "merge_scd1", "merge predicate"]);
 }
+
+#[test]
+fn pii_nullify_on_unique_keys_group_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      unique_keys:
+        - ["email"]
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "email"
+          type: "string"
+    pii:
+      columns:
+        - name: "email"
+          strategy: "nullify""#;
+    assert_validation_error(config, &["Nullify", "unique-key", "uniqueness"]);
+}
+
+#[test]
+fn pii_redact_on_column_unique_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+          unique: true
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "order_id"
+          strategy: "redact""#;
+    assert_validation_error(config, &["Redact", "unique-key", "uniqueness"]);
+}
+
+#[test]
+fn pii_hash_on_unique_key_is_valid() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      unique_keys:
+        - ["email"]
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "email"
+          type: "string"
+    pii:
+      columns:
+        - name: "email"
+          strategy: "hash""#;
+    assert_validation_ok(&config);
+}

@@ -69,15 +69,7 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-pub fn emit_failed_run_events(
-    run_id: &str,
-    err: &(dyn std::error::Error + 'static),
-    log_format: &LogFormat,
-) {
-    if matches!(log_format, LogFormat::Off) {
-        return;
-    }
-
+pub fn emit_failed_run_events(run_id: &str, err: &(dyn std::error::Error + 'static)) {
     let observer = floe_core::run::events::default_observer();
     observer.on_event(RunEvent::Log {
         run_id: run_id.to_string(),

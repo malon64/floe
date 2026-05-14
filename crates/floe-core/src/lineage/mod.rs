@@ -232,10 +232,29 @@ fn ms_to_iso8601(ms: u128) -> String {
 impl RunObserver for OpenLineageObserver {
     fn on_event(&self, event: RunEvent) {
         match event {
-            RunEvent::RunStarted { ts_ms, .. } => {
+            RunEvent::RunStarted { run_id, ts_ms, .. } => {
                 if let Ok(mut guard) = self.run_start_ms.lock() {
                     *guard = Some(ts_ms);
                 }
+                let event_time = ms_to_iso8601(ts_ms);
+                let body = json!({
+                    "eventType": "START",
+                    "eventTime": event_time,
+                    "run": {
+                        "runId": run_id,
+                        "facets": {}
+                    },
+                    "job": {
+                        "namespace": self.config.namespace,
+                        "name": run_id,
+                        "facets": {}
+                    },
+                    "inputs": [],
+                    "outputs": [],
+                    "producer": self.producer(),
+                    "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent"
+                });
+                self.post_event(body);
             }
             RunEvent::EntityStarted {
                 run_id,

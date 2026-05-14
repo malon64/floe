@@ -395,11 +395,7 @@ fn main() -> FloeResult<()> {
                 let parsed = match parse_profile(path) {
                     Ok(p) => p,
                     Err(err) => {
-                        logging::emit_failed_run_events(
-                            &computed_run_id,
-                            err.as_ref(),
-                            &log_format,
-                        );
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();
@@ -407,7 +403,7 @@ fn main() -> FloeResult<()> {
                     }
                 };
                 if let Err(err) = validate_profile(&parsed) {
-                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();
@@ -434,7 +430,7 @@ fn main() -> FloeResult<()> {
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
                 Err(err) => {
-                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();
@@ -476,11 +472,7 @@ fn main() -> FloeResult<()> {
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
-                        logging::emit_failed_run_events(
-                            &computed_run_id,
-                            err.as_ref(),
-                            &log_format,
-                        );
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();

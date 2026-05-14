@@ -695,35 +695,45 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
     })
 }
 
-fn parse_catalogs(value: &Yaml) -> FloeResult<CatalogsConfig> {
-    let hash = yaml_hash(value, "catalogs")?;
-    validate_known_keys(hash, "catalogs", &["default", "definitions"])?;
+pub(crate) fn parse_catalogs_with_context(
+    value: &Yaml,
+    context: &str,
+) -> FloeResult<CatalogsConfig> {
+    let definitions_context = format!("{context}.definitions");
+    let hash = yaml_hash(value, context)?;
+    validate_known_keys(hash, context, &["default", "definitions"])?;
     let definitions_yaml = match hash_get(hash, "definitions") {
-        Some(value) => yaml_array(value, "catalogs.definitions")?,
+        Some(value) => yaml_array(value, &definitions_context)?,
         None => {
-            return Err(Box::new(ConfigError(
-                "missing required field catalogs.definitions".to_string(),
-            )))
+            return Err(Box::new(ConfigError(format!(
+                "missing required field {definitions_context}"
+            ))))
         }
     };
     let mut definitions = Vec::with_capacity(definitions_yaml.len());
     for (index, item) in definitions_yaml.iter().enumerate() {
-        let definition = parse_catalog_definition(item).map_err(|err| {
-            Box::new(ConfigError(format!("catalogs.definitions[{index}]: {err}")))
+        let definition = parse_catalog_definition(item, &definitions_context).map_err(|err| {
+            Box::new(ConfigError(format!(
+                "{definitions_context}[{index}]: {err}"
+            )))
         })?;
         definitions.push(definition);
     }
     Ok(CatalogsConfig {
-        default: opt_string(hash, "default", "catalogs")?,
+        default: opt_string(hash, "default", context)?,
         definitions,
     })
 }
 
-fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
-    let hash = yaml_hash(value, "catalogs.definitions")?;
+fn parse_catalogs(value: &Yaml) -> FloeResult<CatalogsConfig> {
+    parse_catalogs_with_context(value, "catalogs")
+}
+
+fn parse_catalog_definition(value: &Yaml, context: &str) -> FloeResult<CatalogDefinition> {
+    let hash = yaml_hash(value, context)?;
     validate_known_keys(
         hash,
-        "catalogs.definitions",
+        context,
         &[
             "name",
             "type",
@@ -748,14 +758,14 @@ fn parse_catalog_definition(value: &Yaml) -> FloeResult<CatalogDefinition> {
             "create_schema_if_missing",
         ],
     )?;
-    let name = get_string(hash, "name", "catalogs.definitions")?;
-    let catalog_type = get_string(hash, "type", "catalogs.definitions")?;
-    let type_config = parse_catalog_type_config(&name, &catalog_type, hash)?;
+    let name = get_string(hash, "name", context)?;
+    let catalog_type = get_string(hash, "type", context)?;
+    let type_config = parse_catalog_type_config(&name, &catalog_type, hash, context)?;
     Ok(CatalogDefinition {
         name,
         type_config,
-        warehouse_storage: opt_string(hash, "warehouse_storage", "catalogs.definitions")?,
-        warehouse_prefix: opt_string(hash, "warehouse_prefix", "catalogs.definitions")?,
+        warehouse_storage: opt_string(hash, "warehouse_storage", context)?,
+        warehouse_prefix: opt_string(hash, "warehouse_prefix", context)?,
     })
 }
 
@@ -763,37 +773,33 @@ fn parse_catalog_type_config(
     name: &str,
     catalog_type: &str,
     hash: &yaml_rust2::yaml::Hash,
+    context: &str,
 ) -> FloeResult<CatalogTypeConfig> {
     match catalog_type {
         "glue" => Ok(CatalogTypeConfig::Glue {
-            region: get_string(hash, "region", "catalogs.definitions")?,
-            database: get_string(hash, "database", "catalogs.definitions")?,
-            create_database_if_missing: opt_bool(
-                hash,
-                "create_database_if_missing",
-                "catalogs.definitions",
-            )?
-            .unwrap_or(true),
-            allow_takeover: opt_bool(hash, "allow_takeover", "catalogs.definitions")?
-                .unwrap_or(false),
+            region: get_string(hash, "region", context)?,
+            database: get_string(hash, "database", context)?,
+            create_database_if_missing: opt_bool(hash, "create_database_if_missing", context)?
+                .unwrap_or(true),
+            allow_takeover: opt_bool(hash, "allow_takeover", context)?.unwrap_or(false),
         }),
         "rest" => Ok(CatalogTypeConfig::Rest {
-            uri: get_string(hash, "uri", "catalogs.definitions")?,
-            credential: opt_string(hash, "credential", "catalogs.definitions")?,
-            warehouse: opt_string(hash, "warehouse", "catalogs.definitions")?,
-            oauth2_server_uri: opt_string(hash, "oauth2_server_uri", "catalogs.definitions")?,
-            scope: opt_string(hash, "scope", "catalogs.definitions")?,
+            uri: get_string(hash, "uri", context)?,
+            credential: opt_string(hash, "credential", context)?,
+            warehouse: opt_string(hash, "warehouse", context)?,
+            oauth2_server_uri: opt_string(hash, "oauth2_server_uri", context)?,
+            scope: opt_string(hash, "scope", context)?,
         }),
         "unity" => Ok(CatalogTypeConfig::Unity {
-            host: get_string(hash, "host", "catalogs.definitions")?,
-            catalog: get_string(hash, "catalog", "catalogs.definitions")?,
-            schema: get_string(hash, "schema", "catalogs.definitions")?,
-            token: get_string(hash, "token", "catalogs.definitions")?,
-            create_schema_if_missing: opt_bool(hash, "create_schema_if_missing", "catalogs.definitions")?
+            host: get_string(hash, "host", context)?,
+            catalog: get_string(hash, "catalog", context)?,
+            schema: get_string(hash, "schema", context)?,
+            token: get_string(hash, "token", context)?,
+            create_schema_if_missing: opt_bool(hash, "create_schema_if_missing", context)?
                 .unwrap_or(false),
         }),
         other => Err(Box::new(crate::errors::ConfigError(format!(
-            "catalogs.definitions name={name} has unsupported type={other} (supported: glue, rest, unity)"
+            "{context} name={name} has unsupported type={other} (supported: glue, rest, unity)"
         )))),
     }
 }

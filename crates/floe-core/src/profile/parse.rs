@@ -54,6 +54,7 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
             "metadata",
             "execution",
             "variables",
+            "catalogs",
             "validation",
         ],
     )?;
@@ -88,6 +89,14 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
         None => HashMap::new(),
     };
 
+    let catalogs = match hash_get(root, "catalogs") {
+        Some(value) => Some(crate::config::parse_catalogs_with_context(
+            value,
+            "profile.catalogs",
+        )?),
+        None => None,
+    };
+
     let validation = match hash_get(root, "validation") {
         Some(value) => Some(parse_validation(value)?),
         None => None,
@@ -99,6 +108,7 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
         metadata,
         execution,
         variables,
+        catalogs,
         validation,
     })
 }

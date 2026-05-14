@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::profile::types::{ProfileConfig, ProfileRunner};
 use crate::{ConfigError, FloeResult};
@@ -24,6 +24,44 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
     }
 
     validate_no_malformed_vars(&profile.variables)?;
+    validate_profile_catalogs(profile)?;
+
+    Ok(())
+}
+
+fn validate_profile_catalogs(profile: &ProfileConfig) -> FloeResult<()> {
+    let Some(catalogs) = &profile.catalogs else {
+        return Ok(());
+    };
+    if catalogs.definitions.is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.catalogs.definitions must not be empty".to_string(),
+        )));
+    }
+
+    let mut names = HashSet::new();
+    for definition in &catalogs.definitions {
+        if definition.name.trim().is_empty() {
+            return Err(Box::new(ConfigError(
+                "profile.catalogs.definitions.name must not be empty".to_string(),
+            )));
+        }
+        if !names.insert(definition.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.catalogs.definitions name={} is duplicated",
+                definition.name
+            ))));
+        }
+    }
+
+    if let Some(default_name) = &catalogs.default {
+        if !names.contains(default_name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.catalogs.default={} does not match any definition",
+                default_name
+            ))));
+        }
+    }
 
     Ok(())
 }

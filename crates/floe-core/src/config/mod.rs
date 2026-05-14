@@ -13,6 +13,6 @@ pub use storage::{resolve_local_path, ConfigBase, ResolvedPath, StorageResolver}
 pub use types::*;
 
 pub use parse::extract_raw_env_vars;
-pub(crate) use parse::{parse_config, parse_config_with_vars};
+pub(crate) use parse::{parse_catalogs_with_context, parse_config, parse_config_with_vars};
 pub(crate) use template::apply_templates_with_vars;
 pub(crate) use validate::validate_config;

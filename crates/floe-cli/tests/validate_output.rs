@@ -44,3 +44,18 @@ fn validate_invalid_config_sets_exit_1_and_error_text() {
         .failure()
         .stderr(predicate::str::contains("Error:"));
 }
+
+#[test]
+fn validate_profile_only_output_is_human_text() {
+    let profile_path = repo_root().join("example/profiles/dev.yml");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["validate", "--profile"])
+        .arg(&profile_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Profile valid: dev"))
+        .stdout(predicate::str::contains(
+            "Schema: floe/v1/EnvironmentProfile",
+        ));
+}

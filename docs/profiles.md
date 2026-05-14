@@ -255,3 +255,60 @@ my-project/
 
 See `example/profiles/` in this repository for ready-to-use templates.
 The machine-readable field reference is in `profile.schema.yaml` at the repo root.
+
+## Environment catalog overrides
+
+Profiles can carry a `catalogs:` block with the same catalog definition shape as
+main Floe configs. When a command is run with both `--config` and `--profile`,
+the profile `catalogs:` block replaces the config-level `catalogs:` block for
+that invocation. This keeps entity logic in the shared config while moving
+Glue, REST Iceberg, or Unity Catalog endpoints into environment-specific files.
+
+```yaml
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+catalogs:
+  default: prod_glue
+  definitions:
+    - name: prod_glue
+      type: glue
+      region: eu-west-1
+      database: bronze
+      warehouse_storage: lake_s3
+      warehouse_prefix: iceberg
+```
+
+Notes:
+
+- `warehouse_storage` still references a storage definition from the main config.
+- Profile-only validation (`floe validate --profile profiles/prod.yml`) checks the
+  profile schema, known keys, runner contracts, variable placeholder syntax,
+  duplicate catalog names, and `catalogs.default` references.
+- Full config validation (`floe validate -c config.yml --profile profiles/prod.yml`)
+  additionally checks catalog/storage compatibility and entity sink bindings.
+
+## Hardening assessment and plan
+
+Current profile feature gaps and fixes:
+
+1. **No standalone profile validation path** — previously `floe validate` always
+   required a config. Fixed by allowing `floe validate --profile <file>` to parse
+   and validate an `EnvironmentProfile` by itself.
+2. **Environment-specific catalogs forced into shared configs** — catalog targets
+   are often environment-specific. Fixed by adding `profile.catalogs` and applying
+   it as an invocation-scoped replacement for config-level `catalogs`.
+3. **Partial profile validation only** — profile parsing rejected unknown keys and
+   checked runner/variable basics, but catalog duplicates/default references had
+   no profile-level guard. Fixed with profile catalog validation.
+4. **Validation order inconsistency** — manifest generation validated the config
+   before loading the profile, so profile-provided catalogs could not satisfy
+   catalog bindings. Fixed by loading the profile first and passing profile
+   catalogs into config validation.
+5. **Remaining hardening work** — profile `validation.strict` is parsed but not
+   enforced, profile paths are local-only while config supports URI resolution,
+   and profile catalog validation cannot fully verify `warehouse_storage` without
+   a config. Future work should wire `strict` into schema checks, reuse config URI
+   resolution for profile loading, and add a combined validation report that
+   clearly separates profile-only errors from config/profile integration errors.

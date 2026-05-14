@@ -37,6 +37,9 @@ properties:
   variables:
     $ref: "#/$defs/variables"
 
+  catalogs:
+    $ref: "#/$defs/catalogs"
+
   validation:
     $ref: "#/$defs/profile_validation"
 
@@ -145,6 +148,100 @@ $defs:
 
       Syntactically malformed placeholders (${ without a closing }, or ${} with
       an empty key) are rejected at profile validation time.
+
+
+  catalogs:
+    type: object
+    additionalProperties: false
+    required:
+      - definitions
+    description: >
+      Environment-specific catalog definitions for Iceberg and Delta sinks.
+      When provided with a main config, the profile catalogs block replaces the
+      config-level catalogs block for that command invocation.
+    properties:
+      default:
+        type: string
+        description: Default catalog name used when entity sinks omit a catalog.
+      definitions:
+        type: array
+        minItems: 1
+        items:
+          $ref: "#/$defs/catalog_definition"
+
+  catalog_definition:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - type
+    properties:
+      name:
+        type: string
+        minLength: 1
+      type:
+        type: string
+        enum: [glue, rest, unity]
+      warehouse_storage:
+        type: string
+        description: Optional storage definition name used as the catalog warehouse root.
+      warehouse_prefix:
+        type: string
+        description: Optional path prefix under the warehouse storage.
+      region:
+        type: string
+        description: Glue catalog region; required when type is glue.
+      database:
+        type: string
+        description: Glue database; required when type is glue.
+      create_database_if_missing:
+        type: boolean
+      allow_takeover:
+        type: boolean
+      uri:
+        type: string
+        description: REST catalog URI; required when type is rest.
+      credential:
+        type: string
+      warehouse:
+        type: string
+      oauth2_server_uri:
+        type: string
+      scope:
+        type: string
+      host:
+        type: string
+        description: Unity Catalog host; required when type is unity.
+      catalog:
+        type: string
+        description: Unity Catalog name; required when type is unity.
+      schema:
+        type: string
+        description: Unity schema name; required when type is unity.
+      token:
+        type: string
+        description: Unity authentication token or substituted secret.
+      create_schema_if_missing:
+        type: boolean
+    allOf:
+      - if:
+          properties:
+            type:
+              const: glue
+        then:
+          required: [region, database]
+      - if:
+          properties:
+            type:
+              const: rest
+        then:
+          required: [uri]
+      - if:
+          properties:
+            type:
+              const: unity
+        then:
+          required: [host, catalog, schema, token]
 
   profile_validation:
     type: object

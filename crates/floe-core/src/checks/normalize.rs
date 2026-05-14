@@ -123,6 +123,30 @@ pub fn output_column_mapping(
     Ok(mapping)
 }
 
+/// Maps schema column names (what PII config references) to their runtime
+/// column names (the post-rename names that exist in the DataFrame when
+/// apply_pii_masking runs). Only contains entries where the schema name
+/// differs from the runtime name, i.e. when normalization changes the name.
+pub fn pii_schema_to_runtime_mapping(
+    columns: &[config::ColumnConfig],
+    strategy: Option<&str>,
+) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+    for column in columns {
+        let runtime_name = if column.source.is_some() {
+            column.name.clone()
+        } else if let Some(strategy) = strategy {
+            normalize_name(&column.name, strategy)
+        } else {
+            column.name.clone()
+        };
+        if column.name != runtime_name {
+            mapping.insert(column.name.clone(), runtime_name);
+        }
+    }
+    mapping
+}
+
 pub fn resolve_output_columns(
     columns: &[config::ColumnConfig],
     strategy: Option<&str>,

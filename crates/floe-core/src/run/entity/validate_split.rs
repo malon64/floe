@@ -41,6 +41,7 @@ pub(super) struct ValidateSplitPhaseContext<'a> {
     pub(super) required_cols: &'a [String],
     pub(super) source_column_map: &'a HashMap<String, String>,
     pub(super) output_column_map: &'a HashMap<String, String>,
+    pub(super) pii_runtime_map: &'a HashMap<String, String>,
     pub(super) row_error_formatter: &'a dyn check::RowErrorFormatter,
     pub(super) severity: report::Severity,
     pub(super) track_cast_errors: bool,
@@ -75,6 +76,7 @@ pub(super) fn run_validate_split_phase(
         required_cols,
         source_column_map,
         output_column_map,
+        pii_runtime_map,
         row_error_formatter,
         severity,
         track_cast_errors,
@@ -384,7 +386,7 @@ pub(super) fn run_validate_split_phase(
                 };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
                 if let Some(pii) = entity.pii.as_ref() {
-                    super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
+                    super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
                 }
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
@@ -433,8 +435,8 @@ pub(super) fn run_validate_split_phase(
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     rename_output_columns(&mut rejected_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
-                        super::pii::apply_pii_masking(&mut rejected_df, pii, output_column_map)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
+                        super::pii::apply_pii_masking(&mut rejected_df, pii, pii_runtime_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
@@ -481,7 +483,7 @@ pub(super) fn run_validate_split_phase(
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                 }
@@ -526,7 +528,7 @@ pub(super) fn run_validate_split_phase(
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     if let Some(pii) = entity.pii.as_ref() {
-                        super::pii::apply_pii_masking(&mut accepted_df, pii, output_column_map)?;
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
                     }
                     accepted_df_opt = Some(accepted_df);
                 }

@@ -8,16 +8,17 @@ use crate::FloeResult;
 
 /// Apply PII masking to all configured columns.
 ///
-/// `output_column_map` maps declared schema names to their runtime names after
-/// `rename_output_columns` (e.g. `"Credit Card"` → `"credit_card"`). Pass an
-/// empty map when calling before any rename step.
+/// `schema_to_runtime` maps schema column names to post-rename runtime names
+/// (e.g. `"Credit Card"` → `"credit_card"` when normalize_columns is active).
+/// Only entries where the names differ are present; columns whose schema name
+/// already equals the runtime name need no entry.
 pub fn apply_pii_masking(
     df: &mut DataFrame,
     pii: &PiiConfig,
-    output_column_map: &HashMap<String, String>,
+    schema_to_runtime: &HashMap<String, String>,
 ) -> FloeResult<()> {
     for col_cfg in &pii.columns {
-        apply_pii_column(df, col_cfg, output_column_map)?;
+        apply_pii_column(df, col_cfg, schema_to_runtime)?;
     }
     Ok(())
 }
@@ -25,12 +26,13 @@ pub fn apply_pii_masking(
 fn apply_pii_column(
     df: &mut DataFrame,
     col_cfg: &PiiColumnConfig,
-    output_column_map: &HashMap<String, String>,
+    schema_to_runtime: &HashMap<String, String>,
 ) -> FloeResult<()> {
     let declared_name = col_cfg.name.as_str();
-    // After rename_output_columns the column may carry a normalized name.
-    // Resolve the runtime name via the mapping; fall back to the declared name.
-    let runtime_name = output_column_map
+    // When normalize_columns is active the schema column name may differ from
+    // the runtime name in the DataFrame (e.g. "Credit Card" → "credit_card").
+    // schema_to_runtime maps schema names to their post-rename runtime names.
+    let runtime_name = schema_to_runtime
         .get(declared_name)
         .map(|s| s.as_str())
         .unwrap_or(declared_name);

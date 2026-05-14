@@ -256,6 +256,7 @@ impl RunObserver for OpenLineageObserver {
             RunEvent::EntityFinished {
                 run_id,
                 name,
+                status,
                 files,
                 rows,
                 accepted,
@@ -263,7 +264,6 @@ impl RunObserver for OpenLineageObserver {
                 warnings,
                 errors,
                 ts_ms,
-                ..
             } => {
                 let entity_run_id = self
                     .entity_run_ids
@@ -271,6 +271,11 @@ impl RunObserver for OpenLineageObserver {
                     .ok()
                     .and_then(|g| g.get(&name).cloned())
                     .unwrap_or_else(|| format!("{run_id}.entity.{name}"));
+                let event_type = if status == "failed" || status == "aborted" {
+                    "FAIL"
+                } else {
+                    "COMPLETE"
+                };
                 let schema_fields = self.entity_schemas.get(&name).cloned().unwrap_or_default();
                 let stats = EntityStats {
                     files,
@@ -281,7 +286,7 @@ impl RunObserver for OpenLineageObserver {
                     errors,
                     schema_fields,
                 };
-                self.emit_entity_run_event(&entity_run_id, &name, "COMPLETE", ts_ms, Some(stats));
+                self.emit_entity_run_event(&entity_run_id, &name, event_type, ts_ms, Some(stats));
             }
             RunEvent::RunFinished {
                 run_id,

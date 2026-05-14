@@ -420,6 +420,14 @@ fn main() -> FloeResult<()> {
                 .map(|p| p.variables.clone())
                 .unwrap_or_default();
 
+            // Install the log observer immediately so that any failure before
+            // the lineage observer is built (e.g. config resolution error) still
+            // emits structured events for --log-format json/text.
+            let log_obs = logging::build_log_observer(log_format.clone());
+            if let Some(ref obs) = log_obs {
+                let _ = set_observer(obs.clone());
+            }
+
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
@@ -470,14 +478,14 @@ fn main() -> FloeResult<()> {
                     }
                 });
 
-            let mut obs_vec = Vec::new();
-            if let Some(log_obs) = logging::build_log_observer(log_format.clone()) {
-                obs_vec.push(log_obs);
-            }
+            // If lineage is present, upgrade to a MultiObserver combining both.
+            // Otherwise log_obs is already installed (or noop if --log-format off).
             if let Some(lin_obs) = lineage_observer {
+                let mut obs_vec = Vec::new();
+                if let Some(log) = log_obs {
+                    obs_vec.push(log);
+                }
                 obs_vec.push(lin_obs);
-            }
-            if !obs_vec.is_empty() {
                 let _ = set_observer(std::sync::Arc::new(MultiObserver::new(obs_vec)));
             }
 

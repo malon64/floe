@@ -217,3 +217,65 @@ entities:
           strategy: "drop""#;
     assert_validation_error(config, &["drop", "iceberg", "declared schema"]);
 }
+
+#[test]
+fn pii_nullify_on_required_column_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+          nullable: false
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "order_id"
+          strategy: "nullify""#;
+    assert_validation_error(config, &["nullify", "nullable=false"]);
+}
+
+#[test]
+fn pii_merge_key_masking_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "delta"
+        path: "/tmp/out"
+      write_mode: "merge_scd1"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key:
+        - "order_id"
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "order_id"
+          strategy: "hash""#;
+    assert_validation_error(config, &["primary_key", "merge_scd1", "merge predicate"]);
+}

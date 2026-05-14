@@ -138,11 +138,11 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         ))));
     }
     let accepted_format = entity.sink.accepted.format.as_str();
-    let schema_cols: std::collections::HashSet<&str> = entity
+    let schema_col_map: std::collections::HashMap<&str, &crate::config::ColumnConfig> = entity
         .schema
         .columns
         .iter()
-        .map(|c| c.name.as_str())
+        .map(|c| (c.name.as_str(), c))
         .collect();
     let primary_keys: std::collections::HashSet<&str> = entity
         .schema
@@ -151,6 +151,11 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         .flatten()
         .map(|s| s.as_str())
         .collect();
+    let write_mode = entity.sink.resolved_write_mode();
+    let is_merge_mode = matches!(
+        write_mode,
+        crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+    );
     let mut seen = std::collections::HashSet::new();
     for col in &pii.columns {
         if !seen.insert(col.name.as_str()) {
@@ -159,7 +164,7 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 entity.name, col.name
             ))));
         }
-        if !schema_cols.contains(col.name.as_str()) {
+        if !schema_col_map.contains_key(col.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} pii.columns: {} is not an unknown schema column",
                 entity.name, col.name
@@ -171,10 +176,27 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 entity.name, col.name
             ))));
         }
+        if col.strategy == PiiStrategy::Nullify {
+            if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
+                if col_cfg.nullable == Some(false) {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} pii.columns[name={}].strategy=nullify cannot be applied to a nullable=false column",
+                        entity.name, col.name
+                    ))));
+                }
+            }
+        }
         if col.strategy == PiiStrategy::Drop && primary_keys.contains(col.name.as_str()) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} pii.columns[name={}].strategy=drop cannot be applied to a primary_key column",
                 entity.name, col.name
+            ))));
+        }
+        if primary_keys.contains(col.name.as_str()) && is_merge_mode {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}]: PII strategy cannot be applied to a \
+                 primary_key column with write_mode={}: masking the merge key corrupts the merge predicate",
+                entity.name, col.name, write_mode.as_str()
             ))));
         }
         if col.strategy == PiiStrategy::Drop

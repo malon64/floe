@@ -10,11 +10,10 @@ mod mask_pattern_math {
         let fn_val = first_n.unwrap_or(0);
         let ln_val = last_n.unwrap_or(0);
         let char_count = value.chars().count();
-        if char_count < fn_val + ln_val {
-            return value.to_string();
-        }
-        let prefix: String = value.chars().take(fn_val).collect();
-        let suffix: String = value.chars().skip(char_count - ln_val).collect();
+        let actual_ln = ln_val.min(char_count);
+        let actual_fn = fn_val.min(char_count.saturating_sub(actual_ln));
+        let prefix: String = value.chars().take(actual_fn).collect();
+        let suffix: String = value.chars().skip(char_count - actual_ln).collect();
         let mut result = pattern.to_string();
         if fn_val > 0 {
             result = result.replace(&format!("{{first{fn_val}}}"), &prefix);
@@ -44,10 +43,19 @@ mod mask_pattern_math {
     }
 
     #[test]
-    fn mask_short_value_passthrough() {
-        // first2 + last4 = 6 > 4 chars → return unchanged
+    fn mask_short_value_clamped() {
+        // first2 + last4 = 6 > 4 chars; suffix takes priority (4 chars),
+        // leaving 0 for prefix — pattern literal chars are always kept.
         let out = apply_mask("1234", "{first2}...{last4}", Some(2), Some(4));
-        assert_eq!(out, "1234");
+        assert_eq!(out, "...1234");
+    }
+
+    #[test]
+    fn mask_short_value_never_raw_passthrough() {
+        // 3-char value with {last4}: reveal at most 3 chars via suffix,
+        // but pattern mask literal (****) is still applied — never return raw.
+        let out = apply_mask("123", "****{last4}", None, Some(4));
+        assert_eq!(out, "****123");
     }
 
     #[test]

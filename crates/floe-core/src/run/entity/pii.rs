@@ -163,13 +163,13 @@ pub(crate) fn apply_mask(
     // Count Unicode scalar values, not bytes, to avoid splitting multi-byte chars.
     let char_count = value.chars().count();
 
-    // If the value is too short to safely extract both prefix and suffix, return unchanged.
-    if char_count < fn_val + ln_val {
-        return value.to_string();
-    }
+    // Clamp revealed chars so they never overlap; suffix takes priority.
+    // Never return the raw value unchanged — always apply the pattern's literal mask chars.
+    let actual_ln = ln_val.min(char_count);
+    let actual_fn = fn_val.min(char_count.saturating_sub(actual_ln));
 
-    let prefix: String = value.chars().take(fn_val).collect();
-    let suffix: String = value.chars().skip(char_count - ln_val).collect();
+    let prefix: String = value.chars().take(actual_fn).collect();
+    let suffix: String = value.chars().skip(char_count - actual_ln).collect();
 
     let mut result = pattern.to_string();
     if fn_val > 0 {

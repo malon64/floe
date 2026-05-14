@@ -371,3 +371,95 @@ entities:
           strategy: "hash""#;
     assert_validation_ok(config);
 }
+
+#[test]
+fn pii_mismatch_missing_reject_file_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      mismatch:
+        missing_columns: "reject_file"
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "credit_card"
+          strategy: "hash""#;
+    assert_validation_error(config, &["missing_columns", "reject_file", "PII masking"]);
+}
+
+#[test]
+fn pii_mismatch_extra_reject_file_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      mismatch:
+        extra_columns: "reject_file"
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "credit_card"
+          strategy: "hash""#;
+    assert_validation_error(config, &["extra_columns", "reject_file", "PII masking"]);
+}
+
+#[test]
+fn pii_hash_on_non_string_column_errors() {
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "amount"
+          strategy: "hash""#,
+    );
+    assert_validation_error(&config, &["Hash", "string columns", "float64"]);
+}
+
+#[test]
+fn pii_redact_on_non_string_column_errors() {
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "amount"
+          strategy: "redact""#,
+    );
+    assert_validation_error(&config, &["Redact", "string columns", "float64"]);
+}
+
+#[test]
+fn pii_nullify_on_non_string_column_is_valid() {
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "amount"
+          strategy: "nullify""#,
+    );
+    assert_validation_ok(&config);
+}

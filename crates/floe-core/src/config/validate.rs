@@ -137,6 +137,26 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
             entity.name
         ))));
     }
+    // schema.mismatch reject_file writes the raw unmasked file to sink.rejected
+    // in the precheck phase, before any DataFrame processing or PII masking.
+    if let Some(mismatch) = &entity.schema.mismatch {
+        if mismatch.missing_columns.as_deref() == Some("reject_file") {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii: schema.mismatch.missing_columns=reject_file writes the \
+                 raw unmasked file to sink.rejected before PII masking can be applied; \
+                 use missing_columns=fill_nulls instead",
+                entity.name
+            ))));
+        }
+        if mismatch.extra_columns.as_deref() == Some("reject_file") {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii: schema.mismatch.extra_columns=reject_file writes the \
+                 raw unmasked file to sink.rejected before PII masking can be applied; \
+                 use extra_columns=ignore instead",
+                entity.name
+            ))));
+        }
+    }
     let accepted_format = entity.sink.accepted.format.as_str();
     let schema_col_map: std::collections::HashMap<&str, &crate::config::ColumnConfig> = entity
         .schema
@@ -195,6 +215,23 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 "entity.name={} pii.columns[name={}].strategy=tokenize is not yet supported",
                 entity.name, col.name
             ))));
+        }
+        // hash, redact, and mask cast the column to String internally; applying
+        // them to a non-string column changes the runtime type in the output,
+        // breaking schema-aware sinks (Parquet, Delta, Iceberg).
+        if matches!(
+            col.strategy,
+            PiiStrategy::Hash | PiiStrategy::Redact | PiiStrategy::Mask
+        ) {
+            if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
+                if canonical_column_type(&col_cfg.column_type) != Some("string") {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} pii.columns[name={}].strategy={:?} can only be applied \
+                         to string columns (declared type={}); use strategy=nullify or strategy=drop instead",
+                        entity.name, col.name, col.strategy, col_cfg.column_type
+                    ))));
+                }
+            }
         }
         if col.strategy == PiiStrategy::Nullify {
             if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {

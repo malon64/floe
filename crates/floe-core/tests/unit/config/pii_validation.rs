@@ -369,5 +369,5 @@ entities:
       columns:
         - name: "email"
           strategy: "hash""#;
-    assert_validation_ok(&config);
+    assert_validation_ok(config);
 }

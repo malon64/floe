@@ -137,6 +137,15 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
             entity.name
         ))));
     }
+    // sink.archive copies/moves the original source file after processing.
+    // The archive always contains the raw unmasked input regardless of PII config.
+    if entity.sink.archive.is_some() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} pii: sink.archive copies the original unmasked source file \
+             to the archive sink; remove sink.archive or disable pii masking",
+            entity.name
+        ))));
+    }
     // schema.mismatch reject_file writes the raw unmasked file to sink.rejected
     // in the precheck phase, before any DataFrame processing or PII masking.
     if let Some(mismatch) = &entity.schema.mismatch {

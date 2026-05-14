@@ -543,3 +543,35 @@ entities:
           strategy: "nullify""#;
     assert_validation_ok(config);
 }
+
+#[test]
+fn pii_with_archive_sink_errors() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+      archive:
+        path: "/tmp/archive"
+    incremental_mode: "archive"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "order_id"
+          type: "string"
+        - name: "credit_card"
+          type: "string"
+    pii:
+      columns:
+        - name: "credit_card"
+          strategy: "hash""#;
+    assert_validation_error(config, &["sink.archive", "unmasked", "pii"]);
+}

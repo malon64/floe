@@ -51,8 +51,9 @@ For each Floe run, Floe posts OpenLineage `RunEvent` objects to
 ### ParentRun facet (Airflow / Dagster)
 
 When Floe is invoked from an Airflow task or Dagster job, the parent run
-context is auto-detected from environment variables and attached to every
-top-level run event:
+context is auto-detected from environment variables and attached as a `parent`
+run facet to all run events — both the top-level run (`START`/`COMPLETE`/`FAIL`)
+and each entity-level job (`START`/`COMPLETE`/`FAIL`):
 
 | Orchestrator | Environment variables read                                                    |
 |--------------|-------------------------------------------------------------------------------|

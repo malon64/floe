@@ -50,7 +50,7 @@ with two optional tokens substituted:
 ```yaml
 mask_pattern: "{first4}****{last4}"   # 4111222233334444 → 4111****4444
 mask_pattern: "***-**-{last4}"         # 123-45-6789       → ***-**-6789
-mask_pattern: "****"                   # any value         → ****
+mask_pattern: "{first2}****{last2}"    # hello             → he****lo
 ```
 
 Rules:
@@ -69,14 +69,19 @@ post-normalization runtime name. Floe resolves the mapping automatically.
 ## Interaction with `strategy: drop`
 
 Dropped columns are removed from the accepted DataFrame before the sink write.
-They are not present in the Parquet/Delta/Iceberg output schema. If the column
-is part of `schema.primary_key` or a `schema.unique_keys` entry, validation
-will fail at config-load time.
+They are not present in the Parquet output schema. If the column is part of
+`schema.primary_key` or a `schema.unique_keys` entry, validation will fail at
+config-load time.
+
+> **Note:** `strategy: drop` is **not supported** for Delta or Iceberg sinks.
+> Config validation will reject it at load time. Use `nullify` or `redact` to
+> suppress sensitive values while preserving the column in the output schema.
 
 ## Validation rules
 
 - `name` must match a column declared in `schema.columns`.
-- `strategy: mask` requires a non-empty `mask_pattern`.
+- `strategy: mask` requires a `mask_pattern` that contains at least one `{firstN}` or `{lastN}` token.
+- `strategy: drop` is rejected for Delta and Iceberg sinks.
 - `strategy: tokenize` is rejected at config validation (not yet implemented).
 - `redact_value` and `mask_pattern` are ignored for strategies that do not use them.
 - Duplicate column names within `pii.columns` are rejected.

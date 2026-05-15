@@ -237,12 +237,16 @@ impl RunObserver for OpenLineageObserver {
                     *guard = Some(ts_ms);
                 }
                 let event_time = ms_to_iso8601(ts_ms);
+                let mut run_facets = json!({});
+                if let Some(parent) = self.parent_run_facet() {
+                    run_facets["parent"] = parent;
+                }
                 let body = json!({
                     "eventType": "START",
                     "eventTime": event_time,
                     "run": {
                         "runId": run_id,
-                        "facets": {}
+                        "facets": run_facets
                     },
                     "job": {
                         "namespace": self.config.namespace,
@@ -319,12 +323,16 @@ impl RunObserver for OpenLineageObserver {
                     "COMPLETE"
                 };
                 let event_time = ms_to_iso8601(ts_ms);
+                let mut run_facets = json!({});
+                if let Some(parent) = self.parent_run_facet() {
+                    run_facets["parent"] = parent;
+                }
                 let body = json!({
                     "eventType": event_type,
                     "eventTime": event_time,
                     "run": {
                         "runId": run_id,
-                        "facets": {}
+                        "facets": run_facets
                     },
                     "job": {
                         "namespace": self.config.namespace,

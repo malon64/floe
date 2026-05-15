@@ -142,6 +142,7 @@ pub fn run_with_runtime(
             report_base: context.report_base_path.clone(),
             ts_ms: event_time_ms(),
         });
+        crate::run::events::mark_run_started();
     }
     let resolve_start = perf_enabled.then(Instant::now);
     let plans = resolve_entity_plans(&context, runtime, &selected_entities, resolution_mode)?;

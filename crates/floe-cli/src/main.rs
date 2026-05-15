@@ -505,16 +505,21 @@ fn main() -> FloeResult<()> {
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
-                        // run_with_base may fail before run_with_runtime emits RunStarted
-                        // (e.g. validate_with_base, RunContext construction, validate_entities).
-                        // Emit a paired START so lineage consumers always see a complete
-                        // lifecycle rather than an orphaned FAIL event.
-                        floe_core::run::events::default_observer().on_event(RunEvent::RunStarted {
-                            run_id: computed_run_id.clone(),
-                            config: config_location.path.display().to_string(),
-                            report_base: None,
-                            ts_ms: floe_core::run::events::event_time_ms(),
-                        });
+                        // Only emit RunStarted if run_with_runtime did not already emit it
+                        // (e.g. failures during validate_with_base, RunContext construction,
+                        // or validate_entities happen before the core runner reaches that point).
+                        // Errors after RunStarted — such as resolve_entity_plans — must not
+                        // produce a duplicate START for the same run id.
+                        if !floe_core::run::events::is_run_started() {
+                            floe_core::run::events::default_observer().on_event(
+                                RunEvent::RunStarted {
+                                    run_id: computed_run_id.clone(),
+                                    config: config_location.path.display().to_string(),
+                                    report_base: None,
+                                    ts_ms: floe_core::run::events::event_time_ms(),
+                                },
+                            );
+                        }
                         logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");

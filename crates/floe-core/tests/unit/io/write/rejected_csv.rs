@@ -72,6 +72,7 @@ fn sample_resolver(config_path: &Path) -> FloeResult<config::StorageResolver> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     config::StorageResolver::from_path(&root_config, config_path)

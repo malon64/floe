@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
     add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
-    load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
-    resolve_config_location, run_with_base, validate_profile, validate_with_base, AddEntityOptions,
-    FloeResult, RunOptions, ValidateOptions,
+    load_config_with_profile_overrides, load_config_with_profile_vars, parse_profile,
+    reset_entity_state_with_base, resolve_config_location, run_with_base, set_observer,
+    validate_profile, validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunEvent,
+    RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -394,11 +395,7 @@ fn main() -> FloeResult<()> {
                 let parsed = match parse_profile(path) {
                     Ok(p) => p,
                     Err(err) => {
-                        logging::emit_failed_run_events(
-                            &computed_run_id,
-                            err.as_ref(),
-                            &log_format,
-                        );
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();
@@ -406,7 +403,7 @@ fn main() -> FloeResult<()> {
                     }
                 };
                 if let Err(err) = validate_profile(&parsed) {
-                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();
@@ -417,18 +414,34 @@ fn main() -> FloeResult<()> {
                 None
             };
 
+            // Extract profile vars before moving profile_config into RunOptions.
+            let profile_vars_for_lineage = profile_config
+                .as_ref()
+                .map(|p| p.variables.clone())
+                .unwrap_or_default();
+
+            // Build log observer early (before set_observer) so early failure
+            // paths can emit directly to it without going through the global observer.
+            let log_obs = logging::build_log_observer(log_format.clone());
+
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),
                 entities,
                 dry_run,
                 profile: profile_config,
             };
-            logging::install_observer(log_format.clone());
 
             let config_location = match resolve_config_location(&config) {
                 Ok(location) => location,
                 Err(err) => {
-                    logging::emit_failed_run_events(&computed_run_id, err.as_ref(), &log_format);
+                    // set_observer not called yet; emit directly to log_obs.
+                    if let Some(ref obs) = log_obs {
+                        logging::emit_failed_run_events_to(
+                            obs.as_ref(),
+                            &computed_run_id,
+                            err.as_ref(),
+                        );
+                    }
                     let mut err_out = std::io::stderr().lock();
                     let _ = writeln!(err_out, "Error: {err}");
                     let _ = err_out.flush();
@@ -436,15 +449,78 @@ fn main() -> FloeResult<()> {
                 }
             };
 
+            // Resolve inter-variable references (e.g. "${HOST}/api") using the
+            // same resolve_vars path the runner uses, now that we have config_location.
+            let profile_vars_for_lineage = {
+                let config_env_vars =
+                    floe_core::extract_config_env_vars(&config_location.path).unwrap_or_default();
+                floe_core::resolve_vars(floe_core::VarSources {
+                    profile: &profile_vars_for_lineage,
+                    cli: &std::collections::HashMap::new(),
+                    config: &config_env_vars,
+                })
+                .unwrap_or(profile_vars_for_lineage)
+            };
+
+            // Load config early to check for lineage block so we can install
+            // a composed observer before run_with_base. Apply profile vars so
+            // that {{VAR}} placeholders in lineage.url / lineage.api_key are expanded.
+            let early_config =
+                load_config_with_profile_vars(&config_location.path, &profile_vars_for_lineage);
+            let lineage_observer = early_config
+                .as_ref()
+                .ok()
+                .and_then(|c| c.lineage.as_ref().map(|l| (l, c.entities.as_slice())))
+                .and_then(|(lineage_cfg, entities)| {
+                    match floe_core::lineage::build_observer(lineage_cfg, entities) {
+                        Ok(obs) => Some(obs),
+                        Err(err) => {
+                            eprintln!("Warning: lineage observer disabled: {err}");
+                            None
+                        }
+                    }
+                });
+
+            // Install the combined observer exactly once.
+            let mut obs_vec = Vec::new();
+            let has_log_obs = log_obs.is_some();
+            if let Some(log) = log_obs {
+                obs_vec.push(log);
+            }
+            if let Some(lin) = lineage_observer {
+                obs_vec.push(lin);
+            }
+            // When lineage is active but no log observer (e.g. --log-format off),
+            // the global observer is set to the lineage observer, which ignores
+            // RunEvent::Log. Add a stderr warn sink so that lineage HTTP errors
+            // (401, timeouts) emitted via warnings::emit are not silently dropped.
+            if !has_log_obs && !obs_vec.is_empty() {
+                obs_vec.push(logging::build_warn_sink());
+            }
+            if !obs_vec.is_empty() {
+                let _ = set_observer(std::sync::Arc::new(MultiObserver::new(obs_vec)));
+            }
+
             let outcome =
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
-                        logging::emit_failed_run_events(
-                            &computed_run_id,
-                            err.as_ref(),
-                            &log_format,
-                        );
+                        // Only emit RunStarted if run_with_runtime did not already emit it
+                        // (e.g. failures during validate_with_base, RunContext construction,
+                        // or validate_entities happen before the core runner reaches that point).
+                        // Errors after RunStarted — such as resolve_entity_plans — must not
+                        // produce a duplicate START for the same run id.
+                        if !floe_core::run::events::is_run_started() {
+                            floe_core::run::events::default_observer().on_event(
+                                RunEvent::RunStarted {
+                                    run_id: computed_run_id.clone(),
+                                    config: config_location.path.display().to_string(),
+                                    report_base: None,
+                                    ts_ms: floe_core::run::events::event_time_ms(),
+                                },
+                            );
+                        }
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");
                         let _ = err_out.flush();

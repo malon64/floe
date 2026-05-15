@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use serde::Serialize;
@@ -87,9 +88,37 @@ impl RunObserver for NoopObserver {
     fn on_event(&self, _event: RunEvent) {}
 }
 
+pub struct MultiObserver {
+    observers: Vec<Arc<dyn RunObserver>>,
+}
+
+impl MultiObserver {
+    pub fn new(observers: Vec<Arc<dyn RunObserver>>) -> Self {
+        Self { observers }
+    }
+}
+
+impl RunObserver for MultiObserver {
+    fn on_event(&self, event: RunEvent) {
+        for obs in &self.observers {
+            obs.on_event(event.clone());
+        }
+    }
+}
+
 static NOOP_OBSERVER: NoopObserver = NoopObserver;
 
 static OBSERVER: OnceLock<Arc<dyn RunObserver>> = OnceLock::new();
+
+static RUN_STARTED_EMITTED: AtomicBool = AtomicBool::new(false);
+
+pub fn mark_run_started() {
+    RUN_STARTED_EMITTED.store(true, Ordering::Relaxed);
+}
+
+pub fn is_run_started() -> bool {
+    RUN_STARTED_EMITTED.load(Ordering::Relaxed)
+}
 
 pub fn set_observer(observer: Arc<dyn RunObserver>) -> bool {
     OBSERVER.set(observer).is_ok()

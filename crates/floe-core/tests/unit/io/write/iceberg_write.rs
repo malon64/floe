@@ -416,6 +416,7 @@ fn empty_root_config() -> config::RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }

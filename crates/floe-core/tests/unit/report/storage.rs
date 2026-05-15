@@ -18,6 +18,7 @@ fn build_config(definition: StorageDefinition, report: ReportConfig) -> RootConf
         env: None,
         domains: Vec::new(),
         report: Some(report),
+        lineage: None,
         entities: Vec::new(),
     }
 }
@@ -133,6 +134,7 @@ fn local_report_paths_and_uris_are_normalized() {
             formatter: None,
             storage: None,
         }),
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver = resolver_for(&config);

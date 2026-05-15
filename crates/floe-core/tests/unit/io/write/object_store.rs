@@ -26,6 +26,7 @@ fn sample_config() -> config::RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }
@@ -171,6 +172,7 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let temp_dir = tempfile::TempDir::new()?;
@@ -236,6 +238,7 @@ fn iceberg_store_config_builds_local_warehouse_without_props() -> FloeResult<()>
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let temp_dir = tempfile::TempDir::new()?;
@@ -313,6 +316,7 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver =
@@ -406,6 +410,7 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver =
@@ -486,6 +491,7 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver =
@@ -562,6 +568,7 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     };
     let resolver =

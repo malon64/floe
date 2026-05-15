@@ -17,7 +17,17 @@ pub struct RootConfig {
     pub env: Option<EnvConfig>,
     pub domains: Vec<DomainConfig>,
     pub report: Option<ReportConfig>,
+    pub lineage: Option<LineageConfig>,
     pub entities: Vec<EntityConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LineageConfig {
+    pub url: String,
+    pub api_key: Option<String>,
+    pub timeout_secs: Option<u64>,
+    pub namespace: String,
+    pub producer: Option<String>,
 }
 
 #[derive(Debug)]

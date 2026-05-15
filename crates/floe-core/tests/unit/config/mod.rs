@@ -5,6 +5,7 @@ pub mod catalogs;
 pub mod config_validation;
 pub mod gcs_storage;
 pub mod gcs_validation;
+pub mod lineage_validation;
 pub mod local_storage;
 pub mod parse;
 pub mod pii_validation;

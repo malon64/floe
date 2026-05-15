@@ -1,5 +1,5 @@
 use clap::ValueEnum;
-use floe_core::{set_observer, RunEvent, RunObserver};
+use floe_core::{RunEvent, RunObserver};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -10,14 +10,36 @@ pub enum LogFormat {
     Json,
 }
 
-pub fn install_observer(format: LogFormat) {
+pub fn build_log_observer(format: LogFormat) -> Option<Arc<dyn RunObserver>> {
     if matches!(format, LogFormat::Off) {
-        return;
+        return None;
     }
-    let _ = set_observer(Arc::new(CliObserver {
+    Some(Arc::new(CliObserver {
         format,
         lock: std::sync::Mutex::new(()),
-    }));
+    }))
+}
+
+/// A minimal observer that forwards warn/error Log events to stderr.
+/// Used when a lineage observer is active but no log observer is configured,
+/// so that lineage HTTP errors (401, timeouts) are not silently dropped.
+struct StderrWarnObserver;
+
+impl RunObserver for StderrWarnObserver {
+    fn on_event(&self, event: RunEvent) {
+        if let RunEvent::Log {
+            log_level, message, ..
+        } = event
+        {
+            if log_level == "warn" || log_level == "error" {
+                eprintln!("{log_level}: {message}");
+            }
+        }
+    }
+}
+
+pub fn build_warn_sink() -> Arc<dyn RunObserver> {
+    Arc::new(StderrWarnObserver)
 }
 
 struct CliObserver {
@@ -69,16 +91,15 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-pub fn emit_failed_run_events(
+pub fn emit_failed_run_events(run_id: &str, err: &(dyn std::error::Error + 'static)) {
+    emit_failed_run_events_to(floe_core::run::events::default_observer(), run_id, err);
+}
+
+pub fn emit_failed_run_events_to(
+    observer: &dyn floe_core::RunObserver,
     run_id: &str,
     err: &(dyn std::error::Error + 'static),
-    log_format: &LogFormat,
 ) {
-    if matches!(log_format, LogFormat::Off) {
-        return;
-    }
-
-    let observer = floe_core::run::events::default_observer();
     observer.on_event(RunEvent::Log {
         run_id: run_id.to_string(),
         log_level: "error".to_string(),

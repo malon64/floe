@@ -34,6 +34,13 @@ pub fn apply_templates_with_vars(
         report.path = replace_placeholders(&report.path, &vars, "report.path", None)?;
     }
 
+    if let Some(lineage) = config.lineage.as_mut() {
+        lineage.url = replace_placeholders(&lineage.url, &vars, "lineage.url", None)?;
+        if let Some(api_key) = lineage.api_key.as_mut() {
+            *api_key = replace_placeholders(api_key, &vars, "lineage.api_key", None)?;
+        }
+    }
+
     if let Some(storages) = config.storages.as_mut() {
         for definition in storages.definitions.iter_mut() {
             if let Some(prefix) = definition.prefix.as_mut() {

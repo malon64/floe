@@ -24,6 +24,7 @@ fn config_with_default_local() -> RootConfig {
         env: None,
         domains: Vec::new(),
         report: None,
+        lineage: None,
         entities: Vec::new(),
     }
 }

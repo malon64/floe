@@ -483,11 +483,19 @@ fn main() -> FloeResult<()> {
 
             // Install the combined observer exactly once.
             let mut obs_vec = Vec::new();
+            let has_log_obs = log_obs.is_some();
             if let Some(log) = log_obs {
                 obs_vec.push(log);
             }
             if let Some(lin) = lineage_observer {
                 obs_vec.push(lin);
+            }
+            // When lineage is active but no log observer (e.g. --log-format off),
+            // the global observer is set to the lineage observer, which ignores
+            // RunEvent::Log. Add a stderr warn sink so that lineage HTTP errors
+            // (401, timeouts) emitted via warnings::emit are not silently dropped.
+            if !has_log_obs && !obs_vec.is_empty() {
+                obs_vec.push(logging::build_warn_sink());
             }
             if !obs_vec.is_empty() {
                 let _ = set_observer(std::sync::Arc::new(MultiObserver::new(obs_vec)));

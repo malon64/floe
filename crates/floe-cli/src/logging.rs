@@ -20,6 +20,30 @@ pub fn build_log_observer(format: LogFormat) -> Option<Arc<dyn RunObserver>> {
     }))
 }
 
+/// A minimal observer that forwards warn/error Log events to stderr.
+/// Used when a lineage observer is active but no log observer is configured,
+/// so that lineage HTTP errors (401, timeouts) are not silently dropped.
+struct StderrWarnObserver;
+
+impl RunObserver for StderrWarnObserver {
+    fn on_event(&self, event: RunEvent) {
+        if let RunEvent::Log {
+            log_level,
+            message,
+            ..
+        } = event
+        {
+            if log_level == "warn" || log_level == "error" {
+                eprintln!("{log_level}: {message}");
+            }
+        }
+    }
+}
+
+pub fn build_warn_sink() -> Arc<dyn RunObserver> {
+    Arc::new(StderrWarnObserver)
+}
+
 struct CliObserver {
     format: LogFormat,
     lock: std::sync::Mutex<()>,

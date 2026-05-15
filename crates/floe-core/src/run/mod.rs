@@ -170,15 +170,32 @@ pub fn run_with_runtime(
     let mut abort_run = false;
 
     for plan in plans {
+        let entity_name = plan.entity.name.clone();
         observer.on_event(RunEvent::EntityStarted {
             run_id: context.run_id.clone(),
-            name: plan.entity.name.clone(),
+            name: entity_name.clone(),
             ts_ms: event_time_ms(),
         });
+        let entity_result = run_entity(&context, runtime, observer, plan);
+        if let Err(err) = entity_result {
+            observer.on_event(RunEvent::EntityFinished {
+                run_id: context.run_id.clone(),
+                name: entity_name,
+                status: "failed".to_string(),
+                files: 0,
+                rows: 0,
+                accepted: 0,
+                rejected: 0,
+                warnings: 0,
+                errors: 0,
+                ts_ms: event_time_ms(),
+            });
+            return Err(err);
+        }
         let EntityRunResult {
             outcome,
             abort_run: aborted,
-        } = run_entity(&context, runtime, observer, plan)?;
+        } = entity_result.unwrap();
         let report = &outcome.report;
         let (mut status, _) = report::compute_run_outcome(
             &report

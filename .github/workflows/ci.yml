@@ -191,34 +191,37 @@ jobs:
             cargo test -p floe-cli --tests
           fi
 
-  test-python:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      floe_python: ${{ steps.filter.outputs.floe_python }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
-        id: changes
+        id: filter
         with:
           filters: |
             floe_python:
               - "crates/floe-python/**"
+
+  test-python:
+    needs: changes
+    if: needs.changes.outputs.floe_python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.changes.outputs.floe_python == 'true'
       - uses: Swatinem/rust-cache@v2
-        if: steps.changes.outputs.floe_python == 'true'
         with:
           prefix-key: v0-rust
           add-job-id-key: false
           shared-key: v0-rust-feature
       - uses: actions/setup-python@v6
-        if: steps.changes.outputs.floe_python == 'true'
         with:
           python-version: "3.12"
       - name: Install maturin + pytest
-        if: steps.changes.outputs.floe_python == 'true'
         run: pip install "maturin>=1.7,<2" pytest
       - name: Build and install floe-python
-        if: steps.changes.outputs.floe_python == 'true'
         run: maturin develop --manifest-path crates/floe-python/Cargo.toml
       - name: Run Python tests
-        if: steps.changes.outputs.floe_python == 'true'
         run: pytest crates/floe-python/tests/ -v

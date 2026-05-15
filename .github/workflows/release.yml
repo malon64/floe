@@ -445,10 +445,14 @@ jobs:
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
             before_script: "apk add --no-cache perl 2>/dev/null || true"
-          # universal2 wheel runs natively on both Intel and Apple Silicon;
-          # avoids macos-13 (deprecated Intel runner with very long queue times)
+          # Keep macOS wheels split by architecture: the universal2 wheel exceeds
+          # PyPI's default 100 MB per-file limit for this project.
+          - os: macos-15-intel
+            target: x86_64
+            manylinux: "off"
+            before_script: ""
           - os: macos-latest
-            target: universal2-apple-darwin
+            target: aarch64
             manylinux: "off"
             before_script: ""
           - os: windows-latest
@@ -502,6 +506,27 @@ jobs:
           path: dist
           pattern: "py-dist-*"
           merge-multiple: true
+      - name: Check PyPI file size limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          limit=$((100 * 1024 * 1024))
+          too_large=0
+
+          while IFS= read -r -d '' file; do
+            size=$(stat -c%s "$file")
+            python3 - "$file" "$size" "$limit" <<'PY'
+          import sys
+
+          path, size, limit = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+          print(f"{path}: {size / 1024 / 1024:.1f} MB")
+          if size > limit:
+              print(f"ERROR: {path} exceeds PyPI's 100 MB per-file limit.")
+              sys.exit(1)
+          PY
+          done < <(find dist -type f \( -name '*.whl' -o -name '*.tar.gz' \) -print0) || too_large=1
+
+          exit "$too_large"
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist

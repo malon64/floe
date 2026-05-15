@@ -28,9 +28,7 @@ struct StderrWarnObserver;
 impl RunObserver for StderrWarnObserver {
     fn on_event(&self, event: RunEvent) {
         if let RunEvent::Log {
-            log_level,
-            message,
-            ..
+            log_level, message, ..
         } = event
         {
             if log_level == "warn" || log_level == "error" {

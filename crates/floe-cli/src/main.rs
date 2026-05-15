@@ -3,8 +3,8 @@ use floe_core::{
     add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
     load_config_with_profile_overrides, load_config_with_profile_vars, parse_profile,
     reset_entity_state_with_base, resolve_config_location, run_with_base, set_observer,
-    validate_profile, validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunOptions,
-    ValidateOptions,
+    validate_profile, validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunEvent,
+    RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -505,6 +505,16 @@ fn main() -> FloeResult<()> {
                 match run_with_base(&config_location.path, config_location.base.clone(), options) {
                     Ok(outcome) => outcome,
                     Err(err) => {
+                        // run_with_base may fail before run_with_runtime emits RunStarted
+                        // (e.g. validate_with_base, RunContext construction, validate_entities).
+                        // Emit a paired START so lineage consumers always see a complete
+                        // lifecycle rather than an orphaned FAIL event.
+                        floe_core::run::events::default_observer().on_event(RunEvent::RunStarted {
+                            run_id: computed_run_id.clone(),
+                            config: config_location.path.display().to_string(),
+                            report_base: None,
+                            ts_ms: floe_core::run::events::event_time_ms(),
+                        });
                         logging::emit_failed_run_events(&computed_run_id, err.as_ref());
                         let mut err_out = std::io::stderr().lock();
                         let _ = writeln!(err_out, "Error: {err}");

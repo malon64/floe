@@ -68,25 +68,41 @@ jobs:
               sys.exit(0)
 
           version = os.environ["VERSION"]
-          checks = [
-              ("floe-core (Cargo)",          "crates/floe-core/Cargo.toml",   ["package", "version"]),
-              ("floe-cli (Cargo)",            "crates/floe-cli/Cargo.toml",    ["package", "version"]),
-              ("floe-python (Cargo)",         "crates/floe-python/Cargo.toml", ["package", "version"]),
-              ("floe-python (pyproject.toml)","crates/floe-python/pyproject.toml", ["project", "version"]),
-          ]
           mismatches = []
-          for label, path, keys in checks:
+
+          # Package versions
+          pkg_checks = [
+              ("floe-core (Cargo)",           "crates/floe-core/Cargo.toml",      ["package", "version"]),
+              ("floe-cli (Cargo)",             "crates/floe-cli/Cargo.toml",       ["package", "version"]),
+              ("floe-python (Cargo)",          "crates/floe-python/Cargo.toml",    ["package", "version"]),
+              ("floe-python (pyproject.toml)", "crates/floe-python/pyproject.toml",["project",  "version"]),
+          ]
+          for label, path, keys in pkg_checks:
               with open(path, "rb") as f:
                   data = tomllib.load(f)
               pkg_ver = data[keys[0]][keys[1]]
               if pkg_ver != version:
                   mismatches.append(f"  {label}: manifest={pkg_ver!r}  tag={version!r}")
+
+          # Internal floe-core dependency versions in downstream crates
+          dep_checks = [
+              ("floe-cli → floe-core dep",    "crates/floe-cli/Cargo.toml"),
+              ("floe-python → floe-core dep", "crates/floe-python/Cargo.toml"),
+          ]
+          for label, path in dep_checks:
+              with open(path, "rb") as f:
+                  dep = tomllib.load(f).get("dependencies", {}).get("floe-core")
+              # dep is either a plain string ("0.3.x") or a table ({version="0.3.x", ...})
+              dep_ver = dep if isinstance(dep, str) else (dep or {}).get("version")
+              if dep_ver != version:
+                  mismatches.append(f"  {label}: dep={dep_ver!r}  tag={version!r}")
+
           if mismatches:
               print("ERROR: manifest versions do not match the release tag:")
               print("\n".join(mismatches))
               print("Bump versions in a chore PR and merge before tagging.")
               sys.exit(1)
-          print(f"OK: all manifests are at {version}")
+          print(f"OK: all manifests and internal deps are at {version}")
           PY
 
   docker:
@@ -429,12 +445,10 @@ jobs:
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
             before_script: "apk add --no-cache perl 2>/dev/null || true"
-          - os: macos-13
-            target: x86_64
-            manylinux: "off"
-            before_script: ""
+          # universal2 wheel runs natively on both Intel and Apple Silicon;
+          # avoids macos-13 (deprecated Intel runner with very long queue times)
           - os: macos-latest
-            target: aarch64
+            target: universal2-apple-darwin
             manylinux: "off"
             before_script: ""
           - os: windows-latest

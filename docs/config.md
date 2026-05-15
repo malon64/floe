@@ -112,6 +112,14 @@ entities:
         - `schema` (required): default schema name
         - `token` (required): Personal Access Token; accepts a literal value or a single `${ENV_VAR}` reference resolved from the OS environment at run time
         - `create_schema_if_missing` (optional, default `false`): create the Unity schema if absent
+- `lineage` (optional)
+  - Enables OpenLineage event emission for this run.
+  - `url` (required): base URL of the OpenLineage-compatible endpoint (e.g. `http://marquez:5000`)
+  - `namespace` (required): OpenLineage namespace for all jobs and datasets
+  - `api_key` (optional): Bearer token; supports `{{VAR}}` placeholder expansion
+  - `timeout_secs` (optional, default `5`): HTTP request timeout in seconds
+  - `producer` (optional): URI identifying this producer
+  - See `docs/lineage.md` for full event reference and lifecycle details.
 - `env` (optional)
   - Enables variable templating for string fields using `{{var}}` syntax.
   - `env.file` (optional) loads variables from a YAML file (path relative to the
@@ -336,6 +344,33 @@ is available for templating within that entity.
 - `path`: directory where raw input files are archived after ingestion.
   - If omitted, archiving is disabled.
   - Supports `{{var}}` templating (see "Templating & domains").
+
+### `pii` (optional)
+
+Column-level PII masking applied to accepted output before sink write.
+
+```yaml
+pii:
+  columns:
+    - name: email
+      strategy: hash
+    - name: credit_card
+      strategy: mask
+      mask_pattern: "{first4}****{last4}"
+    - name: ssn
+      strategy: redact
+      redact_value: "***"
+    - name: notes
+      strategy: drop
+```
+
+- `columns` (required): array of PII column transforms
+  - `name` (required): schema column name (must match `schema.columns[].name`)
+  - `strategy` (required): `hash`, `drop`, `nullify`, `redact`, or `mask`
+  - `mask_pattern` (required for `strategy: mask`): literal output string with optional `{firstN}` / `{lastN}` tokens
+  - `redact_value` (optional, `strategy: redact`): replacement string (default `[REDACTED]`)
+
+See `docs/pii.md` for full strategy reference and masking pattern syntax.
 
 ### `policy` (required)
 

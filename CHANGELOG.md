@@ -2,6 +2,30 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.3.9
+
+- **Column-level PII masking** (`docs/pii.md`):
+  - New `pii:` entity block with per-column transform strategies: `hash` (SHA-256), `drop`, `nullify`, `redact`, and `mask`.
+  - `mask` strategy supports a pattern string with `{firstN}` / `{lastN}` reveal tokens (e.g. `{first4}****{last4}` for card numbers).
+  - `redact` strategy replaces every non-null value with a configurable string (default `[REDACTED]`).
+  - Masking runs after schema validation and data-quality checks — rejected rows are never masked.
+  - Compatible with `normalize_columns`: `pii.columns[].name` matches schema names, not post-normalization runtime names.
+  - Full config-validation coverage: duplicate columns, unknown strategies, missing `mask_pattern`, and `strategy: drop` on primary-key columns are all rejected at load time.
+
+- **OpenLineage integration** (`docs/lineage.md`):
+  - New optional `lineage:` top-level config block that posts run and entity lifecycle events to any OpenLineage-compatible HTTP endpoint (Marquez, Atlan, OpenMetadata, Astronomer, etc.).
+  - Emits four facets per entity `COMPLETE` event: `DataQualityMetrics`, `FloeQualityRun`, `SchemaDataset`, and `ParentRun`.
+  - `ParentRun` facet auto-detected from Airflow (`AIRFLOW_CTX_*`) and Dagster (`DAGSTER_*`) environment variables.
+  - Bearer auth via `api_key` field; supports `{{VAR}}` placeholder expansion and nested `${HOST}/path` variable resolution via `--profile`.
+  - Configurable `timeout_secs` (default 5); fail-silent — HTTP errors emit warnings and do not affect run outcome.
+  - Lineage emission is independent of `--log-format`; events are always posted when configured.
+  - Lineage HTTP error warnings (401, timeouts) are always surfaced to stderr, even with `--log-format off`.
+  - Lifecycle correctness: every run produces a well-formed `START → COMPLETE/FAIL` sequence; pre-execution failures (config validation, context construction) emit a paired `START` before `FAIL`; post-start errors do not re-emit `START`.
+
+- **Profile validation and catalog hardening** (v0.3.8 patch):
+  - Profile variable resolution errors now produce explicit config errors instead of silently falling back to unresolved placeholders.
+  - Catalog override validation tightened for Unity and REST catalog blocks.
+
 ## v0.3.8
 
 - Delta Lake + Unity Catalog registration:

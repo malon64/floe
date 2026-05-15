@@ -43,6 +43,41 @@ jobs:
             echo "on_main=false" >> "$GITHUB_OUTPUT"
           fi
 
+  validate:
+    name: Validate manifest versions match tag
+    runs-on: ubuntu-latest
+    needs: meta
+    if: ${{ needs.meta.outputs.on_main == 'true' }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          python - <<'PY'
+          import sys, os, tomllib
+
+          version = os.environ["VERSION"]
+          checks = [
+              ("floe-core (Cargo)",          "crates/floe-core/Cargo.toml",   ["package", "version"]),
+              ("floe-cli (Cargo)",            "crates/floe-cli/Cargo.toml",    ["package", "version"]),
+              ("floe-python (Cargo)",         "crates/floe-python/Cargo.toml", ["package", "version"]),
+              ("floe-python (pyproject.toml)","crates/floe-python/pyproject.toml", ["project", "version"]),
+          ]
+          mismatches = []
+          for label, path, keys in checks:
+              with open(path, "rb") as f:
+                  data = tomllib.load(f)
+              pkg_ver = data[keys[0]][keys[1]]
+              if pkg_ver != version:
+                  mismatches.append(f"  {label}: manifest={pkg_ver!r}  tag={version!r}")
+          if mismatches:
+              print("ERROR: manifest versions do not match the release tag:")
+              print("\n".join(mismatches))
+              print("Bump versions in a chore PR and merge before tagging.")
+              sys.exit(1)
+          print(f"OK: all manifests are at {version}")
+          PY
+
   docker:
     name: Publish Docker image (GHCR)
     runs-on: ubuntu-latest
@@ -103,7 +138,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
@@ -111,29 +146,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - name: Validate manifest versions match tag
-        run: |
-          python - <<'PY'
-          import sys, os, tomllib
-
-          version = os.environ["VERSION"]
-          manifests = {
-              "floe-core": "crates/floe-core/Cargo.toml",
-              "floe-cli":  "crates/floe-cli/Cargo.toml",
-          }
-          mismatches = []
-          for name, path in manifests.items():
-              with open(path, "rb") as f:
-                  pkg_ver = tomllib.load(f)["package"]["version"]
-              if pkg_ver != version:
-                  mismatches.append(f"  {name}: manifest={pkg_ver!r}  tag={version!r}")
-          if mismatches:
-              print("ERROR: manifest versions do not match the release tag:")
-              print("\n".join(mismatches))
-              print("Bump versions in a chore PR and merge before tagging.")
-              sys.exit(1)
-          print(f"OK: floe-core and floe-cli are at {version}")
-          PY
       - name: Verify crates.io token
         run: |
           if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
@@ -176,7 +188,7 @@ jobs:
 
   build:
     runs-on: ${{ matrix.os }}
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     strategy:
       fail-fast: false
@@ -383,7 +395,7 @@ jobs:
 
   build-python:
     name: Build Python wheels (${{ matrix.target }} on ${{ matrix.os }})
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     strategy:
       fail-fast: false
@@ -439,7 +451,7 @@ jobs:
 
   build-python-sdist:
     name: Build Python sdist
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     runs-on: ubuntu-latest
     steps:

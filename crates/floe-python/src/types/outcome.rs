@@ -137,4 +137,89 @@ impl PyRunOutcome {
             self.dry_run
         )
     }
+
+    fn _repr_html_(&self) -> String {
+        let summary: serde_json::Value =
+            serde_json::from_str(&self.summary_json).unwrap_or(serde_json::Value::Null);
+
+        let run_status = summary
+            .get("run")
+            .and_then(|r| r.get("status"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        let totals = &summary["results"];
+        let accepted = totals
+            .get("accepted_total")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let rejected = totals
+            .get("rejected_total")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let rows = totals
+            .get("rows_total")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let status_color = match run_status {
+            "Success" => "#2e7d32",
+            "SuccessWithWarnings" => "#e65100",
+            _ => "#c62828",
+        };
+
+        let mut entity_rows = String::new();
+        if let Some(entities) = summary.get("entities").and_then(|e| e.as_array()) {
+            for entity in entities {
+                let name = entity.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let status = entity.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                let e_accepted = entity
+                    .get("results")
+                    .and_then(|r| r.get("accepted_total"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let e_rejected = entity
+                    .get("results")
+                    .and_then(|r| r.get("rejected_total"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let e_color = match status {
+                    "Success" => "#2e7d32",
+                    "SuccessWithWarnings" => "#e65100",
+                    _ => "#c62828",
+                };
+                entity_rows.push_str(&format!(
+                    "<tr><td style=\"padding:4px 8px\">{name}</td>\
+                     <td style=\"padding:4px 8px;color:{e_color};font-weight:bold\">{status}</td>\
+                     <td style=\"padding:4px 8px;text-align:right\">{e_accepted}</td>\
+                     <td style=\"padding:4px 8px;text-align:right\">{e_rejected}</td></tr>"
+                ));
+            }
+        }
+
+        format!(
+            "<div style=\"font-family:monospace;border:1px solid #ddd;border-radius:4px;padding:12px;max-width:600px\">\
+             <div style=\"margin-bottom:8px\">\
+               <strong>RunOutcome</strong> \
+               <code style=\"color:#555\">{run_id}</code> \
+               <span style=\"color:{status_color};font-weight:bold;margin-left:8px\">{run_status}</span>\
+             </div>\
+             <div style=\"margin-bottom:8px;color:#555\">\
+               {rows} rows &nbsp;·&nbsp; \
+               <span style=\"color:#2e7d32\">{accepted} accepted</span> &nbsp;·&nbsp; \
+               <span style=\"color:#c62828\">{rejected} rejected</span>\
+             </div>\
+             <table style=\"border-collapse:collapse;width:100%\">\
+               <thead><tr style=\"border-bottom:1px solid #ddd\">\
+                 <th style=\"padding:4px 8px;text-align:left\">Entity</th>\
+                 <th style=\"padding:4px 8px;text-align:left\">Status</th>\
+                 <th style=\"padding:4px 8px;text-align:right\">Accepted</th>\
+                 <th style=\"padding:4px 8px;text-align:right\">Rejected</th>\
+               </tr></thead>\
+               <tbody>{entity_rows}</tbody>\
+             </table>\
+             </div>",
+            run_id = self.run_id,
+        )
+    }
 }

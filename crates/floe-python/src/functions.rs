@@ -2,34 +2,71 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use floe_core::config::ConfigBase;
-use floe_core::{RunOptions, ValidateOptions};
+use floe_core::{ProfileConfig, RunOptions, ValidateOptions};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::types::config::PyRootConfig;
-use crate::types::errors::{to_py_err, FloeError};
+use crate::types::errors::{to_py_err, FloeConfigError, FloeError};
 use crate::types::outcome::PyRunOutcome;
 
+fn load_optional_profile(
+    profile_path: Option<String>,
+    profile_vars: Option<HashMap<String, String>>,
+) -> PyResult<Option<ProfileConfig>> {
+    match profile_path {
+        Some(path_str) => {
+            let path = PathBuf::from(&path_str);
+            let mut profile = floe_core::validate_profile_file(&path).map_err(|e| {
+                FloeConfigError::new_err(format!("failed to load profile {path_str:?}: {e}"))
+            })?;
+            if let Some(vars) = profile_vars {
+                profile.variables.extend(vars);
+            }
+            Ok(Some(profile))
+        }
+        None => Ok(profile_vars.map(|vars| ProfileConfig {
+            api_version: String::new(),
+            kind: String::new(),
+            metadata: floe_core::profile::ProfileMetadata {
+                name: String::new(),
+                description: None,
+                env: None,
+                tags: None,
+            },
+            execution: None,
+            variables: vars,
+            validation: None,
+            catalogs: None,
+        })),
+    }
+}
+
 #[pyfunction]
-#[pyo3(signature = (config_path, entities=None, profile_vars=None))]
+#[pyo3(signature = (config_path, entities=None, profile_vars=None, profile_path=None))]
 pub fn validate(
     py: Python<'_>,
     config_path: &str,
     entities: Option<Vec<String>>,
     profile_vars: Option<HashMap<String, String>>,
+    profile_path: Option<String>,
 ) -> PyResult<()> {
     let path = PathBuf::from(config_path);
+    let profile = load_optional_profile(profile_path, profile_vars)?;
     let options = ValidateOptions {
         entities: entities.unwrap_or_default(),
-        profile_vars: profile_vars.unwrap_or_default(),
-        profile_catalogs: None,
+        profile_vars: profile
+            .as_ref()
+            .map(|p| p.variables.clone())
+            .unwrap_or_default(),
+        profile_catalogs: profile.and_then(|p| p.catalogs),
     };
     py.allow_threads(|| floe_core::validate(&path, options))
         .map_err(to_py_err)
 }
 
 #[pyfunction]
-#[pyo3(signature = (config_path, entities=None, dry_run=false, run_id=None, profile_vars=None))]
+#[pyo3(signature = (config_path, entities=None, dry_run=false, run_id=None, profile_vars=None, profile_path=None))]
 pub fn run(
     py: Python<'_>,
     config_path: &str,
@@ -37,22 +74,10 @@ pub fn run(
     dry_run: bool,
     run_id: Option<String>,
     profile_vars: Option<HashMap<String, String>>,
+    profile_path: Option<String>,
 ) -> PyResult<PyRunOutcome> {
     let path = PathBuf::from(config_path);
-    let profile = profile_vars.map(|vars| floe_core::ProfileConfig {
-        api_version: String::new(),
-        kind: String::new(),
-        metadata: floe_core::profile::ProfileMetadata {
-            name: String::new(),
-            description: None,
-            env: None,
-            tags: None,
-        },
-        execution: None,
-        variables: vars,
-        validation: None,
-        catalogs: None,
-    });
+    let profile = load_optional_profile(profile_path, profile_vars)?;
     let options = RunOptions {
         run_id,
         entities: entities.unwrap_or_default(),

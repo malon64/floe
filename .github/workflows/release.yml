@@ -414,13 +414,13 @@ jobs:
           - os: ubuntu-latest
             target: x86_64
             manylinux: auto
-            before_script: "dnf install -y perl-IPC-Cmd 2>/dev/null || yum install -y perl-IPC-Cmd 2>/dev/null || true"
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
           # aarch64 — use a native ARM runner to avoid cross-compilation failures
           # (aws-lc-sys assembly build fails when cross-compiling on x86_64)
           - os: ubuntu-24.04-arm
             target: aarch64
             manylinux: auto
-            before_script: "dnf install -y perl-IPC-Cmd 2>/dev/null || yum install -y perl-IPC-Cmd 2>/dev/null || true"
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
           # musllinux — Alpine-based container; perl package includes IPC::Cmd
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl

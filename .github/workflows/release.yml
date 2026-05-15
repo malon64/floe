@@ -37,7 +37,9 @@ jobs:
         name: Ensure tag is on main
         run: |
           git fetch origin main --quiet
-          if git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
             echo "on_main=true" >> "$GITHUB_OUTPUT"
           else
             echo "on_main=false" >> "$GITHUB_OUTPUT"

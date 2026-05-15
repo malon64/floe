@@ -188,7 +188,7 @@ jobs:
             fi
             if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
               || [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
-              cargo test -p floe-core --test integration
+              cargo test -p floe-core --test integration -- --test-threads=1
             fi
             cargo test -p floe-core --doc
           fi

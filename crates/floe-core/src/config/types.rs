@@ -52,6 +52,30 @@ pub struct EntityConfig {
     pub sink: SinkConfig,
     pub policy: PolicyConfig,
     pub schema: SchemaConfig,
+    pub pii: Option<PiiConfig>,
+}
+
+#[derive(Debug)]
+pub struct PiiConfig {
+    pub columns: Vec<PiiColumnConfig>,
+}
+
+#[derive(Debug)]
+pub struct PiiColumnConfig {
+    pub name: String,
+    pub strategy: PiiStrategy,
+    pub mask_pattern: Option<String>,
+    pub redact_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PiiStrategy {
+    Hash,
+    Drop,
+    Nullify,
+    Redact,
+    Mask,
+    Tokenize,
 }
 
 impl EntityConfig {

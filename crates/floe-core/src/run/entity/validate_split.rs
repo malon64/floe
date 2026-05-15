@@ -41,6 +41,7 @@ pub(super) struct ValidateSplitPhaseContext<'a> {
     pub(super) required_cols: &'a [String],
     pub(super) source_column_map: &'a HashMap<String, String>,
     pub(super) output_column_map: &'a HashMap<String, String>,
+    pub(super) pii_runtime_map: &'a HashMap<String, String>,
     pub(super) row_error_formatter: &'a dyn check::RowErrorFormatter,
     pub(super) severity: report::Severity,
     pub(super) track_cast_errors: bool,
@@ -75,6 +76,7 @@ pub(super) fn run_validate_split_phase(
         required_cols,
         source_column_map,
         output_column_map,
+        pii_runtime_map,
         row_error_formatter,
         severity,
         track_cast_errors,
@@ -150,18 +152,39 @@ pub(super) fn run_validate_split_phase(
                     report::MismatchAction::RejectedFile
                 };
 
-                let rejected_path = rejected_target
-                    .map(|target| {
-                        write_rejected_raw_output(
-                            target,
-                            &local_file,
-                            temp_dir,
-                            runtime.storage(),
-                            &run_context.storage_resolver,
-                            entity,
-                        )
-                    })
-                    .transpose()?;
+                // When PII masking is configured, skip writing the raw file to
+                // the rejected sink: an unreadable file cannot be loaded as a
+                // DataFrame so masking cannot be applied, and writing it would
+                // leak unmasked data.
+                let rejected_path = if entity.pii.is_some() {
+                    if rejected_target.is_some() {
+                        warnings::emit(
+                            &run_context.run_id,
+                            Some(&entity.name),
+                            Some(&input_file.source_uri),
+                            Some("pii_file_error_drop"),
+                            &format!(
+                                "entity.name={} pii: rejected file not written to sink.rejected \
+                                 because PII masking cannot be applied to unparseable input",
+                                entity.name
+                            ),
+                        );
+                    }
+                    None
+                } else {
+                    rejected_target
+                        .map(|target| {
+                            write_rejected_raw_output(
+                                target,
+                                &local_file,
+                                temp_dir,
+                                runtime.storage(),
+                                &run_context.storage_resolver,
+                                entity,
+                            )
+                        })
+                        .transpose()?
+                };
 
                 let mismatch_report = mismatch.report;
                 let file_report = report::FileReport {
@@ -362,6 +385,9 @@ pub(super) fn run_validate_split_phase(
                     })?
                 };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
+                if let Some(pii) = entity.pii.as_ref() {
+                    super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
+                }
                 accepted_df_opt = Some(accepted_df);
                 if has_errors {
                     if let Some(rejected_target) = rejected_target {
@@ -408,6 +434,10 @@ pub(super) fn run_validate_split_phase(
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
                     rename_output_columns(&mut rejected_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
+                        super::pii::apply_pii_masking(&mut rejected_df, pii, pii_runtime_map)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
                         Box::new(ConfigError(format!(
@@ -452,6 +482,9 @@ pub(super) fn run_validate_split_phase(
                 } else {
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                 }
             }
@@ -494,6 +527,9 @@ pub(super) fn run_validate_split_phase(
                 } else {
                     let mut accepted_df = df;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
+                    if let Some(pii) = entity.pii.as_ref() {
+                        super::pii::apply_pii_masking(&mut accepted_df, pii, pii_runtime_map)?;
+                    }
                     accepted_df_opt = Some(accepted_df);
                 }
             }

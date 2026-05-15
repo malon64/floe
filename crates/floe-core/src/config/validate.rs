@@ -120,7 +120,223 @@ fn validate_entity(
     validate_policy(entity)?;
     validate_sink(entity, storages, catalogs)?;
     validate_schema(entity, config_version)?;
+    if let Some(pii) = &entity.pii {
+        validate_pii(entity, pii)?;
+    }
     Ok(())
+}
+
+fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeResult<()> {
+    use crate::config::PiiStrategy;
+    // Abort severity writes the raw input file to the rejected sink without
+    // loading a DataFrame, bypassing masking entirely.
+    if entity.policy.severity == "abort" {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} pii: masking is not applied when policy.severity=abort \
+             because the raw file is written to sink.rejected without DataFrame processing",
+            entity.name
+        ))));
+    }
+    // sink.archive copies/moves the original source file after processing.
+    // The archive always contains the raw unmasked input regardless of PII config.
+    if entity.sink.archive.is_some() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} pii: sink.archive copies the original unmasked source file \
+             to the archive sink; remove sink.archive or disable pii masking",
+            entity.name
+        ))));
+    }
+    // schema.mismatch reject_file writes the raw unmasked file to sink.rejected
+    // in the precheck phase, before any DataFrame processing or PII masking.
+    if let Some(mismatch) = &entity.schema.mismatch {
+        if mismatch.missing_columns.as_deref() == Some("reject_file") {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii: schema.mismatch.missing_columns=reject_file writes the \
+                 raw unmasked file to sink.rejected before PII masking can be applied; \
+                 use missing_columns=fill_nulls instead",
+                entity.name
+            ))));
+        }
+        if mismatch.extra_columns.as_deref() == Some("reject_file") {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii: schema.mismatch.extra_columns=reject_file writes the \
+                 raw unmasked file to sink.rejected before PII masking can be applied; \
+                 use extra_columns=ignore instead",
+                entity.name
+            ))));
+        }
+    }
+    let accepted_format = entity.sink.accepted.format.as_str();
+    let schema_col_map: std::collections::HashMap<&str, &crate::config::ColumnConfig> = entity
+        .schema
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c))
+        .collect();
+    let primary_keys: std::collections::HashSet<&str> = entity
+        .schema
+        .primary_key
+        .iter()
+        .flatten()
+        .map(|s| s.as_str())
+        .collect();
+    let write_mode = entity.sink.resolved_write_mode();
+    let is_merge_mode = matches!(
+        write_mode,
+        crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+    );
+    // Collect every column that participates in any uniqueness constraint.
+    // Strategies that collapse values (nullify, redact, mask, drop) violate
+    // uniqueness when applied to these columns; hash is allowed because
+    // SHA-256 of distinct values are distinct.
+    let mut unique_key_cols: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for k in entity.schema.primary_key.iter().flatten() {
+        unique_key_cols.insert(k.as_str());
+    }
+    if let Some(groups) = &entity.schema.unique_keys {
+        for group in groups {
+            for col_name in group {
+                unique_key_cols.insert(col_name.as_str());
+            }
+        }
+    }
+    // Legacy columns[].unique=true is ignored at runtime when schema.unique_keys
+    // is set (validate_schema_unique_keys warns about this). Only honour it here
+    // when unique_keys is absent so we don't reject PII on columns whose uniqueness
+    // constraint no longer exists.
+    if entity.schema.unique_keys.is_none() {
+        for schema_col in &entity.schema.columns {
+            if schema_col.unique == Some(true) {
+                unique_key_cols.insert(schema_col.name.as_str());
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for col in &pii.columns {
+        if !seen.insert(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns: column name {} is duplicated",
+                entity.name, col.name
+            ))));
+        }
+        if !schema_col_map.contains_key(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns: {} is not an unknown schema column",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Tokenize {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=tokenize is not yet supported",
+                entity.name, col.name
+            ))));
+        }
+        // hash, redact, and mask cast the column to String internally; applying
+        // them to a non-string column changes the runtime type in the output,
+        // breaking schema-aware sinks (Parquet, Delta, Iceberg).
+        if matches!(
+            col.strategy,
+            PiiStrategy::Hash | PiiStrategy::Redact | PiiStrategy::Mask
+        ) {
+            if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
+                if canonical_column_type(&col_cfg.column_type) != Some("string") {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} pii.columns[name={}].strategy={:?} can only be applied \
+                         to string columns (declared type={}); use strategy=nullify or strategy=drop instead",
+                        entity.name, col.name, col.strategy, col_cfg.column_type
+                    ))));
+                }
+            }
+        }
+        if col.strategy == PiiStrategy::Nullify {
+            if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
+                if col_cfg.nullable == Some(false) {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} pii.columns[name={}].strategy=nullify cannot be applied to a nullable=false column",
+                        entity.name, col.name
+                    ))));
+                }
+            }
+        }
+        if col.strategy == PiiStrategy::Drop && primary_keys.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=drop cannot be applied to a primary_key column",
+                entity.name, col.name
+            ))));
+        }
+        if primary_keys.contains(col.name.as_str()) && is_merge_mode {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}]: PII strategy cannot be applied to a \
+                 primary_key column with write_mode={}: masking the merge key corrupts the merge predicate",
+                entity.name, col.name, write_mode.as_str()
+            ))));
+        }
+        let collapses_values = matches!(
+            col.strategy,
+            PiiStrategy::Drop | PiiStrategy::Nullify | PiiStrategy::Redact | PiiStrategy::Mask
+        );
+        if collapses_values && unique_key_cols.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy={:?} cannot be applied to a \
+                 unique-key column: the strategy collapses or removes values, violating \
+                 uniqueness constraints",
+                entity.name, col.name, col.strategy
+            ))));
+        }
+        // With write_mode=append, the unique tracker is seeded from previously-written
+        // Duplicate checks run before apply_pii_masking and record raw column
+        // values in UniqueTracker samples, which are copied into the run report.
+        // Hashing the column after the fact does not protect raw PII that was
+        // already captured in those samples. Reject hash on any unique-key column.
+        if col.strategy == PiiStrategy::Hash && unique_key_cols.contains(col.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=hash cannot be applied to a \
+                 unique-key column: uniqueness checks record raw values in the run report \
+                 before masking, leaking unmasked PII",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Drop
+            && (accepted_format == "iceberg" || accepted_format == "delta")
+        {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} pii.columns[name={}].strategy=drop is not supported with \
+                 format={accepted_format} because the sink enforces the full declared schema",
+                entity.name, col.name
+            ))));
+        }
+        if col.strategy == PiiStrategy::Mask {
+            let pattern = col.mask_pattern.as_deref().ok_or_else(|| {
+                Box::new(ConfigError(format!(
+                    "entity.name={} pii.columns[name={}].strategy=mask requires mask_pattern",
+                    entity.name, col.name
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let has_last = extract_last_n(pattern).is_some();
+            let has_first = extract_first_n(pattern).is_some();
+            if !has_last && !has_first {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} pii.columns[name={}].mask_pattern must contain at least one token ({{firstN}} or {{lastN}})",
+                    entity.name, col.name
+                ))));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn extract_last_n(pattern: &str) -> Option<usize> {
+    let start = pattern.find("{last")?;
+    let rest = &pattern[start + 5..];
+    let end = rest.find('}')?;
+    rest[..end].parse::<usize>().ok().filter(|&n| n > 0)
+}
+
+pub(crate) fn extract_first_n(pattern: &str) -> Option<usize> {
+    let start = pattern.find("{first")?;
+    let rest = &pattern[start + 6..];
+    let end = rest.find('}')?;
+    rest[..end].parse::<usize>().ok().filter(|&n| n > 0)
 }
 
 fn validate_state(entity: &EntityConfig) -> FloeResult<()> {

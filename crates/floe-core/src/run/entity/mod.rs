@@ -6,13 +6,14 @@ use std::time::Instant;
 use super::file::required_columns;
 use super::{EntityOutcome, RunContext, MAX_RESOLVED_INPUTS};
 use crate::checks::normalize::{
-    output_column_mapping, resolve_normalize_strategy, resolve_source_columns,
-    source_column_mapping,
+    output_column_mapping, pii_schema_to_runtime_mapping, resolve_normalize_strategy,
+    resolve_source_columns, source_column_mapping,
 };
 use io::storage::Target;
 
 mod accepted_write;
 mod incremental;
+mod pii;
 mod precheck;
 mod process;
 mod resolve;
@@ -102,6 +103,8 @@ pub(super) fn run_entity(
     )?;
     let output_column_map =
         output_column_mapping(&entity.schema.columns, normalize_strategy.as_deref())?;
+    let pii_runtime_map =
+        pii_schema_to_runtime_mapping(&entity.schema.columns, normalize_strategy.as_deref());
     let mut required_cols = required_columns(&normalized_columns);
     append_primary_key_required_columns(&mut required_cols, entity, normalize_strategy.as_deref())?;
     let unique_constraints =
@@ -230,6 +233,7 @@ pub(super) fn run_entity(
         required_cols: &required_cols,
         source_column_map: &source_column_map,
         output_column_map: &output_column_map,
+        pii_runtime_map: &pii_runtime_map,
         row_error_formatter: row_error_formatter.as_ref(),
         severity,
         track_cast_errors,

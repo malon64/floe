@@ -59,6 +59,7 @@ fn sample_entity() -> config::EntityConfig {
             unique_keys: None,
             columns: Vec::new(),
         },
+        pii: None,
     }
 }
 

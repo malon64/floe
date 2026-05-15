@@ -166,20 +166,38 @@ pub(super) fn run_precheck(
                         report::MismatchAction::RejectedFile
                     };
 
-                    let rejected_path = resolved_targets
-                        .rejected
-                        .as_ref()
-                        .map(|target| {
-                            write_rejected_raw_output(
-                                target,
-                                &local_file,
-                                temp_dir_path,
-                                cloud,
-                                &context.storage_resolver,
-                                entity,
-                            )
-                        })
-                        .transpose()?;
+                    let rejected_path = if entity.pii.is_some() {
+                        if resolved_targets.rejected.is_some() {
+                            warnings::emit(
+                                &context.run_id,
+                                Some(&entity.name),
+                                Some(&local_file.file.source_uri),
+                                Some("pii_file_error_drop"),
+                                &format!(
+                                    "entity.name={} pii: rejected file not written to \
+                                     sink.rejected because PII masking cannot be applied \
+                                     to an unreadable input file",
+                                    entity.name
+                                ),
+                            );
+                        }
+                        None
+                    } else {
+                        resolved_targets
+                            .rejected
+                            .as_ref()
+                            .map(|target| {
+                                write_rejected_raw_output(
+                                    target,
+                                    &local_file,
+                                    temp_dir_path,
+                                    cloud,
+                                    &context.storage_resolver,
+                                    entity,
+                                )
+                            })
+                            .transpose()?
+                    };
 
                     let file_report = report::FileReport {
                         input_file: local_file.file.source_uri.clone(),

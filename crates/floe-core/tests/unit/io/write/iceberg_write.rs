@@ -480,6 +480,7 @@ fn build_entity(
             unique_keys: None,
             columns,
         },
+        pii: None,
     }
 }
 

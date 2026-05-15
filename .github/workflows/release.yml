@@ -111,8 +111,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - name: Set Cargo versions from tag
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Verify crates.io token
         run: |
           if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
@@ -193,10 +191,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Set Cargo versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Build floe
         shell: bash
         run: |
@@ -402,14 +396,8 @@ jobs:
             manylinux: "off"
             before_script: ""
     runs-on: ${{ matrix.os }}
-    env:
-      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-      - name: Set versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - uses: PyO3/maturin-action@v1
         with:
           command: build
@@ -431,13 +419,8 @@ jobs:
     needs: meta
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-      - name: Set versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist

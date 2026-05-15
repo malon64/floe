@@ -37,17 +37,63 @@ jobs:
         name: Ensure tag is on main
         run: |
           git fetch origin main --quiet
-          if git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+          # Branch dispatches (dry-run testing) skip the ancestry check —
+          # publishing is already blocked on those by ref_type == 'tag'.
+          # Tag dispatches and tag pushes must still pass the ancestry check.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
             echo "on_main=true" >> "$GITHUB_OUTPUT"
           else
             echo "on_main=false" >> "$GITHUB_OUTPUT"
           fi
 
+  validate:
+    name: Validate manifest versions match tag
+    runs-on: ubuntu-latest
+    needs: meta
+    if: ${{ needs.meta.outputs.on_main == 'true' }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          python - <<'PY'
+          import sys, os, tomllib
+
+          # On workflow_dispatch (dry-run from a branch) GITHUB_REF_TYPE is
+          # "branch" and VERSION is the branch name — nothing to validate.
+          if os.environ.get("GITHUB_REF_TYPE") != "tag":
+              print(f"Skipping: not a tag push (GITHUB_REF_TYPE={os.environ.get('GITHUB_REF_TYPE')!r})")
+              sys.exit(0)
+
+          version = os.environ["VERSION"]
+          checks = [
+              ("floe-core (Cargo)",          "crates/floe-core/Cargo.toml",   ["package", "version"]),
+              ("floe-cli (Cargo)",            "crates/floe-cli/Cargo.toml",    ["package", "version"]),
+              ("floe-python (Cargo)",         "crates/floe-python/Cargo.toml", ["package", "version"]),
+              ("floe-python (pyproject.toml)","crates/floe-python/pyproject.toml", ["project", "version"]),
+          ]
+          mismatches = []
+          for label, path, keys in checks:
+              with open(path, "rb") as f:
+                  data = tomllib.load(f)
+              pkg_ver = data[keys[0]][keys[1]]
+              if pkg_ver != version:
+                  mismatches.append(f"  {label}: manifest={pkg_ver!r}  tag={version!r}")
+          if mismatches:
+              print("ERROR: manifest versions do not match the release tag:")
+              print("\n".join(mismatches))
+              print("Bump versions in a chore PR and merge before tagging.")
+              sys.exit(1)
+          print(f"OK: all manifests are at {version}")
+          PY
+
   docker:
     name: Publish Docker image (GHCR)
     runs-on: ubuntu-latest
     needs: [meta, build]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
@@ -103,16 +149,14 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: meta
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    needs: [meta, validate]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - name: Set Cargo versions from tag
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Verify crates.io token
         run: |
           if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
@@ -145,18 +189,18 @@ jobs:
           PY
       - name: Publish floe-core
         if: ${{ steps.check.outputs.core_exists != 'true' }}
-        run: cargo publish -p floe-core --allow-dirty
+        run: cargo publish -p floe-core
       - name: Wait for crates.io index
         if: ${{ steps.check.outputs.core_exists != 'true' }}
         run: sleep 30
       - name: Publish floe-cli
         if: ${{ steps.check.outputs.cli_exists != 'true' }}
-        run: cargo publish -p floe-cli --allow-dirty
+        run: cargo publish -p floe-cli
 
   build:
     runs-on: ${{ matrix.os }}
-    needs: meta
-    if: ${{ needs.meta.outputs.on_main == 'true' }}
+    needs: [meta, validate]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' }}
     strategy:
       fail-fast: false
       matrix:
@@ -193,10 +237,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Set Cargo versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - name: Build floe
         shell: bash
         run: |
@@ -263,7 +303,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [meta, publish, build]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       TAG: ${{ needs.meta.outputs.tag }}
@@ -366,45 +406,44 @@ jobs:
 
   build-python:
     name: Build Python wheels (${{ matrix.target }} on ${{ matrix.os }})
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # manylinux x86_64 — install perl-IPC-Cmd so reqwest's native-tls-vendored
+          # can compile OpenSSL inside the manylinux container
           - os: ubuntu-latest
             target: x86_64
             manylinux: auto
-            extra_args: --features vendored-openssl
-          - os: ubuntu-latest
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+          # aarch64 — use a native ARM runner to avoid cross-compilation failures
+          # (aws-lc-sys assembly build fails when cross-compiling on x86_64)
+          - os: ubuntu-24.04-arm
             target: aarch64
             manylinux: auto
-            extra_args: --features vendored-openssl
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+          # musllinux — Alpine-based container; perl package includes IPC::Cmd
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
-            extra_args: --features vendored-openssl
+            before_script: "apk add --no-cache perl 2>/dev/null || true"
           - os: macos-13
             target: x86_64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
           - os: macos-latest
             target: aarch64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
           - os: windows-latest
             target: x86_64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
     runs-on: ${{ matrix.os }}
-    env:
-      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-      - name: Set versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - uses: PyO3/maturin-action@v1
         with:
           command: build
@@ -413,9 +452,9 @@ jobs:
             --strip
             -m crates/floe-python/Cargo.toml
             --out dist
-            ${{ matrix.extra_args }}
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          before-script-linux: ${{ matrix.before_script }}
       - uses: actions/upload-artifact@v6
         with:
           name: py-dist-${{ matrix.os }}-${{ matrix.target }}
@@ -423,16 +462,11 @@ jobs:
 
   build-python-sdist:
     name: Build Python sdist
-    needs: meta
+    needs: [meta, validate]
     if: ${{ needs.meta.outputs.on_main == 'true' }}
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-      - name: Set versions from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: bash .github/scripts/set_versions.sh "${VERSION}"
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
@@ -445,7 +479,7 @@ jobs:
   publish-python:
     name: Publish floe-python to PyPI
     needs: [meta, build-python, build-python-sdist]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     runs-on: ubuntu-latest
     environment: pypi
     steps:

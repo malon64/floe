@@ -3380,7 +3380,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -3393,7 +3393,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "apache-avro 0.16.0",
  "arrow",
@@ -3434,7 +3434,7 @@ dependencies = [
 
 [[package]]
 name = "floe-python"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "floe-core",
  "pyo3",

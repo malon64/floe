@@ -16,6 +16,7 @@ jobs:
           prefix-key: v0-rust
           add-job-id-key: false
           shared-key: v0-rust-feature
+          cache-on-failure: true
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -31,6 +32,7 @@ jobs:
           prefix-key: v0-rust
           add-job-id-key: false
           shared-key: v0-rust-feature
+          cache-on-failure: true
       - name: Lint with clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -120,6 +122,7 @@ jobs:
           prefix-key: v0-rust
           add-job-id-key: false
           shared-key: v0-rust-feature
+          cache-on-failure: true
       - name: Run tests
         env:
           CARGO_BUILD_JOBS: "4"
@@ -185,7 +188,7 @@ jobs:
             fi
             if [ "${{ steps.changes.outputs.integration_tests }}" = "true" ] \
               || [ "${{ steps.changes.outputs.core_code }}" = "true" ]; then
-              cargo test -p floe-core --test integration
+              cargo test -p floe-core --test integration -- --test-threads=1
             fi
             cargo test -p floe-core --doc
           fi
@@ -196,6 +199,7 @@ jobs:
         if: steps.changes.outputs.floe_python == 'true'
         with:
           python-version: "3.12"
+          cache: "pip"
       - name: Create virtualenv and install deps
         if: steps.changes.outputs.floe_python == 'true'
         run: |

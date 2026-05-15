@@ -1,6 +1,6 @@
 [package]
 name = "floe-python"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 description = "Python bindings for floe-core (PyO3-based)"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ name = "_floe"
 crate-type = ["cdylib"]
 
 [dependencies]
-floe-core = { path = "../floe-core", version = "0.3.9" }
+floe-core = { path = "../floe-core", version = "0.3.10" }
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 serde_json = "1"
 

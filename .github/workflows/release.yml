@@ -200,7 +200,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     needs: [meta, validate]
-    if: ${{ needs.meta.outputs.on_main == 'true' }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' }}
     strategy:
       fail-fast: false
       matrix:

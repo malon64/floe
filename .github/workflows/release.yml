@@ -145,13 +145,13 @@ jobs:
           PY
       - name: Publish floe-core
         if: ${{ steps.check.outputs.core_exists != 'true' }}
-        run: cargo publish -p floe-core --allow-dirty
+        run: cargo publish -p floe-core
       - name: Wait for crates.io index
         if: ${{ steps.check.outputs.core_exists != 'true' }}
         run: sleep 30
       - name: Publish floe-cli
         if: ${{ steps.check.outputs.cli_exists != 'true' }}
-        run: cargo publish -p floe-cli --allow-dirty
+        run: cargo publish -p floe-cli
 
   build:
     runs-on: ${{ matrix.os }}
@@ -372,30 +372,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # manylinux x86_64 — install perl-IPC-Cmd so reqwest's native-tls-vendored
+          # can compile OpenSSL inside the manylinux container
           - os: ubuntu-latest
             target: x86_64
             manylinux: auto
-            extra_args: --features vendored-openssl
-          - os: ubuntu-latest
+            before_script: "dnf install -y perl-IPC-Cmd 2>/dev/null || yum install -y perl-IPC-Cmd 2>/dev/null || true"
+          # aarch64 — use a native ARM runner to avoid cross-compilation failures
+          # (aws-lc-sys assembly build fails when cross-compiling on x86_64)
+          - os: ubuntu-24.04-arm
             target: aarch64
             manylinux: auto
-            extra_args: --features vendored-openssl
+            before_script: "dnf install -y perl-IPC-Cmd 2>/dev/null || yum install -y perl-IPC-Cmd 2>/dev/null || true"
+          # musllinux — Alpine-based container; perl package includes IPC::Cmd
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
-            extra_args: --features vendored-openssl
+            before_script: "apk add --no-cache perl 2>/dev/null || true"
           - os: macos-13
             target: x86_64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
           - os: macos-latest
             target: aarch64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
           - os: windows-latest
             target: x86_64
             manylinux: "off"
-            extra_args: ""
+            before_script: ""
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
@@ -413,9 +418,9 @@ jobs:
             --strip
             -m crates/floe-python/Cargo.toml
             --out dist
-            ${{ matrix.extra_args }}
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          before-script-linux: ${{ matrix.before_script }}
       - uses: actions/upload-artifact@v6
         with:
           name: py-dist-${{ matrix.os }}-${{ matrix.target }}

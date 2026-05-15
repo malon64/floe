@@ -219,9 +219,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Install maturin + pytest
-        run: pip install "maturin>=1.7,<2" pytest
+      - name: Create virtualenv and install deps
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install "maturin>=1.7,<2" pytest
       - name: Build and install floe-python
-        run: maturin develop --manifest-path crates/floe-python/Cargo.toml
+        run: .venv/bin/maturin develop --manifest-path crates/floe-python/Cargo.toml
       - name: Run Python tests
-        run: pytest crates/floe-python/tests/ -v
+        run: .venv/bin/pytest crates/floe-python/tests/ -v

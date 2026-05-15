@@ -90,7 +90,7 @@ jobs:
     name: Publish Docker image (GHCR)
     runs-on: ubuntu-latest
     needs: [meta, build]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
@@ -147,7 +147,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: [meta, validate]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
@@ -300,7 +300,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [meta, publish, build]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       TAG: ${{ needs.meta.outputs.tag }}
@@ -476,7 +476,7 @@ jobs:
   publish-python:
     name: Publish floe-python to PyPI
     needs: [meta, build-python, build-python-sdist]
-    if: ${{ needs.meta.outputs.on_main == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     runs-on: ubuntu-latest
     environment: pypi
     steps:

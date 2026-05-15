@@ -14,12 +14,11 @@ use crate::config::{
     ArchiveTarget, CatalogDefinition, CatalogTypeConfig, CatalogsConfig, ColumnConfig,
     DomainConfig, EntityConfig, EntityMetadata, EntityStateConfig, EnvConfig,
     IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, LineageConfig,
-    MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig,
-    PiiConfig, PiiStrategy, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
-    SchemaEvolutionConfig,
-    SchemaEvolutionIncompatibleAction, SchemaEvolutionMode, SchemaMismatchConfig, SinkConfig,
-    SinkOptions, SinkTarget, SourceConfig, SourceOptions, StorageDefinition, StoragesConfig,
-    WriteMode,
+    MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig, PiiConfig,
+    PiiStrategy, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
+    SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode,
+    SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
+    StorageDefinition, StoragesConfig, WriteMode,
 };
 use crate::{ConfigError, FloeResult};
 

@@ -37,7 +37,10 @@ jobs:
         name: Ensure tag is on main
         run: |
           git fetch origin main --quiet
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # Branch dispatches (dry-run testing) skip the ancestry check —
+          # publishing is already blocked on those by ref_type == 'tag'.
+          # Tag dispatches and tag pushes must still pass the ancestry check.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_type }}" = "branch" ]; then
             echo "on_main=true" >> "$GITHUB_OUTPUT"
           elif git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
             echo "on_main=true" >> "$GITHUB_OUTPUT"

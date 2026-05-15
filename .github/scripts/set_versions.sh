@@ -46,7 +46,21 @@ def replace_dep_version(path: Path) -> None:
         raise SystemExit(f"no floe-core dependency version found in {path}")
     path.write_text(updated, encoding="utf-8")
 
+def replace_pyproject_version(path: Path) -> None:
+    content = path.read_text(encoding="utf-8")
+    updated, count = re.subn(
+        r'^(version\s*=\s*)"[^"]+"',
+        lambda m: f'{m.group(1)}"{version}"',
+        content, count=1, flags=re.M,
+    )
+    if count == 0:
+        raise SystemExit(f"no version line found in {path}")
+    path.write_text(updated, encoding="utf-8")
+
 replace_package_version(Path("crates/floe-core/Cargo.toml"))
 replace_package_version(Path("crates/floe-cli/Cargo.toml"))
 replace_dep_version(Path("crates/floe-cli/Cargo.toml"))
+replace_package_version(Path("crates/floe-python/Cargo.toml"))
+replace_dep_version(Path("crates/floe-python/Cargo.toml"))
+replace_pyproject_version(Path("crates/floe-python/pyproject.toml"))
 PY

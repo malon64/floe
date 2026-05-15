@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .airflow/
+.claude/*
 
 # Editors
 .idea/

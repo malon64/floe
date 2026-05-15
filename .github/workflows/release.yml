@@ -56,6 +56,12 @@ jobs:
           python - <<'PY'
           import sys, os, tomllib
 
+          # On workflow_dispatch (dry-run from a branch) GITHUB_REF_TYPE is
+          # "branch" and VERSION is the branch name — nothing to validate.
+          if os.environ.get("GITHUB_REF_TYPE") != "tag":
+              print(f"Skipping: not a tag push (GITHUB_REF_TYPE={os.environ.get('GITHUB_REF_TYPE')!r})")
+              sys.exit(0)
+
           version = os.environ["VERSION"]
           checks = [
               ("floe-core (Cargo)",          "crates/floe-core/Cargo.toml",   ["package", "version"]),

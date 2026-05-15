@@ -35,6 +35,15 @@ The final line on stdout is always the `run_finished` event.
 
 `schema_evolution_applied` is emitted only when Floe actually adds columns to a Delta table. No event is emitted for strict mode, non-Delta sinks, or no-op `add_columns` runs.
 
+### `--log-format off` (default)
+
+- Suppresses all structured event output.
+- Human summary is still printed to stderr at the end of the run.
+- **OpenLineage events are still posted** when `lineage:` is configured — log
+  format does not gate lineage emission.
+- Lineage HTTP errors (401, timeouts) are emitted as warnings to stderr even
+  when log output is otherwise suppressed.
+
 ### `--log-format text`
 
 - Prints the same lifecycle events as plain text lines.

@@ -29,6 +29,13 @@ Run floe pipelines at Rust speed from Python notebooks::
     floe.run("pipeline.yml", profile_vars={"output_bucket": "s3://my-bucket"})
 """
 
+from importlib.metadata import version as _pkg_version
+
+try:
+    __version__ = _pkg_version("floe-python")
+except Exception:
+    __version__ = "unknown"
+
 from floe._floe import (
     FloeError,
     FloeConfigError,
@@ -49,6 +56,7 @@ from floe._floe import (
 )
 
 __all__ = [
+    "__version__",
     "FloeError",
     "FloeConfigError",
     "FloeRunError",

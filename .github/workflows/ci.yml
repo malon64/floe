@@ -112,6 +112,8 @@ jobs:
             docs:
               - "docs/**"
               - "README.md"
+            floe_python:
+              - "crates/floe-python/**"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -190,40 +192,21 @@ jobs:
           if [ "${{ steps.changes.outputs.floe_cli }}" = "true" ]; then
             cargo test -p floe-cli --tests
           fi
-
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      floe_python: ${{ steps.filter.outputs.floe_python }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            floe_python:
-              - "crates/floe-python/**"
-
-  test-python:
-    needs: changes
-    if: needs.changes.outputs.floe_python == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v0-rust
-          add-job-id-key: false
-          shared-key: v0-rust-feature
       - uses: actions/setup-python@v6
+        if: steps.changes.outputs.floe_python == 'true'
         with:
           python-version: "3.12"
       - name: Create virtualenv and install deps
+        if: steps.changes.outputs.floe_python == 'true'
         run: |
           python -m venv .venv
-          .venv/bin/pip install "maturin>=1.7,<2" pytest
+          .venv/bin/pip install "maturin>=1.7,<2" pytest mypy
       - name: Build and install floe-python
+        if: steps.changes.outputs.floe_python == 'true'
         run: .venv/bin/maturin develop --manifest-path crates/floe-python/Cargo.toml
       - name: Run Python tests
+        if: steps.changes.outputs.floe_python == 'true'
         run: .venv/bin/pytest crates/floe-python/tests/ -v
+      - name: Type-check stubs
+        if: steps.changes.outputs.floe_python == 'true'
+        run: .venv/bin/mypy crates/floe-python/tests/test_floe.py --ignore-missing-imports

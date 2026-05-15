@@ -273,3 +273,65 @@ def test_inspect_entity_state_no_state(tmp_path):
     assert result["incremental_mode"] in ("none", "file", "row", "archive")
     assert "path_uri" in result
     assert "state" in result
+
+
+# ---------------------------------------------------------------------------
+# __version__
+# ---------------------------------------------------------------------------
+
+
+def test_version():
+    assert hasattr(floe, "__version__")
+    assert isinstance(floe.__version__, str)
+    assert floe.__version__ != "unknown"
+
+
+# ---------------------------------------------------------------------------
+# profile_path parameter
+# ---------------------------------------------------------------------------
+
+PROFILE_CONFIG = str(FIXTURE_DIR / "profile.yml")
+
+
+def test_validate_with_profile_path():
+    floe.validate(VALID_CONFIG, profile_path=PROFILE_CONFIG)
+
+
+def test_validate_invalid_profile_path_raises():
+    with pytest.raises(floe.FloeConfigError):
+        floe.validate(VALID_CONFIG, profile_path="/nonexistent/profile.yml")
+
+
+def test_run_with_profile_path(tmp_path):
+    outcome = floe.run(
+        VALID_CONFIG,
+        profile_path=PROFILE_CONFIG,
+        profile_vars={
+            "out_root": str(tmp_path / "out"),
+            "report_root": str(tmp_path / "report"),
+            "incoming_root": str(FIXTURE_DIR / "in"),
+        },
+    )
+    assert isinstance(outcome, floe.RunOutcome)
+    assert outcome.run_id
+
+
+# ---------------------------------------------------------------------------
+# _repr_html_()
+# ---------------------------------------------------------------------------
+
+
+def test_repr_html(tmp_path):
+    outcome = floe.run(
+        VALID_CONFIG,
+        profile_vars={
+            "out_root": str(tmp_path / "out"),
+            "report_root": str(tmp_path / "report"),
+            "incoming_root": str(FIXTURE_DIR / "in"),
+        },
+    )
+    html = outcome._repr_html_()
+    assert isinstance(html, str)
+    assert "<table" in html
+    assert "RunOutcome" in html
+    assert outcome.run_id in html

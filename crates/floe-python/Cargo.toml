@@ -3,7 +3,7 @@ name = "floe-python"
 version = "0.3.9"
 edition = "2021"
 description = "Python bindings for floe-core (PyO3-based)"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/malon64/floe"
 homepage = "https://github.com/malon64/floe"
 keywords = ["ingestion", "data-quality", "yaml", "polars", "pyo3"]
@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 floe-core = { path = "../floe-core", version = "0.3.9" }
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 serde_json = "1"
 
 [features]

@@ -111,6 +111,29 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - name: Validate manifest versions match tag
+        run: |
+          python - <<'PY'
+          import sys, os, tomllib
+
+          version = os.environ["VERSION"]
+          manifests = {
+              "floe-core": "crates/floe-core/Cargo.toml",
+              "floe-cli":  "crates/floe-cli/Cargo.toml",
+          }
+          mismatches = []
+          for name, path in manifests.items():
+              with open(path, "rb") as f:
+                  pkg_ver = tomllib.load(f)["package"]["version"]
+              if pkg_ver != version:
+                  mismatches.append(f"  {name}: manifest={pkg_ver!r}  tag={version!r}")
+          if mismatches:
+              print("ERROR: manifest versions do not match the release tag:")
+              print("\n".join(mismatches))
+              print("Bump versions in a chore PR and merge before tagging.")
+              sys.exit(1)
+          print(f"OK: floe-core and floe-cli are at {version}")
+          PY
       - name: Verify crates.io token
         run: |
           if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then

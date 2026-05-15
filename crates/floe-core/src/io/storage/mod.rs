@@ -20,6 +20,18 @@ pub use target::Target;
 
 pub use planner::ObjectRef;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredObject {
+    pub body: Vec<u8>,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConditionalWrite {
+    Written { version: String },
+    Conflict,
+}
+
 pub trait StorageClient: Send + Sync {
     fn list(&self, prefix_or_path: &str) -> FloeResult<Vec<ObjectRef>>;
     fn download_to_temp(&self, uri: &str, temp_dir: &Path) -> FloeResult<PathBuf>;
@@ -28,6 +40,36 @@ pub trait StorageClient: Send + Sync {
     fn copy_object(&self, src_uri: &str, dst_uri: &str) -> FloeResult<()>;
     fn delete_object(&self, uri: &str) -> FloeResult<()>;
     fn exists(&self, uri: &str) -> FloeResult<bool>;
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let _ = uri;
+        Err(Box::new(ConfigError(
+            "storage backend does not support object reads with version tokens".to_string(),
+        )))
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let _ = (uri, expected_version, body);
+        Err(Box::new(ConfigError(
+            "storage backend does not support conditional object writes".to_string(),
+        )))
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let _ = (uri, expected_version);
+        Err(Box::new(ConfigError(
+            "storage backend does not support conditional object deletes".to_string(),
+        )))
+    }
 }
 
 pub struct CloudClient {

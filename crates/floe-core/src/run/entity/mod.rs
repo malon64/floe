@@ -117,7 +117,8 @@ pub(super) fn run_entity(
         listed: resolved_files,
         mode: resolved_mode,
     } = plan.resolved_inputs;
-    let incremental = incremental::prepare_incremental_context(context, entity, input_files)?;
+    let incremental =
+        incremental::prepare_incremental_context(context, runtime.storage(), entity, input_files)?;
     let input_files = incremental.pending_inputs;
     let pending_input_count = input_files.len();
 
@@ -353,7 +354,9 @@ pub(super) fn run_entity(
             status,
             report::RunStatus::Success | report::RunStatus::SuccessWithWarnings
         ) {
-            pending_state.commit()?;
+            pending_state.commit(context, runtime.storage(), entity)?;
+        } else {
+            pending_state.release(context, runtime.storage(), entity)?;
         }
     }
 

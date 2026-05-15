@@ -355,6 +355,7 @@ fn incremental_file_mode_fails_on_mismatched_state_schema() {
             entity: "customer".to_string(),
             updated_at: None,
             files: Default::default(),
+            claims: Default::default(),
         },
     )
     .expect("write state");

@@ -5,7 +5,7 @@ use glob::glob;
 use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
 
-use crate::io::storage::{planner, ObjectRef, StorageClient};
+use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 
 pub struct LocalClient;
 
@@ -126,6 +126,71 @@ impl StorageClient for LocalClient {
         let path = Path::new(uri.trim_start_matches("local://"));
         Ok(path.exists())
     }
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let path = Path::new(uri.trim_start_matches("local://"));
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(StoredObject {
+            body: std::fs::read(path)?,
+            version: local_version(path)?,
+        }))
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let path = PathBuf::from(uri.trim_start_matches("local://"));
+        let current = if path.exists() {
+            Some(local_version(&path)?)
+        } else {
+            None
+        };
+        if current.as_deref() != expected_version {
+            return Ok(ConditionalWrite::Conflict);
+        }
+        planner::ensure_parent_dir(&path)?;
+        std::fs::write(&path, body)?;
+        Ok(ConditionalWrite::Written {
+            version: local_version(&path)?,
+        })
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let path = PathBuf::from(uri.trim_start_matches("local://"));
+        let current = if path.exists() {
+            Some(local_version(&path)?)
+        } else {
+            None
+        };
+        if current.as_deref() != expected_version {
+            return Ok(ConditionalWrite::Conflict);
+        }
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(ConditionalWrite::Written {
+            version: "deleted".to_string(),
+        })
+    }
+}
+
+fn local_version(path: &Path) -> FloeResult<String> {
+    let metadata = std::fs::metadata(path)?;
+    let modified = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    Ok(format!("{}:{modified}", metadata.len()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

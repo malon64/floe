@@ -163,11 +163,37 @@ is available for templating within that entity.
 
 - Entity-local state settings used by incremental ingestion.
 - `state.path` (optional)
-  - Overrides the local file used to store entity state.
-  - Must be a local path, not `s3://`, `gs://`, or `abfs://`.
-  - When the config itself is remote, the override must be an absolute local path.
+  - Overrides the file or object used to store entity state.
+  - Supports local paths and cloud URIs for S3 (`s3://`), GCS (`gs://`), and ADLS (`abfs://`).
+  - Relative paths resolve like other entity paths. With a cloud source storage context,
+    a relative state path resolves under that storage prefix.
   - If omitted and `incremental_mode: file` is used, Floe derives the path under the
     source root as `.floe/state/<entity>/state.json`.
+  - For cloud sources, the derived default is a remote object under the source root,
+    for example `s3://bucket/prefix/incoming/.floe/state/customer/state.json`.
+
+#### File incremental state and concurrency
+
+`incremental_mode: file` writes state using schema `floe.state.file-ingest.v2`.
+Existing `floe.state.file-ingest.v1` files are still readable; Floe rewrites state
+as v2 the next time it updates the entity.
+
+The durable `files` map tracks file URIs that have completed successfully. The
+`claims` map tracks files currently owned by a run, with `run_id`, acquisition
+time, expiry time, size, and mtime. The default claim TTL is one hour.
+
+Before processing, Floe removes expired claims, skips previously processed files,
+and skips files actively claimed by another run with an incremental warning in
+the report. New pending files are claimed with an optimistic conditional state
+write before accepted sink output is written. On success, the run promotes its
+claims into `files`; on entity failure, it removes its claims so the files can be
+retried. Conditional write conflicts are retried a small fixed number of times
+and then fail with a clear concurrency error.
+
+Remote state requires object-store permissions to read, write with conditional
+preconditions, and delete the state object. Normal source listing permissions are
+still needed for input discovery; state itself does not require listing except
+where the selected cloud provider or IAM policy requires it for object access.
 
 ### `source` (required)
 

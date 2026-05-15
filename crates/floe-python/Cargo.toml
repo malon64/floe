@@ -1,0 +1,21 @@
+[package]
+name = "floe-python"
+version = "0.3.8"
+edition = "2021"
+description = "Python bindings for floe-core (PyO3-based)"
+license = "MIT"
+repository = "https://github.com/malon64/floe"
+homepage = "https://github.com/malon64/floe"
+keywords = ["ingestion", "data-quality", "yaml", "polars", "pyo3"]
+
+[lib]
+name = "_floe"
+crate-type = ["cdylib"]
+
+[dependencies]
+floe-core = { path = "../floe-core", version = "0.3.8" }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+serde_json = "1"
+
+[features]
+vendored-openssl = ["floe-core/vendored-openssl"]

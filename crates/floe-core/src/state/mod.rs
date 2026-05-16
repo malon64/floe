@@ -8,7 +8,9 @@ use tempfile::NamedTempFile;
 use crate::config::{
     ConfigBase, EntityConfig, IncrementalMode, ResolvedPath, RootConfig, StorageResolver,
 };
-use crate::io::storage::{extensions, CloudClient, ConditionalWrite};
+use crate::io::storage::{
+    extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient,
+};
 use crate::{ConfigError, FloeResult};
 
 pub const ENTITY_STATE_SCHEMA_V1: &str = "floe.state.file-ingest.v1";
@@ -363,26 +365,20 @@ pub fn reset_entity_state_with_base(
         return Ok(false);
     }
 
-    let mut cloud = CloudClient::new();
-    let resolver = StorageResolver::new(&config, config_base)?;
-    let loaded = load_target_state_with_resolver(&mut cloud, &resolver, entity, target)?;
-    if !loaded.existed {
-        return Ok(false);
-    }
-    match &loaded.target {
-        EntityStateTarget::Local { path, .. } => {
-            if path.exists() {
-                fs::remove_file(path)?;
-            }
-            Ok(true)
-        }
+    match target {
+        EntityStateTarget::Local { .. } => Ok(false),
         EntityStateTarget::Remote { storage, uri } => {
+            let mut cloud = CloudClient::new();
+            let resolver = StorageResolver::new(&config, config_base)?;
             let client = cloud.client_for_context(
                 &resolver,
-                storage,
+                &storage,
                 &format!("entity.name={}", entity.name),
             )?;
-            match client.delete_object_conditional(uri, loaded.version.as_deref())? {
+            let Some(object) = client.read_object(&uri)? else {
+                return Ok(false);
+            };
+            match client.delete_object_conditional(&uri, Some(&object.version))? {
                 ConditionalWrite::Written { .. } => Ok(true),
                 ConditionalWrite::Conflict => Err(Box::new(ConfigError(format!(
                     "entity.name={} remote state changed while resetting: {}",
@@ -475,15 +471,19 @@ fn load_local_target(
     uri: String,
     entity: &EntityConfig,
 ) -> FloeResult<LoadedEntityState> {
-    let state = read_entity_state(&path)?
-        .map(|state| validate_entity_state(entity, state))
-        .transpose()?
-        .unwrap_or_else(|| EntityState::new(&entity.name));
-    let existed = path.exists();
+    let object = LocalClient::new().read_object(&uri)?;
+    let (state, version, existed) = match object {
+        Some(object) => (
+            validate_entity_state(entity, parse_entity_state(&object.body)?)?,
+            Some(object.version),
+            true,
+        ),
+        None => (EntityState::new(&entity.name), None, false),
+    };
     Ok(LoadedEntityState {
         target: EntityStateTarget::Local { path, uri },
         state,
-        version: None,
+        version,
         existed,
     })
 }
@@ -497,9 +497,15 @@ fn persist_loaded_state(
     state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
     let body = serde_json::to_vec_pretty(&state)?;
     match &loaded.target {
-        EntityStateTarget::Local { path, .. } => {
-            write_entity_state_atomic(path, &state)?;
-            Ok(Some(None))
+        EntityStateTarget::Local { uri, .. } => {
+            match LocalClient::new().write_object_conditional(
+                uri,
+                loaded.version.as_deref(),
+                &body,
+            )? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
+            }
         }
         EntityStateTarget::Remote { uri, storage } => {
             let client = cloud.client_for_context(resolver, storage, "entity state")?;
@@ -517,11 +523,11 @@ fn delete_loaded_state(
     loaded: &LoadedEntityState,
 ) -> FloeResult<Option<Option<String>>> {
     match &loaded.target {
-        EntityStateTarget::Local { path, .. } => {
-            if path.exists() {
-                fs::remove_file(path)?;
+        EntityStateTarget::Local { uri, .. } => {
+            match LocalClient::new().delete_object_conditional(uri, loaded.version.as_deref())? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
             }
-            Ok(Some(None))
         }
         EntityStateTarget::Remote { uri, storage } => {
             let client = cloud.client_for_context(resolver, storage, "entity state")?;

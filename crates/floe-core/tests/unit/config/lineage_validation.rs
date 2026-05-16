@@ -95,3 +95,60 @@ entities:
     let path = write_temp_config(config);
     validate(&path, ValidateOptions::default()).expect("valid lineage config");
 }
+
+#[test]
+fn lineage_max_failures_zero_rejected() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+lineage:
+  url: "http://marquez:5000"
+  namespace: "my-namespace"
+  max_failures: 0
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    assert_validation_error(config, &["max_failures", "at least 1"]);
+}
+
+#[test]
+fn lineage_max_failures_valid() {
+    let config = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+lineage:
+  url: "http://marquez:5000"
+  namespace: "my-namespace"
+  max_failures: 5
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let path = write_temp_config(config);
+    validate(&path, ValidateOptions::default()).expect("max_failures: 5 should be valid");
+}

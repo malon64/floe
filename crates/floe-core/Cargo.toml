@@ -51,6 +51,7 @@ hex = "0.4"
 
 [dev-dependencies]
 rust_xlsxwriter = "0.67"
+mockito = "1"
 
 [features]
 vendored-openssl = []

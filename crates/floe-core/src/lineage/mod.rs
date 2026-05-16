@@ -85,10 +85,9 @@ impl OpenLineageObserver {
         let max_failures = self.config.max_failures.unwrap_or(3) as usize;
         let retry_delays_ms: &[u64] = &[0, 100, 500];
 
-        let mut last_is_retryable = false;
         let mut succeeded = false;
 
-        for (attempt, &delay_ms) in retry_delays_ms.iter().enumerate() {
+        'retry: for (attempt, &delay_ms) in retry_delays_ms.iter().enumerate() {
             if delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(delay_ms));
             }
@@ -96,12 +95,11 @@ impl OpenLineageObserver {
                 Ok(()) => {
                     self.consecutive_failures.store(0, Ordering::Relaxed);
                     succeeded = true;
-                    break;
+                    break 'retry;
                 }
                 Err(is_retryable) => {
-                    last_is_retryable = is_retryable;
                     if !is_retryable || attempt == retry_delays_ms.len() - 1 {
-                        break;
+                        break 'retry;
                     }
                 }
             }
@@ -111,15 +109,14 @@ impl OpenLineageObserver {
             return;
         }
 
-        if !last_is_retryable {
-            crate::warnings::emit(
-                "",
-                None,
-                None,
-                Some("lineage_http_error"),
-                &format!("lineage: POST {url} returned a non-retryable error — check api_key and url"),
-            );
-        }
+        // Always warn when an event is dropped, whether the failure was retryable or not.
+        crate::warnings::emit(
+            "",
+            None,
+            None,
+            Some("lineage_http_error"),
+            &format!("lineage: POST {url} failed — event dropped"),
+        );
 
         let failures = self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
         if failures >= max_failures && !self.circuit_open.swap(true, Ordering::Relaxed) {
@@ -287,6 +284,10 @@ impl RunObserver for OpenLineageObserver {
     fn on_event(&self, event: RunEvent) {
         match event {
             RunEvent::RunStarted { run_id, ts_ms, .. } => {
+                // Reset circuit breaker at the start of each run so a recovered endpoint
+                // is retried in subsequent runs within the same long-lived process.
+                self.consecutive_failures.store(0, Ordering::Relaxed);
+                self.circuit_open.store(false, Ordering::Relaxed);
                 if let Ok(mut guard) = self.run_start_ms.lock() {
                     *guard = Some(ts_ms);
                 }

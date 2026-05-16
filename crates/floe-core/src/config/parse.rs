@@ -1125,7 +1125,14 @@ fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
     validate_known_keys(
         hash,
         "lineage",
-        &["url", "api_key", "timeout_secs", "namespace", "producer", "max_failures"],
+        &[
+            "url",
+            "api_key",
+            "timeout_secs",
+            "namespace",
+            "producer",
+            "max_failures",
+        ],
     )?;
     Ok(LineageConfig {
         url: get_string(hash, "url", "lineage")?,

@@ -1061,6 +1061,20 @@ fn opt_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
     }
 }
 
+fn opt_u32(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u32>> {
+    match opt_u64(hash, key, ctx)? {
+        None => Ok(None),
+        Some(v) => {
+            if v > u32::MAX as u64 {
+                return Err(Box::new(ConfigError(format!(
+                    "value at {ctx}.{key} exceeds maximum allowed value"
+                ))));
+            }
+            Ok(Some(v as u32))
+        }
+    }
+}
+
 fn parse_pii_config(value: &Yaml) -> FloeResult<PiiConfig> {
     let hash = yaml_hash(value, "pii")?;
     validate_known_keys(hash, "pii", &["columns"])?;
@@ -1111,7 +1125,7 @@ fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
     validate_known_keys(
         hash,
         "lineage",
-        &["url", "api_key", "timeout_secs", "namespace", "producer"],
+        &["url", "api_key", "timeout_secs", "namespace", "producer", "max_failures"],
     )?;
     Ok(LineageConfig {
         url: get_string(hash, "url", "lineage")?,
@@ -1119,5 +1133,6 @@ fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
         timeout_secs: opt_u64(hash, "timeout_secs", "lineage")?,
         namespace: get_string(hash, "namespace", "lineage")?,
         producer: opt_string(hash, "producer", "lineage")?,
+        max_failures: opt_u32(hash, "max_failures", "lineage")?,
     })
 }

@@ -103,6 +103,11 @@ fn validate_lineage(lineage: &crate::config::LineageConfig) -> FloeResult<()> {
             "lineage.namespace must not be empty".to_string(),
         )));
     }
+    if lineage.max_failures == Some(0) {
+        return Err(Box::new(ConfigError(
+            "lineage.max_failures must be at least 1".to_string(),
+        )));
+    }
     Ok(())
 }
 

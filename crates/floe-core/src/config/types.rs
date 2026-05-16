@@ -28,6 +28,7 @@ pub struct LineageConfig {
     pub timeout_secs: Option<u64>,
     pub namespace: String,
     pub producer: Option<String>,
+    pub max_failures: Option<u32>,
 }
 
 #[derive(Debug)]

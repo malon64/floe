@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,6 +15,8 @@ pub struct OpenLineageObserver {
     entity_run_ids: Mutex<HashMap<String, String>>,
     run_start_ms: Mutex<Option<u128>>,
     entity_schemas: HashMap<String, Vec<(String, String)>>,
+    consecutive_failures: AtomicUsize,
+    circuit_open: AtomicBool,
 }
 
 impl OpenLineageObserver {
@@ -48,36 +51,87 @@ impl OpenLineageObserver {
             entity_run_ids: Mutex::new(HashMap::new()),
             run_start_ms: Mutex::new(None),
             entity_schemas,
+            consecutive_failures: AtomicUsize::new(0),
+            circuit_open: AtomicBool::new(false),
         })
     }
 
-    fn post_event(&self, body: Value) {
-        let url = format!("{}/api/v1/lineage", self.config.url.trim_end_matches('/'));
-        let mut req = self.client.post(&url).json(&body);
+    fn attempt_post(&self, url: &str, body: &Value) -> Result<(), bool> {
+        let mut req = self.client.post(url).json(body);
         if let Some(api_key) = self.config.api_key.as_deref() {
             req = req.bearer_auth(api_key);
         }
         match req.send() {
-            Err(e) => {
-                crate::warnings::emit(
-                    "",
-                    None,
-                    None,
-                    Some("lineage_http_error"),
-                    &format!("lineage: POST {url} failed: {e}"),
-                );
-            }
+            Err(_) => Err(true),
             Ok(resp) => {
-                if let Err(e) = resp.error_for_status() {
-                    crate::warnings::emit(
-                        "",
-                        None,
-                        None,
-                        Some("lineage_http_error"),
-                        &format!("lineage: POST {url} returned error status: {e}"),
-                    );
+                let status = resp.status();
+                if status.is_success() {
+                    Ok(())
+                } else if status.as_u16() == 429 || status.is_server_error() {
+                    Err(true)
+                } else {
+                    Err(false)
                 }
             }
+        }
+    }
+
+    fn post_event(&self, body: Value) {
+        if self.circuit_open.load(Ordering::Relaxed) {
+            return;
+        }
+
+        let url = format!("{}/api/v1/lineage", self.config.url.trim_end_matches('/'));
+        let max_failures = self.config.max_failures.unwrap_or(3) as usize;
+        let retry_delays_ms: &[u64] = &[0, 100, 500];
+
+        let mut last_is_retryable = false;
+        let mut succeeded = false;
+
+        for (attempt, &delay_ms) in retry_delays_ms.iter().enumerate() {
+            if delay_ms > 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+            match self.attempt_post(&url, &body) {
+                Ok(()) => {
+                    self.consecutive_failures.store(0, Ordering::Relaxed);
+                    succeeded = true;
+                    break;
+                }
+                Err(is_retryable) => {
+                    last_is_retryable = is_retryable;
+                    if !is_retryable || attempt == retry_delays_ms.len() - 1 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if succeeded {
+            return;
+        }
+
+        if !last_is_retryable {
+            crate::warnings::emit(
+                "",
+                None,
+                None,
+                Some("lineage_http_error"),
+                &format!("lineage: POST {url} returned a non-retryable error — check api_key and url"),
+            );
+        }
+
+        let failures = self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
+        if failures >= max_failures && !self.circuit_open.swap(true, Ordering::Relaxed) {
+            crate::warnings::emit(
+                "",
+                None,
+                None,
+                Some("lineage_circuit_open"),
+                &format!(
+                    "lineage: disabled for this run after {failures} consecutive failures — check endpoint {url}"
+                ),
+            );
         }
     }
 
@@ -357,4 +411,14 @@ pub fn build_observer(
 ) -> crate::FloeResult<Arc<dyn RunObserver>> {
     let obs = OpenLineageObserver::new(config, entities)?;
     Ok(Arc::new(obs))
+}
+
+impl OpenLineageObserver {
+    pub fn is_circuit_open(&self) -> bool {
+        self.circuit_open.load(Ordering::Relaxed)
+    }
+
+    pub fn consecutive_failures(&self) -> usize {
+        self.consecutive_failures.load(Ordering::Relaxed)
+    }
 }

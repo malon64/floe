@@ -515,7 +515,7 @@ jobs:
 
           while IFS= read -r -d '' file; do
             size=$(stat -c%s "$file")
-            python3 - "$file" "$size" "$limit" <<'PY'
+            if ! python3 - "$file" "$size" "$limit" <<'PY'
           import sys
 
           path, size, limit = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
@@ -524,7 +524,10 @@ jobs:
               print(f"ERROR: {path} exceeds PyPI's 100 MB per-file limit.")
               sys.exit(1)
           PY
-          done < <(find dist -type f \( -name '*.whl' -o -name '*.tar.gz' \) -print0) || too_large=1
+            then
+              too_large=1
+            fi
+          done < <(find dist -type f \( -name '*.whl' -o -name '*.tar.gz' \) -print0)
 
           exit "$too_large"
       - uses: pypa/gh-action-pypi-publish@release/v1

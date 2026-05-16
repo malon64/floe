@@ -117,7 +117,7 @@ pub(super) fn run_entity(
         listed: resolved_files,
         mode: resolved_mode,
     } = plan.resolved_inputs;
-    let incremental =
+    let mut incremental =
         incremental::prepare_incremental_context(context, runtime.storage(), entity, input_files)?;
     let input_files = incremental.pending_inputs;
     let pending_input_count = input_files.len();
@@ -342,7 +342,7 @@ pub(super) fn run_entity(
         }
     }
 
-    if let Some(pending_state) = incremental.pending_state.as_ref() {
+    if let Some(pending_state) = incremental.pending_state.as_mut() {
         let (status, _) = report::compute_run_outcome(
             &run_report
                 .files

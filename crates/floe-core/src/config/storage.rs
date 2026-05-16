@@ -126,6 +126,7 @@ pub struct ResolvedPath {
     pub local_path: Option<PathBuf>,
 }
 
+#[derive(Clone)]
 pub struct StorageResolver {
     config_base: ConfigBase,
     default_name: String,

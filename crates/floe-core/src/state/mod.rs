@@ -17,7 +17,7 @@ pub const ENTITY_STATE_SCHEMA_V1: &str = "floe.state.file-ingest.v1";
 pub const ENTITY_STATE_SCHEMA_V2: &str = "floe.state.file-ingest.v2";
 pub const ENTITY_STATE_FILENAME: &str = "state.json";
 const STATE_CAS_RETRIES: usize = 5;
-const CLAIM_TTL_SECONDS: i64 = 60 * 60;
+pub const CLAIM_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EntityState {
@@ -244,11 +244,11 @@ pub fn claim_entity_inputs(
 pub fn promote_claimed_entity_state(
     resolver: &StorageResolver,
     cloud: &mut CloudClient,
-    entity: &EntityConfig,
+    entity_name: &str,
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
-    mutate_claimed_state(resolver, cloud, entity, claimed, |state| {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
         let processed_at = now_rfc3339();
         let claimed_files: Vec<String> = state
             .claims
@@ -275,20 +275,39 @@ pub fn promote_claimed_entity_state(
 pub fn release_claimed_entity_state(
     resolver: &StorageResolver,
     cloud: &mut CloudClient,
-    entity: &EntityConfig,
+    entity_name: &str,
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
-    mutate_claimed_state(resolver, cloud, entity, claimed, |state| {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
         state.claims.retain(|_, claim| claim.run_id != run_id);
         state.updated_at = Some(now_rfc3339());
+    })
+}
+
+pub fn renew_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+        let now = now_rfc3339();
+        let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
+        for claim in state.claims.values_mut() {
+            if claim.run_id == run_id {
+                claim.expires_at = expires_at.clone();
+            }
+        }
+        state.updated_at = Some(now);
     })
 }
 
 fn mutate_claimed_state(
     resolver: &StorageResolver,
     cloud: &mut CloudClient,
-    entity: &EntityConfig,
+    entity_name: &str,
     claimed: &ClaimedEntityState,
     mutate: impl Fn(&mut EntityState),
 ) -> FloeResult<()> {
@@ -301,7 +320,12 @@ fn mutate_claimed_state(
                 existed: claimed.version.is_some(),
             }
         } else {
-            load_target_state_with_resolver(cloud, resolver, entity, claimed.target.clone())?
+            load_target_state_with_entity_name(
+                cloud,
+                resolver,
+                entity_name,
+                claimed.target.clone(),
+            )?
         };
         mutate(&mut loaded.state);
         loaded.state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
@@ -316,7 +340,7 @@ fn mutate_claimed_state(
     }
     Err(Box::new(ConfigError(format!(
         "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
-        entity.name
+        entity_name
     ))))
 }
 
@@ -439,22 +463,31 @@ fn load_target_state_with_resolver(
     entity: &EntityConfig,
     target: EntityStateTarget,
 ) -> FloeResult<LoadedEntityState> {
+    load_target_state_with_entity_name(cloud, resolver, &entity.name, target)
+}
+
+fn load_target_state_with_entity_name(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    entity_name: &str,
+    target: EntityStateTarget,
+) -> FloeResult<LoadedEntityState> {
     match target {
-        EntityStateTarget::Local { path, uri } => load_local_target(path, uri, entity),
+        EntityStateTarget::Local { path, uri } => load_local_target(path, uri, entity_name),
         EntityStateTarget::Remote { storage, uri } => {
             let client = cloud.client_for_context(
                 resolver,
                 &storage,
-                &format!("entity.name={}", entity.name),
+                &format!("entity.name={entity_name}"),
             )?;
             let object = client.read_object(&uri)?;
             let (state, version, existed) = match object {
                 Some(object) => (
-                    validate_entity_state(entity, parse_entity_state(&object.body)?)?,
+                    validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
                     Some(object.version),
                     true,
                 ),
-                None => (EntityState::new(&entity.name), None, false),
+                None => (EntityState::new(entity_name), None, false),
             };
             Ok(LoadedEntityState {
                 target: EntityStateTarget::Remote { storage, uri },
@@ -469,16 +502,16 @@ fn load_target_state_with_resolver(
 fn load_local_target(
     path: PathBuf,
     uri: String,
-    entity: &EntityConfig,
+    entity_name: &str,
 ) -> FloeResult<LoadedEntityState> {
     let object = LocalClient::new().read_object(&uri)?;
     let (state, version, existed) = match object {
         Some(object) => (
-            validate_entity_state(entity, parse_entity_state(&object.body)?)?,
+            validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
             Some(object.version),
             true,
         ),
-        None => (EntityState::new(&entity.name), None, false),
+        None => (EntityState::new(entity_name), None, false),
     };
     Ok(LoadedEntityState {
         target: EntityStateTarget::Local { path, uri },
@@ -677,17 +710,21 @@ fn is_remote_uri(value: &str) -> bool {
 }
 
 pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeResult<EntityState> {
+    validate_entity_state_name(&entity.name, state)
+}
+
+fn validate_entity_state_name(entity_name: &str, state: EntityState) -> FloeResult<EntityState> {
     if state.schema != ENTITY_STATE_SCHEMA_V1 && state.schema != ENTITY_STATE_SCHEMA_V2 {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} state schema mismatch: expected {} or {}, got {}",
-            entity.name, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2, state.schema
+            entity_name, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2, state.schema
         ))));
     }
 
-    if state.entity != entity.name {
+    if state.entity != entity_name {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} state entity mismatch: expected {}, got {}",
-            entity.name, entity.name, state.entity
+            entity_name, entity_name, state.entity
         ))));
     }
 

@@ -1,4 +1,9 @@
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
 use crate::config::IncrementalMode;
+use crate::config::StorageResolver;
 use crate::io::format::InputFile;
 use crate::io::storage::CloudClient;
 use crate::report::{
@@ -7,7 +12,7 @@ use crate::report::{
 use crate::run::RunContext;
 use crate::state::{
     claim_entity_inputs, promote_claimed_entity_state, release_claimed_entity_state,
-    ClaimedEntityState, EntityFileState,
+    renew_claimed_entity_state, ClaimedEntityState, EntityFileState, CLAIM_TTL_SECONDS,
 };
 use crate::{config, warnings, FloeResult};
 
@@ -84,9 +89,14 @@ pub(super) fn prepare_incremental_context(
     Ok(IncrementalContext {
         pending_inputs: claim_outcome.pending_inputs,
         skipped_reports,
-        pending_state: claim_outcome
-            .claimed_state
-            .map(|claimed| PendingEntityState { claimed }),
+        pending_state: claim_outcome.claimed_state.map(|claimed| {
+            PendingEntityState::new(
+                claimed,
+                context.storage_resolver.clone(),
+                entity.name.clone(),
+                context.run_id.clone(),
+            )
+        }),
     })
 }
 
@@ -127,36 +137,145 @@ fn build_skipped_report(input_file: String, warning: Option<String>) -> FileRepo
 
 pub(super) struct PendingEntityState {
     claimed: ClaimedEntityState,
+    resolver: StorageResolver,
+    entity_name: String,
+    run_id: String,
+    heartbeat: Option<ClaimHeartbeat>,
+    finalized: bool,
 }
 
 impl PendingEntityState {
+    fn new(
+        claimed: ClaimedEntityState,
+        resolver: StorageResolver,
+        entity_name: String,
+        run_id: String,
+    ) -> Self {
+        let heartbeat = ClaimHeartbeat::start(
+            resolver.clone(),
+            entity_name.clone(),
+            run_id.clone(),
+            claimed.clone(),
+        );
+        Self {
+            claimed,
+            resolver,
+            entity_name,
+            run_id,
+            heartbeat: Some(heartbeat),
+            finalized: false,
+        }
+    }
+
     pub(super) fn commit(
-        &self,
-        context: &RunContext,
+        &mut self,
+        _context: &RunContext,
         cloud: &mut CloudClient,
-        entity: &config::EntityConfig,
+        _entity: &config::EntityConfig,
     ) -> FloeResult<()> {
+        self.stop_heartbeat();
         promote_claimed_entity_state(
-            &context.storage_resolver,
+            &self.resolver,
             cloud,
-            entity,
-            &context.run_id,
+            &self.entity_name,
+            &self.run_id,
             &self.claimed,
-        )
+        )?;
+        self.finalized = true;
+        Ok(())
     }
 
     pub(super) fn release(
-        &self,
-        context: &RunContext,
+        &mut self,
+        _context: &RunContext,
         cloud: &mut CloudClient,
-        entity: &config::EntityConfig,
+        _entity: &config::EntityConfig,
     ) -> FloeResult<()> {
+        self.stop_heartbeat();
         release_claimed_entity_state(
-            &context.storage_resolver,
+            &self.resolver,
             cloud,
-            entity,
-            &context.run_id,
+            &self.entity_name,
+            &self.run_id,
             &self.claimed,
-        )
+        )?;
+        self.finalized = true;
+        Ok(())
     }
+
+    fn stop_heartbeat(&mut self) {
+        if let Some(mut heartbeat) = self.heartbeat.take() {
+            heartbeat.stop();
+        }
+    }
+}
+
+impl Drop for PendingEntityState {
+    fn drop(&mut self) {
+        self.stop_heartbeat();
+        if self.finalized {
+            return;
+        }
+        let mut cloud = CloudClient::new();
+        let _ = release_claimed_entity_state(
+            &self.resolver,
+            &mut cloud,
+            &self.entity_name,
+            &self.run_id,
+            &self.claimed,
+        );
+    }
+}
+
+struct ClaimHeartbeat {
+    stop_tx: Option<Sender<()>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl ClaimHeartbeat {
+    fn start(
+        resolver: StorageResolver,
+        entity_name: String,
+        run_id: String,
+        claimed: ClaimedEntityState,
+    ) -> Self {
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let interval = claim_renewal_interval();
+        let handle = thread::spawn(move || {
+            while stop_rx.recv_timeout(interval).is_err() {
+                let mut cloud = CloudClient::new();
+                let _ = renew_claimed_entity_state(
+                    &resolver,
+                    &mut cloud,
+                    &entity_name,
+                    &run_id,
+                    &claimed,
+                );
+            }
+        });
+        Self {
+            stop_tx: Some(stop_tx),
+            handle: Some(handle),
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for ClaimHeartbeat {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn claim_renewal_interval() -> Duration {
+    let ttl = CLAIM_TTL_SECONDS.max(1) as u64;
+    Duration::from_secs((ttl / 3).clamp(1, 300))
 }

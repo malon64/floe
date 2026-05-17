@@ -279,10 +279,6 @@ fn parse_unity_error(body: &str) -> String {
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // expand_env_token
-    // -----------------------------------------------------------------------
-
     #[test]
     fn plain_literal_is_returned_unchanged() {
         let result = expand_env_token("dapi1234567890abcdef", "my_catalog").unwrap();
@@ -320,18 +316,20 @@ mod tests {
     #[test]
     fn empty_placeholder_is_rejected() {
         let err = expand_env_token("${}", "my_catalog").unwrap_err();
-        assert!(err.to_string().contains("invalid placeholder syntax"));
+        assert!(
+            err.to_string().contains("invalid placeholder syntax"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn unclosed_brace_is_rejected() {
         let err = expand_env_token("${UNCLOSED", "my_catalog").unwrap_err();
-        assert!(err.to_string().contains("mixing literal text"));
+        assert!(
+            err.to_string().contains("mixing literal text"),
+            "got: {err}"
+        );
     }
-
-    // -----------------------------------------------------------------------
-    // parse_unity_error
-    // -----------------------------------------------------------------------
 
     #[test]
     fn parse_unity_error_extracts_code_and_message() {
@@ -352,10 +350,6 @@ mod tests {
         let result = parse_unity_error(body);
         assert_eq!(result, "UNKNOWN: Schema not found");
     }
-
-    // -----------------------------------------------------------------------
-    // register_unity_table — HTTP interaction tests
-    // -----------------------------------------------------------------------
 
     fn test_cfg(server_url: &str) -> UnityCatalogConfig {
         UnityCatalogConfig {
@@ -485,8 +479,11 @@ mod tests {
         let msg = err.to_string();
         assert!(
             msg.contains("403"),
-            "error should mention the unexpected status, got: {msg}"
+            "error should mention the status, got: {msg}"
         );
-        assert!(msg.contains("PERMISSION_DENIED") || msg.contains("Access denied"));
+        assert!(
+            msg.contains("PERMISSION_DENIED"),
+            "error should include parsed error code, got: {msg}"
+        );
     }
 }

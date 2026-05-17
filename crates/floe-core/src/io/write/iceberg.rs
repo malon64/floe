@@ -13,7 +13,7 @@ use polars::prelude::DataFrame;
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
-    AcceptedWriteRequest,
+    AcceptedWriteRequest, CatalogRegistration,
 };
 use crate::io::storage::Target;
 use crate::{config, io, FloeResult};
@@ -62,10 +62,7 @@ pub(crate) struct IcebergWriteResult {
     file_paths: Vec<String>,
     metrics: AcceptedWriteMetrics,
     table_root_uri: String,
-    iceberg_catalog_name: Option<String>,
-    iceberg_database: Option<String>,
-    iceberg_namespace: Option<String>,
-    iceberg_table: Option<String>,
+    catalog: Option<CatalogRegistration>,
     perf: AcceptedWritePerfBreakdown,
 }
 
@@ -237,16 +234,10 @@ fn write_iceberg_table_with_remote_context(
         table_version: result.metadata_version,
         snapshot_id: result.snapshot_id,
         table_root_uri: result
-            .iceberg_catalog_name
+            .catalog
             .as_ref()
             .map(|_| result.table_root_uri.clone()),
-        iceberg_catalog_name: result.iceberg_catalog_name,
-        iceberg_database: result.iceberg_database,
-        iceberg_namespace: result.iceberg_namespace,
-        iceberg_table: result.iceberg_table,
-        delta_catalog_name: None,
-        delta_catalog_schema: None,
-        delta_catalog_table: None,
+        catalog: result.catalog,
         metrics: result.metrics,
         merge: None,
         schema_evolution: crate::io::format::AcceptedSchemaEvolution {
@@ -471,6 +462,12 @@ async fn write_iceberg_table_async(
     );
     perf.metrics_read_ms = Some(metrics_start.elapsed().as_millis() as u64);
 
+    let catalog = catalog_cfg.as_ref().map(|cfg| CatalogRegistration::IcebergGlue {
+        catalog_name: cfg.catalog_name().to_string(),
+        database: cfg.database().map(ToOwned::to_owned),
+        namespace: cfg.namespace().to_string(),
+        table: cfg.table().to_string(),
+    });
     Ok(IcebergWriteResult {
         files_written,
         snapshot_id,
@@ -478,14 +475,7 @@ async fn write_iceberg_table_async(
         file_paths,
         metrics,
         table_root_uri,
-        iceberg_catalog_name: catalog_cfg
-            .as_ref()
-            .map(|cfg| cfg.catalog_name().to_string()),
-        iceberg_database: catalog_cfg
-            .as_ref()
-            .and_then(|cfg| cfg.database().map(ToOwned::to_owned)),
-        iceberg_namespace: catalog_cfg.as_ref().map(|cfg| cfg.namespace().to_string()),
-        iceberg_table: catalog_cfg.as_ref().map(|cfg| cfg.table().to_string()),
+        catalog,
         perf,
     })
 }

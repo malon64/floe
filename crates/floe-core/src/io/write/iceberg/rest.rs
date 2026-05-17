@@ -12,6 +12,7 @@ use iceberg_catalog_rest::{
 
 use crate::config::CatalogTypeConfig;
 use crate::errors::RunError;
+use crate::io::format::CatalogRegistration;
 use crate::{config, FloeResult};
 
 use super::data_files::write_data_files;
@@ -266,10 +267,11 @@ pub(crate) async fn write_via_rest_catalog(
         file_paths,
         metrics,
         table_root_uri,
-        iceberg_catalog_name: Some(rest_cfg.catalog_name.clone()),
-        iceberg_database: None,
-        iceberg_namespace: Some(rest_cfg.namespace.clone()),
-        iceberg_table: Some(rest_cfg.table.clone()),
+        catalog: Some(CatalogRegistration::IcebergRest {
+            catalog_name: rest_cfg.catalog_name.clone(),
+            namespace: rest_cfg.namespace.clone(),
+            table: rest_cfg.table.clone(),
+        }),
         perf,
     })
 }

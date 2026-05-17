@@ -84,6 +84,26 @@ pub struct AcceptedMergeMetrics {
     pub merge_elapsed_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+pub enum CatalogRegistration {
+    UnityDelta {
+        catalog_name: String,
+        schema: String,
+        table: String,
+    },
+    IcebergGlue {
+        catalog_name: String,
+        database: Option<String>,
+        namespace: String,
+        table: String,
+    },
+    IcebergRest {
+        catalog_name: String,
+        namespace: String,
+        table: String,
+    },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AcceptedWriteOutput {
     pub files_written: Option<u64>,
@@ -92,13 +112,7 @@ pub struct AcceptedWriteOutput {
     pub table_version: Option<i64>,
     pub snapshot_id: Option<i64>,
     pub table_root_uri: Option<String>,
-    pub iceberg_catalog_name: Option<String>,
-    pub iceberg_database: Option<String>,
-    pub iceberg_namespace: Option<String>,
-    pub iceberg_table: Option<String>,
-    pub delta_catalog_name: Option<String>,
-    pub delta_catalog_schema: Option<String>,
-    pub delta_catalog_table: Option<String>,
+    pub catalog: Option<CatalogRegistration>,
     pub metrics: AcceptedWriteMetrics,
     pub merge: Option<AcceptedMergeMetrics>,
     pub schema_evolution: AcceptedSchemaEvolution,

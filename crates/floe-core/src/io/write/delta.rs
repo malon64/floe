@@ -5,7 +5,7 @@ use std::time::Instant;
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
-    AcceptedWritePerfBreakdown, AcceptedWriteRequest,
+    AcceptedWritePerfBreakdown, AcceptedWriteRequest, CatalogRegistration,
 };
 use crate::io::storage::Target;
 use crate::io::write::strategy::merge::{scd1, scd2, shared};
@@ -202,6 +202,11 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             None => None,
         };
 
+        let catalog = unity_output.as_ref().map(|r| CatalogRegistration::UnityDelta {
+            catalog_name: r.catalog_name.clone(),
+            schema: r.schema.clone(),
+            table: r.table.clone(),
+        });
         Ok(AcceptedWriteOutput {
             files_written: result.files_written,
             parts_written: 1,
@@ -209,13 +214,7 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             table_version: Some(result.version),
             snapshot_id: None,
             table_root_uri: unity_output.as_ref().map(|_| table_uri),
-            iceberg_catalog_name: None,
-            iceberg_database: None,
-            iceberg_namespace: None,
-            iceberg_table: None,
-            delta_catalog_name: unity_output.as_ref().map(|r| r.catalog_name.clone()),
-            delta_catalog_schema: unity_output.as_ref().map(|r| r.schema.clone()),
-            delta_catalog_table: unity_output.as_ref().map(|r| r.table.clone()),
+            catalog,
             metrics: result.metrics,
             merge: result.merge,
             schema_evolution: result.schema_evolution,

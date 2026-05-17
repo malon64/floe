@@ -49,7 +49,7 @@ entities:
         entity.sink.rejected.as_ref().unwrap().write_mode,
         WriteMode::Overwrite
     );
-    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Overwrite);
+    assert_eq!(entity.sink.write_mode, WriteMode::Overwrite);
     let schema_evolution = entity.schema.resolved_schema_evolution();
     assert_eq!(schema_evolution.mode, SchemaEvolutionMode::Strict);
     assert_eq!(
@@ -165,7 +165,7 @@ entities:
         entity.sink.rejected.as_ref().unwrap().write_mode,
         WriteMode::Append
     );
-    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::Append);
+    assert_eq!(entity.sink.write_mode, WriteMode::Append);
 }
 
 #[test]
@@ -365,7 +365,7 @@ entities:
         entity.sink.rejected.as_ref().unwrap().write_mode,
         WriteMode::MergeScd1
     );
-    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::MergeScd1);
+    assert_eq!(entity.sink.write_mode, WriteMode::MergeScd1);
 }
 
 #[test]
@@ -402,7 +402,7 @@ entities:
         entity.sink.rejected.as_ref().unwrap().write_mode,
         WriteMode::MergeScd2
     );
-    assert_eq!(entity.sink.resolved_write_mode(), WriteMode::MergeScd2);
+    assert_eq!(entity.sink.write_mode, WriteMode::MergeScd2);
 }
 
 #[test]

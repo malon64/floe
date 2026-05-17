@@ -1,4 +1,15 @@
+use crate::config::PolicySeverity;
 use crate::{check, io, report, ConfigError, FloeResult};
+
+impl From<PolicySeverity> for report::Severity {
+    fn from(s: PolicySeverity) -> Self {
+        match s {
+            PolicySeverity::Warn => report::Severity::Warn,
+            PolicySeverity::Reject => report::Severity::Reject,
+            PolicySeverity::Abort => report::Severity::Abort,
+        }
+    }
+}
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::Instant;
@@ -76,7 +87,7 @@ pub(super) fn run_entity(
     let entity_start = perf_enabled.then(Instant::now);
     let mut phase_timings = EntityPhaseTimings::default();
     let input = &entity.source;
-    let write_mode = entity.sink.resolved_write_mode();
+    let write_mode = entity.sink.write_mode;
     let input_adapter = runtime.input_adapter(input.format.as_str())?;
     let resolved_targets = plan.resolved_targets;
     let formatter_name = context
@@ -122,16 +133,7 @@ pub(super) fn run_entity(
     let input_files = incremental.pending_inputs;
     let pending_input_count = input_files.len();
 
-    let severity = match entity.policy.severity.as_str() {
-        "warn" => report::Severity::Warn,
-        "reject" => report::Severity::Reject,
-        "abort" => report::Severity::Abort,
-        severity => {
-            return Err(Box::new(ConfigError(format!(
-                "unsupported policy severity: {severity}"
-            ))))
-        }
-    };
+    let severity = report::Severity::from(entity.policy.severity);
     let track_cast_errors = !matches!(input.cast_mode.as_deref(), Some("coerce"));
 
     let reported_files = resolved_files
@@ -260,7 +262,7 @@ pub(super) fn run_entity(
     totals.files_total = file_reports.len() as u64;
 
     let accepted_target_uri = accepted_target.target_uri().to_string();
-    let accepted_write_report = run_accepted_write_phase(AcceptedWritePhaseContext {
+    let aw = run_accepted_write_phase(AcceptedWritePhaseContext {
         run_context: context,
         observer,
         runtime,
@@ -273,8 +275,11 @@ pub(super) fn run_entity(
         pending_input_count,
         accepted_accum,
     })?;
-    accepted_write_report
-        .apply_accepted_path_to_file_reports(&mut file_reports, &accepted_target_uri);
+    if aw.parts_written > 0 {
+        for file_report in &mut file_reports {
+            file_report.output.accepted_path = Some(accepted_target_uri.clone());
+        }
+    }
 
     let perf_files_total = totals.files_total;
     let perf_rows_total = totals.rows_total;
@@ -291,38 +296,40 @@ pub(super) fn run_entity(
         file_reports,
         severity,
         accepted_write_mode: write_mode,
-        accepted_parts_written: accepted_write_report.parts_written,
-        accepted_files_written: accepted_write_report.files_written,
-        accepted_part_files: accepted_write_report.part_files,
-        accepted_table_version: accepted_write_report.table_version,
-        accepted_snapshot_id: accepted_write_report.snapshot_id,
-        accepted_table_root_uri: accepted_write_report.table_root_uri,
-        accepted_iceberg_catalog_name: accepted_write_report.iceberg_catalog_name,
-        accepted_iceberg_database: accepted_write_report.iceberg_database,
-        accepted_iceberg_namespace: accepted_write_report.iceberg_namespace,
-        accepted_iceberg_table: accepted_write_report.iceberg_table,
-        accepted_delta_catalog_name: accepted_write_report.delta_catalog_name,
-        accepted_delta_catalog_schema: accepted_write_report.delta_catalog_schema,
-        accepted_delta_catalog_table: accepted_write_report.delta_catalog_table,
-        accepted_total_bytes_written: accepted_write_report.total_bytes_written,
-        accepted_avg_file_size_mb: accepted_write_report.avg_file_size_mb,
-        accepted_small_files_count: accepted_write_report.small_files_count,
-        accepted_merge_key: accepted_write_report.merge_key,
-        accepted_inserted_count: accepted_write_report.inserted_count,
-        accepted_updated_count: accepted_write_report.updated_count,
-        accepted_closed_count: accepted_write_report.closed_count,
-        accepted_unchanged_count: accepted_write_report.unchanged_count,
-        accepted_target_rows_before: accepted_write_report.target_rows_before,
-        accepted_target_rows_after: accepted_write_report.target_rows_after,
-        accepted_merge_elapsed_ms: accepted_write_report.merge_elapsed_ms,
+        accepted_parts_written: aw.parts_written,
+        accepted_files_written: aw.files_written,
+        accepted_part_files: aw.part_files,
+        accepted_table_version: aw.table_version,
+        accepted_snapshot_id: aw.snapshot_id,
+        accepted_table_root_uri: aw.table_root_uri,
+        accepted_iceberg_catalog_name: aw.iceberg_catalog_name,
+        accepted_iceberg_database: aw.iceberg_database,
+        accepted_iceberg_namespace: aw.iceberg_namespace,
+        accepted_iceberg_table: aw.iceberg_table,
+        accepted_delta_catalog_name: aw.delta_catalog_name,
+        accepted_delta_catalog_schema: aw.delta_catalog_schema,
+        accepted_delta_catalog_table: aw.delta_catalog_table,
+        accepted_total_bytes_written: aw.metrics.total_bytes_written,
+        accepted_avg_file_size_mb: aw.metrics.avg_file_size_mb,
+        accepted_small_files_count: aw.metrics.small_files_count,
+        accepted_merge_key: aw
+            .merge
+            .as_ref()
+            .map(|m| m.merge_key.clone())
+            .unwrap_or_default(),
+        accepted_inserted_count: aw.merge.as_ref().map(|m| m.inserted_count),
+        accepted_updated_count: aw.merge.as_ref().map(|m| m.updated_count),
+        accepted_closed_count: aw.merge.as_ref().and_then(|m| m.closed_count),
+        accepted_unchanged_count: aw.merge.as_ref().and_then(|m| m.unchanged_count),
+        accepted_target_rows_before: aw.merge.as_ref().map(|m| m.target_rows_before),
+        accepted_target_rows_after: aw.merge.as_ref().map(|m| m.target_rows_after),
+        accepted_merge_elapsed_ms: aw.merge.as_ref().map(|m| m.merge_elapsed_ms),
         accepted_schema_evolution: report::SchemaEvolutionSummary {
-            enabled: accepted_write_report.schema_evolution.enabled,
-            mode: accepted_write_report.schema_evolution.mode,
-            applied: accepted_write_report.schema_evolution.applied,
-            added_columns: accepted_write_report.schema_evolution.added_columns,
-            incompatible_changes_detected: accepted_write_report
-                .schema_evolution
-                .incompatible_changes_detected,
+            enabled: aw.schema_evolution.enabled,
+            mode: aw.schema_evolution.mode,
+            applied: aw.schema_evolution.applied,
+            added_columns: aw.schema_evolution.added_columns,
+            incompatible_changes_detected: aw.schema_evolution.incompatible_changes_detected,
         },
         unique_constraints,
     });
@@ -374,10 +381,7 @@ pub(super) fn run_entity(
                 "accepted_rows_accumulated": accepted_accum_rows,
                 "accepted_frames_accumulated": accepted_accum_frames,
                 "write_sink_format": entity.sink.accepted.format,
-                "write_sink_breakdown_ms": accepted_write_report
-                    .write_perf
-                    .as_ref()
-                    .map(write_perf_breakdown_json),
+                "write_sink_breakdown_ms": aw.perf.as_ref().map(write_perf_breakdown_json),
                 "phases_ms": phase_timings.into_json(),
             }),
         );

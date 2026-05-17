@@ -69,7 +69,7 @@ fn delta_store_config_builds_s3_url_and_options() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -133,7 +133,7 @@ fn iceberg_store_config_builds_s3_warehouse_and_region_props() -> FloeResult<()>
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -210,7 +210,7 @@ fn delta_store_config_builds_local_url() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -276,7 +276,7 @@ fn iceberg_store_config_builds_local_warehouse_without_props() -> FloeResult<()>
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -354,7 +354,7 @@ fn delta_store_config_builds_adls_url_and_options() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -448,7 +448,7 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -529,7 +529,7 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,
@@ -606,7 +606,7 @@ fn delta_store_config_builds_gcs_url() -> FloeResult<()> {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,

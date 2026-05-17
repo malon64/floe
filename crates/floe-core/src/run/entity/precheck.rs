@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use crate::checks::normalize::resolve_normalize_strategy;
+use crate::config::PolicySeverity;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
 use super::super::output::{validate_rejected_target, write_rejected_raw_output};
@@ -84,7 +85,7 @@ pub(super) fn run_precheck(
         let local_file = match localize_input(listed_file, storage_client, temp_dir_path) {
             Ok(f) => f,
             Err(err) => {
-                let status = if entity.policy.severity == "abort" {
+                let status = if entity.policy.severity == PolicySeverity::Abort {
                     report::FileStatus::Aborted
                 } else {
                     report::FileStatus::Rejected
@@ -155,7 +156,7 @@ pub(super) fn run_precheck(
             match input_adapter.read_input_columns(entity, &local_file, normalized_columns) {
                 Ok(columns) => columns,
                 Err(error) => {
-                    let status = if entity.policy.severity == "abort" {
+                    let status = if entity.policy.severity == PolicySeverity::Abort {
                         report::FileStatus::Aborted
                     } else {
                         report::FileStatus::Rejected

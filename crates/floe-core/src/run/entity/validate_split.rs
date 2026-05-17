@@ -5,6 +5,7 @@ use std::time::Instant;
 use polars::prelude::{BooleanChunked, DataFrame};
 
 use crate::checks::normalize::rename_output_columns;
+use crate::config::PolicySeverity;
 use crate::errors::RunError;
 use crate::report::build::summarize_validation_exprs;
 use crate::run::events::{event_time_ms, RunObserver};
@@ -141,7 +142,7 @@ pub(super) fn run_validate_split_phase(
                     Some(&error.rule),
                     &format!("entity.name={} {}", entity.name, error.message),
                 );
-                let status = if entity.policy.severity == "abort" {
+                let status = if entity.policy.severity == PolicySeverity::Abort {
                     report::FileStatus::Aborted
                 } else {
                     report::FileStatus::Rejected
@@ -263,7 +264,8 @@ pub(super) fn run_validate_split_phase(
         let not_null_counts = check::not_null_counts(&df, required_cols)?;
         let not_null_total: u64 = not_null_counts.iter().map(|(_, c)| *c).sum();
         let quick_total = cast_total + not_null_total;
-        let cast_abort_short_circuit = entity.policy.severity == "abort" && cast_total > 0;
+        let cast_abort_short_circuit =
+            entity.policy.severity == PolicySeverity::Abort && cast_total > 0;
 
         // Unique check — stateful across rows. Skip when abort is already decided by cast errors.
         let mut forced_reject_rows = HashSet::new();
@@ -369,8 +371,8 @@ pub(super) fn run_validate_split_phase(
         let split_start = perf_enabled.then(Instant::now);
         let mut write_rejected_ms_this_file = 0_u64;
 
-        match entity.policy.severity.as_str() {
-            "warn" => {
+        match entity.policy.severity {
+            PolicySeverity::Warn => {
                 let mut accepted_df = if forced_reject_rows.is_empty() {
                     df
                 } else {
@@ -420,7 +422,7 @@ pub(super) fn run_validate_split_phase(
                     }
                 }
             }
-            "reject" => {
+            PolicySeverity::Reject => {
                 if has_errors {
                     validate_rejected_target(entity, "reject")?;
 
@@ -488,7 +490,7 @@ pub(super) fn run_validate_split_phase(
                     accepted_df_opt = Some(accepted_df);
                 }
             }
-            "abort" => {
+            PolicySeverity::Abort => {
                 if has_errors {
                     validate_rejected_target(entity, "abort")?;
                     let rejected_target = rejected_target.ok_or_else(|| {
@@ -533,11 +535,6 @@ pub(super) fn run_validate_split_phase(
                     accepted_df_opt = Some(accepted_df);
                 }
             }
-            severity => {
-                return Err(Box::new(ConfigError(format!(
-                    "unsupported policy severity: {severity}"
-                ))))
-            }
         }
         if let Some(start) = split_start {
             let split_elapsed_ms = start.elapsed().as_millis() as u64;
@@ -568,15 +565,15 @@ pub(super) fn run_validate_split_phase(
         }
 
         let (status, accepted_count, rejected_count, errors, warnings) =
-            match entity.policy.severity.as_str() {
-                "warn" => (
+            match entity.policy.severity {
+                PolicySeverity::Warn => (
                     report::FileStatus::Success,
                     row_count.saturating_sub(forced_reject_count),
                     forced_reject_count,
                     0,
                     violation_count,
                 ),
-                "reject" => {
+                PolicySeverity::Reject => {
                     if has_errors {
                         (
                             report::FileStatus::Rejected,
@@ -589,7 +586,7 @@ pub(super) fn run_validate_split_phase(
                         (report::FileStatus::Success, row_count, 0, 0, 0)
                     }
                 }
-                "abort" => {
+                PolicySeverity::Abort => {
                     if has_errors {
                         (
                             report::FileStatus::Aborted,
@@ -602,7 +599,6 @@ pub(super) fn run_validate_split_phase(
                         (report::FileStatus::Success, row_count, 0, 0, 0)
                     }
                 }
-                _ => unreachable!("severity validated earlier"),
             };
         let errors = errors + mismatch_errors;
         let warnings = warnings + mismatch_warnings + sink_options_warnings;

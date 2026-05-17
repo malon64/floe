@@ -85,7 +85,7 @@ pub(crate) fn write_standard_delta_version_with_perf(
     let conversion_start = Instant::now();
     let batch = crate::io::write::delta::record_batch::dataframe_to_record_batch(df, entity)?;
     let schema_evolution =
-        plan_standard_delta_schema_evolution(runtime, &batch, target, resolver, entity, mode)?;
+        plan_delta_schema_evolution(runtime, &batch, target, resolver, entity, mode, &[])?;
     let conversion_ms = conversion_start.elapsed().as_millis() as u64;
     let commit_start = Instant::now();
     let version = write_delta_batch_version(
@@ -110,38 +110,7 @@ pub(crate) fn write_standard_delta_version_with_perf(
     })
 }
 
-fn plan_standard_delta_schema_evolution(
-    runtime: &tokio::runtime::Runtime,
-    batch: &RecordBatch,
-    target: &Target,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    mode: config::WriteMode,
-) -> FloeResult<PlannedDeltaSchemaEvolution> {
-    plan_delta_schema_evolution(runtime, batch, target, resolver, entity, mode, &[])
-}
-
-pub(crate) fn plan_merge_delta_schema_evolution(
-    runtime: &tokio::runtime::Runtime,
-    batch: &RecordBatch,
-    target: &Target,
-    resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
-    mode: config::WriteMode,
-    ignored_target_columns: &[&str],
-) -> FloeResult<PlannedDeltaSchemaEvolution> {
-    plan_delta_schema_evolution(
-        runtime,
-        batch,
-        target,
-        resolver,
-        entity,
-        mode,
-        ignored_target_columns,
-    )
-}
-
-fn plan_delta_schema_evolution(
+pub(crate) fn plan_delta_schema_evolution(
     runtime: &tokio::runtime::Runtime,
     batch: &RecordBatch,
     target: &Target,
@@ -400,6 +369,46 @@ pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec
     Ok(primary_key.clone())
 }
 
+pub(crate) fn resolve_merge_column_mappings(
+    entity: &config::EntityConfig,
+) -> FloeResult<(HashSet<String>, Option<Vec<String>>)> {
+    let Some(merge) = entity.sink.accepted.merge.as_ref() else {
+        return Ok((HashSet::new(), None));
+    };
+    let schema_to_output = schema_to_output_column_name_map(entity)?;
+    let ignore_columns = merge
+        .ignore_columns
+        .as_ref()
+        .map(|cols| {
+            cols.iter()
+                .map(|c| c.trim())
+                .filter(|c| !c.is_empty())
+                .map(|c| {
+                    schema_to_output
+                        .get(c)
+                        .cloned()
+                        .unwrap_or_else(|| c.to_string())
+                })
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let compare_columns = merge.compare_columns.as_ref().map(|cols| {
+        let mut seen = HashSet::new();
+        cols.iter()
+            .map(|c| c.trim())
+            .filter(|c| !c.is_empty())
+            .map(|c| {
+                schema_to_output
+                    .get(c)
+                    .cloned()
+                    .unwrap_or_else(|| c.to_string())
+            })
+            .filter(|c| seen.insert(c.clone()))
+            .collect::<Vec<_>>()
+    });
+    Ok((ignore_columns, compare_columns))
+}
+
 pub(crate) fn resolve_merge_ignore_columns(
     entity: &config::EntityConfig,
 ) -> FloeResult<HashSet<String>> {
@@ -426,36 +435,6 @@ pub(crate) fn resolve_merge_ignore_columns(
         })
         .collect::<HashSet<_>>();
     Ok(resolved)
-}
-
-pub(crate) fn resolve_merge_compare_columns(
-    entity: &config::EntityConfig,
-) -> FloeResult<Option<Vec<String>>> {
-    let Some(columns) = entity
-        .sink
-        .accepted
-        .merge
-        .as_ref()
-        .and_then(|merge| merge.compare_columns.as_ref())
-    else {
-        return Ok(None);
-    };
-
-    let schema_to_output = schema_to_output_column_name_map(entity)?;
-    let mut seen = HashSet::new();
-    let resolved = columns
-        .iter()
-        .map(|column| column.trim())
-        .filter(|column| !column.is_empty())
-        .map(|column| {
-            schema_to_output
-                .get(column)
-                .cloned()
-                .unwrap_or_else(|| column.to_string())
-        })
-        .filter(|column| seen.insert(column.clone()))
-        .collect::<Vec<_>>();
-    Ok(Some(resolved))
 }
 
 fn schema_to_output_column_name_map(
@@ -519,66 +498,30 @@ pub(crate) fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>
 pub(crate) fn validate_merge_schema_compatibility(
     target_schema_columns: &[String],
     source_df: &DataFrame,
-    entity_name: &str,
-    allow_target_additive_evolution: bool,
-) -> FloeResult<()> {
-    let source_columns = source_df
-        .get_column_names()
-        .iter()
-        .map(|name| name.as_str())
-        .collect::<HashSet<_>>();
-
-    for target_column in target_schema_columns {
-        if !source_columns.contains(target_column.as_str()) {
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge failed: source schema missing target column {}",
-                entity_name, target_column
-            ))));
-        }
-    }
-
-    let target_columns = target_schema_columns
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    for source_column in source_columns {
-        if !target_columns.contains(source_column) {
-            if allow_target_additive_evolution {
-                continue;
-            }
-            return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge failed: target schema missing source column {}",
-                entity_name, source_column
-            ))));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_scd2_schema_compatibility(
-    target_schema_columns: &[String],
-    source_df: &DataFrame,
     system_columns: &[&str],
     entity_name: &str,
     allow_target_additive_evolution: bool,
 ) -> FloeResult<()> {
-    let source_columns = source_df
+    let mode_name = if system_columns.is_empty() {
+        "merge"
+    } else {
+        "merge_scd2"
+    };
+    let source_columns: HashSet<&str> = source_df
         .get_column_names()
         .iter()
         .map(|name| name.as_str())
-        .collect::<HashSet<_>>();
-    let system_columns_set = system_columns.iter().copied().collect::<HashSet<_>>();
-    let target_columns = target_schema_columns
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
+        .collect();
+    let system_columns_set: HashSet<&str> = system_columns.iter().copied().collect();
+    let target_columns: HashSet<&str> = target_schema_columns.iter().map(String::as_str).collect();
+
     for source_column in &source_columns {
         if !target_columns.contains(source_column) {
             if allow_target_additive_evolution {
                 continue;
             }
             return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: target schema missing source column {}",
+                "entity.name={} delta {mode_name} failed: target schema missing source column {}",
                 entity_name, source_column
             ))));
         }
@@ -586,7 +529,7 @@ pub(crate) fn validate_scd2_schema_compatibility(
     for system_column in system_columns {
         if !target_columns.contains(system_column) {
             return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: target schema missing system column {}",
+                "entity.name={} delta {mode_name} failed: target schema missing system column {}",
                 entity_name, system_column
             ))));
         }
@@ -597,7 +540,7 @@ pub(crate) fn validate_scd2_schema_compatibility(
         }
         if !source_columns.contains(target_column.as_str()) {
             return Err(Box::new(RunError(format!(
-                "entity.name={} delta merge_scd2 failed: source schema missing target column {}",
+                "entity.name={} delta {mode_name} failed: source schema missing target column {}",
                 entity_name, target_column
             ))));
         }

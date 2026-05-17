@@ -4,107 +4,13 @@ use std::time::Instant;
 use polars::prelude::{DataFrame, Series};
 
 use crate::errors::RunError;
-use crate::{config, io, report, FloeResult};
+use crate::{config, io, FloeResult};
 
 use super::super::output::{write_accepted_output, AcceptedOutputContext};
 use super::EntityPhaseTimings;
 use crate::run::events::{event_time_ms, RunEvent, RunObserver};
 use crate::run::RunContext;
 use io::storage::Target;
-
-#[derive(Debug, Default)]
-pub(super) struct AcceptedWriteReportState {
-    pub(super) parts_written: u64,
-    pub(super) files_written: Option<u64>,
-    pub(super) part_files: Vec<String>,
-    pub(super) table_version: Option<i64>,
-    pub(super) snapshot_id: Option<i64>,
-    pub(super) table_root_uri: Option<String>,
-    pub(super) iceberg_catalog_name: Option<String>,
-    pub(super) iceberg_database: Option<String>,
-    pub(super) iceberg_namespace: Option<String>,
-    pub(super) iceberg_table: Option<String>,
-    pub(super) delta_catalog_name: Option<String>,
-    pub(super) delta_catalog_schema: Option<String>,
-    pub(super) delta_catalog_table: Option<String>,
-    pub(super) total_bytes_written: Option<u64>,
-    pub(super) avg_file_size_mb: Option<f64>,
-    pub(super) small_files_count: Option<u64>,
-    pub(super) merge_key: Vec<String>,
-    pub(super) inserted_count: Option<u64>,
-    pub(super) updated_count: Option<u64>,
-    pub(super) closed_count: Option<u64>,
-    pub(super) unchanged_count: Option<u64>,
-    pub(super) target_rows_before: Option<u64>,
-    pub(super) target_rows_after: Option<u64>,
-    pub(super) merge_elapsed_ms: Option<u64>,
-    pub(super) schema_evolution: io::format::AcceptedSchemaEvolution,
-    pub(super) write_perf: Option<io::format::AcceptedWritePerfBreakdown>,
-}
-
-impl AcceptedWriteReportState {
-    pub(super) fn for_entity(entity: &config::EntityConfig, write_mode: config::WriteMode) -> Self {
-        Self {
-            schema_evolution:
-                crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
-                    entity, write_mode,
-                ),
-            ..Self::default()
-        }
-    }
-
-    pub(super) fn from_write_output(output: io::format::AcceptedWriteOutput) -> Self {
-        Self {
-            parts_written: output.parts_written,
-            files_written: output.files_written,
-            part_files: output.part_files,
-            table_version: output.table_version,
-            snapshot_id: output.snapshot_id,
-            table_root_uri: output.table_root_uri,
-            iceberg_catalog_name: output.iceberg_catalog_name,
-            iceberg_database: output.iceberg_database,
-            iceberg_namespace: output.iceberg_namespace,
-            iceberg_table: output.iceberg_table,
-            delta_catalog_name: output.delta_catalog_name,
-            delta_catalog_schema: output.delta_catalog_schema,
-            delta_catalog_table: output.delta_catalog_table,
-            total_bytes_written: output.metrics.total_bytes_written,
-            avg_file_size_mb: output.metrics.avg_file_size_mb,
-            small_files_count: output.metrics.small_files_count,
-            merge_key: output
-                .merge
-                .as_ref()
-                .map(|merge| merge.merge_key.clone())
-                .unwrap_or_default(),
-            inserted_count: output.merge.as_ref().map(|merge| merge.inserted_count),
-            updated_count: output.merge.as_ref().map(|merge| merge.updated_count),
-            closed_count: output.merge.as_ref().and_then(|merge| merge.closed_count),
-            unchanged_count: output
-                .merge
-                .as_ref()
-                .and_then(|merge| merge.unchanged_count),
-            target_rows_before: output.merge.as_ref().map(|merge| merge.target_rows_before),
-            target_rows_after: output.merge.as_ref().map(|merge| merge.target_rows_after),
-            merge_elapsed_ms: output.merge.as_ref().map(|merge| merge.merge_elapsed_ms),
-            schema_evolution: output.schema_evolution,
-            write_perf: output.perf,
-        }
-    }
-
-    pub(super) fn apply_accepted_path_to_file_reports(
-        &self,
-        file_reports: &mut [report::FileReport],
-        accepted_target_uri: &str,
-    ) {
-        if self.parts_written == 0 {
-            return;
-        }
-        let accepted_path = accepted_target_uri.to_string();
-        for file_report in file_reports {
-            file_report.output.accepted_path = Some(accepted_path.clone());
-        }
-    }
-}
 
 pub(super) struct AcceptedWritePhaseContext<'a> {
     pub(super) run_context: &'a RunContext,
@@ -122,7 +28,7 @@ pub(super) struct AcceptedWritePhaseContext<'a> {
 
 pub(super) fn run_accepted_write_phase(
     context: AcceptedWritePhaseContext<'_>,
-) -> FloeResult<AcceptedWriteReportState> {
+) -> FloeResult<io::format::AcceptedWriteOutput> {
     let AcceptedWritePhaseContext {
         run_context,
         observer,
@@ -137,14 +43,23 @@ pub(super) fn run_accepted_write_phase(
         accepted_accum,
     } = context;
 
-    let mut accepted_write_report = AcceptedWriteReportState::for_entity(entity, write_mode);
+    let default_schema_evolution =
+        crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
+            entity, write_mode,
+        );
     if pending_input_count == 0 {
-        accepted_write_report.files_written = Some(0);
-        return Ok(accepted_write_report);
+        return Ok(io::format::AcceptedWriteOutput {
+            files_written: Some(0),
+            schema_evolution: default_schema_evolution,
+            ..io::format::AcceptedWriteOutput::default()
+        });
     }
     if accepted_accum.is_empty() && write_mode != config::WriteMode::Overwrite {
-        accepted_write_report.files_written = Some(0);
-        return Ok(accepted_write_report);
+        return Ok(io::format::AcceptedWriteOutput {
+            files_written: Some(0),
+            schema_evolution: default_schema_evolution,
+            ..io::format::AcceptedWriteOutput::default()
+        });
     }
 
     let mut accepted_df = if accepted_accum.is_empty() {
@@ -183,17 +98,16 @@ pub(super) fn run_accepted_write_phase(
         }
     }
 
-    accepted_write_report = AcceptedWriteReportState::from_write_output(accepted_output);
-    if accepted_write_report.schema_evolution.applied {
+    if accepted_output.schema_evolution.applied {
         observer.on_event(RunEvent::SchemaEvolutionApplied {
             run_id: run_context.run_id.clone(),
             entity: entity.name.clone(),
-            mode: accepted_write_report.schema_evolution.mode.clone(),
-            added_columns: accepted_write_report.schema_evolution.added_columns.clone(),
+            mode: accepted_output.schema_evolution.mode.clone(),
+            added_columns: accepted_output.schema_evolution.added_columns.clone(),
             ts_ms: event_time_ms(),
         });
     }
-    Ok(accepted_write_report)
+    Ok(accepted_output)
 }
 
 fn concat_accepted_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame> {

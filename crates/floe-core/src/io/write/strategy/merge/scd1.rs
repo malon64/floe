@@ -88,7 +88,7 @@ impl MergeBackend for DeltaMergeBackend {
         let conversion_start = Instant::now();
         let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
         perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
-        let schema_evolution = shared::plan_merge_delta_schema_evolution(
+        let schema_evolution = shared::plan_delta_schema_evolution(
             ctx.runtime,
             &source_batch,
             ctx.target,
@@ -101,6 +101,7 @@ impl MergeBackend for DeltaMergeBackend {
         shared::validate_merge_schema_compatibility(
             &target_schema_columns,
             source_df,
+            &[],
             &ctx.entity.name,
             schema_evolution.merge_schema,
         )?;

@@ -46,7 +46,7 @@ pub enum ReadInput {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AcceptedWriteMetrics {
     pub total_bytes_written: Option<u64>,
     pub avg_file_size_mb: Option<f64>,
@@ -84,7 +84,7 @@ pub struct AcceptedMergeMetrics {
     pub merge_elapsed_ms: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AcceptedWriteOutput {
     pub files_written: Option<u64>,
     pub parts_written: u64,

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use polars::prelude::{DataFrame, DataType, Series};
 
+use crate::config::PolicySeverity;
 use crate::errors::RunError;
 use crate::{config, report, ConfigError, FloeResult};
 
@@ -124,7 +125,7 @@ pub fn plan_schema_mismatch(
     let mut warning = None;
     let rejection_requested = (effective_missing == "reject_file" && !missing.is_empty())
         || (effective_extra == "reject_file" && !extra.is_empty());
-    if rejection_requested && entity.policy.severity == "warn" {
+    if rejection_requested && entity.policy.severity == PolicySeverity::Warn {
         warning = Some(format!(
             "entity.name={} schema mismatch requested reject_file but policy.severity=warn; continuing",
             entity.name
@@ -139,10 +140,10 @@ pub fn plan_schema_mismatch(
     if (effective_missing == "reject_file" && !missing.is_empty())
         || (effective_extra == "reject_file" && !extra.is_empty())
     {
-        if entity.policy.severity == "abort" {
+        if entity.policy.severity == PolicySeverity::Abort {
             aborted = true;
             action = report::MismatchAction::Aborted;
-        } else if entity.policy.severity == "reject" {
+        } else if entity.policy.severity == PolicySeverity::Reject {
             rejected = true;
             action = report::MismatchAction::RejectedFile;
         }

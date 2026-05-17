@@ -189,10 +189,6 @@ pub struct AcceptedWriteRequest<'a> {
     pub entity: &'a config::EntityConfig,
 }
 
-pub trait AcceptedSinkAdapter: Send + Sync {
-    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput>;
-}
-
 pub struct RejectedWriteRequest<'a> {
     pub target: &'a Target,
     pub df: &'a mut DataFrame,
@@ -261,7 +257,7 @@ pub fn ensure_input_format(entity_name: &str, format: &str) -> FloeResult<()> {
 }
 
 pub fn ensure_accepted_sink_format(entity_name: &str, format: &str) -> FloeResult<()> {
-    if accepted_sink_adapter(format).is_err() {
+    if crate::io::write::sink_format::sink_format(format).is_err() {
         return Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,
@@ -379,19 +375,6 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
         "xml" => Ok(io::read::xml::xml_input_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::Source,
-            format,
-            None,
-        ))),
-    }
-}
-
-pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
-    match format {
-        "parquet" => Ok(io::write::parquet::parquet_accepted_adapter()),
-        "delta" => Ok(io::write::delta::delta_accepted_adapter()),
-        "iceberg" => Ok(io::write::iceberg::iceberg_accepted_adapter()),
-        _ => Err(Box::new(unsupported_format_error(
-            FormatKind::SinkAccepted,
             format,
             None,
         ))),

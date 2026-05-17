@@ -74,10 +74,10 @@ pub(super) fn run_accepted_write_phase(
     };
 
     let output_stem = io::storage::paths::build_part_stem(0);
-    let accepted_adapter = runtime.accepted_sink_adapter(entity.sink.accepted.format.as_str())?;
+    let accepted_format = runtime.sink_format(entity.sink.accepted.format.as_str())?;
     let write_accepted_start = perf_enabled.then(Instant::now);
     let accepted_output = write_accepted_output(AcceptedOutputContext {
-        adapter: accepted_adapter,
+        format: accepted_format,
         target: accepted_target,
         df: &mut accepted_df,
         output_stem: &output_stem,

@@ -6,6 +6,7 @@ pub mod iceberg;
 pub mod metrics;
 pub mod parquet;
 pub mod parts;
+pub(crate) mod sink_format;
 pub mod strategy;
 
 use std::path::{Path, PathBuf};

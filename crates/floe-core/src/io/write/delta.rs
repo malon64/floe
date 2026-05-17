@@ -4,12 +4,14 @@ use std::time::Instant;
 
 use crate::errors::RunError;
 use crate::io::format::{
-    AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
-    AcceptedWritePerfBreakdown, AcceptedWriteRequest, CatalogRegistration,
+    AcceptedMergeMetrics, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
+    AcceptedWriteRequest, CatalogRegistration,
 };
-use crate::io::storage::Target;
+use crate::io::storage::{object_store, Target};
+use crate::io::unique_seed::seed_from_batches;
+use crate::io::write::sink_format::{SeedContext, SinkFormat};
 use crate::io::write::strategy::merge::{scd1, scd2, shared};
-use crate::{config, FloeResult};
+use crate::{check, config, FloeResult};
 
 mod commit_metrics;
 mod options;
@@ -23,9 +25,9 @@ pub use self::commit_metrics::{
 };
 pub use self::options::{delta_write_runtime_options, DeltaWriteRuntimeOptions};
 
-struct DeltaAcceptedAdapter;
+pub(crate) struct DeltaSinkFormat;
 
-static DELTA_ACCEPTED_ADAPTER: DeltaAcceptedAdapter = DeltaAcceptedAdapter;
+pub(crate) static DELTA_SINK_FORMAT: DeltaSinkFormat = DeltaSinkFormat;
 
 #[derive(Debug)]
 struct DeltaWriteResult {
@@ -36,10 +38,6 @@ struct DeltaWriteResult {
     merge: Option<AcceptedMergeMetrics>,
     schema_evolution: crate::io::format::AcceptedSchemaEvolution,
     perf: AcceptedWritePerfBreakdown,
-}
-
-pub(crate) fn delta_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
-    &DELTA_ACCEPTED_ADAPTER
 }
 
 pub fn write_delta_table(
@@ -163,7 +161,24 @@ fn write_delta_table_with_metrics(
     })
 }
 
-impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
+impl SinkFormat for DeltaSinkFormat {
+    fn format_name(&self) -> &'static str {
+        "delta"
+    }
+
+    fn supported_modes(&self) -> &'static [config::WriteMode] {
+        &[
+            config::WriteMode::Overwrite,
+            config::WriteMode::Append,
+            config::WriteMode::MergeScd1,
+            config::WriteMode::MergeScd2,
+        ]
+    }
+
+    fn supported_storages(&self) -> &'static [&'static str] {
+        &["local", "s3", "gcs", "adls"]
+    }
+
     fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
         let AcceptedWriteRequest {
             target,
@@ -221,7 +236,39 @@ impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
             perf: Some(result.perf),
         })
     }
+
+    fn seed_unique_tracker(
+        &self,
+        tracker: &mut check::UniqueTracker,
+        ctx: &mut SeedContext<'_>,
+    ) -> FloeResult<()> {
+        let store =
+            object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
+        let builder =
+            deltalake::table::builder::DeltaTableBuilder::from_url(store.table_url)
+                .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+                .with_storage_options(store.storage_options);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
+        let table = runtime.block_on(async move { builder.load().await });
+        let table = match table {
+            Ok(table) => table,
+            Err(deltalake::DeltaTableError::NotATable(_)) => return Ok(()),
+            Err(err) => return Err(Box::new(RunError(format!("delta load failed: {err}")))),
+        };
+        let scan_cols = ctx.scan_cols.to_vec();
+        let batches = runtime
+            .block_on(async {
+                let (_t, stream) = table.scan_table().with_columns(scan_cols).await?;
+                deltalake::operations::collect_sendable_stream(stream).await
+            })
+            .map_err(|err| Box::new(RunError(format!("delta scan failed: {err}"))))?;
+        seed_from_batches(tracker, batches, ctx.rename_back)
+    }
 }
+
 
 fn target_uri(target: &Target) -> String {
     match target {

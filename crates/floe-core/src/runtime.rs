@@ -1,10 +1,11 @@
-use crate::io::format::{self, AcceptedSinkAdapter, InputAdapter, RejectedSinkAdapter};
+use crate::io::format::{self, InputAdapter, RejectedSinkAdapter};
 use crate::io::storage::CloudClient;
+use crate::io::write::sink_format::{sink_format as lookup_sink_format, SinkFormat};
 use crate::FloeResult;
 
 pub trait Runtime {
     fn input_adapter(&self, format: &str) -> FloeResult<&'static dyn InputAdapter>;
-    fn accepted_sink_adapter(&self, format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter>;
+    fn sink_format(&self, format: &str) -> FloeResult<&'static dyn SinkFormat>;
     fn rejected_sink_adapter(&self, format: &str) -> FloeResult<&'static dyn RejectedSinkAdapter>;
     fn storage(&mut self) -> &mut CloudClient;
 }
@@ -32,8 +33,8 @@ impl Runtime for DefaultRuntime {
         format::input_adapter(format)
     }
 
-    fn accepted_sink_adapter(&self, format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
-        format::accepted_sink_adapter(format)
+    fn sink_format(&self, format: &str) -> FloeResult<&'static dyn SinkFormat> {
+        lookup_sink_format(format)
     }
 
     fn rejected_sink_adapter(&self, format: &str) -> FloeResult<&'static dyn RejectedSinkAdapter> {

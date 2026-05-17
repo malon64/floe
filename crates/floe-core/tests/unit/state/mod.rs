@@ -3,11 +3,13 @@ use std::fs;
 use std::path::Path;
 
 use floe_core::config::{ConfigBase, StorageResolver};
+use floe_core::io::format::InputFile;
+use floe_core::io::storage::CloudClient;
 use floe_core::load_config;
 use floe_core::state::{
-    inspect_entity_state_with_base, read_entity_state, reset_entity_state_with_base,
-    resolve_entity_state_path, write_entity_state_atomic, EntityFileState, EntityState,
-    ENTITY_STATE_SCHEMA_V1,
+    claim_entity_inputs, inspect_entity_state_with_base, read_entity_state,
+    reset_entity_state_with_base, resolve_entity_state_path, write_entity_state_atomic,
+    EntityFileClaim, EntityFileState, EntityState, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2,
 };
 
 fn load_config_from_yaml(
@@ -28,26 +30,6 @@ fn build_local_resolver(
     let resolver =
         StorageResolver::new(&config, ConfigBase::local_from_path(&config_path)).expect("resolver");
     (config, resolver)
-}
-
-fn short_stable_hash_hex(value: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{:016x}", hash)
-}
-
-fn with_cache_home<T>(cache_home: &Path, test: impl FnOnce() -> T) -> T {
-    let previous = std::env::var_os("XDG_CACHE_HOME");
-    std::env::set_var("XDG_CACHE_HOME", cache_home);
-    let output = test();
-    match previous {
-        Some(value) => std::env::set_var("XDG_CACHE_HOME", value),
-        None => std::env::remove_var("XDG_CACHE_HOME"),
-    }
-    output
 }
 
 #[test]
@@ -501,22 +483,12 @@ entities:
         resolved.uri,
         "s3://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json"
     );
-    assert_eq!(
-        resolved.local_path.as_deref(),
-        Some(
-            temp_dir
-                .path()
-                .join(".floe/state/sales/state.json")
-                .as_path()
-        )
-    );
+    assert_eq!(resolved.local_path, None);
 }
 
 #[test]
-fn resolves_default_entity_state_path_from_remote_config_into_persistent_cache() {
+fn resolves_default_entity_state_path_from_remote_config_into_remote_state() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
-    let cache_home = temp_dir.path().join("cache-home");
-    fs::create_dir_all(&cache_home).expect("cache dir");
     let yaml = r#"version: "0.1"
 storages:
   default: "lake"
@@ -550,29 +522,16 @@ entities:
     .expect("remote base");
     let resolver = StorageResolver::new(&config, remote_base).expect("resolver");
 
-    let resolved = with_cache_home(&cache_home, || {
-        resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path")
-    });
+    let resolved = resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
     let expected_uri = "s3://raw-bucket/landing/incoming/sales/.floe/state/sales/state.json";
 
     assert_eq!(resolved.uri, expected_uri);
-    assert_eq!(
-        resolved.local_path.as_deref(),
-        Some(
-            cache_home
-                .join("floe/state")
-                .join(short_stable_hash_hex(expected_uri))
-                .join("sales/state.json")
-                .as_path()
-        )
-    );
+    assert_eq!(resolved.local_path, None);
 }
 
 #[test]
-fn resolves_remote_config_state_cache_for_all_remote_storage_backends() {
+fn resolves_remote_config_state_uri_for_all_remote_storage_backends() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
-    let cache_home = temp_dir.path().join("cache-home");
-    fs::create_dir_all(&cache_home).expect("cache dir");
 
     let cases = [
         (
@@ -665,30 +624,20 @@ entities:
         ),
     ];
 
-    with_cache_home(&cache_home, || {
-        for (yaml, config_uri, expected_uri) in cases {
-            let config = load_config_from_yaml(&temp_dir, yaml);
-            let base = ConfigBase::remote_from_uri(
-                temp_dir.path().join("ephemeral-config-download"),
-                config_uri,
-            )
-            .expect("remote base");
-            let resolver = StorageResolver::new(&config, base).expect("resolver");
-            let resolved =
-                resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
+    for (yaml, config_uri, expected_uri) in cases {
+        let config = load_config_from_yaml(&temp_dir, yaml);
+        let base = ConfigBase::remote_from_uri(
+            temp_dir.path().join("ephemeral-config-download"),
+            config_uri,
+        )
+        .expect("remote base");
+        let resolver = StorageResolver::new(&config, base).expect("resolver");
+        let resolved =
+            resolve_entity_state_path(&resolver, &config.entities[0]).expect("state path");
 
-            assert_eq!(resolved.uri, expected_uri);
-            assert_eq!(
-                resolved.local_path,
-                Some(
-                    cache_home
-                        .join("floe/state")
-                        .join(short_stable_hash_hex(expected_uri))
-                        .join("sales/state.json")
-                )
-            );
-        }
-    });
+        assert_eq!(resolved.uri, expected_uri);
+        assert_eq!(resolved.local_path, None);
+    }
 }
 
 #[test]
@@ -791,6 +740,7 @@ fn writes_and_reads_entity_state_atomically() {
         entity: "sales".to_string(),
         updated_at: Some("2026-04-20T13:00:00Z".to_string()),
         files,
+        claims: Default::default(),
     };
 
     write_entity_state_atomic(&state_path, &state).expect("write state");
@@ -798,7 +748,9 @@ fn writes_and_reads_entity_state_atomically() {
         .expect("read state")
         .expect("state exists");
 
-    assert_eq!(loaded, state);
+    let mut expected = state;
+    expected.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+    assert_eq!(loaded, expected);
     assert!(Path::new(&state_path).exists());
     assert_eq!(
         fs::read_dir(state_path.parent().expect("parent"))
@@ -814,6 +766,110 @@ fn read_entity_state_returns_none_when_missing() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let missing = temp_dir.path().join("missing/state.json");
     assert!(read_entity_state(&missing).expect("read missing").is_none());
+}
+
+fn state_claim_config(
+    temp_dir: &tempfile::TempDir,
+) -> (
+    floe_core::config::RootConfig,
+    StorageResolver,
+    std::path::PathBuf,
+) {
+    let source_dir = temp_dir.path().join("incoming");
+    fs::create_dir_all(&source_dir).expect("mkdir source");
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "sales"
+    incremental_mode: "file"
+    source:
+      format: "csv"
+      path: "{}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        source_dir.display(),
+        temp_dir.path().join("out").display()
+    );
+    let (config, resolver) = build_local_resolver(temp_dir, &yaml);
+    (config, resolver, source_dir)
+}
+
+fn claim_input(uri: &str) -> InputFile {
+    InputFile {
+        source_uri: uri.to_string(),
+        source_name: "sales.csv".to_string(),
+        source_stem: "sales".to_string(),
+        source_size: Some(42),
+        source_mtime: Some("2026-04-22T08:00:00Z".to_string()),
+    }
+}
+
+#[test]
+fn claim_entity_inputs_skips_active_claims_from_other_runs() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let (config, resolver, source_dir) = state_claim_config(&temp_dir);
+    let entity = &config.entities[0];
+    let input = claim_input("local:///tmp/incoming/sales.csv");
+    let mut cloud = CloudClient::new();
+
+    let first = claim_entity_inputs(&resolver, &mut cloud, entity, "run-a", vec![input.clone()])
+        .expect("first claim");
+    assert_eq!(first.pending_inputs.len(), 1);
+    assert!(first.claimed_state.is_some());
+
+    let second = claim_entity_inputs(&resolver, &mut cloud, entity, "run-b", vec![input.clone()])
+        .expect("second claim");
+    assert!(second.pending_inputs.is_empty());
+    assert_eq!(second.active_claims, vec![input.source_uri.clone()]);
+
+    let state = read_entity_state(&source_dir.join(".floe/state/sales/state.json"))
+        .expect("read state")
+        .expect("state exists");
+    assert_eq!(state.files.len(), 0);
+    assert_eq!(state.claims.len(), 1);
+    assert_eq!(state.claims[&input.source_uri].run_id, "run-a");
+}
+
+#[test]
+fn claim_entity_inputs_removes_expired_claims_before_acquiring() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let (config, resolver, source_dir) = state_claim_config(&temp_dir);
+    let entity = &config.entities[0];
+    let input = claim_input("local:///tmp/incoming/sales.csv");
+    let state_path = source_dir.join(".floe/state/sales/state.json");
+    let mut state = EntityState::new("sales");
+    state.claims.insert(
+        input.source_uri.clone(),
+        EntityFileClaim {
+            run_id: "crashed-run".to_string(),
+            acquired_at: "2000-01-01T00:00:00Z".to_string(),
+            expires_at: "2000-01-01T01:00:00Z".to_string(),
+            size: input.source_size,
+            mtime: input.source_mtime.clone(),
+        },
+    );
+    write_entity_state_atomic(&state_path, &state).expect("write expired claim");
+    let mut cloud = CloudClient::new();
+
+    let outcome = claim_entity_inputs(&resolver, &mut cloud, entity, "run-b", vec![input.clone()])
+        .expect("claim after expiry");
+
+    assert_eq!(outcome.pending_inputs.len(), 1);
+    assert!(outcome.active_claims.is_empty());
+    let state = read_entity_state(&state_path)
+        .expect("read state")
+        .expect("state exists");
+    assert_eq!(state.claims.len(), 1);
+    assert_eq!(state.claims[&input.source_uri].run_id, "run-b");
 }
 
 #[test]
@@ -868,6 +924,7 @@ entities:
                 mtime: Some("2026-04-22T08:00:00Z".to_string()),
             },
         )]),
+        claims: Default::default(),
     };
     write_entity_state_atomic(&state_path, &state).expect("write state");
 
@@ -884,7 +941,9 @@ entities:
         inspection.path.local_path.as_deref(),
         Some(state_path.as_path())
     );
-    assert_eq!(inspection.state, Some(state));
+    let mut expected = state;
+    expected.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+    assert_eq!(inspection.state, Some(expected));
 }
 
 fn write_reset_test_config() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {

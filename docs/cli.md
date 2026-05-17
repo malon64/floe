@@ -29,12 +29,14 @@
   - `--output <new.yml>` writes the updated config to a new file instead of overwriting `-c`.
 
 - `floe state inspect -c <config> --entity <name>`
-  - Print the resolved incremental state path for an entity and the current state JSON when present.
+  - Print the resolved incremental state URI for an entity and the current state JSON when present.
+  - Shows processed-file and active-claim counts.
   - Helpful for confirming what Floe has already seen in `incremental_mode: file`.
 
 - `floe state reset -c <config> --entity <name> --yes`
-  - Remove the local state file for an entity.
+  - Remove the local or remote state object for an entity.
   - Requires `--yes` because the next incremental run may reprocess previously tracked files.
+  - Remote resets use the same conditional delete support as remote incremental state.
 
 ### Dry-run behavior
 

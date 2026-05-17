@@ -214,7 +214,7 @@ enum StateCommand {
         config: String,
         #[arg(long, help = "Entity name")]
         entity: String,
-        #[arg(long, help = "Required confirmation to delete the state file")]
+        #[arg(long, help = "Required confirmation to delete the state object")]
         yes: bool,
     },
 }
@@ -710,6 +710,7 @@ fn main() -> FloeResult<()> {
                     Some(state) => {
                         let _ = writeln!(out, "State exists: yes");
                         let _ = writeln!(out, "Tracked files: {}", state.files.len());
+                        let _ = writeln!(out, "Active claims: {}", state.claims.len());
                         let _ = writeln!(
                             out,
                             "Updated at: {}",
@@ -722,6 +723,7 @@ fn main() -> FloeResult<()> {
                     None => {
                         let _ = writeln!(out, "State exists: no");
                         let _ = writeln!(out, "Tracked files: 0");
+                        let _ = writeln!(out, "Active claims: 0");
                     }
                 }
                 let _ = out.flush();
@@ -761,9 +763,9 @@ fn main() -> FloeResult<()> {
                 let _ = writeln!(out, "Entity: {}", inspection.entity_name);
                 let _ = writeln!(out, "State path: {}", inspection.path.uri);
                 if removed {
-                    let _ = writeln!(out, "State reset: removed state file");
+                    let _ = writeln!(out, "State reset: removed state object");
                 } else {
-                    let _ = writeln!(out, "State reset: no state file found");
+                    let _ = writeln!(out, "State reset: no state object found");
                 }
                 let _ = out.flush();
                 Ok(())

@@ -45,7 +45,7 @@ important references so you can quickly find the right guide.
 
 - CLI usage (`validate`, `run`, `manifest generate`, `add-entity`, `state inspect`, `state reset`): [docs/cli.md](cli.md)
 - `floe add-entity` can bootstrap a missing config file and infer entity name/format from input path extensions (CSV/JSON/Parquet).
-- `floe state inspect` / `floe state reset` help manage per-entity incremental state for `incremental_mode: file`.
+- `floe state inspect` / `floe state reset` help manage local or remote per-entity incremental state for `incremental_mode: file`.
 
 ## Benchmarking & development
 

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use floe_core::config;
 use floe_core::io::storage::extensions::glob_patterns_for_format;
 use floe_core::io::storage::local::{resolve_local_inputs, LocalClient};
-use floe_core::io::storage::StorageClient;
+use floe_core::io::storage::{ConditionalWrite, StorageClient};
 
 fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -178,4 +178,51 @@ fn local_client_download_copies_file() {
         .download_to_temp(src.to_string_lossy().as_ref(), &dest_dir)
         .expect("download");
     assert_eq!(fs::read_to_string(downloaded).expect("read"), "hello");
+}
+
+#[test]
+fn local_client_conditional_state_create_update_and_delete() {
+    let root = temp_dir("floe-local-state-conditional");
+    let state_path = root.join("state.json");
+    let uri = state_path.to_string_lossy();
+    let client = LocalClient::new();
+
+    let created = client
+        .write_object_conditional(uri.as_ref(), None, br#"{"a":1}"#)
+        .expect("create");
+    let ConditionalWrite::Written { version } = created else {
+        panic!("create should write");
+    };
+    assert_eq!(
+        fs::read_to_string(&state_path).expect("read created"),
+        r#"{"a":1}"#
+    );
+
+    let stale_create = client
+        .write_object_conditional(uri.as_ref(), None, br#"{"a":2}"#)
+        .expect("stale create");
+    assert_eq!(stale_create, ConditionalWrite::Conflict);
+
+    let updated = client
+        .write_object_conditional(uri.as_ref(), Some(&version), br#"{"aa":22}"#)
+        .expect("update");
+    let ConditionalWrite::Written { version: updated } = updated else {
+        panic!("update should write");
+    };
+    assert_ne!(updated, version);
+
+    let stale_update = client
+        .write_object_conditional(uri.as_ref(), Some(&version), br#"{"a":3}"#)
+        .expect("stale update");
+    assert_eq!(stale_update, ConditionalWrite::Conflict);
+
+    assert!(client
+        .read_object(uri.as_ref())
+        .expect("read object")
+        .is_some());
+    let deleted = client
+        .delete_object_conditional(uri.as_ref(), Some(&updated))
+        .expect("delete");
+    assert!(matches!(deleted, ConditionalWrite::Written { .. }));
+    assert!(!state_path.exists());
 }

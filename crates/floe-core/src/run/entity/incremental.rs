@@ -1,17 +1,20 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crate::config::IncrementalMode;
+use crate::config::StorageResolver;
 use crate::io::format::InputFile;
+use crate::io::storage::CloudClient;
 use crate::report::{
     FileMismatch, FileOutput, FileReport, FileStatus, FileValidation, MismatchAction,
 };
 use crate::run::RunContext;
 use crate::state::{
-    read_entity_state, resolve_entity_state_path, validate_entity_state, write_entity_state_atomic,
-    EntityFileState, EntityState,
+    claim_entity_inputs, promote_claimed_entity_state, release_claimed_entity_state,
+    renew_claimed_entity_state, ClaimedEntityState, EntityFileState, CLAIM_TTL_SECONDS,
 };
-use crate::{config, report, warnings, FloeResult};
+use crate::{config, warnings, FloeResult};
 
 pub(super) struct IncrementalContext {
     pub(super) pending_inputs: Vec<InputFile>,
@@ -21,6 +24,7 @@ pub(super) struct IncrementalContext {
 
 pub(super) fn prepare_incremental_context(
     context: &RunContext,
+    cloud: &mut CloudClient,
     entity: &config::EntityConfig,
     input_files: Vec<InputFile>,
 ) -> FloeResult<IncrementalContext> {
@@ -32,70 +36,66 @@ pub(super) fn prepare_incremental_context(
         });
     }
 
-    let resolved_state = resolve_entity_state_path(&context.storage_resolver, entity)?;
-    let state_path = resolved_state.local_path.ok_or_else(|| {
-        Box::new(crate::ConfigError(format!(
-            "entity.name={} incremental_mode=file requires a local state path",
-            entity.name
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    let existing = read_entity_state(&state_path)?
-        .map(|state| validate_entity_state(entity, state))
-        .transpose()?
-        .unwrap_or_else(|| EntityState::new(&entity.name));
-
-    let mut pending_inputs = Vec::new();
     let mut skipped_reports = Vec::new();
-    let mut pending_entries = BTreeMap::new();
+    let claim_outcome = claim_entity_inputs(
+        &context.storage_resolver,
+        cloud,
+        entity,
+        &context.run_id,
+        input_files,
+    )?;
 
-    for input_file in input_files {
-        match existing.files.get(&input_file.source_uri) {
-            Some(recorded) if file_state_matches(recorded, &input_file) => {
-                skipped_reports.push(build_skipped_report(input_file.source_uri.clone(), None));
-            }
-            Some(recorded) => {
-                let message = format!(
-                    "entity.name={} incremental_mode=file skipping previously ingested file with changed metadata: {} (recorded size={:?}, mtime={:?}; current size={:?}, mtime={:?})",
-                    entity.name,
-                    input_file.source_uri,
-                    recorded.size,
-                    recorded.mtime,
-                    input_file.source_size,
-                    input_file.source_mtime,
-                );
-                warnings::emit(
-                    &context.run_id,
-                    Some(&entity.name),
-                    Some(&input_file.source_uri),
-                    Some("incremental_file_changed"),
-                    &message,
-                );
-                skipped_reports.push(build_skipped_report(
-                    input_file.source_uri.clone(),
-                    Some(message),
-                ));
-            }
-            None => {
-                pending_entries.insert(
-                    input_file.source_uri.clone(),
-                    PendingFileState {
-                        size: input_file.source_size,
-                        mtime: input_file.source_mtime.clone(),
-                    },
-                );
-                pending_inputs.push(input_file);
-            }
+    for (input_file, recorded) in &claim_outcome.already_processed {
+        if file_state_matches(recorded, input_file) {
+            skipped_reports.push(build_skipped_report(input_file.source_uri.clone(), None));
+        } else {
+            let message = format!(
+                "entity.name={} incremental_mode=file skipping previously ingested file with changed metadata: {} (recorded size={:?}, mtime={:?}; current size={:?}, mtime={:?})",
+                entity.name,
+                input_file.source_uri,
+                recorded.size,
+                recorded.mtime,
+                input_file.source_size,
+                input_file.source_mtime,
+            );
+            warnings::emit(
+                &context.run_id,
+                Some(&entity.name),
+                Some(&input_file.source_uri),
+                Some("incremental_file_changed"),
+                &message,
+            );
+            skipped_reports.push(build_skipped_report(
+                input_file.source_uri.clone(),
+                Some(message),
+            ));
         }
+    }
+    for source_uri in claim_outcome.active_claims {
+        let message = format!(
+            "entity.name={} incremental_mode=file skipping file claimed by another active run: {}",
+            entity.name, source_uri
+        );
+        warnings::emit(
+            &context.run_id,
+            Some(&entity.name),
+            Some(&source_uri),
+            Some("incremental_file_claimed"),
+            &message,
+        );
+        skipped_reports.push(build_skipped_report(source_uri, Some(message)));
     }
 
     Ok(IncrementalContext {
-        pending_inputs,
+        pending_inputs: claim_outcome.pending_inputs,
         skipped_reports,
-        pending_state: Some(PendingEntityState {
-            path: state_path,
-            entity_name: entity.name.clone(),
-            base_state: existing,
-            pending_entries,
+        pending_state: claim_outcome.claimed_state.map(|claimed| {
+            PendingEntityState::new(
+                claimed,
+                context.storage_resolver.clone(),
+                entity.name.clone(),
+                context.run_id.clone(),
+            )
         }),
     })
 }
@@ -135,43 +135,147 @@ fn build_skipped_report(input_file: String, warning: Option<String>) -> FileRepo
     }
 }
 
-struct PendingFileState {
-    size: Option<u64>,
-    mtime: Option<String>,
-}
-
 pub(super) struct PendingEntityState {
-    path: PathBuf,
+    claimed: ClaimedEntityState,
+    resolver: StorageResolver,
     entity_name: String,
-    base_state: EntityState,
-    pending_entries: BTreeMap<String, PendingFileState>,
+    run_id: String,
+    heartbeat: Option<ClaimHeartbeat>,
+    finalized: bool,
 }
 
 impl PendingEntityState {
-    pub(super) fn commit(&self) -> FloeResult<()> {
-        if self.pending_entries.is_empty() {
-            return Ok(());
+    fn new(
+        claimed: ClaimedEntityState,
+        resolver: StorageResolver,
+        entity_name: String,
+        run_id: String,
+    ) -> Self {
+        let heartbeat = ClaimHeartbeat::start(
+            resolver.clone(),
+            entity_name.clone(),
+            run_id.clone(),
+            claimed.clone(),
+        );
+        Self {
+            claimed,
+            resolver,
+            entity_name,
+            run_id,
+            heartbeat: Some(heartbeat),
+            finalized: false,
         }
-
-        let processed_at = report::now_rfc3339();
-        let mut state = self.base_state.clone();
-        if state.schema.is_empty() {
-            state.schema = crate::state::ENTITY_STATE_SCHEMA_V1.to_string();
-        }
-        if state.entity.is_empty() {
-            state.entity = self.entity_name.clone();
-        }
-        state.updated_at = Some(processed_at.clone());
-        for (source_uri, pending) in &self.pending_entries {
-            state.files.insert(
-                source_uri.clone(),
-                EntityFileState {
-                    processed_at: processed_at.clone(),
-                    size: pending.size,
-                    mtime: pending.mtime.clone(),
-                },
-            );
-        }
-        write_entity_state_atomic(&self.path, &state)
     }
+
+    pub(super) fn commit(
+        &mut self,
+        _context: &RunContext,
+        cloud: &mut CloudClient,
+        _entity: &config::EntityConfig,
+    ) -> FloeResult<()> {
+        self.stop_heartbeat();
+        promote_claimed_entity_state(
+            &self.resolver,
+            cloud,
+            &self.entity_name,
+            &self.run_id,
+            &self.claimed,
+        )?;
+        self.finalized = true;
+        Ok(())
+    }
+
+    pub(super) fn release(
+        &mut self,
+        _context: &RunContext,
+        cloud: &mut CloudClient,
+        _entity: &config::EntityConfig,
+    ) -> FloeResult<()> {
+        self.stop_heartbeat();
+        release_claimed_entity_state(
+            &self.resolver,
+            cloud,
+            &self.entity_name,
+            &self.run_id,
+            &self.claimed,
+        )?;
+        self.finalized = true;
+        Ok(())
+    }
+
+    fn stop_heartbeat(&mut self) {
+        if let Some(mut heartbeat) = self.heartbeat.take() {
+            heartbeat.stop();
+        }
+    }
+}
+
+impl Drop for PendingEntityState {
+    fn drop(&mut self) {
+        self.stop_heartbeat();
+        if self.finalized {
+            return;
+        }
+        let mut cloud = CloudClient::new();
+        let _ = release_claimed_entity_state(
+            &self.resolver,
+            &mut cloud,
+            &self.entity_name,
+            &self.run_id,
+            &self.claimed,
+        );
+    }
+}
+
+struct ClaimHeartbeat {
+    stop_tx: Option<Sender<()>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl ClaimHeartbeat {
+    fn start(
+        resolver: StorageResolver,
+        entity_name: String,
+        run_id: String,
+        claimed: ClaimedEntityState,
+    ) -> Self {
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let interval = claim_renewal_interval();
+        let handle = thread::spawn(move || {
+            while stop_rx.recv_timeout(interval).is_err() {
+                let mut cloud = CloudClient::new();
+                let _ = renew_claimed_entity_state(
+                    &resolver,
+                    &mut cloud,
+                    &entity_name,
+                    &run_id,
+                    &claimed,
+                );
+            }
+        });
+        Self {
+            stop_tx: Some(stop_tx),
+            handle: Some(handle),
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for ClaimHeartbeat {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn claim_renewal_interval() -> Duration {
+    let ttl = CLAIM_TTL_SECONDS.max(1) as u64;
+    Duration::from_secs((ttl / 3).clamp(1, 300))
 }

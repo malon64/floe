@@ -385,10 +385,14 @@ fn filter_cloud_list_refs(
 ) -> Vec<io::storage::planner::ObjectRef> {
     let filtered = list_refs
         .into_iter()
-        .filter(|obj| source_match.matches_key(&obj.key))
+        .filter(|obj| source_match.matches_key(&obj.key) && !is_floe_state_key(&obj.key))
         .collect::<Vec<_>>();
     let filtered = planner::filter_by_suffixes(filtered, suffixes);
     planner::stable_sort_refs(filtered)
+}
+
+fn is_floe_state_key(key: &str) -> bool {
+    key.starts_with(".floe/") || key.contains("/.floe/")
 }
 
 fn contains_glob_metachar(value: &str) -> bool {

@@ -355,6 +355,7 @@ fn incremental_file_mode_fails_on_mismatched_state_schema() {
             entity: "customer".to_string(),
             updated_at: None,
             files: Default::default(),
+            claims: Default::default(),
         },
     )
     .expect("write state");
@@ -457,6 +458,44 @@ fn incremental_file_mode_does_not_commit_state_after_unsuccessful_entity() {
 
     let outcome = run_config(&config_path, "incremental-rejected");
     assert_eq!(outcome.summary.run.status, RunStatus::Rejected);
+    assert!(read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .is_none());
+}
+
+#[test]
+fn incremental_file_mode_releases_claims_after_error_exit() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_path = root.path().join("report-file");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    fs::write(&report_path, "not a directory").expect("write report file");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_path,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            profile: None,
+            run_id: Some("incremental-report-write-error".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+        },
+    )
+    .expect_err("report write should fail");
+    assert!(err.to_string().contains("Not a directory") || err.to_string().contains("os error"));
     assert!(read_entity_state(&state_path(&input_dir))
         .expect("read state")
         .is_none());

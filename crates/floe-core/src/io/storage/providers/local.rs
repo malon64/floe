@@ -5,7 +5,7 @@ use glob::glob;
 use crate::errors::{RunError, StorageError};
 use crate::{config, ConfigError, FloeResult};
 
-use crate::io::storage::{planner, ObjectRef, StorageClient};
+use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 
 pub struct LocalClient;
 
@@ -126,6 +126,115 @@ impl StorageClient for LocalClient {
         let path = Path::new(uri.trim_start_matches("local://"));
         Ok(path.exists())
     }
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let path = Path::new(uri.trim_start_matches("local://"));
+        if !path.exists() {
+            return Ok(None);
+        }
+        let _lock = FileLock::acquire(path)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(StoredObject {
+            body: std::fs::read(path)?,
+            version: local_version(path)?,
+        }))
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let path = PathBuf::from(uri.trim_start_matches("local://"));
+        planner::ensure_parent_dir(&path)?;
+        let _lock = FileLock::acquire(&path)?;
+        let current = if path.exists() {
+            Some(local_version(&path)?)
+        } else {
+            None
+        };
+        if current.as_deref() != expected_version {
+            return Ok(ConditionalWrite::Conflict);
+        }
+        std::fs::write(&path, body)?;
+        Ok(ConditionalWrite::Written {
+            version: local_version(&path)?,
+        })
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let path = PathBuf::from(uri.trim_start_matches("local://"));
+        planner::ensure_parent_dir(&path)?;
+        let _lock = FileLock::acquire(&path)?;
+        let current = if path.exists() {
+            Some(local_version(&path)?)
+        } else {
+            None
+        };
+        if current.as_deref() != expected_version {
+            return Ok(ConditionalWrite::Conflict);
+        }
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(ConditionalWrite::Written {
+            version: "deleted".to_string(),
+        })
+    }
+}
+
+struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    fn acquire(base: &Path) -> FloeResult<Self> {
+        let lock_path = PathBuf::from(format!("{}.lock", base.display()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(_) => return Ok(Self { path: lock_path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "timed out acquiring local state lock {}",
+                            lock_path.display()
+                        )
+                        .into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => return Err(Box::new(e)),
+            }
+        }
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn local_version(path: &Path) -> FloeResult<String> {
+    let metadata = std::fs::metadata(path)?;
+    let modified = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    Ok(format!("{}:{modified}", metadata.len()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

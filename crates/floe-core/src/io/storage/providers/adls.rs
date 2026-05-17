@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use azure_core::prelude::IfMatchCondition;
 use azure_identity::{DefaultAzureCredential, TokenCredentialOptions};
 use azure_storage::StorageCredentials;
 use azure_storage_blobs::prelude::{BlobServiceClient, ContainerClient};
@@ -8,7 +9,9 @@ use futures::StreamExt;
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
-use crate::io::storage::{planner, uri, validation, ObjectRef, StorageClient};
+use crate::io::storage::{
+    planner, uri, validation, ConditionalWrite, ObjectRef, StorageClient, StoredObject,
+};
 use crate::{config, FloeResult};
 
 pub struct AdlsClient {
@@ -207,6 +210,123 @@ impl StorageClient for AdlsClient {
             .to_string();
         planner::exists_by_key(self, &key)
     }
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let key = adls_key_from_uri(uri)?;
+        let client = self.container_client.clone();
+        self.runtime.block_on(async move {
+            let blob = client.blob_client(key);
+            let mut stream = blob.get().into_stream();
+            let mut body = Vec::new();
+            let mut version = None;
+            while let Some(chunk) = stream.next().await {
+                let resp = match chunk {
+                    Ok(resp) => resp,
+                    Err(err) if is_not_found(&err) => return Ok(None),
+                    Err(err) => {
+                        return Err(
+                            Box::new(StorageError(format!("adls download failed: {err}")))
+                                as Box<dyn std::error::Error + Send + Sync>,
+                        )
+                    }
+                };
+                if version.is_none() {
+                    version = Some(resp.blob.properties.etag.to_string());
+                }
+                let bytes = resp.data.collect().await.map_err(|err| {
+                    Box::new(StorageError(format!("adls download read failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+                body.extend_from_slice(&bytes);
+            }
+            Ok(version.map(|version| StoredObject { body, version }))
+        })
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let key = adls_key_from_uri(uri)?;
+        let client = self.container_client.clone();
+        let body = body.to_vec();
+        self.runtime.block_on(async move {
+            let condition = expected_version
+                .map(|version| IfMatchCondition::Match(version.to_string()))
+                .unwrap_or_else(|| IfMatchCondition::NotMatch("*".to_string()));
+            match client
+                .blob_client(key)
+                .put_block_blob(body)
+                .if_match(condition)
+                .content_type("application/json")
+                .into_future()
+                .await
+            {
+                Ok(resp) => Ok(ConditionalWrite::Written { version: resp.etag }),
+                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) => Err(Box::new(StorageError(format!("adls upload failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>),
+            }
+        })
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let Some(expected_version) = expected_version else {
+            return Ok(ConditionalWrite::Written {
+                version: "deleted".to_string(),
+            });
+        };
+        let key = adls_key_from_uri(uri)?;
+        let client = self.container_client.clone();
+        self.runtime.block_on(async move {
+            let request = client
+                .blob_client(key)
+                .delete()
+                .if_match(IfMatchCondition::Match(expected_version.to_string()));
+            match request.into_future().await {
+                Ok(_) => Ok(ConditionalWrite::Written {
+                    version: "deleted".to_string(),
+                }),
+                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
+                    version: "deleted".to_string(),
+                }),
+                Err(err) => Err(Box::new(StorageError(format!("adls delete failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>),
+            }
+        })
+    }
+}
+
+fn adls_key_from_uri(uri: &str) -> FloeResult<String> {
+    let key = uri
+        .split_once(".dfs.core.windows.net/")
+        .map(|(_, tail)| tail)
+        .unwrap_or("")
+        .trim_start_matches('/')
+        .to_string();
+    if key.is_empty() {
+        return Err(Box::new(StorageError(
+            "adls state operation requires a blob path".to_string(),
+        )));
+    }
+    Ok(key)
+}
+
+fn is_not_found<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("404") || text.contains("NotFound")
+}
+
+fn is_precondition<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("412") || text.contains("condition") || text.contains("Condition")
 }
 
 pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {

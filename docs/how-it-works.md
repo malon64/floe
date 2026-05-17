@@ -11,11 +11,15 @@ entity. The order is deterministic and is reflected in reports.
    - In normal runs, resolved cloud objects are then downloaded to temp files.
    - In dry-run, resolution is list-only for cloud inputs (no downloads, no writes).
 2. Resolve storage targets for accepted/rejected/report outputs.
-3. If `incremental_mode: file` is enabled, load the entity state file and skip any
-   file URI already recorded as previously ingested.
+3. If `incremental_mode: file` is enabled, load the entity state file/object and
+   skip any file URI already recorded as previously ingested.
    - If the current size/mtime still matches the recorded state, Floe skips the file silently.
    - If the size/mtime changed, Floe still skips the file and emits an
      `incremental_file_changed` warning instead of reprocessing it.
+   - If another run has an active claim on the file, Floe skips it for this run
+     and emits an `incremental_file_claimed` warning.
+   - Remaining pending files are claimed with a conditional state update before
+     accepted sink output is written.
 4. Prepare output directories if needed.
 
 ### B) File-level prechecks (per file)
@@ -63,10 +67,17 @@ via `sink.accepted.options.max_size_per_file`).
 
 ### F) Incremental state commit
 
-When `incremental_mode: file` is enabled and the entity finishes successfully,
-Floe updates the entity state file with the newly processed file URIs plus
-observed size/mtime metadata. Later runs reuse that state to skip any file URI
-already present in the state file.
+When `incremental_mode: file` is enabled, Floe first claims pending file URIs in
+state. Local state uses atomic file replacement. Remote state on S3, GCS, and
+ADLS uses optimistic conditional writes so concurrent runners do not silently
+overwrite one another.
+
+When the entity finishes successfully, Floe promotes this run's claims into the
+durable processed-file map with observed size/mtime metadata. Later runs reuse
+that state to skip any file URI already present in the state file. If the entity
+does not finish successfully, Floe removes this run's claims so those files can
+be retried. Claims expire after one hour so a later runner can recover work from
+a crashed process.
 
 The recorded metadata is used only to detect that a previously ingested file has
 changed since the earlier run. In that case Floe emits an

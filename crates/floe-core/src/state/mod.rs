@@ -8,11 +8,16 @@ use tempfile::NamedTempFile;
 use crate::config::{
     ConfigBase, EntityConfig, IncrementalMode, ResolvedPath, RootConfig, StorageResolver,
 };
-use crate::io::storage::extensions;
+use crate::io::storage::{
+    extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient,
+};
 use crate::{ConfigError, FloeResult};
 
 pub const ENTITY_STATE_SCHEMA_V1: &str = "floe.state.file-ingest.v1";
+pub const ENTITY_STATE_SCHEMA_V2: &str = "floe.state.file-ingest.v2";
 pub const ENTITY_STATE_FILENAME: &str = "state.json";
+const STATE_CAS_RETRIES: usize = 5;
+pub const CLAIM_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EntityState {
@@ -21,15 +26,18 @@ pub struct EntityState {
     pub updated_at: Option<String>,
     #[serde(default)]
     pub files: BTreeMap<String, EntityFileState>,
+    #[serde(default)]
+    pub claims: BTreeMap<String, EntityFileClaim>,
 }
 
 impl EntityState {
     pub fn new(entity: impl Into<String>) -> Self {
         Self {
-            schema: ENTITY_STATE_SCHEMA_V1.to_string(),
+            schema: ENTITY_STATE_SCHEMA_V2.to_string(),
             entity: entity.into(),
             updated_at: None,
             files: BTreeMap::new(),
+            claims: BTreeMap::new(),
         }
     }
 }
@@ -37,6 +45,15 @@ impl EntityState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EntityFileState {
     pub processed_at: String,
+    pub size: Option<u64>,
+    pub mtime: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EntityFileClaim {
+    pub run_id: String,
+    pub acquired_at: String,
+    pub expires_at: String,
     pub size: Option<u64>,
     pub mtime: Option<String>,
 }
@@ -65,7 +82,7 @@ pub fn resolve_entity_state_path(
             } else {
                 resolver.resolve_local_path(path)?
             };
-            return Ok(with_local_state_fallback(resolver, entity, resolved));
+            return Ok(resolved);
         }
     }
 
@@ -87,65 +104,7 @@ pub fn resolve_entity_state_path(
         entity.source.storage.as_deref(),
         &default_path,
     )?;
-    Ok(with_local_state_fallback(resolver, entity, resolved))
-}
-
-fn with_local_state_fallback(
-    resolver: &StorageResolver,
-    entity: &EntityConfig,
-    mut resolved: ResolvedPath,
-) -> ResolvedPath {
-    if resolved.local_path.is_none() {
-        resolved.local_path = Some(default_local_state_cache_path(
-            resolver,
-            entity,
-            &resolved.uri,
-        ));
-    }
-    resolved
-}
-
-fn default_local_state_cache_path(
-    resolver: &StorageResolver,
-    entity: &EntityConfig,
-    resolved_uri: &str,
-) -> PathBuf {
-    if resolver.config_is_remote() {
-        remote_config_state_cache_root()
-            .join(short_stable_hash_hex(resolved_uri))
-            .join(&entity.name)
-            .join(ENTITY_STATE_FILENAME)
-    } else {
-        resolver
-            .config_local_dir()
-            .join(".floe/state")
-            .join(&entity.name)
-            .join(ENTITY_STATE_FILENAME)
-    }
-}
-
-fn remote_config_state_cache_root() -> PathBuf {
-    if let Some(path) = std::env::var_os("XDG_CACHE_HOME") {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            return path.join("floe/state");
-        }
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join(".cache/floe/state");
-    }
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".floe/state")
-}
-
-fn short_stable_hash_hex(value: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{:016x}", hash)
+    Ok(resolved)
 }
 
 pub fn read_entity_state(path: &Path) -> FloeResult<Option<EntityState>> {
@@ -153,8 +112,244 @@ pub fn read_entity_state(path: &Path) -> FloeResult<Option<EntityState>> {
         return Ok(None);
     }
     let payload = fs::read_to_string(path)?;
-    let state: EntityState = serde_json::from_str(&payload)?;
+    let state = parse_entity_state(payload.as_bytes())?;
     Ok(Some(state))
+}
+
+fn parse_entity_state(payload: &[u8]) -> FloeResult<EntityState> {
+    let mut state: EntityState = serde_json::from_slice(payload)?;
+    if state.schema == ENTITY_STATE_SCHEMA_V1 {
+        state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+        state.claims.clear();
+    }
+    Ok(state)
+}
+
+#[derive(Debug, Clone)]
+pub enum EntityStateTarget {
+    Local { path: PathBuf, uri: String },
+    Remote { storage: String, uri: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedEntityState {
+    pub target: EntityStateTarget,
+    pub state: EntityState,
+    pub version: Option<String>,
+    pub existed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClaimedEntityState {
+    pub target: EntityStateTarget,
+    pub state: EntityState,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntityStateClaimOutcome {
+    pub pending_inputs: Vec<crate::io::format::InputFile>,
+    pub claimed_state: Option<ClaimedEntityState>,
+    pub active_claims: Vec<String>,
+    pub already_processed: Vec<(crate::io::format::InputFile, EntityFileState)>,
+}
+
+pub fn claim_entity_inputs(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity: &EntityConfig,
+    run_id: &str,
+    input_files: Vec<crate::io::format::InputFile>,
+) -> FloeResult<EntityStateClaimOutcome> {
+    if input_files.is_empty() {
+        return Ok(EntityStateClaimOutcome {
+            pending_inputs: Vec::new(),
+            claimed_state: None,
+            active_claims: Vec::new(),
+            already_processed: Vec::new(),
+        });
+    }
+
+    for _ in 0..STATE_CAS_RETRIES {
+        let mut loaded = load_entity_state(resolver, cloud, entity)?;
+        remove_expired_claims(&mut loaded.state);
+        let mut pending_inputs = Vec::new();
+        let mut active_claims = Vec::new();
+        let mut already_processed = Vec::new();
+        let acquired_at = now_rfc3339();
+        let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
+
+        for input_file in &input_files {
+            if let Some(recorded) = loaded.state.files.get(&input_file.source_uri) {
+                already_processed.push((input_file.clone(), recorded.clone()));
+                continue;
+            }
+            match loaded.state.claims.get(&input_file.source_uri) {
+                Some(_) => {
+                    active_claims.push(input_file.source_uri.clone());
+                }
+                None => {
+                    loaded.state.claims.insert(
+                        input_file.source_uri.clone(),
+                        EntityFileClaim {
+                            run_id: run_id.to_string(),
+                            acquired_at: acquired_at.clone(),
+                            expires_at: expires_at.clone(),
+                            size: input_file.source_size,
+                            mtime: input_file.source_mtime.clone(),
+                        },
+                    );
+                    pending_inputs.push(input_file.clone());
+                }
+            }
+        }
+
+        if pending_inputs.is_empty() {
+            if active_claims.is_empty() {
+                let _ = persist_loaded_state(cloud, resolver, &loaded)?;
+            }
+            return Ok(EntityStateClaimOutcome {
+                pending_inputs,
+                claimed_state: None,
+                active_claims,
+                already_processed,
+            });
+        }
+
+        loaded.state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+        loaded.state.updated_at = Some(acquired_at);
+        match persist_loaded_state(cloud, resolver, &loaded)? {
+            Some(version) => {
+                return Ok(EntityStateClaimOutcome {
+                    pending_inputs,
+                    claimed_state: Some(ClaimedEntityState {
+                        target: loaded.target,
+                        state: loaded.state,
+                        version,
+                    }),
+                    active_claims,
+                    already_processed,
+                });
+            }
+            None => continue,
+        }
+    }
+
+    Err(Box::new(ConfigError(format!(
+        "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
+        entity.name
+    ))))
+}
+
+pub fn promote_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+        let processed_at = now_rfc3339();
+        let claimed_files: Vec<String> = state
+            .claims
+            .iter()
+            .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
+            .map(|(source_uri, _)| source_uri.clone())
+            .collect();
+        for source_uri in claimed_files {
+            if let Some(claim) = state.claims.remove(&source_uri) {
+                state.files.insert(
+                    source_uri,
+                    EntityFileState {
+                        processed_at: processed_at.clone(),
+                        size: claim.size,
+                        mtime: claim.mtime,
+                    },
+                );
+            }
+        }
+        state.updated_at = Some(processed_at);
+    })
+}
+
+pub fn release_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+        state
+            .claims
+            .retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
+        state.updated_at = Some(now_rfc3339());
+    })
+}
+
+pub fn renew_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+        let now = now_rfc3339();
+        let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
+        for (uri, claim) in state.claims.iter_mut() {
+            if claim.run_id == run_id && our_uris.contains(uri) {
+                claim.expires_at = expires_at.clone();
+            }
+        }
+        state.updated_at = Some(now);
+    })
+}
+
+fn mutate_claimed_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    claimed: &ClaimedEntityState,
+    mutate: impl Fn(&mut EntityState),
+) -> FloeResult<()> {
+    for attempt in 0..STATE_CAS_RETRIES {
+        let mut loaded = if attempt == 0 {
+            LoadedEntityState {
+                target: claimed.target.clone(),
+                state: claimed.state.clone(),
+                version: claimed.version.clone(),
+                existed: claimed.version.is_some(),
+            }
+        } else {
+            load_target_state_with_entity_name(
+                cloud,
+                resolver,
+                entity_name,
+                claimed.target.clone(),
+            )?
+        };
+        mutate(&mut loaded.state);
+        loaded.state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+        let persisted = if loaded.state.files.is_empty() && loaded.state.claims.is_empty() {
+            delete_loaded_state(cloud, resolver, &loaded)?
+        } else {
+            persist_loaded_state(cloud, resolver, &loaded)?
+        };
+        if persisted.is_some() {
+            return Ok(());
+        }
+    }
+    Err(Box::new(ConfigError(format!(
+        "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
+        entity_name
+    ))))
 }
 
 pub fn inspect_entity_state_with_base(
@@ -171,13 +366,12 @@ pub fn inspect_entity_state(
     config_base: ConfigBase,
     entity_name: &str,
 ) -> FloeResult<EntityStateInspection> {
-    let (entity, path) = resolve_entity_state_target(config, config_base, entity_name)?;
-    let state = match &path.local_path {
-        Some(local_path) => read_entity_state(local_path)?
-            .map(|state| validate_entity_state(entity, state))
-            .transpose()?,
-        None => None,
-    };
+    let (entity, path) = resolve_entity_state_target(config, config_base.clone(), entity_name)?;
+    let resolver = StorageResolver::new(config, config_base)?;
+    let target = state_target_from_resolved(&path)?;
+    let mut cloud = CloudClient::new();
+    let loaded = load_target_state_with_resolver(&mut cloud, &resolver, entity, target)?;
+    let state = loaded.existed.then_some(loaded.state);
 
     Ok(EntityStateInspection {
         entity_name: entity.name.clone(),
@@ -193,20 +387,38 @@ pub fn reset_entity_state_with_base(
     entity_name: &str,
 ) -> FloeResult<bool> {
     let config = crate::load_config(config_path)?;
-    let (entity, path) = resolve_entity_state_target(&config, config_base, entity_name)?;
-    let Some(local_path) = path.local_path.as_ref() else {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} state path is not local and cannot be reset: {}",
-            entity.name, path.uri
-        ))));
-    };
-
-    if !local_path.exists() {
+    let (entity, path) = resolve_entity_state_target(&config, config_base.clone(), entity_name)?;
+    let target = state_target_from_resolved(&path)?;
+    if let EntityStateTarget::Local { path, .. } = &target {
+        if path.exists() {
+            fs::remove_file(path)?;
+            return Ok(true);
+        }
         return Ok(false);
     }
 
-    fs::remove_file(local_path)?;
-    Ok(true)
+    match target {
+        EntityStateTarget::Local { .. } => Ok(false),
+        EntityStateTarget::Remote { storage, uri } => {
+            let mut cloud = CloudClient::new();
+            let resolver = StorageResolver::new(&config, config_base)?;
+            let client = cloud.client_for_context(
+                &resolver,
+                &storage,
+                &format!("entity.name={}", entity.name),
+            )?;
+            let Some(object) = client.read_object(&uri)? else {
+                return Ok(false);
+            };
+            match client.delete_object_conditional(&uri, Some(&object.version))? {
+                ConditionalWrite::Written { .. } => Ok(true),
+                ConditionalWrite::Conflict => Err(Box::new(ConfigError(format!(
+                    "entity.name={} remote state changed while resetting: {}",
+                    entity.name, uri
+                )))),
+            }
+        }
+    }
 }
 
 fn resolve_entity_state_target<'a>(
@@ -241,6 +453,174 @@ pub fn write_entity_state_atomic(path: &Path, state: &EntityState) -> FloeResult
     temp.as_file_mut().sync_all()?;
     temp.persist(path).map_err(|err| err.error)?;
     Ok(())
+}
+
+fn load_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity: &EntityConfig,
+) -> FloeResult<LoadedEntityState> {
+    let resolved = resolve_entity_state_path(resolver, entity)?;
+    let target = state_target_from_resolved(&resolved)?;
+    load_target_state_with_resolver(cloud, resolver, entity, target)
+}
+
+fn load_target_state_with_resolver(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    entity: &EntityConfig,
+    target: EntityStateTarget,
+) -> FloeResult<LoadedEntityState> {
+    load_target_state_with_entity_name(cloud, resolver, &entity.name, target)
+}
+
+fn load_target_state_with_entity_name(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    entity_name: &str,
+    target: EntityStateTarget,
+) -> FloeResult<LoadedEntityState> {
+    match target {
+        EntityStateTarget::Local { path, uri } => load_local_target(path, uri, entity_name),
+        EntityStateTarget::Remote { storage, uri } => {
+            let client = cloud.client_for_context(
+                resolver,
+                &storage,
+                &format!("entity.name={entity_name}"),
+            )?;
+            let object = client.read_object(&uri)?;
+            let (state, version, existed) = match object {
+                Some(object) => (
+                    validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
+                    Some(object.version),
+                    true,
+                ),
+                None => (EntityState::new(entity_name), None, false),
+            };
+            Ok(LoadedEntityState {
+                target: EntityStateTarget::Remote { storage, uri },
+                state,
+                version,
+                existed,
+            })
+        }
+    }
+}
+
+fn load_local_target(
+    path: PathBuf,
+    uri: String,
+    entity_name: &str,
+) -> FloeResult<LoadedEntityState> {
+    let object = LocalClient::new().read_object(&uri)?;
+    let (state, version, existed) = match object {
+        Some(object) => (
+            validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
+            Some(object.version),
+            true,
+        ),
+        None => (EntityState::new(entity_name), None, false),
+    };
+    Ok(LoadedEntityState {
+        target: EntityStateTarget::Local { path, uri },
+        state,
+        version,
+        existed,
+    })
+}
+
+fn persist_loaded_state(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    loaded: &LoadedEntityState,
+) -> FloeResult<Option<Option<String>>> {
+    let mut state = loaded.state.clone();
+    state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
+    let body = serde_json::to_vec_pretty(&state)?;
+    match &loaded.target {
+        EntityStateTarget::Local { uri, .. } => {
+            match LocalClient::new().write_object_conditional(
+                uri,
+                loaded.version.as_deref(),
+                &body,
+            )? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
+            }
+        }
+        EntityStateTarget::Remote { uri, storage } => {
+            let client = cloud.client_for_context(resolver, storage, "entity state")?;
+            match client.write_object_conditional(uri, loaded.version.as_deref(), &body)? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
+            }
+        }
+    }
+}
+
+fn delete_loaded_state(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    loaded: &LoadedEntityState,
+) -> FloeResult<Option<Option<String>>> {
+    match &loaded.target {
+        EntityStateTarget::Local { uri, .. } => {
+            match LocalClient::new().delete_object_conditional(uri, loaded.version.as_deref())? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
+            }
+        }
+        EntityStateTarget::Remote { uri, storage } => {
+            let client = cloud.client_for_context(resolver, storage, "entity state")?;
+            match client.delete_object_conditional(uri, loaded.version.as_deref())? {
+                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
+                ConditionalWrite::Conflict => Ok(None),
+            }
+        }
+    }
+}
+
+fn state_target_from_resolved(resolved: &ResolvedPath) -> FloeResult<EntityStateTarget> {
+    if let Some(path) = &resolved.local_path {
+        return Ok(EntityStateTarget::Local {
+            path: path.clone(),
+            uri: resolved.uri.clone(),
+        });
+    }
+    if is_remote_uri(&resolved.uri) {
+        return Ok(EntityStateTarget::Remote {
+            storage: resolved.storage.clone(),
+            uri: resolved.uri.clone(),
+        });
+    }
+    Err(Box::new(ConfigError(format!(
+        "state path is neither local nor supported remote: {}",
+        resolved.uri
+    ))))
+}
+
+fn remove_expired_claims(state: &mut EntityState) {
+    let now = time::OffsetDateTime::now_utc();
+    state.claims.retain(|_, claim| {
+        time::OffsetDateTime::parse(
+            &claim.expires_at,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .map(|expires_at| expires_at > now)
+        .unwrap_or(false)
+    });
+}
+
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| crate::report::now_rfc3339())
+}
+
+fn rfc3339_after_seconds(seconds: i64) -> String {
+    (time::OffsetDateTime::now_utc() + time::Duration::seconds(seconds))
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| crate::report::now_rfc3339())
 }
 
 fn join_state_path(source_root: &str, entity_name: &str) -> String {
@@ -338,17 +718,21 @@ fn is_remote_uri(value: &str) -> bool {
 }
 
 pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeResult<EntityState> {
-    if state.schema != ENTITY_STATE_SCHEMA_V1 {
+    validate_entity_state_name(&entity.name, state)
+}
+
+fn validate_entity_state_name(entity_name: &str, state: EntityState) -> FloeResult<EntityState> {
+    if state.schema != ENTITY_STATE_SCHEMA_V1 && state.schema != ENTITY_STATE_SCHEMA_V2 {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} state schema mismatch: expected {}, got {}",
-            entity.name, ENTITY_STATE_SCHEMA_V1, state.schema
+            "entity.name={} state schema mismatch: expected {} or {}, got {}",
+            entity_name, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2, state.schema
         ))));
     }
 
-    if state.entity != entity.name {
+    if state.entity != entity_name {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} state entity mismatch: expected {}, got {}",
-            entity.name, entity.name, state.entity
+            entity_name, entity_name, state.entity
         ))));
     }
 

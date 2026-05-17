@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
-use crate::io::storage::{planner, ObjectRef, StorageClient};
+use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 use crate::FloeResult;
 
 pub struct GcsClient {
@@ -176,6 +176,128 @@ impl StorageClient for GcsClient {
         let location = parse_gcs_uri(uri)?;
         planner::exists_by_key(self, &location.key)
     }
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let location = parse_gcs_uri(uri)?;
+        let client = self.client.clone();
+        self.runtime.block_on(async move {
+            let object = client
+                .get_object(&GetObjectRequest {
+                    bucket: location.bucket.clone(),
+                    object: location.key.clone(),
+                    ..Default::default()
+                })
+                .await;
+            let object = match object {
+                Ok(object) => object,
+                Err(err) if is_not_found(&err) => return Ok(None),
+                Err(err) => {
+                    return Err(
+                        Box::new(StorageError(format!("gcs get object failed: {err}")))
+                            as Box<dyn std::error::Error + Send + Sync>,
+                    )
+                }
+            };
+            let data = client
+                .download_object(
+                    &GetObjectRequest {
+                        bucket: location.bucket,
+                        object: location.key,
+                        ..Default::default()
+                    },
+                    &Range::default(),
+                )
+                .await
+                .map_err(|err| {
+                    Box::new(StorageError(format!("gcs download failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            Ok(Some(StoredObject {
+                body: data,
+                version: object.generation.to_string(),
+            }))
+        })
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let location = parse_gcs_uri(uri)?;
+        let client = self.client.clone();
+        let data = body.to_vec();
+        let generation = expected_version
+            .map(str::parse::<i64>)
+            .transpose()
+            .map_err(|err| Box::new(StorageError(format!("invalid gcs generation: {err}"))))?;
+        self.runtime.block_on(async move {
+            let upload_type = UploadType::Simple(Media::new(location.key.clone()));
+            let request = UploadObjectRequest {
+                bucket: location.bucket,
+                if_generation_match: Some(generation.unwrap_or(0)),
+                ..Default::default()
+            };
+            match client.upload_object(&request, data, &upload_type).await {
+                Ok(object) => Ok(ConditionalWrite::Written {
+                    version: object.generation.to_string(),
+                }),
+                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) => Err(Box::new(StorageError(format!("gcs upload failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>),
+            }
+        })
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let Some(expected_version) = expected_version else {
+            return Ok(ConditionalWrite::Written {
+                version: "deleted".to_string(),
+            });
+        };
+        let location = parse_gcs_uri(uri)?;
+        let client = self.client.clone();
+        let generation = expected_version
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|err| Box::new(StorageError(format!("invalid gcs generation: {err}"))))?;
+        self.runtime.block_on(async move {
+            match client
+                .delete_object(&DeleteObjectRequest {
+                    bucket: location.bucket,
+                    object: location.key,
+                    if_generation_match: generation,
+                    ..Default::default()
+                })
+                .await
+            {
+                Ok(_) => Ok(ConditionalWrite::Written {
+                    version: "deleted".to_string(),
+                }),
+                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
+                    version: "deleted".to_string(),
+                }),
+                Err(err) => Err(Box::new(StorageError(format!("gcs delete failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>),
+            }
+        })
+    }
+}
+
+fn is_not_found<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("404") || text.contains("NotFound")
+}
+
+fn is_precondition<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("412") || text.contains("condition") || text.contains("Precondition")
 }
 
 pub fn parse_gcs_uri(uri: &str) -> FloeResult<GcsLocation> {

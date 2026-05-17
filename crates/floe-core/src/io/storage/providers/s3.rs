@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
-use crate::io::storage::{planner, ObjectRef, StorageClient};
+use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 use crate::FloeResult;
 
 pub struct S3Client {
@@ -197,6 +197,118 @@ impl StorageClient for S3Client {
         let location = parse_s3_uri(uri)?;
         planner::exists_by_key(self, &location.key)
     }
+
+    fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
+        let location = parse_s3_uri(uri)?;
+        self.runtime.block_on(async move {
+            let response = self
+                .client
+                .get_object()
+                .bucket(location.bucket)
+                .key(location.key)
+                .send()
+                .await;
+            let response = match response {
+                Ok(response) => response,
+                Err(err) if is_not_found(&err) => return Ok(None),
+                Err(err) => {
+                    return Err(
+                        Box::new(StorageError(format!("s3 get object failed: {err}")))
+                            as Box<dyn std::error::Error + Send + Sync>,
+                    )
+                }
+            };
+            let version = response.e_tag.unwrap_or_default();
+            let body = response.body.collect().await.map_err(|err| {
+                Box::new(StorageError(format!("s3 read object body failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            Ok(Some(StoredObject {
+                body: body.into_bytes().to_vec(),
+                version,
+            }))
+        })
+    }
+
+    fn write_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+        body: &[u8],
+    ) -> FloeResult<ConditionalWrite> {
+        let location = parse_s3_uri(uri)?;
+        let body = ByteStream::from(body.to_vec());
+        self.runtime.block_on(async move {
+            let mut request = self
+                .client
+                .put_object()
+                .bucket(location.bucket)
+                .key(location.key)
+                .body(body);
+            request = match expected_version {
+                Some(version) => request.if_match(version),
+                None => request.if_none_match("*"),
+            };
+            match request.send().await {
+                Ok(output) => Ok(ConditionalWrite::Written {
+                    version: output.e_tag.unwrap_or_default(),
+                }),
+                Err(err) if is_precondition_or_conflict(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) => Err(
+                    Box::new(StorageError(format!("s3 put object failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
+            }
+        })
+    }
+
+    fn delete_object_conditional(
+        &self,
+        uri: &str,
+        expected_version: Option<&str>,
+    ) -> FloeResult<ConditionalWrite> {
+        let Some(expected_version) = expected_version else {
+            // expected_version == None means we expected no object to exist.
+            // Do not delete — any object present was created by a concurrent runner.
+            return Ok(ConditionalWrite::Written {
+                version: "deleted".to_string(),
+            });
+        };
+        let location = parse_s3_uri(uri)?;
+        self.runtime.block_on(async move {
+            match self
+                .client
+                .delete_object()
+                .bucket(location.bucket)
+                .key(location.key)
+                .if_match(expected_version)
+                .send()
+                .await
+            {
+                Ok(_) => Ok(ConditionalWrite::Written {
+                    version: "deleted".to_string(),
+                }),
+                Err(err) if is_precondition_or_conflict(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) => Err(
+                    Box::new(StorageError(format!("s3 delete object failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
+            }
+        })
+    }
+}
+
+fn is_not_found<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("NoSuchKey") || text.contains("NotFound") || text.contains("404")
+}
+
+fn is_precondition_or_conflict<E: std::fmt::Display>(err: &E) -> bool {
+    let text = err.to_string();
+    text.contains("PreconditionFailed")
+        || text.contains("ConditionalRequestConflict")
+        || text.contains("412")
+        || text.contains("409")
 }
 
 pub fn parse_s3_uri(uri: &str) -> FloeResult<S3Location> {

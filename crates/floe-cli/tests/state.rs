@@ -69,6 +69,7 @@ fn state_inspect_prints_state_summary_and_json() {
         .stdout(predicate::str::contains("Incremental mode: file"))
         .stdout(predicate::str::contains("State exists: yes"))
         .stdout(predicate::str::contains("Tracked files: 1"))
+        .stdout(predicate::str::contains("Active claims: 0"))
         .stdout(predicate::str::contains("\"entity\": \"sales\""));
 }
 
@@ -94,7 +95,9 @@ fn assert_state_reset(config_path: &std::path::Path, state_path: &std::path::Pat
         .assert()
         .success()
         .stdout(predicate::str::contains("Entity: sales"))
-        .stdout(predicate::str::contains("State reset: removed state file"));
+        .stdout(predicate::str::contains(
+            "State reset: removed state object",
+        ));
 
     assert!(!state_path.exists());
 }

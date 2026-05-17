@@ -132,6 +132,10 @@ impl StorageClient for LocalClient {
         if !path.exists() {
             return Ok(None);
         }
+        let _lock = FileLock::acquire(path)?;
+        if !path.exists() {
+            return Ok(None);
+        }
         Ok(Some(StoredObject {
             body: std::fs::read(path)?,
             version: local_version(path)?,

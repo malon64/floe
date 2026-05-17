@@ -281,8 +281,12 @@ pub fn release_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
     mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
-        state.claims.retain(|_, claim| claim.run_id != run_id);
+        state
+            .claims
+            .retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
         state.updated_at = Some(now_rfc3339());
     })
 }

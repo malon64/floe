@@ -268,7 +268,9 @@ impl StorageClient for S3Client {
         expected_version: Option<&str>,
     ) -> FloeResult<ConditionalWrite> {
         let Some(expected_version) = expected_version else {
-            return self.delete_object(uri).map(|_| ConditionalWrite::Written {
+            // expected_version == None means we expected no object to exist.
+            // Do not delete — any object present was created by a concurrent runner.
+            return Ok(ConditionalWrite::Written {
                 version: "deleted".to_string(),
             });
         };

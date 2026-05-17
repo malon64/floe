@@ -277,13 +277,18 @@ impl StorageClient for AdlsClient {
         uri: &str,
         expected_version: Option<&str>,
     ) -> FloeResult<ConditionalWrite> {
+        let Some(expected_version) = expected_version else {
+            return Ok(ConditionalWrite::Written {
+                version: "deleted".to_string(),
+            });
+        };
         let key = adls_key_from_uri(uri)?;
         let client = self.container_client.clone();
         self.runtime.block_on(async move {
-            let mut request = client.blob_client(key).delete();
-            if let Some(version) = expected_version {
-                request = request.if_match(IfMatchCondition::Match(version.to_string()));
-            }
+            let request = client
+                .blob_client(key)
+                .delete()
+                .if_match(IfMatchCondition::Match(expected_version.to_string()));
             match request.into_future().await {
                 Ok(_) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),

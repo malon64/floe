@@ -185,10 +185,10 @@ pub fn claim_entity_inputs(
                 continue;
             }
             match loaded.state.claims.get(&input_file.source_uri) {
-                Some(claim) if claim.run_id != run_id => {
+                Some(_) => {
                     active_claims.push(input_file.source_uri.clone());
                 }
-                _ => {
+                None => {
                     loaded.state.claims.insert(
                         input_file.source_uri.clone(),
                         EntityFileClaim {
@@ -298,11 +298,13 @@ pub fn renew_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
     mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
         let now = now_rfc3339();
         let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
-        for claim in state.claims.values_mut() {
-            if claim.run_id == run_id {
+        for (uri, claim) in state.claims.iter_mut() {
+            if claim.run_id == run_id && our_uris.contains(uri) {
                 claim.expires_at = expires_at.clone();
             }
         }

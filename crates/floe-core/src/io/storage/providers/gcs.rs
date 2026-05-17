@@ -255,11 +255,16 @@ impl StorageClient for GcsClient {
         uri: &str,
         expected_version: Option<&str>,
     ) -> FloeResult<ConditionalWrite> {
+        let Some(expected_version) = expected_version else {
+            return Ok(ConditionalWrite::Written {
+                version: "deleted".to_string(),
+            });
+        };
         let location = parse_gcs_uri(uri)?;
         let client = self.client.clone();
         let generation = expected_version
-            .map(str::parse::<i64>)
-            .transpose()
+            .parse::<i64>()
+            .map(Some)
             .map_err(|err| Box::new(StorageError(format!("invalid gcs generation: {err}"))))?;
         self.runtime.block_on(async move {
             match client

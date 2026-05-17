@@ -1414,7 +1414,7 @@ entities:
         &[
             "entity.name=customer",
             "sink.write_mode=merge_scd1",
-            "sink.accepted.format=delta",
+            "sink.accepted.format=parquet",
         ],
     );
 }
@@ -1502,7 +1502,7 @@ entities:
         &[
             "entity.name=customer",
             "sink.write_mode=merge_scd2",
-            "sink.accepted.format=delta",
+            "sink.accepted.format=parquet",
         ],
     );
 }
@@ -1640,7 +1640,7 @@ entities:
         &[
             "entity.name=customer",
             "sink.write_mode=merge_scd1",
-            "sink.accepted.format=delta",
+            "sink.accepted.format=parquet",
         ],
     );
 }
@@ -2014,7 +2014,7 @@ fn iceberg_accepted_sink_rejects_adls_storage() {
         &[
             "entity.name=customer",
             "sink.accepted.format=iceberg",
-            "local, s3, or gcs",
+            "local, s3, gcs",
             "adls",
         ],
     );

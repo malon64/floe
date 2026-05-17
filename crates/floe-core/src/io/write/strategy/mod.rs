@@ -48,7 +48,7 @@ pub fn strategy_for(mode: config::WriteMode) -> &'static dyn ModeStrategy {
     match mode {
         config::WriteMode::Overwrite => &overwrite::OVERWRITE_STRATEGY,
         config::WriteMode::Append => &append::APPEND_STRATEGY,
-        // merge_scd* are accepted-writer specific (Delta only); rejected row outputs keep append semantics.
+        // merge_scd* use append semantics for rejected row outputs.
         config::WriteMode::MergeScd1 => &append::APPEND_STRATEGY,
         config::WriteMode::MergeScd2 => &append::APPEND_STRATEGY,
     }

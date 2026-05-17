@@ -312,7 +312,11 @@ pub(super) fn run_entity(
         accepted_total_bytes_written: aw.metrics.total_bytes_written,
         accepted_avg_file_size_mb: aw.metrics.avg_file_size_mb,
         accepted_small_files_count: aw.metrics.small_files_count,
-        accepted_merge_key: aw.merge.as_ref().map(|m| m.merge_key.clone()).unwrap_or_default(),
+        accepted_merge_key: aw
+            .merge
+            .as_ref()
+            .map(|m| m.merge_key.clone())
+            .unwrap_or_default(),
         accepted_inserted_count: aw.merge.as_ref().map(|m| m.inserted_count),
         accepted_updated_count: aw.merge.as_ref().map(|m| m.updated_count),
         accepted_closed_count: aw.merge.as_ref().and_then(|m| m.closed_count),

@@ -437,7 +437,6 @@ pub(crate) fn resolve_merge_ignore_columns(
     Ok(resolved)
 }
 
-
 fn schema_to_output_column_name_map(
     entity: &config::EntityConfig,
 ) -> FloeResult<HashMap<String, String>> {
@@ -514,10 +513,7 @@ pub(crate) fn validate_merge_schema_compatibility(
         .map(|name| name.as_str())
         .collect();
     let system_columns_set: HashSet<&str> = system_columns.iter().copied().collect();
-    let target_columns: HashSet<&str> = target_schema_columns
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let target_columns: HashSet<&str> = target_schema_columns.iter().map(String::as_str).collect();
 
     for source_column in &source_columns {
         if !target_columns.contains(source_column) {

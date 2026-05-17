@@ -527,10 +527,7 @@ fn create_dry_run_outcome(
     })
 }
 
-fn upgrade_status_for_warnings(
-    status: report::RunStatus,
-    warnings: u64,
-) -> report::RunStatus {
+fn upgrade_status_for_warnings(status: report::RunStatus, warnings: u64) -> report::RunStatus {
     if status == report::RunStatus::Success && warnings > 0 {
         report::RunStatus::SuccessWithWarnings
     } else {

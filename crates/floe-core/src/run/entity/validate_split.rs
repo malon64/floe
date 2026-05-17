@@ -5,11 +5,11 @@ use std::time::Instant;
 use polars::prelude::{BooleanChunked, DataFrame};
 
 use crate::checks::normalize::rename_output_columns;
+use crate::config::PolicySeverity;
 use crate::errors::RunError;
 use crate::report::build::summarize_validation_exprs;
 use crate::run::events::{event_time_ms, RunObserver};
 use crate::run::RunContext;
-use crate::config::PolicySeverity;
 use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
 
 use super::super::output::{
@@ -264,7 +264,8 @@ pub(super) fn run_validate_split_phase(
         let not_null_counts = check::not_null_counts(&df, required_cols)?;
         let not_null_total: u64 = not_null_counts.iter().map(|(_, c)| *c).sum();
         let quick_total = cast_total + not_null_total;
-        let cast_abort_short_circuit = entity.policy.severity == PolicySeverity::Abort && cast_total > 0;
+        let cast_abort_short_circuit =
+            entity.policy.severity == PolicySeverity::Abort && cast_total > 0;
 
         // Unique check — stateful across rows. Skip when abort is already decided by cast errors.
         let mut forced_reject_rows = HashSet::new();

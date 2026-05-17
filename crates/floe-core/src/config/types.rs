@@ -262,7 +262,6 @@ pub struct SinkConfig {
     pub archive: Option<ArchiveTarget>,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WriteMode {
     #[default]
@@ -484,7 +483,6 @@ impl SchemaConfig {
     pub fn resolved_schema_evolution(&self) -> SchemaEvolutionConfig {
         self.schema_evolution.unwrap_or_default()
     }
-
 }
 
 #[derive(Debug)]

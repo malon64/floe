@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::config::{
-    CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, PolicySeverity, RootConfig,
-    SourceOptions, StorageDefinition,
+    CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, PolicySeverity,
+    RootConfig, SourceOptions, StorageDefinition,
 };
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;

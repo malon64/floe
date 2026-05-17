@@ -124,9 +124,7 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
                 _ => None,
             }),
             delta_catalog_name: ctx.accepted_catalog.as_ref().and_then(|c| match c {
-                CatalogRegistration::UnityDelta { catalog_name, .. } => {
-                    Some(catalog_name.clone())
-                }
+                CatalogRegistration::UnityDelta { catalog_name, .. } => Some(catalog_name.clone()),
                 _ => None,
             }),
             delta_catalog_schema: ctx.accepted_catalog.as_ref().and_then(|c| match c {

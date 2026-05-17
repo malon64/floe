@@ -217,11 +217,13 @@ impl SinkFormat for DeltaSinkFormat {
             None => None,
         };
 
-        let catalog = unity_output.as_ref().map(|r| CatalogRegistration::UnityDelta {
-            catalog_name: r.catalog_name.clone(),
-            schema: r.schema.clone(),
-            table: r.table.clone(),
-        });
+        let catalog = unity_output
+            .as_ref()
+            .map(|r| CatalogRegistration::UnityDelta {
+                catalog_name: r.catalog_name.clone(),
+                schema: r.schema.clone(),
+                table: r.table.clone(),
+            });
         Ok(AcceptedWriteOutput {
             files_written: result.files_written,
             parts_written: 1,
@@ -242,12 +244,10 @@ impl SinkFormat for DeltaSinkFormat {
         tracker: &mut check::UniqueTracker,
         ctx: &mut SeedContext<'_>,
     ) -> FloeResult<()> {
-        let store =
-            object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
-        let builder =
-            deltalake::table::builder::DeltaTableBuilder::from_url(store.table_url)
-                .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
-                .with_storage_options(store.storage_options);
+        let store = object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
+        let builder = deltalake::table::builder::DeltaTableBuilder::from_url(store.table_url)
+            .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+            .with_storage_options(store.storage_options);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -268,7 +268,6 @@ impl SinkFormat for DeltaSinkFormat {
         seed_from_batches(tracker, batches, ctx.rename_back)
     }
 }
-
 
 fn target_uri(target: &Target) -> String {
     match target {

@@ -21,7 +21,6 @@ pub(super) struct AcceptedOutputContext<'a> {
     pub(super) mode: config::WriteMode,
 }
 
-
 pub(super) struct RejectedOutputContext<'a> {
     pub(super) adapter: &'a dyn format::RejectedSinkAdapter,
     pub(super) target: &'a Target,

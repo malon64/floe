@@ -220,11 +220,9 @@ impl SinkFormat for ParquetSinkFormat {
                     };
                     strategy::list_part_objects(&mut wctx, spec)?
                 };
-                let client = ctx.cloud.client_for(
-                    ctx.resolver,
-                    ctx.target.storage(),
-                    ctx.entity,
-                )?;
+                let client =
+                    ctx.cloud
+                        .client_for(ctx.resolver, ctx.target.storage(), ctx.entity)?;
                 for object in objects
                     .into_iter()
                     .filter(|obj| obj.key.starts_with(&list_prefix))

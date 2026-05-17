@@ -543,12 +543,14 @@ async fn write_iceberg_table_async(
     );
     perf.metrics_read_ms = Some(metrics_start.elapsed().as_millis() as u64);
 
-    let catalog = catalog_cfg.as_ref().map(|cfg| CatalogRegistration::IcebergGlue {
-        catalog_name: cfg.catalog_name().to_string(),
-        database: cfg.database().map(ToOwned::to_owned),
-        namespace: cfg.namespace().to_string(),
-        table: cfg.table().to_string(),
-    });
+    let catalog = catalog_cfg
+        .as_ref()
+        .map(|cfg| CatalogRegistration::IcebergGlue {
+            catalog_name: cfg.catalog_name().to_string(),
+            database: cfg.database().map(ToOwned::to_owned),
+            namespace: cfg.namespace().to_string(),
+            table: cfg.table().to_string(),
+        });
     Ok(IcebergWriteResult {
         files_written,
         snapshot_id,

@@ -151,12 +151,7 @@ fn mask_column(
     Ok(s)
 }
 
-fn apply_mask(
-    value: &str,
-    pattern: &str,
-    first_n: Option<usize>,
-    last_n: Option<usize>,
-) -> String {
+fn apply_mask(value: &str, pattern: &str, first_n: Option<usize>, last_n: Option<usize>) -> String {
     let fn_val = first_n.unwrap_or(0);
     let ln_val = last_n.unwrap_or(0);
 
@@ -223,8 +218,12 @@ mod tests {
     #[test]
     fn hash_produces_64_char_hex() {
         let mut df = single_col_df("email", &[Some("a@b.com")]);
-        apply_pii_masking(&mut df, &simple_pii("email", PiiStrategy::Hash), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("email", PiiStrategy::Hash),
+            &HashMap::new(),
+        )
+        .unwrap();
         let v = get_str(&df, "email", 0).unwrap();
         assert_eq!(v.len(), 64, "SHA-256 hex output must be 64 chars");
         assert!(v.chars().all(|c| c.is_ascii_hexdigit()));
@@ -233,8 +232,12 @@ mod tests {
     #[test]
     fn hash_on_empty_string_produces_sha256() {
         let mut df = single_col_df("email", &[Some("")]);
-        apply_pii_masking(&mut df, &simple_pii("email", PiiStrategy::Hash), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("email", PiiStrategy::Hash),
+            &HashMap::new(),
+        )
+        .unwrap();
         // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb924...
         let v = get_str(&df, "email", 0).unwrap();
         assert_eq!(v.len(), 64);
@@ -244,9 +247,16 @@ mod tests {
     #[test]
     fn hash_preserves_null() {
         let mut df = single_col_df("email", &[Some("a@b.com"), None]);
-        apply_pii_masking(&mut df, &simple_pii("email", PiiStrategy::Hash), &HashMap::new())
-            .unwrap();
-        assert!(get_str(&df, "email", 1).is_none(), "null must stay null after hash");
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("email", PiiStrategy::Hash),
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert!(
+            get_str(&df, "email", 1).is_none(),
+            "null must stay null after hash"
+        );
     }
 
     // --- redact ---
@@ -254,8 +264,12 @@ mod tests {
     #[test]
     fn redact_replaces_with_default_placeholder() {
         let mut df = single_col_df("cc", &[Some("1234-5678-9012-3456")]);
-        apply_pii_masking(&mut df, &simple_pii("cc", PiiStrategy::Redact), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("cc", PiiStrategy::Redact),
+            &HashMap::new(),
+        )
+        .unwrap();
         assert_eq!(get_str(&df, "cc", 0).unwrap(), "[REDACTED]");
     }
 
@@ -277,17 +291,28 @@ mod tests {
     #[test]
     fn redact_on_empty_string_replaces_with_placeholder() {
         let mut df = single_col_df("cc", &[Some("")]);
-        apply_pii_masking(&mut df, &simple_pii("cc", PiiStrategy::Redact), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("cc", PiiStrategy::Redact),
+            &HashMap::new(),
+        )
+        .unwrap();
         assert_eq!(get_str(&df, "cc", 0).unwrap(), "[REDACTED]");
     }
 
     #[test]
     fn redact_preserves_null() {
         let mut df = single_col_df("cc", &[Some("val"), None]);
-        apply_pii_masking(&mut df, &simple_pii("cc", PiiStrategy::Redact), &HashMap::new())
-            .unwrap();
-        assert!(get_str(&df, "cc", 1).is_none(), "null must stay null after redact");
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("cc", PiiStrategy::Redact),
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert!(
+            get_str(&df, "cc", 1).is_none(),
+            "null must stay null after redact"
+        );
     }
 
     // --- nullify ---
@@ -295,8 +320,12 @@ mod tests {
     #[test]
     fn nullify_replaces_all_values_with_null() {
         let mut df = single_col_df("field", &[Some("a"), Some("b"), None]);
-        apply_pii_masking(&mut df, &simple_pii("field", PiiStrategy::Nullify), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("field", PiiStrategy::Nullify),
+            &HashMap::new(),
+        )
+        .unwrap();
         let col = df.column("field").unwrap();
         assert!(col.get(0).unwrap().is_null());
         assert!(col.get(1).unwrap().is_null());
@@ -318,8 +347,14 @@ mod tests {
             &HashMap::new(),
         )
         .unwrap();
-        assert!(df.column("pii_col").is_err(), "dropped column must not exist");
-        assert!(df.column("keep").is_ok(), "unrelated column must be untouched");
+        assert!(
+            df.column("pii_col").is_err(),
+            "dropped column must not exist"
+        );
+        assert!(
+            df.column("keep").is_ok(),
+            "unrelated column must be untouched"
+        );
     }
 
     // --- mask ---
@@ -367,7 +402,10 @@ mod tests {
             }],
         };
         apply_pii_masking(&mut df, &pii, &HashMap::new()).unwrap();
-        assert!(get_str(&df, "cc", 1).is_none(), "null must stay null after mask");
+        assert!(
+            get_str(&df, "cc", 1).is_none(),
+            "null must stay null after mask"
+        );
     }
 
     // --- normalize_columns rename path ---
@@ -396,8 +434,12 @@ mod tests {
     fn missing_column_is_skipped_without_error() {
         let mut df = single_col_df("other", &[Some("value")]);
         // "email" is not in the DataFrame (e.g. mismatch=ignore dropped it).
-        apply_pii_masking(&mut df, &simple_pii("email", PiiStrategy::Hash), &HashMap::new())
-            .unwrap();
+        apply_pii_masking(
+            &mut df,
+            &simple_pii("email", PiiStrategy::Hash),
+            &HashMap::new(),
+        )
+        .unwrap();
         // Other columns must be untouched.
         assert_eq!(get_str(&df, "other", 0).unwrap(), "value");
     }

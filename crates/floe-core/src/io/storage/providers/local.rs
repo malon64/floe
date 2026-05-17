@@ -145,6 +145,8 @@ impl StorageClient for LocalClient {
         body: &[u8],
     ) -> FloeResult<ConditionalWrite> {
         let path = PathBuf::from(uri.trim_start_matches("local://"));
+        planner::ensure_parent_dir(&path)?;
+        let _lock = FileLock::acquire(&path)?;
         let current = if path.exists() {
             Some(local_version(&path)?)
         } else {
@@ -153,7 +155,6 @@ impl StorageClient for LocalClient {
         if current.as_deref() != expected_version {
             return Ok(ConditionalWrite::Conflict);
         }
-        planner::ensure_parent_dir(&path)?;
         std::fs::write(&path, body)?;
         Ok(ConditionalWrite::Written {
             version: local_version(&path)?,
@@ -166,6 +167,8 @@ impl StorageClient for LocalClient {
         expected_version: Option<&str>,
     ) -> FloeResult<ConditionalWrite> {
         let path = PathBuf::from(uri.trim_start_matches("local://"));
+        planner::ensure_parent_dir(&path)?;
+        let _lock = FileLock::acquire(&path)?;
         let current = if path.exists() {
             Some(local_version(&path)?)
         } else {
@@ -180,6 +183,43 @@ impl StorageClient for LocalClient {
         Ok(ConditionalWrite::Written {
             version: "deleted".to_string(),
         })
+    }
+}
+
+struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    fn acquire(base: &Path) -> FloeResult<Self> {
+        let lock_path = PathBuf::from(format!("{}.lock", base.display()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(_) => return Ok(Self { path: lock_path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "timed out acquiring local state lock {}",
+                            lock_path.display()
+                        )
+                        .into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => return Err(Box::new(e)),
+            }
+        }
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 

@@ -165,8 +165,10 @@ is available for templating within that entity.
 - `state.path` (optional)
   - Overrides the file or object used to store entity state.
   - Supports local paths and cloud URIs for S3 (`s3://`), GCS (`gs://`), and ADLS (`abfs://`).
-  - Relative paths resolve like other entity paths. With a cloud source storage context,
-    a relative state path resolves under that storage prefix.
+  - Relative paths always resolve as local filesystem paths, regardless of the source
+    storage context. Only explicit cloud URIs (`s3://`, `gs://`, `abfs://`) use remote
+    storage. A relative override with a cloud source will produce local state and will
+    not benefit from remote claim coordination.
   - If omitted and `incremental_mode: file` is used, Floe derives the path under the
     source root as `.floe/state/<entity>/state.json`.
   - For cloud sources, the derived default is a remote object under the source root,

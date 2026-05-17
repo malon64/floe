@@ -248,12 +248,14 @@ pub fn promote_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
+    let our_uris: std::collections::HashSet<String> =
+        claimed.state.claims.keys().cloned().collect();
     mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
         let processed_at = now_rfc3339();
         let claimed_files: Vec<String> = state
             .claims
             .iter()
-            .filter(|(_, claim)| claim.run_id == run_id)
+            .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
             .map(|(source_uri, _)| source_uri.clone())
             .collect();
         for source_uri in claimed_files {

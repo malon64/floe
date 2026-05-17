@@ -5,11 +5,11 @@ use std::time::Instant;
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput,
-    AcceptedWritePerfBreakdown,
+    AcceptedWritePerfBreakdown, AcceptedWriteRequest,
 };
 use crate::io::storage::Target;
 use crate::io::write::strategy::merge::{scd1, scd2, shared};
-use crate::{config, io, FloeResult};
+use crate::{config, FloeResult};
 
 mod commit_metrics;
 mod options;
@@ -164,18 +164,16 @@ fn write_delta_table_with_metrics(
 }
 
 impl AcceptedSinkAdapter for DeltaAcceptedAdapter {
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        _output_stem: &str,
-        _temp_dir: Option<&Path>,
-        _cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput> {
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
+        let AcceptedWriteRequest {
+            target,
+            df,
+            mode,
+            resolver,
+            catalogs,
+            entity,
+            ..
+        } = req;
         let result = write_delta_table_with_metrics(df, target, resolver, entity, mode)?;
 
         // Post-write Unity Catalog registration (no-op if delta.catalog is not configured).

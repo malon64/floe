@@ -163,20 +163,20 @@ pub trait InputAdapter: Send + Sync {
     }
 }
 
+pub struct AcceptedWriteRequest<'a> {
+    pub target: &'a Target,
+    pub df: &'a mut DataFrame,
+    pub mode: config::WriteMode,
+    pub output_stem: &'a str,
+    pub temp_dir: Option<&'a Path>,
+    pub cloud: &'a mut io::storage::CloudClient,
+    pub resolver: &'a config::StorageResolver,
+    pub catalogs: &'a config::CatalogResolver,
+    pub entity: &'a config::EntityConfig,
+}
+
 pub trait AcceptedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        output_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput>;
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput>;
 }
 
 pub struct RejectedWriteRequest<'a> {

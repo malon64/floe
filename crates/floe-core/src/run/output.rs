@@ -21,6 +21,7 @@ pub(super) struct AcceptedOutputContext<'a> {
     pub(super) mode: config::WriteMode,
 }
 
+
 pub(super) struct RejectedOutputContext<'a> {
     pub(super) adapter: &'a dyn format::RejectedSinkAdapter,
     pub(super) target: &'a Target,
@@ -48,20 +49,17 @@ pub(super) fn write_accepted_output(
         entity,
         mode,
     } = context;
-    io::write::accepted::write_with_adapter(
-        adapter,
-        io::write::accepted::AcceptedWriteRequest {
-            target,
-            df,
-            output_stem,
-            temp_dir,
-            cloud,
-            resolver,
-            catalogs,
-            entity,
-            mode,
-        },
-    )
+    adapter.write(format::AcceptedWriteRequest {
+        target,
+        df,
+        mode,
+        output_stem,
+        temp_dir,
+        cloud,
+        resolver,
+        catalogs,
+        entity,
+    })
 }
 pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeResult<String> {
     let RejectedOutputContext {

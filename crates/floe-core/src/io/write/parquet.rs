@@ -3,7 +3,7 @@ use std::path::Path;
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
 use crate::errors::IoError;
-use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
+use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput, AcceptedWriteRequest};
 use crate::io::storage::Target;
 use crate::{config, io, ConfigError, FloeResult};
 
@@ -68,18 +68,17 @@ pub fn write_parquet_to_path(
 }
 
 impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        _output_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        _catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput> {
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
+        let AcceptedWriteRequest {
+            target,
+            df,
+            mode,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            ..
+        } = req;
         let mut ctx = strategy::WriteContext {
             target,
             cloud,

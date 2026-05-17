@@ -13,6 +13,7 @@ use polars::prelude::DataFrame;
 use crate::errors::RunError;
 use crate::io::format::{
     AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
+    AcceptedWriteRequest,
 };
 use crate::io::storage::Target;
 use crate::{config, io, FloeResult};
@@ -169,18 +170,17 @@ pub(crate) struct GlueIcebergCatalogConfig {
 }
 
 impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        _output_stem: &str,
-        _temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput> {
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
+        let AcceptedWriteRequest {
+            target,
+            df,
+            mode,
+            cloud,
+            resolver,
+            catalogs,
+            entity,
+            ..
+        } = req;
         write_iceberg_table_with_remote_context(
             df,
             target,

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use floe_core::config::PolicySeverity;
 use floe_core::{add_entity_to_config, load_config, validate, AddEntityOptions, ValidateOptions};
 use polars::prelude::{DataFrame, NamedFrom, ParquetWriter, Series};
 use tempfile::tempdir;
@@ -77,7 +78,7 @@ fn add_entity_infers_csv_and_appends_defaults() {
         entity.sink.rejected.as_ref().expect("rejected").path,
         "out/rejected/customers/"
     );
-    assert_eq!(entity.policy.severity, "reject");
+    assert_eq!(entity.policy.severity, PolicySeverity::Reject);
     let mismatch = entity.schema.mismatch.as_ref().expect("mismatch");
     assert_eq!(mismatch.missing_columns.as_deref(), Some("reject_file"));
     assert_eq!(mismatch.extra_columns.as_deref(), Some("ignore"));

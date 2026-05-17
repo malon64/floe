@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::config::{
-    CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, RootConfig, SourceOptions,
-    StorageDefinition,
+    CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, PolicySeverity, RootConfig,
+    SourceOptions, StorageDefinition,
 };
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
@@ -12,7 +12,6 @@ use crate::{warnings, ConfigError, FloeResult};
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
 const ALLOWED_NORMALIZE_STRATEGIES: &[&str] = &["snake_case", "lower", "camel_case", "none"];
-const ALLOWED_POLICY_SEVERITIES: &[&str] = &["warn", "reject", "abort"];
 const ALLOWED_MISSING_POLICIES: &[&str] = &["reject_file", "fill_nulls"];
 const ALLOWED_EXTRA_POLICIES: &[&str] = &["reject_file", "ignore"];
 const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
@@ -139,7 +138,6 @@ fn validate_entity(
 ) -> FloeResult<()> {
     validate_source(entity, storages)?;
     validate_state(entity)?;
-    validate_policy(entity)?;
     validate_sink(entity, storages, catalogs)?;
     validate_schema(entity, config_version)?;
     if let Some(pii) = &entity.pii {
@@ -152,7 +150,7 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
     use crate::config::PiiStrategy;
     // Abort severity writes the raw input file to the rejected sink without
     // loading a DataFrame, bypassing masking entirely.
-    if entity.policy.severity == "abort" {
+    if entity.policy.severity == PolicySeverity::Abort {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} pii: masking is not applied when policy.severity=abort \
              because the raw file is written to sink.rejected without DataFrame processing",
@@ -520,7 +518,7 @@ fn validate_sink(
         entity.sink.accepted.options.as_ref(),
     )?;
 
-    if entity.policy.severity == "reject" && entity.sink.rejected.is_none() {
+    if entity.policy.severity == PolicySeverity::Reject && entity.sink.rejected.is_none() {
         return Err(Box::new(ConfigError(format!(
             "entity.name={} sink.rejected is required when policy.severity=reject",
             entity.name
@@ -1065,18 +1063,6 @@ fn validate_sink_partitioning(entity: &EntityConfig) -> FloeResult<()> {
         }
     }
 
-    Ok(())
-}
-
-fn validate_policy(entity: &EntityConfig) -> FloeResult<()> {
-    if !ALLOWED_POLICY_SEVERITIES.contains(&entity.policy.severity.as_str()) {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} policy.severity={} is unsupported (allowed: {})",
-            entity.name,
-            entity.policy.severity,
-            ALLOWED_POLICY_SEVERITIES.join(", ")
-        ))));
-    }
     Ok(())
 }
 

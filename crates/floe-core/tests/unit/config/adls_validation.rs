@@ -32,7 +32,7 @@ fn base_entity() -> config::EntityConfig {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "warn".to_string(),
+            severity: config::PolicySeverity::Warn,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,

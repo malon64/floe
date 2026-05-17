@@ -3445,6 +3445,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "tempfile",
+ "thiserror 1.0.69",
  "time",
  "tokio",
  "url",

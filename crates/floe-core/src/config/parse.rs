@@ -15,8 +15,8 @@ use crate::config::{
     DomainConfig, EntityConfig, EntityMetadata, EntityStateConfig, EnvConfig,
     IcebergPartitionFieldConfig, IcebergSinkTargetConfig, IncrementalMode, LineageConfig,
     MergeOptionsConfig, MergeScd2OptionsConfig, NormalizeColumnsConfig, PiiColumnConfig, PiiConfig,
-    PiiStrategy, PolicyConfig, ProjectMetadata, ReportConfig, RootConfig, SchemaConfig,
-    SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode,
+    PiiStrategy, PolicyConfig, PolicySeverity, ProjectMetadata, ReportConfig, RootConfig,
+    SchemaConfig, SchemaEvolutionConfig, SchemaEvolutionIncompatibleAction, SchemaEvolutionMode,
     SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
     StorageDefinition, StoragesConfig, WriteMode,
 };
@@ -830,9 +830,18 @@ fn parse_archive_target(value: &Yaml) -> FloeResult<ArchiveTarget> {
 fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
     let hash = yaml_hash(value, "policy")?;
     validate_known_keys(hash, "policy", &["severity"])?;
-    Ok(PolicyConfig {
-        severity: get_string(hash, "severity", "policy")?,
-    })
+    let severity_str = get_string(hash, "severity", "policy")?;
+    let severity = match severity_str.as_str() {
+        "warn" => PolicySeverity::Warn,
+        "reject" => PolicySeverity::Reject,
+        "abort" => PolicySeverity::Abort,
+        other => {
+            return Err(Box::new(ConfigError(format!(
+                "policy.severity={other} is unsupported (allowed: warn, reject, abort)"
+            ))))
+        }
+    };
+    Ok(PolicyConfig { severity })
 }
 
 fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {

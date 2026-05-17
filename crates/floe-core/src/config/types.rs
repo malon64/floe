@@ -446,9 +446,33 @@ pub struct ArchiveTarget {
     pub storage: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PolicySeverity {
+    #[default]
+    Warn,
+    Reject,
+    Abort,
+}
+
+impl PolicySeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Reject => "reject",
+            Self::Abort => "abort",
+        }
+    }
+}
+
+impl std::fmt::Display for PolicySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug)]
 pub struct PolicyConfig {
-    pub severity: String,
+    pub severity: PolicySeverity,
 }
 
 #[derive(Debug)]

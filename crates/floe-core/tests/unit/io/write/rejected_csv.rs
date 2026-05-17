@@ -49,7 +49,7 @@ fn sample_entity() -> config::EntityConfig {
             archive: None,
         },
         policy: config::PolicyConfig {
-            severity: "reject".to_string(),
+            severity: config::PolicySeverity::Reject,
         },
         schema: config::SchemaConfig {
             normalize_columns: None,

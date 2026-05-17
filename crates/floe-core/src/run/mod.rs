@@ -205,9 +205,7 @@ pub fn run_with_runtime(
                 .map(|file| file.status)
                 .collect::<Vec<_>>(),
         );
-        if status == report::RunStatus::Success && report.results.warnings_total > 0 {
-            status = report::RunStatus::SuccessWithWarnings;
-        }
+        status = upgrade_status_for_warnings(status, report.results.warnings_total);
         observer.on_event(RunEvent::EntityFinished {
             run_id: context.run_id.clone(),
             name: report.entity.name.clone(),
@@ -395,9 +393,7 @@ fn build_run_summary(
             .map(|file| file.status)
             .collect::<Vec<_>>();
         let (mut status, _) = report::compute_run_outcome(&file_statuses);
-        if status == report::RunStatus::Success && report.results.warnings_total > 0 {
-            status = report::RunStatus::SuccessWithWarnings;
-        }
+        status = upgrade_status_for_warnings(status, report.results.warnings_total);
         statuses.extend(file_statuses);
 
         let report_file = context
@@ -419,9 +415,7 @@ fn build_run_summary(
     }
 
     let (mut status, exit_code) = report::compute_run_outcome(&statuses);
-    if status == report::RunStatus::Success && totals.warnings_total > 0 {
-        status = report::RunStatus::SuccessWithWarnings;
-    }
+    status = upgrade_status_for_warnings(status, totals.warnings_total);
 
     let finished_at = report::now_rfc3339();
     let duration_ms = context.run_timer.elapsed().as_millis() as u64;
@@ -441,11 +435,7 @@ fn build_run_summary(
 
     report::RunSummaryReport {
         spec_version: context.config.version.clone(),
-        tool: report::ToolInfo {
-            name: "floe".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            git: None,
-        },
+        tool: build_tool_info(),
         run: report::RunInfo {
             run_id: context.run_id.clone(),
             started_at: context.started_at.clone(),
@@ -454,15 +444,8 @@ fn build_run_summary(
             status,
             exit_code,
         },
-        config: report::ConfigEcho {
-            path: context.config_path.display().to_string(),
-            version: context.config.version.clone(),
-            metadata: context.config.metadata.as_ref().map(project_metadata_json),
-        },
-        report: report::ReportEcho {
-            path: report_base_path,
-            report_file,
-        },
+        config: build_config_echo(context),
+        report: build_report_echo(report_base_path, report_file),
         results: totals,
         entities,
     }
@@ -513,11 +496,7 @@ fn create_dry_run_outcome(
         entity_outcomes: Vec::new(),
         summary: report::RunSummaryReport {
             spec_version: context.config.version.clone(),
-            tool: report::ToolInfo {
-                name: "floe".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                git: None,
-            },
+            tool: build_tool_info(),
             run: report::RunInfo {
                 run_id: context.run_id.clone(),
                 started_at: context.started_at.clone(),
@@ -526,18 +505,14 @@ fn create_dry_run_outcome(
                 status: report::RunStatus::Success,
                 exit_code: 0,
             },
-            config: report::ConfigEcho {
-                path: context.config_path.display().to_string(),
-                version: context.config.version.clone(),
-                metadata: context.config.metadata.as_ref().map(project_metadata_json),
-            },
-            report: report::ReportEcho {
-                path: context
+            config: build_config_echo(context),
+            report: build_report_echo(
+                context
                     .report_base_path
                     .clone()
                     .unwrap_or_else(|| "disabled".to_string()),
-                report_file: "disabled (dry-run)".to_string(),
-            },
+                "disabled (dry-run)".to_string(),
+            ),
             results: report::ResultsTotals {
                 files_total: 0,
                 rows_total: 0,
@@ -550,6 +525,37 @@ fn create_dry_run_outcome(
         },
         dry_run_previews: Some(previews),
     })
+}
+
+fn upgrade_status_for_warnings(
+    status: report::RunStatus,
+    warnings: u64,
+) -> report::RunStatus {
+    if status == report::RunStatus::Success && warnings > 0 {
+        report::RunStatus::SuccessWithWarnings
+    } else {
+        status
+    }
+}
+
+fn build_tool_info() -> report::ToolInfo {
+    report::ToolInfo {
+        name: "floe".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        git: None,
+    }
+}
+
+fn build_config_echo(context: &RunContext) -> report::ConfigEcho {
+    report::ConfigEcho {
+        path: context.config_path.display().to_string(),
+        version: context.config.version.clone(),
+        metadata: context.config.metadata.as_ref().map(project_metadata_json),
+    }
+}
+
+fn build_report_echo(path: String, report_file: String) -> report::ReportEcho {
+    report::ReportEcho { path, report_file }
 }
 
 fn run_status_str(status: report::RunStatus) -> &'static str {

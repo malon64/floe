@@ -68,19 +68,19 @@ impl MergeBackend for DeltaMergeBackend {
         let mut perf = shared::DeltaMergePerfBreakdown::default();
         let merge_key = shared::resolve_merge_key(ctx.entity)?;
         let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
-        let ignore_columns = shared::resolve_merge_ignore_columns(ctx.entity)?;
-        let compare_columns =
-            shared::resolve_merge_compare_columns(ctx.entity)?.unwrap_or_else(|| {
-                source_df
-                    .get_column_names()
-                    .iter()
-                    .map(|name| name.to_string())
-                    .filter(|name| {
-                        !merge_key_set.contains(name.as_str())
-                            && !ignore_columns.contains(name.as_str())
-                    })
-                    .collect::<Vec<_>>()
-            });
+        let (ignore_columns, compare_columns_opt) =
+            shared::resolve_merge_column_mappings(ctx.entity)?;
+        let compare_columns = compare_columns_opt.unwrap_or_else(|| {
+            source_df
+                .get_column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .filter(|name| {
+                    !merge_key_set.contains(name.as_str())
+                        && !ignore_columns.contains(name.as_str())
+                })
+                .collect::<Vec<_>>()
+        });
         let system_columns = shared::resolve_scd2_system_columns(ctx.entity);
         let merge_key_predicate = shared::merge_predicate_sql(&merge_key);
 
@@ -133,7 +133,7 @@ impl MergeBackend for DeltaMergeBackend {
         let conversion_start = Instant::now();
         let source_batch = shared::source_record_batch(source_df, ctx.entity)?;
         perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
-        let schema_evolution = shared::plan_merge_delta_schema_evolution(
+        let schema_evolution = shared::plan_delta_schema_evolution(
             ctx.runtime,
             &source_batch,
             ctx.target,
@@ -147,7 +147,7 @@ impl MergeBackend for DeltaMergeBackend {
             ],
         )?;
         let target_schema_columns = shared::delta_schema_columns(&table)?;
-        shared::validate_scd2_schema_compatibility(
+        shared::validate_merge_schema_compatibility(
             &target_schema_columns,
             source_df,
             &[

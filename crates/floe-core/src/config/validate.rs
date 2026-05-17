@@ -200,7 +200,7 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         .flatten()
         .map(|s| s.as_str())
         .collect();
-    let write_mode = entity.sink.resolved_write_mode();
+    let write_mode = entity.sink.write_mode;
     let is_merge_mode = matches!(
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
@@ -592,7 +592,7 @@ fn validate_sink(
 }
 
 fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
-    let write_mode = entity.sink.resolved_write_mode();
+    let write_mode = entity.sink.write_mode;
     let is_merge_mode = matches!(
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2

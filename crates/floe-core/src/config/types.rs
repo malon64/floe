@@ -3,7 +3,7 @@ use std::path::Path;
 
 use polars::polars_utils::pl_str::PlSmallStr;
 use polars::prelude::{
-    CsvEncoding, CsvParseOptions, CsvReadOptions, DataType, NullValues, Schema, TimeUnit,
+    CsvEncoding, CsvParseOptions, CsvReadOptions, DataType, NullValues, TimeUnit,
 };
 
 use crate::{ConfigError, FloeResult};
@@ -262,11 +262,6 @@ pub struct SinkConfig {
     pub archive: Option<ArchiveTarget>,
 }
 
-impl SinkConfig {
-    pub fn resolved_write_mode(&self) -> WriteMode {
-        self.write_mode
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WriteMode {
@@ -490,35 +485,6 @@ impl SchemaConfig {
         self.schema_evolution.unwrap_or_default()
     }
 
-    pub fn to_polars_schema(&self) -> FloeResult<Schema> {
-        let mut schema = Schema::with_capacity(self.columns.len());
-        for column in &self.columns {
-            let dtype = parse_data_type(&column.column_type)?;
-            if schema.insert(column.name.as_str().into(), dtype).is_some() {
-                return Err(Box::new(ConfigError(format!(
-                    "duplicate column name in schema: {}",
-                    column.name
-                ))));
-            }
-        }
-        Ok(schema)
-    }
-
-    pub fn to_polars_string_schema(&self) -> FloeResult<Schema> {
-        let mut schema = Schema::with_capacity(self.columns.len());
-        for column in &self.columns {
-            if schema
-                .insert(column.name.as_str().into(), DataType::String)
-                .is_some()
-            {
-                return Err(Box::new(ConfigError(format!(
-                    "duplicate column name in schema: {}",
-                    column.name
-                ))));
-            }
-        }
-        Ok(schema)
-    }
 }
 
 #[derive(Debug)]

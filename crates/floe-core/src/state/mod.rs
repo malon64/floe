@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use crate::config::{
     ConfigBase, EntityConfig, IncrementalMode, ResolvedPath, RootConfig, StorageResolver,
 };
 use crate::io::storage::{
-    extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient,
+    extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient, StoredObject,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -248,9 +248,7 @@ pub fn promote_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
-    let our_uris: std::collections::HashSet<String> =
-        claimed.state.claims.keys().cloned().collect();
-    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
         let processed_at = now_rfc3339();
         let claimed_files: Vec<String> = state
             .claims
@@ -281,12 +279,8 @@ pub fn release_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
-    let our_uris: std::collections::HashSet<String> =
-        claimed.state.claims.keys().cloned().collect();
-    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
-        state
-            .claims
-            .retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
+        state.claims.retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
         state.updated_at = Some(now_rfc3339());
     })
 }
@@ -298,9 +292,7 @@ pub fn renew_claimed_entity_state(
     run_id: &str,
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
-    let our_uris: std::collections::HashSet<String> =
-        claimed.state.claims.keys().cloned().collect();
-    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state| {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
         let now = now_rfc3339();
         let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
         for (uri, claim) in state.claims.iter_mut() {
@@ -317,8 +309,9 @@ fn mutate_claimed_state(
     cloud: &mut CloudClient,
     entity_name: &str,
     claimed: &ClaimedEntityState,
-    mutate: impl Fn(&mut EntityState),
+    mutate: impl Fn(&mut EntityState, &HashSet<String>),
 ) -> FloeResult<()> {
+    let our_uris: HashSet<String> = claimed.state.claims.keys().cloned().collect();
     for attempt in 0..STATE_CAS_RETRIES {
         let mut loaded = if attempt == 0 {
             LoadedEntityState {
@@ -335,7 +328,7 @@ fn mutate_claimed_state(
                 claimed.target.clone(),
             )?
         };
-        mutate(&mut loaded.state);
+        mutate(&mut loaded.state, &our_uris);
         loaded.state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
         let persisted = if loaded.state.files.is_empty() && loaded.state.claims.is_empty() {
             delete_loaded_state(cloud, resolver, &loaded)?
@@ -389,16 +382,14 @@ pub fn reset_entity_state_with_base(
     let config = crate::load_config(config_path)?;
     let (entity, path) = resolve_entity_state_target(&config, config_base.clone(), entity_name)?;
     let target = state_target_from_resolved(&path)?;
-    if let EntityStateTarget::Local { path, .. } = &target {
-        if path.exists() {
-            fs::remove_file(path)?;
-            return Ok(true);
-        }
-        return Ok(false);
-    }
-
     match target {
-        EntityStateTarget::Local { .. } => Ok(false),
+        EntityStateTarget::Local { path, .. } => {
+            if path.exists() {
+                fs::remove_file(&path)?;
+                return Ok(true);
+            }
+            Ok(false)
+        }
         EntityStateTarget::Remote { storage, uri } => {
             let mut cloud = CloudClient::new();
             let resolver = StorageResolver::new(&config, config_base)?;
@@ -481,7 +472,11 @@ fn load_target_state_with_entity_name(
     target: EntityStateTarget,
 ) -> FloeResult<LoadedEntityState> {
     match target {
-        EntityStateTarget::Local { path, uri } => load_local_target(path, uri, entity_name),
+        EntityStateTarget::Local { path, uri } => {
+            let object = LocalClient::new().read_object(&uri)?;
+            let (state, version, existed) = resolve_loaded_state(entity_name, object)?;
+            Ok(LoadedEntityState { target: EntityStateTarget::Local { path, uri }, state, version, existed })
+        }
         EntityStateTarget::Remote { storage, uri } => {
             let client = cloud.client_for_context(
                 resolver,
@@ -489,44 +484,49 @@ fn load_target_state_with_entity_name(
                 &format!("entity.name={entity_name}"),
             )?;
             let object = client.read_object(&uri)?;
-            let (state, version, existed) = match object {
-                Some(object) => (
-                    validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
-                    Some(object.version),
-                    true,
-                ),
-                None => (EntityState::new(entity_name), None, false),
-            };
-            Ok(LoadedEntityState {
-                target: EntityStateTarget::Remote { storage, uri },
-                state,
-                version,
-                existed,
-            })
+            let (state, version, existed) = resolve_loaded_state(entity_name, object)?;
+            Ok(LoadedEntityState { target: EntityStateTarget::Remote { storage, uri }, state, version, existed })
         }
     }
 }
 
-fn load_local_target(
-    path: PathBuf,
-    uri: String,
+fn resolve_loaded_state(
     entity_name: &str,
-) -> FloeResult<LoadedEntityState> {
-    let object = LocalClient::new().read_object(&uri)?;
-    let (state, version, existed) = match object {
-        Some(object) => (
+    object: Option<StoredObject>,
+) -> FloeResult<(EntityState, Option<String>, bool)> {
+    match object {
+        Some(object) => Ok((
             validate_entity_state_name(entity_name, parse_entity_state(&object.body)?)?,
             Some(object.version),
             true,
-        ),
-        None => (EntityState::new(entity_name), None, false),
-    };
-    Ok(LoadedEntityState {
-        target: EntityStateTarget::Local { path, uri },
-        state,
-        version,
-        existed,
-    })
+        )),
+        None => Ok((EntityState::new(entity_name), None, false)),
+    }
+}
+
+fn with_state_client<R, F>(
+    cloud: &mut CloudClient,
+    resolver: &StorageResolver,
+    target: &EntityStateTarget,
+    f: F,
+) -> FloeResult<R>
+where
+    F: FnOnce(&str, &dyn StorageClient) -> FloeResult<R>,
+{
+    match target {
+        EntityStateTarget::Local { uri, .. } => f(uri, &LocalClient::new()),
+        EntityStateTarget::Remote { uri, storage } => {
+            let client = cloud.client_for_context(resolver, storage, "entity state")?;
+            f(uri, client)
+        }
+    }
+}
+
+fn conditional_write_to_version(cw: ConditionalWrite) -> Option<Option<String>> {
+    match cw {
+        ConditionalWrite::Written { version } => Some(Some(version)),
+        ConditionalWrite::Conflict => None,
+    }
 }
 
 fn persist_loaded_state(
@@ -537,25 +537,11 @@ fn persist_loaded_state(
     let mut state = loaded.state.clone();
     state.schema = ENTITY_STATE_SCHEMA_V2.to_string();
     let body = serde_json::to_vec_pretty(&state)?;
-    match &loaded.target {
-        EntityStateTarget::Local { uri, .. } => {
-            match LocalClient::new().write_object_conditional(
-                uri,
-                loaded.version.as_deref(),
-                &body,
-            )? {
-                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
-                ConditionalWrite::Conflict => Ok(None),
-            }
-        }
-        EntityStateTarget::Remote { uri, storage } => {
-            let client = cloud.client_for_context(resolver, storage, "entity state")?;
-            match client.write_object_conditional(uri, loaded.version.as_deref(), &body)? {
-                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
-                ConditionalWrite::Conflict => Ok(None),
-            }
-        }
-    }
+    let version = loaded.version.as_deref();
+    let cw = with_state_client(cloud, resolver, &loaded.target, |uri, client| {
+        client.write_object_conditional(uri, version, &body)
+    })?;
+    Ok(conditional_write_to_version(cw))
 }
 
 fn delete_loaded_state(
@@ -563,21 +549,11 @@ fn delete_loaded_state(
     resolver: &StorageResolver,
     loaded: &LoadedEntityState,
 ) -> FloeResult<Option<Option<String>>> {
-    match &loaded.target {
-        EntityStateTarget::Local { uri, .. } => {
-            match LocalClient::new().delete_object_conditional(uri, loaded.version.as_deref())? {
-                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
-                ConditionalWrite::Conflict => Ok(None),
-            }
-        }
-        EntityStateTarget::Remote { uri, storage } => {
-            let client = cloud.client_for_context(resolver, storage, "entity state")?;
-            match client.delete_object_conditional(uri, loaded.version.as_deref())? {
-                ConditionalWrite::Written { version } => Ok(Some(Some(version))),
-                ConditionalWrite::Conflict => Ok(None),
-            }
-        }
-    }
+    let version = loaded.version.as_deref();
+    let cw = with_state_client(cloud, resolver, &loaded.target, |uri, client| {
+        client.delete_object_conditional(uri, version)
+    })?;
+    Ok(conditional_write_to_version(cw))
 }
 
 fn state_target_from_resolved(resolved: &ResolvedPath) -> FloeResult<EntityStateTarget> {
@@ -611,16 +587,18 @@ fn remove_expired_claims(state: &mut EntityState) {
     });
 }
 
-fn now_rfc3339() -> String {
-    time::OffsetDateTime::now_utc()
+fn rfc3339_offset(seconds: i64) -> String {
+    (time::OffsetDateTime::now_utc() + time::Duration::seconds(seconds))
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| crate::report::now_rfc3339())
 }
 
+fn now_rfc3339() -> String {
+    rfc3339_offset(0)
+}
+
 fn rfc3339_after_seconds(seconds: i64) -> String {
-    (time::OffsetDateTime::now_utc() + time::Duration::seconds(seconds))
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| crate::report::now_rfc3339())
+    rfc3339_offset(seconds)
 }
 
 fn join_state_path(source_root: &str, entity_name: &str) -> String {

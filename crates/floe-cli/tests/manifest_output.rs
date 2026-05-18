@@ -134,7 +134,7 @@ fn manifest_generate_with_kubernetes_profile_has_kubernetes_runner() {
     let mut f = fs::File::create(&profile_path).expect("create profile file");
     writeln!(
         f,
-        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job"
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job\n    image: my-registry/floe:0.4.0\n    namespace: data-platform"
     )
     .expect("write profile");
 

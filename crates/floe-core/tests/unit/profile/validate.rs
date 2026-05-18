@@ -140,7 +140,6 @@ variables:
 
 #[test]
 fn known_runner_types_are_accepted() {
-    // kubernetes_job needs no extra fields; databricks_job requires the full contract.
     let k8s_yaml = r#"
 apiVersion: floe/v1
 kind: EnvironmentProfile
@@ -149,6 +148,8 @@ metadata:
 execution:
   runner:
     type: kubernetes_job
+    image: my-registry/floe:0.4.0
+    namespace: data-platform
 "#;
     let dbx_yaml = r#"
 apiVersion: floe/v1
@@ -169,6 +170,40 @@ execution:
         let profile = parse_profile_from_str(yaml).expect("parse");
         validate_profile(&profile).expect("known runner type must pass profile validation");
     }
+}
+
+#[test]
+fn validate_kubernetes_job_missing_image_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: k8s-prod
+execution:
+  runner:
+    type: kubernetes_job
+    namespace: data-platform
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("image"), "got: {err}");
+}
+
+#[test]
+fn validate_kubernetes_job_missing_namespace_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: k8s-prod
+execution:
+  runner:
+    type: kubernetes_job
+    image: my-registry/floe:0.4.0
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse");
+    let err = validate_profile(&profile).unwrap_err();
+    assert!(err.to_string().contains("namespace"), "got: {err}");
 }
 
 #[test]

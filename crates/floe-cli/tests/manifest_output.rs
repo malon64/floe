@@ -166,7 +166,7 @@ fn manifest_generate_kubernetes_profile_serializes_k8_runner_fields() {
     let mut f = fs::File::create(&profile_path).expect("create profile file");
     writeln!(
         f,
-        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job\n    command: floe\n    args:\n      - run\n      - -c\n      - /config/config.yml\n    timeout_seconds: 3600\n    ttl_seconds_after_finished: 600\n    poll_interval_seconds: 15\n    secrets:\n      - floe-db\n      - floe-warehouse"
+        "apiVersion: floe/v1\nkind: EnvironmentProfile\nmetadata:\n  name: prod-k8s\nexecution:\n  runner:\n    type: kubernetes_job\n    image: my-registry/floe:latest\n    namespace: floe-prod\n    command: floe\n    args:\n      - run\n      - -c\n      - /config/config.yml\n    timeout_seconds: 3600\n    ttl_seconds_after_finished: 600\n    poll_interval_seconds: 15\n    secrets:\n      - name: DB_PASSWORD\n        secret_name: floe-db-secret\n        key: password"
     )
     .expect("write profile");
 
@@ -184,6 +184,8 @@ fn manifest_generate_kubernetes_profile_serializes_k8_runner_fields() {
     let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
     let runner = &value["runners"]["definitions"]["default"];
     assert_eq!(runner["type"], "kubernetes_job");
+    assert_eq!(runner["image"], "my-registry/floe:latest");
+    assert_eq!(runner["namespace"], "floe-prod");
     assert_eq!(runner["command"], "floe");
     assert_eq!(
         runner["args"],
@@ -194,7 +196,11 @@ fn manifest_generate_kubernetes_profile_serializes_k8_runner_fields() {
     assert_eq!(runner["poll_interval_seconds"], 15);
     assert_eq!(
         runner["secrets"],
-        serde_json::json!(["floe-db", "floe-warehouse"])
+        serde_json::json!([{
+            "name": "DB_PASSWORD",
+            "secret_name": "floe-db-secret",
+            "key": "password"
+        }])
     );
 }
 

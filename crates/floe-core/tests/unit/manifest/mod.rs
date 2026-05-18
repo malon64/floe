@@ -197,6 +197,9 @@ metadata:
 execution:
   runner:
     type: kubernetes_job
+    image: my-registry/floe:latest
+    namespace: floe-prod
+    service_account: floe-sa
     command: floe
     args:
       - run
@@ -205,9 +208,15 @@ execution:
     timeout_seconds: 3600
     ttl_seconds_after_finished: 600
     poll_interval_seconds: 15
+    env:
+      FLOE_ENV: prod
+    resources:
+      cpu: "500m"
+      memory_mb: 512
     secrets:
-      - floe-db
-      - floe-warehouse
+      - name: DB_PASSWORD
+        secret_name: floe-db-secret
+        key: password
 "#;
     let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
     let config_path = repo_root().join("example/config.yml");
@@ -220,6 +229,9 @@ execution:
 
     let runner = &value["runners"]["definitions"]["default"];
     assert_eq!(runner["type"], "kubernetes_job");
+    assert_eq!(runner["image"], "my-registry/floe:latest");
+    assert_eq!(runner["namespace"], "floe-prod");
+    assert_eq!(runner["service_account"], "floe-sa");
     assert_eq!(runner["command"], "floe");
     assert_eq!(
         runner["args"],
@@ -228,9 +240,16 @@ execution:
     assert_eq!(runner["timeout_seconds"], 3600);
     assert_eq!(runner["ttl_seconds_after_finished"], 600);
     assert_eq!(runner["poll_interval_seconds"], 15);
+    assert_eq!(runner["env"]["FLOE_ENV"], "prod");
+    assert_eq!(runner["resources"]["cpu"], "500m");
+    assert_eq!(runner["resources"]["memory_mb"], 512);
     assert_eq!(
         runner["secrets"],
-        serde_json::json!(["floe-db", "floe-warehouse"])
+        serde_json::json!([{
+            "name": "DB_PASSWORD",
+            "secret_name": "floe-db-secret",
+            "key": "password"
+        }])
     );
 }
 

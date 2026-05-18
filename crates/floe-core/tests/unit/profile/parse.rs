@@ -84,6 +84,9 @@ metadata:
 execution:
   runner:
     type: kubernetes_job
+    image: my-registry/floe:latest
+    namespace: floe-prod
+    service_account: floe-sa
     command: floe
     args:
       - run
@@ -92,13 +95,22 @@ execution:
     timeout_seconds: 3600
     ttl_seconds_after_finished: 600
     poll_interval_seconds: 15
+    env:
+      FLOE_ENV: prod
+    resources:
+      cpu: "500m"
+      memory_mb: 512
     secrets:
-      - floe-db
-      - floe-warehouse
+      - name: DB_PASSWORD
+        secret_name: floe-db-secret
+        key: password
 "#;
     let profile = parse_profile_from_str(yaml).expect("parse k8s profile");
     let runner = &profile.execution.as_ref().expect("execution").runner;
     assert_eq!(runner.runner_type, "kubernetes_job");
+    assert_eq!(runner.image.as_deref(), Some("my-registry/floe:latest"));
+    assert_eq!(runner.namespace.as_deref(), Some("floe-prod"));
+    assert_eq!(runner.service_account.as_deref(), Some("floe-sa"));
     assert_eq!(runner.command.as_deref(), Some("floe"));
     assert_eq!(
         runner.args.as_ref().unwrap(),
@@ -112,9 +124,21 @@ execution:
     assert_eq!(runner.ttl_seconds_after_finished, Some(600));
     assert_eq!(runner.poll_interval_seconds, Some(15));
     assert_eq!(
-        runner.secrets.as_ref().unwrap(),
-        &vec!["floe-db".to_string(), "floe-warehouse".to_string()]
+        runner
+            .env
+            .as_ref()
+            .unwrap()
+            .get("FLOE_ENV")
+            .map(|s| s.as_str()),
+        Some("prod")
     );
+    let res = runner.resources.as_ref().unwrap();
+    assert_eq!(res.cpu.as_deref(), Some("500m"));
+    assert_eq!(res.memory_mb, Some(512));
+    let secret = &runner.secrets.as_ref().unwrap()[0];
+    assert_eq!(secret.name, "DB_PASSWORD");
+    assert_eq!(secret.secret_name, "floe-db-secret");
+    assert_eq!(secret.key, "password");
 }
 
 #[test]

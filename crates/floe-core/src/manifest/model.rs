@@ -53,6 +53,13 @@ pub struct ManifestRunners {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ManifestRunnerSecret {
+    pub name: String,
+    pub secret_name: String,
+    pub key: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ManifestRunnerDefinition {
     #[serde(rename = "type")]
     pub runner_type: &'static str,
@@ -61,7 +68,7 @@ pub struct ManifestRunnerDefinition {
     pub timeout_seconds: Option<u64>,
     pub ttl_seconds_after_finished: Option<u64>,
     pub poll_interval_seconds: Option<u64>,
-    pub secrets: Option<Vec<String>>,
+    pub secrets: Option<Vec<ManifestRunnerSecret>>,
     pub image: Option<String>,
     pub namespace: Option<String>,
     pub service_account: Option<String>,

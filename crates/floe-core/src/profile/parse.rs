@@ -9,7 +9,8 @@ use crate::config::yaml_decode::{
 };
 use crate::profile::types::{
     ProfileConfig, ProfileExecution, ProfileMetadata, ProfileRunner, ProfileRunnerAuth,
-    ProfileValidation, PROFILE_API_VERSION, PROFILE_KIND,
+    ProfileRunnerResources, ProfileRunnerSecret, ProfileValidation, PROFILE_API_VERSION,
+    PROFILE_KIND,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -172,6 +173,11 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
             "ttl_seconds_after_finished",
             "poll_interval_seconds",
             "secrets",
+            "image",
+            "namespace",
+            "service_account",
+            "resources",
+            "env",
             "workspace_url",
             "existing_cluster_id",
             "config_uri",
@@ -194,7 +200,18 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
     )?;
     let poll_interval_seconds =
         get_optional_u64(hash, "poll_interval_seconds", "profile.execution.runner")?;
-    let secrets = get_optional_string_list(hash, "secrets", "profile.execution.runner")?;
+    let secrets = parse_runner_secrets(hash_get(hash, "secrets"))?;
+    let image = get_optional_string(hash, "image", "profile.execution.runner")?;
+    let namespace = get_optional_string(hash, "namespace", "profile.execution.runner")?;
+    let service_account = get_optional_string(hash, "service_account", "profile.execution.runner")?;
+    let resources = parse_runner_resources(hash_get(hash, "resources"))?;
+    let env = match hash_get(hash, "env") {
+        Some(value) => Some(extract_string_map(
+            yaml_hash(value, "profile.execution.runner.env")?,
+            "profile.execution.runner.env",
+        )?),
+        None => None,
+    };
     let workspace_url = get_optional_string(hash, "workspace_url", "profile.execution.runner")?;
     let existing_cluster_id =
         get_optional_string(hash, "existing_cluster_id", "profile.execution.runner")?;
@@ -218,6 +235,11 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
         ttl_seconds_after_finished,
         poll_interval_seconds,
         secrets,
+        image,
+        namespace,
+        service_account,
+        resources,
+        env,
         workspace_url,
         existing_cluster_id,
         config_uri,
@@ -226,6 +248,48 @@ fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {
         auth,
         env_parameters,
     })
+}
+
+fn parse_runner_secrets(value: Option<&Yaml>) -> FloeResult<Option<Vec<ProfileRunnerSecret>>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let arr = yaml_array(value, "profile.execution.runner.secrets")?;
+    let mut secrets = Vec::with_capacity(arr.len());
+    for item in arr {
+        let hash = yaml_hash(item, "profile.execution.runner.secrets[]")?;
+        validate_known_keys(
+            hash,
+            "profile.execution.runner.secrets[]",
+            &["name", "secret_name", "key"],
+        )?;
+        secrets.push(ProfileRunnerSecret {
+            name: get_required_string(hash, "name", "profile.execution.runner.secrets[]")?,
+            secret_name: get_required_string(
+                hash,
+                "secret_name",
+                "profile.execution.runner.secrets[]",
+            )?,
+            key: get_required_string(hash, "key", "profile.execution.runner.secrets[]")?,
+        });
+    }
+    Ok(Some(secrets))
+}
+
+fn parse_runner_resources(value: Option<&Yaml>) -> FloeResult<Option<ProfileRunnerResources>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let hash = yaml_hash(value, "profile.execution.runner.resources")?;
+    validate_known_keys(
+        hash,
+        "profile.execution.runner.resources",
+        &["cpu", "memory_mb"],
+    )?;
+    Ok(Some(ProfileRunnerResources {
+        cpu: get_optional_string(hash, "cpu", "profile.execution.runner.resources")?,
+        memory_mb: get_optional_u64(hash, "memory_mb", "profile.execution.runner.resources")?,
+    }))
 }
 
 fn parse_runner_auth(value: Option<&Yaml>) -> FloeResult<Option<ProfileRunnerAuth>> {

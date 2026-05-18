@@ -5,7 +5,8 @@ use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
     CommonManifest, ManifestArchiveTarget, ManifestDomain, ManifestEntity, ManifestExecution,
     ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerAuth,
-    ManifestRunnerDefinition, ManifestRunners, ManifestSinkTarget, ManifestSinks, ManifestSource,
+    ManifestRunnerDefinition, ManifestRunnerResources, ManifestRunnerSecret, ManifestRunners,
+    ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
@@ -355,12 +356,28 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                     ttl_seconds_after_finished: profile_runner
                         .and_then(|r| r.ttl_seconds_after_finished),
                     poll_interval_seconds: profile_runner.and_then(|r| r.poll_interval_seconds),
-                    secrets: profile_runner.and_then(|r| r.secrets.clone()),
-                    image: None,
-                    namespace: None,
-                    service_account: None,
-                    resources: None,
-                    env: None,
+                    secrets: profile_runner.and_then(|r| {
+                        r.secrets.as_ref().map(|secrets| {
+                            secrets
+                                .iter()
+                                .map(|s| ManifestRunnerSecret {
+                                    name: s.name.clone(),
+                                    secret_name: s.secret_name.clone(),
+                                    key: s.key.clone(),
+                                })
+                                .collect()
+                        })
+                    }),
+                    image: profile_runner.and_then(|r| r.image.clone()),
+                    namespace: profile_runner.and_then(|r| r.namespace.clone()),
+                    service_account: profile_runner.and_then(|r| r.service_account.clone()),
+                    resources: profile_runner.and_then(|r| {
+                        r.resources.as_ref().map(|res| ManifestRunnerResources {
+                            cpu: res.cpu.clone(),
+                            memory_mb: res.memory_mb,
+                        })
+                    }),
+                    env: profile_runner.and_then(|r| r.env.clone()),
                     workspace_url: None,
                     existing_cluster_id: None,
                     config_uri: None,

@@ -29,6 +29,9 @@ Issues = "https://github.com/malon64/floe/issues"
 Documentation = "https://github.com/malon64/floe/tree/main/orchestrators/dagster-floe"
 
 [project.optional-dependencies]
+kubernetes = [
+  "kubernetes>=28",
+]
 dev = [
   "pytest>=7",
 ]

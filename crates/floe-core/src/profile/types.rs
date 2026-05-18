@@ -35,7 +35,14 @@ pub struct ProfileRunner {
     pub timeout_seconds: Option<u64>,
     pub ttl_seconds_after_finished: Option<u64>,
     pub poll_interval_seconds: Option<u64>,
-    pub secrets: Option<Vec<String>>,
+    pub secrets: Option<Vec<ProfileRunnerSecret>>,
+    // Kubernetes runner fields
+    pub image: Option<String>,
+    pub namespace: Option<String>,
+    pub service_account: Option<String>,
+    pub resources: Option<ProfileRunnerResources>,
+    pub env: Option<HashMap<String, String>>,
+    // Databricks runner fields
     pub workspace_url: Option<String>,
     pub existing_cluster_id: Option<String>,
     pub config_uri: Option<String>,
@@ -43,6 +50,19 @@ pub struct ProfileRunner {
     pub job_name: Option<String>,
     pub auth: Option<ProfileRunnerAuth>,
     pub env_parameters: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileRunnerSecret {
+    pub name: String,
+    pub secret_name: String,
+    pub key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileRunnerResources {
+    pub cpu: Option<String>,
+    pub memory_mb: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

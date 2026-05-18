@@ -2,6 +2,37 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.4.0
+
+- **OpenLineage circuit breaker and retry** (`docs/lineage.md`):
+  - Transient failures (connection errors, HTTP 5xx, 429) are retried up to 3 times with 0 / 100 / 500 ms backoff before counting as a failure.
+  - Non-retryable 4xx responses (e.g. 401 bad API key) are counted immediately without retrying and emit a `lineage_http_error` warning.
+  - After `max_failures` consecutive failures (default 3, configurable via `lineage.max_failures`), the circuit opens and all subsequent events in the run are skipped with no HTTP calls.
+  - A single `lineage_circuit_open` warning is emitted when the circuit trips. The circuit resets at `RunStarted` so a recovered endpoint is retried in the next pipeline execution without restarting the process.
+  - A `lineage_http_error` warning is emitted whenever any event is dropped so silent event loss is always visible in operator logs.
+
+- **Hardened remote incremental state** (`docs/how-it-works.md`):
+  - State schema bumped to v2 — a `claims` map sits alongside the existing `files` map, enabling CAS-based concurrent-writer safety on S3, GCS, and ADLS via conditional writes (`If-Match` / generation numbers).
+  - Local storage uses `FileLock` (O_CREAT|O_EXCL) to serialize version-check + write, preventing two concurrent local processes from both returning `Written`.
+  - Claim scope is restricted to the owning runner: promotion, release, and renewal only touch URIs held by the current `ClaimedEntityState`, preventing cross-runner interference when multiple processes share a `run_id`.
+  - Unexpired claims from the same `run_id` now block re-claiming — two processes sharing a `run_id` can no longer process the same files concurrently.
+  - Deletes remain conditional even when `expected_version` is `None`, preserving state written by a concurrent runner.
+  - V1 state files (no `claims` field) are silently upgraded to V2 on read.
+
+- **Kubernetes manifest runner fields** (`context/orchestrators.md`):
+  - `floe manifest generate` with a Kubernetes profile now emits full runner fields in the manifest: `image`, `namespace`, `service_account`, `resources` (cpu / memory_mb), `env`, and structured `secrets`.
+  - `secrets` changed from `Vec<String>` to `Vec<{name, secret_name, key}>` to match the shape expected by `kubernetes_runner.py`.
+  - `dagster-floe[kubernetes]` optional extra added to express the Kubernetes client dependency explicitly.
+
+- **Internal hardening** (no config or API changes):
+  - `PolicySeverity` is now a typed enum parsed at config load time — string comparison in mismatch, precheck, and run/entity paths replaced with enum match.
+  - `AcceptedWriteReportState` removed — `run_accepted_write_phase` returns `AcceptedWriteOutput` directly, eliminating a 24-field manual field-by-field copy.
+  - Error types (`ConfigError`, `RunError`, `StorageError`, `IoError`) adopt `thiserror` — removes ~40 lines of boilerplate `Display + Error` impls.
+  - `SinkFormat` trait centralises write, seed, and data-driven config validation — adding a new format no longer requires changes to validate.rs or dispatch code.
+  - State module eliminates duplicated load / persist / claim patterns (76 fewer lines, same behaviour).
+
+- **macOS wheels**: universal2 wheel replaces separate aarch64 + x86_64 artifacts — a single `.whl` runs natively on both Apple Silicon and Intel Macs.
+
 ## v0.3.9
 
 - **Column-level PII masking** (`docs/pii.md`):

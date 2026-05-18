@@ -45,7 +45,17 @@ Schema identifier: `floe.manifest.v1`
     "default": "local",
     "definitions": {
       "local": { "type": "local_process" },
-      "k8s": { "type": "kubernetes_job", "image": "...", "namespace": "..." }
+      "k8s": {
+        "type": "kubernetes_job",
+        "image": "my-registry/floe:0.4.0",
+        "namespace": "data-platform",
+        "service_account": "floe-runner",
+        "resources": { "cpu": "500m", "memory_mb": 512 },
+        "env": { "AWS_REGION": "eu-west-1" },
+        "secrets": [
+          { "name": "AWS_ACCESS_KEY_ID", "secret_name": "aws-creds", "key": "access-key-id" }
+        ]
+      }
     }
   },
   "entities": [
@@ -161,6 +171,22 @@ defs = load_floe_assets("manifest.dagster.json", runner=LocalRunner())
 | `databricks_job` | Submits a Databricks job run, polls until completion |
 
 Each entity can override the runner via `entity.runner`; otherwise `runners.default` is used.
+
+### Kubernetes runner fields
+
+When `type = kubernetes_job`, the manifest runner definition supports:
+
+| Field | Type | Description |
+|---|---|---|
+| `image` | string | Container image (required) |
+| `namespace` | string | Kubernetes namespace (required) |
+| `service_account` | string | ServiceAccount to attach to the runner Pod |
+| `resources.cpu` | string | CPU request in Kubernetes quantity notation (e.g. `500m`) |
+| `resources.memory_mb` | integer | Memory request in mebibytes |
+| `env` | object | Plain env-var key→value pairs injected into the container |
+| `secrets` | array | Kubernetes Secret key references: `[{name, secret_name, key}]` |
+
+These fields are populated automatically when `floe manifest generate` is given a profile with a `kubernetes_job` runner block. The `dagster-floe[kubernetes]` optional extra expresses the Kubernetes client requirement.
 
 ---
 

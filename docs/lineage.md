@@ -17,13 +17,14 @@ lineage:
   producer: "https://github.com/myorg/floe"  # optional
 ```
 
-| Field          | Required | Description                                                          |
-|----------------|----------|----------------------------------------------------------------------|
-| `url`          | yes      | Base URL of the OpenLineage-compatible endpoint                      |
-| `namespace`    | yes      | OpenLineage namespace used for all jobs and datasets in this run     |
-| `api_key`      | no       | Bearer token sent in the `Authorization` header                      |
-| `timeout_secs` | no       | HTTP request timeout in seconds (default: `5`)                       |
-| `producer`     | no       | URI identifying this producer (default: the Floe GitHub URL)        |
+| Field            | Required | Description                                                          |
+|------------------|----------|----------------------------------------------------------------------|
+| `url`            | yes      | Base URL of the OpenLineage-compatible endpoint                      |
+| `namespace`      | yes      | OpenLineage namespace used for all jobs and datasets in this run     |
+| `api_key`        | no       | Bearer token sent in the `Authorization` header                      |
+| `timeout_secs`   | no       | HTTP request timeout in seconds (default: `5`)                       |
+| `producer`       | no       | URI identifying this producer (default: the Floe GitHub URL)        |
+| `max_failures`   | no       | Consecutive failures before the circuit opens (default: `3`)        |
 
 `api_key` supports `{{VAR}}` placeholder expansion via the same profile and
 env-vars mechanism used for the rest of the config.
@@ -60,9 +61,31 @@ and each entity-level job (`START`/`COMPLETE`/`FAIL`):
 | Airflow      | `AIRFLOW_CTX_DAG_RUN_ID`, `AIRFLOW_CTX_DAG_ID`, `AIRFLOW_CTX_TASK_ID`       |
 | Dagster      | `DAGSTER_RUN_ID`, `DAGSTER_JOB_NAME`                                          |
 
+## Resilience: circuit breaker and retry
+
+Floe uses a circuit breaker to avoid blocking long pipelines when the lineage
+endpoint is down or slow.
+
+**Retry behaviour** — transient failures (connection errors, HTTP 5xx, 429) are
+retried up to 3 times with 0 / 100 / 500 ms backoff before counting as a
+failure. Non-retryable 4xx errors (e.g. 401 bad API key) are counted immediately
+without retrying.
+
+**Circuit breaker** — after `max_failures` consecutive failures (default 3,
+configurable via `lineage.max_failures`), the circuit opens for the remainder of
+the run. Subsequent events are skipped immediately with no HTTP calls. A single
+`lineage_circuit_open` warning is emitted when the circuit trips.
+
+**Recovery** — the circuit resets at the start of each new run (`RunStarted`),
+so a recovered endpoint is retried in the next pipeline execution without
+restarting the process.
+
+A `lineage_http_error` warning is emitted whenever an event is dropped (whether
+retried or not) so silent event loss is always visible in operator logs.
+
 ## Fail-silent behaviour
 
-HTTP errors (connection failures, 4xx/5xx responses) are emitted as `warn`-level
+HTTP errors that do not trip the circuit breaker are emitted as `warn`-level
 log events and do not affect the run outcome. The ingestion continues normally.
 
 Warnings are always surfaced to stderr even when `--log-format off` is used,

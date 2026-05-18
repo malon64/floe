@@ -20,11 +20,11 @@ __pycache__/
 *.swp
 *.swo
 
-# Test ouput files
-example/out/*
-example/report/*
-!example/report/run_2026-01-28T15-27-38.722531254Z/
-!example/report/run_2026-01-28T15-27-38.722531254Z/**
+# Example run artefacts (generated on every floe run)
+example/out/
+example/report/
+example/state/
+example/.floe/
 
 # Bench outputs
 

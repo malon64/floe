@@ -33,6 +33,8 @@ All notable changes to Floe are documented in this file.
 
 - **macOS wheels**: universal2 wheel replaces separate aarch64 + x86_64 artifacts — a single `.whl` runs natively on both Apple Silicon and Intel Macs.
 
+- **`dagster-floe` 0.1.5**: adds `dagster-floe[kubernetes]` optional extra so consumers can declare the `kubernetes>=28` dependency explicitly when using the Kubernetes runner.
+
 ## v0.3.9
 
 - **Column-level PII masking** (`docs/pii.md`):

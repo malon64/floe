@@ -46,13 +46,26 @@ When adding a new storage backend:
 2. Implement `StorageClient` trait
 3. Register the client in `CloudClient::client_for_context` match
 
-## Code style
+## CI requirements — required before every push and PR
 
-- Run `cargo fmt` before every commit/push.
-- Run `cargo clippy -- -D warnings` and fix all warnings before merging.
-- No `#[allow(clippy::...)]` suppressions except where the lint is demonstrably wrong for the specific case — document why inline.
+All three checks must pass locally before pushing. CI enforces the same gates and will block the PR if any fail.
+
+```bash
+# 1. Format
+cargo fmt --all
+
+# 2. Lint — zero warnings allowed
+cargo clippy -p floe-core -p floe-cli -p floe-python -- -D warnings
+
+# 3. Tests — all must pass
+cargo test -p floe-core
+```
+
+No `#[allow(clippy::...)]` suppressions except where the lint is demonstrably wrong for the specific case — document why inline when you do suppress.
+
+**Code style notes:**
 - Prefer `impl Into<String>` for string-accepting constructor parameters.
-- Use `BTreeMap` instead of `HashMap` when the key order matters for deterministic output (e.g., serialised state files).
+- Use `BTreeMap` instead of `HashMap` when key order matters for deterministic output (e.g., serialised state files).
 
 ## Testing
 

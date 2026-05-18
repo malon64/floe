@@ -6,13 +6,16 @@
 floe/
 ├── crates/
 │   ├── floe-core/     ← library crate — all business logic
-│   └── floe-cli/      ← binary crate — thin CLI wrapper (clap)
+│   ├── floe-cli/      ← binary crate — thin CLI wrapper (clap)
+│   └── floe-python/   ← PyO3 extension module exposing floe-core to Python
 └── orchestrators/
     ├── dagster-floe/  ← Dagster integration (Python)
     └── airflow-floe/  ← Airflow integration (Python)
 ```
 
 `floe-cli` depends on `floe-core` and does nothing except parse CLI arguments and call into the library. All testable logic lives in `floe-core`.
+
+`floe-python` is a `cdylib` built with [PyO3](https://pyo3.rs) that wraps `floe-core` into a native Python extension (`_floe`). It exposes a Python-friendly API with typed exception classes (`FloeError`, `FloeConfigError`, `FloeRunError`, etc.), config types (`PyRootConfig`, `PyEntityConfig`), and run outcome types (`PyRunOutcome`). The extension targets Python ≥ 3.10 via the stable ABI (`abi3-py310`). It contains no business logic — all behaviour is in `floe-core`.
 
 ## Key modules in `floe-core/src/`
 

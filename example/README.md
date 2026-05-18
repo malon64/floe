@@ -203,7 +203,7 @@ floe run -c config.yml      # second run: "0 files pending" — all already proc
 The `profiles/` directory shows how to override config values per environment without duplicating the full config:
 
 ```bash
-floe run -c config.yml -p profiles/prod.yml
+floe run -c config.yml --profile profiles/prod.yml
 ```
 
 → [Profiles reference](../docs/profiles.md)

@@ -122,7 +122,11 @@ enum Command {
             help = "Comma-separated list of entity names"
         )]
         entities: Vec<String>,
-        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        #[arg(
+            short = 'p',
+            long,
+            help = "Optional path to a Floe environment profile YAML file"
+        )]
         profile: Option<String>,
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
@@ -154,7 +158,11 @@ enum Command {
         log_format: LogFormat,
         #[arg(long, help = "Resolve and print inputs/outputs without executing")]
         dry_run: bool,
-        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        #[arg(
+            short = 'p',
+            long,
+            help = "Optional path to a Floe environment profile YAML file"
+        )]
         profile: Option<String>,
     },
     #[command(
@@ -233,7 +241,11 @@ enum ManifestCommand {
             help = "Optional comma-separated list of entity names"
         )]
         entities: Vec<String>,
-        #[arg(long, help = "Optional path to a Floe environment profile YAML file")]
+        #[arg(
+            short = 'p',
+            long,
+            help = "Optional path to a Floe environment profile YAML file"
+        )]
         profile: Option<String>,
     },
 }

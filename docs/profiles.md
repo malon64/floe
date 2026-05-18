@@ -8,11 +8,11 @@ environment-specific values (the profile).
 
 ## Machine-readable schema
 
-A JSON-Schema-compatible YAML schema is provided at [`profile.schema.yaml`](../profile.schema.yaml)
-in the repository root.  It covers every field defined in this document with
-types, `required` / `additionalProperties` constraints, and inline descriptions.
+A JSON-Schema-compatible YAML schema is provided at [`schemas/profile.schema.yaml`](../schemas/profile.schema.yaml).
+It covers every field defined in this document with types, `required` /
+`additionalProperties` constraints, and inline descriptions.
 
-**AI-assisted authoring** — paste the contents of `profile.schema.yaml` into
+**AI-assisted authoring** — paste the contents of `schemas/profile.schema.yaml` into
 your AI assistant (or point it at the file) and ask it to generate a valid
 profile for your environment.  The schema enumerates all allowed values (e.g.
 `runner.type: local|kubernetes_job|databricks_job`) and marks required fields, so generated output can be
@@ -254,7 +254,7 @@ my-project/
 ```
 
 See `example/profiles/` in this repository for ready-to-use templates.
-The machine-readable field reference is in `profile.schema.yaml` at the repo root.
+The machine-readable field reference is in `schemas/profile.schema.yaml`.
 
 ## Environment catalog overrides
 

@@ -176,6 +176,30 @@ fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
 }
 
 fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
+    if runner.runner_type == "kubernetes_job" {
+        if runner
+            .image
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Err(Box::new(ConfigError(
+                "profile.execution.runner.image is required for kubernetes_job".to_string(),
+            )));
+        }
+        if runner
+            .namespace
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Err(Box::new(ConfigError(
+                "profile.execution.runner.namespace is required for kubernetes_job".to_string(),
+            )));
+        }
+    }
     if runner.runner_type != "databricks_job" {
         return Ok(());
     }

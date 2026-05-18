@@ -1,0 +1,234 @@
+# Floe — Orchestrator Integrations
+
+## Overview
+
+Floe ships two orchestrator packages: `dagster-floe` and `airflow-floe`. Both follow the same pattern: they invoke the Floe CLI as a subprocess and parse structured JSON events from stdout to determine outcome. Neither package embeds Floe logic — they are thin adapters that translate orchestrator concepts (Dagster assets, Airflow operators) into Floe CLI invocations.
+
+Both packages live under `orchestrators/` and are published as independent Python packages.
+
+---
+
+## The Manifest
+
+The manifest is a JSON file that decouples the Floe config from orchestrator-specific execution concerns. It tells the orchestrator how to invoke Floe and what entities exist.
+
+Schema identifier: `floe.manifest.v1`
+
+### Structure
+
+```json
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 1700000000000,
+  "floe_version": "0.x.y",
+  "spec_version": "1",
+  "manifest_id": "abc123",
+  "config_uri": "local://config.yml",
+  "config_checksum": "sha256:...",
+  "report_base_uri": "local://report/",
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": ["run", "-c", "{config_uri}", "--log-format", "json"],
+    "per_entity_args": ["--entities", "{entity_name}"],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": { "success": "0", "partial": "2", "failed": "1" }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    }
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": { "type": "local_process" },
+      "k8s": { "type": "kubernetes_job", "image": "...", "namespace": "..." }
+    }
+  },
+  "entities": [
+    {
+      "name": "orders",
+      "group_name": "bronze",
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://bucket/bronze/orders/",
+      "rejected_sink_uri": "s3://bucket/rejected/orders/",
+      "asset_key": ["bronze", "orders"],
+      "runner": null
+    }
+  ]
+}
+```
+
+### Template tokens
+
+`base_args` and `per_entity_args` support three substitution tokens expanded at runtime:
+
+| Token | Replaced with |
+|---|---|
+| `{config_uri}` | Resolved path or URI to the Floe config |
+| `{entity_name}` | The entity being processed (only in `per_entity_args`) |
+| `{run_id}` | The orchestrator run ID (optional) |
+
+### Generating the manifest
+
+```bash
+floe manifest generate -c config.yml -o manifest.dagster.json
+```
+
+The `manifest generate` subcommand reads the Floe config and emits a manifest with one entity entry per entity defined in the config. The `execution` block defaults are suitable for local subprocess execution; edit `runners.definitions` to add Kubernetes or Databricks targets.
+
+Pass `--profile profiles/prod.yml` (or `-p profiles/prod.yml`) to generate a manifest for a specific environment profile.
+
+### Config URI resolution
+
+The manifest stores `config_uri` as either:
+- A `local://` URI resolved relative to the manifest file
+- An absolute path
+- A cloud URI (`s3://`, `gs://`, `abfss://`)
+
+`resolve_config_uri(manifest_path, config_uri)` in `manifest.py` handles all three forms.
+
+---
+
+## Profiles
+
+Profiles are YAML overlays applied on top of the base Floe config. They let you parameterize environment-specific values (storage URIs, credentials, catalog names) without duplicating the full config.
+
+```bash
+floe run -c config.yml --profile profiles/prod.yml
+# short alias:
+floe run -c config.yml -p profiles/prod.yml
+```
+
+Both `run`, `validate`, and `manifest generate` accept `--profile` / `-p`.
+
+Profile parsing in `floe-core`:
+- `parse_profile(path)` reads the profile YAML
+- `validate_profile()` checks for unknown keys
+- The merged config is what Floe actually executes against
+
+In a manifest `base_args`, you can embed the profile path as a literal arg since the manifest itself is environment-specific:
+```json
+"base_args": ["run", "-c", "{config_uri}", "-p", "profiles/prod.yml", "--log-format", "json"]
+```
+
+---
+
+## dagster-floe
+
+### How it works
+
+`load_floe_assets(manifest_path, runner)` in `assets.py` is the entry point. It:
+
+1. Loads the manifest via `load_manifest(manifest_path)`.
+2. Resolves the config URI relative to the manifest file.
+3. Creates one Dagster `@asset` per entity in `manifest.entities`.
+4. Returns a `Definitions` object Dagster can register.
+
+Each `@asset` function, when materialized:
+1. Calls `runner.run_floe_entity(config_uri, run_id, entity_name, ...)`.
+2. Parses NDJSON events from stdout looking for the `run_finished` event.
+3. Reads the summary JSON at `finished.summary_uri` to extract per-entity row counts.
+4. Raises `Failure` if exit code != 0 or status is not `success`.
+5. Yields `MaterializeResult` with row count metadata.
+
+### Runner
+
+`LocalRunner` (in `runner.py`) is the default runner. It invokes the CLI as a subprocess and returns a `RunResult(stdout, stderr, exit_code)`.
+
+`LocalRunner` also handles routing to `kubernetes_job` and `databricks_job` runner types by delegating to `kubernetes_runner.py` and `databricks_runner.py` respectively.
+
+```python
+from floe_dagster.assets import load_floe_assets
+from floe_dagster.runner import LocalRunner
+
+defs = load_floe_assets("manifest.dagster.json", runner=LocalRunner())
+```
+
+### Definitions module
+
+`definitions.py` exports `build_definitions(manifest_path)` and `build_definitions_from_manifest_dir(manifest_dir)`. The example `definitions.py` shows the typical setup: check `FLOE_MANIFEST_DIR` env var, fall back to a bundled example manifest.
+
+### Runner types
+
+| Type | Description |
+|---|---|
+| `local_process` | Subprocess on the Dagster worker node |
+| `kubernetes_job` | Launches a Kubernetes Job, polls until completion |
+| `databricks_job` | Submits a Databricks job run, polls until completion |
+
+Each entity can override the runner via `entity.runner`; otherwise `runners.default` is used.
+
+---
+
+## airflow-floe
+
+### How it works
+
+`FloeRunOperator(BaseOperator)` in `operators.py` is the main Airflow operator.
+
+```python
+FloeRunOperator(
+    task_id="ingest_orders",
+    config_path="config.yml",
+    entities=["orders"],
+)
+```
+
+`template_fields = ("config_path", "entities")` — both are Jinja-templatable in Airflow DAGs.
+
+On `execute()`:
+1. Builds CLI args via `FloeRunHook.build_args()`.
+2. Launches subprocess with `subprocess.Popen`, capturing stdout and stderr in parallel threads (so logs stream in real time to the Airflow task log).
+3. Parses the `run_finished` NDJSON event from stdout.
+4. Returns an XCom payload.
+
+### XCom payload
+
+Schema: `floe.airflow.run.v1`
+
+```json
+{
+  "schema": "floe.airflow.run.v1",
+  "run_id": "...",
+  "status": "success",
+  "exit_code": 0,
+  "files": 3,
+  "rows": 1000,
+  "accepted": 980,
+  "rejected": 20,
+  "warnings": 5,
+  "errors": 0,
+  "summary_uri": "local://report/.../summary.json",
+  "config_uri": "config.yml",
+  "floe_log_schema": "floe.log.v1",
+  "finished_at_ts_ms": 1700000000000,
+  "entity": "orders"
+}
+```
+
+If `entities` has more than one entry, the `entity` field is omitted (multi-entity run).
+
+### Manifest-driven routing
+
+`FloeRunOperator` accepts an optional `manifest_context: DagManifestContext`. When provided:
+- Uses `manifest.execution` to build args (template tokens, entrypoint, etc.)
+- Resolves the runner per entity and routes to `kubernetes_job` or `databricks_job` if specified
+- Emits Airflow asset events via `outlet_events` in the task context
+
+Without a manifest context the operator falls back to a plain `floe run -c <config> --log-format json` invocation.
+
+### Stdout/stderr threading
+
+Both streams are consumed in background threads while the process runs, so neither blocks. Both are buffered and also forwarded to the Airflow task logger (`log.info` for stdout, `log.warning` for stderr). After the process exits, the full stdout buffer is scanned for the `run_finished` event.
+
+---
+
+## What both orchestrators require from Floe
+
+1. **`--log-format json`** — Floe must emit NDJSON to stdout. The manifest enforces this (`execution.log_format` must be `"json"`).
+2. **`run_finished` event** — A structured `{"event": "run_finished", ...}` line on stdout signals completion and carries the summary URI, row counts, and final status.
+3. **Exit codes** — `0` for success, non-zero for failure. The orchestrators check exit code first; the `run_finished` event provides additional context.

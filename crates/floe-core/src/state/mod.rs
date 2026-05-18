@@ -280,7 +280,9 @@ pub fn release_claimed_entity_state(
     claimed: &ClaimedEntityState,
 ) -> FloeResult<()> {
     mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
-        state.claims.retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
+        state
+            .claims
+            .retain(|uri, claim| !(claim.run_id == run_id && our_uris.contains(uri)));
         state.updated_at = Some(now_rfc3339());
     })
 }
@@ -475,7 +477,12 @@ fn load_target_state_with_entity_name(
         EntityStateTarget::Local { path, uri } => {
             let object = LocalClient::new().read_object(&uri)?;
             let (state, version, existed) = resolve_loaded_state(entity_name, object)?;
-            Ok(LoadedEntityState { target: EntityStateTarget::Local { path, uri }, state, version, existed })
+            Ok(LoadedEntityState {
+                target: EntityStateTarget::Local { path, uri },
+                state,
+                version,
+                existed,
+            })
         }
         EntityStateTarget::Remote { storage, uri } => {
             let client = cloud.client_for_context(
@@ -485,7 +492,12 @@ fn load_target_state_with_entity_name(
             )?;
             let object = client.read_object(&uri)?;
             let (state, version, existed) = resolve_loaded_state(entity_name, object)?;
-            Ok(LoadedEntityState { target: EntityStateTarget::Remote { storage, uri }, state, version, existed })
+            Ok(LoadedEntityState {
+                target: EntityStateTarget::Remote { storage, uri },
+                state,
+                version,
+                existed,
+            })
         }
     }
 }

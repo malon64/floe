@@ -9,7 +9,7 @@ use io::format::{self, LocalInputFile};
 use io::storage::Target;
 
 pub(super) struct AcceptedOutputContext<'a> {
-    pub(super) adapter: &'a dyn format::AcceptedSinkAdapter,
+    pub(super) format: &'a dyn crate::io::write::sink_format::SinkFormat,
     pub(super) target: &'a Target,
     pub(super) df: &'a mut DataFrame,
     pub(super) output_stem: &'a str,
@@ -37,7 +37,7 @@ pub(super) fn write_accepted_output(
     context: AcceptedOutputContext<'_>,
 ) -> FloeResult<format::AcceptedWriteOutput> {
     let AcceptedOutputContext {
-        adapter,
+        format,
         target,
         df,
         output_stem,
@@ -48,20 +48,17 @@ pub(super) fn write_accepted_output(
         entity,
         mode,
     } = context;
-    io::write::accepted::write_with_adapter(
-        adapter,
-        io::write::accepted::AcceptedWriteRequest {
-            target,
-            df,
-            output_stem,
-            temp_dir,
-            cloud,
-            resolver,
-            catalogs,
-            entity,
-            mode,
-        },
-    )
+    format.write(format::AcceptedWriteRequest {
+        target,
+        df,
+        mode,
+        output_stem,
+        temp_dir,
+        cloud,
+        resolver,
+        catalogs,
+        entity,
+    })
 }
 pub(super) fn write_rejected_output(context: RejectedOutputContext<'_>) -> FloeResult<String> {
     let RejectedOutputContext {

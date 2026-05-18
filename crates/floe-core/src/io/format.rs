@@ -84,6 +84,26 @@ pub struct AcceptedMergeMetrics {
     pub merge_elapsed_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+pub enum CatalogRegistration {
+    UnityDelta {
+        catalog_name: String,
+        schema: String,
+        table: String,
+    },
+    IcebergGlue {
+        catalog_name: String,
+        database: Option<String>,
+        namespace: String,
+        table: String,
+    },
+    IcebergRest {
+        catalog_name: String,
+        namespace: String,
+        table: String,
+    },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AcceptedWriteOutput {
     pub files_written: Option<u64>,
@@ -92,13 +112,7 @@ pub struct AcceptedWriteOutput {
     pub table_version: Option<i64>,
     pub snapshot_id: Option<i64>,
     pub table_root_uri: Option<String>,
-    pub iceberg_catalog_name: Option<String>,
-    pub iceberg_database: Option<String>,
-    pub iceberg_namespace: Option<String>,
-    pub iceberg_table: Option<String>,
-    pub delta_catalog_name: Option<String>,
-    pub delta_catalog_schema: Option<String>,
-    pub delta_catalog_table: Option<String>,
+    pub catalog: Option<CatalogRegistration>,
     pub metrics: AcceptedWriteMetrics,
     pub merge: Option<AcceptedMergeMetrics>,
     pub schema_evolution: AcceptedSchemaEvolution,
@@ -163,20 +177,16 @@ pub trait InputAdapter: Send + Sync {
     }
 }
 
-pub trait AcceptedSinkAdapter: Send + Sync {
-    #[allow(clippy::too_many_arguments)]
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        output_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput>;
+pub struct AcceptedWriteRequest<'a> {
+    pub target: &'a Target,
+    pub df: &'a mut DataFrame,
+    pub mode: config::WriteMode,
+    pub output_stem: &'a str,
+    pub temp_dir: Option<&'a Path>,
+    pub cloud: &'a mut io::storage::CloudClient,
+    pub resolver: &'a config::StorageResolver,
+    pub catalogs: &'a config::CatalogResolver,
+    pub entity: &'a config::EntityConfig,
 }
 
 pub struct RejectedWriteRequest<'a> {
@@ -247,7 +257,7 @@ pub fn ensure_input_format(entity_name: &str, format: &str) -> FloeResult<()> {
 }
 
 pub fn ensure_accepted_sink_format(entity_name: &str, format: &str) -> FloeResult<()> {
-    if accepted_sink_adapter(format).is_err() {
+    if crate::io::write::sink_format::sink_format(format).is_err() {
         return Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,
@@ -365,19 +375,6 @@ pub fn input_adapter(format: &str) -> FloeResult<&'static dyn InputAdapter> {
         "xml" => Ok(io::read::xml::xml_input_adapter()),
         _ => Err(Box::new(unsupported_format_error(
             FormatKind::Source,
-            format,
-            None,
-        ))),
-    }
-}
-
-pub fn accepted_sink_adapter(format: &str) -> FloeResult<&'static dyn AcceptedSinkAdapter> {
-    match format {
-        "parquet" => Ok(io::write::parquet::parquet_accepted_adapter()),
-        "delta" => Ok(io::write::delta::delta_accepted_adapter()),
-        "iceberg" => Ok(io::write::iceberg::iceberg_accepted_adapter()),
-        _ => Err(Box::new(unsupported_format_error(
-            FormatKind::SinkAccepted,
             format,
             None,
         ))),

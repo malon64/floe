@@ -2,26 +2,26 @@ use std::path::Path;
 
 use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
 
-use crate::errors::IoError;
-use crate::io::format::{AcceptedSinkAdapter, AcceptedWriteOutput};
+use crate::checks::normalize::rename_output_columns;
+use crate::errors::{IoError, StorageError};
+use crate::io::format::{AcceptedWriteOutput, AcceptedWriteRequest};
+use crate::io::read::parquet::read_parquet_lazy;
 use crate::io::storage::Target;
-use crate::{config, io, ConfigError, FloeResult};
+use crate::io::write::sink_format::{SeedContext, SinkFormat};
+use crate::io::write::{parts, strategy};
+use crate::{check, config, io, ConfigError, FloeResult};
 
-use super::{metrics, strategy};
+use super::metrics;
 
-struct ParquetAcceptedAdapter;
+pub(crate) struct ParquetSinkFormat;
 
-static PARQUET_ACCEPTED_ADAPTER: ParquetAcceptedAdapter = ParquetAcceptedAdapter;
+pub(crate) static PARQUET_SINK_FORMAT: ParquetSinkFormat = ParquetSinkFormat;
 const DEFAULT_MAX_SIZE_PER_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParquetWriteRuntimeOptions {
     pub max_size_per_file_bytes: u64,
     pub small_file_threshold_bytes: u64,
-}
-
-pub(crate) fn parquet_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
-    &PARQUET_ACCEPTED_ADAPTER
 }
 
 pub fn parquet_write_runtime_options(target: &config::SinkTarget) -> ParquetWriteRuntimeOptions {
@@ -67,19 +67,30 @@ pub fn write_parquet_to_path(
     Ok(())
 }
 
-impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        _output_stem: &str,
-        temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        _catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput> {
+impl SinkFormat for ParquetSinkFormat {
+    fn format_name(&self) -> &'static str {
+        "parquet"
+    }
+
+    fn supported_modes(&self) -> &'static [config::WriteMode] {
+        &[config::WriteMode::Overwrite, config::WriteMode::Append]
+    }
+
+    fn supported_storages(&self) -> &'static [&'static str] {
+        &["local", "s3", "gcs", "adls"]
+    }
+
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
+        let AcceptedWriteRequest {
+            target,
+            df,
+            mode,
+            temp_dir,
+            cloud,
+            resolver,
+            entity,
+            ..
+        } = req;
         let mut ctx = strategy::WriteContext {
             target,
             cloud,
@@ -160,13 +171,7 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             table_version: None,
             snapshot_id: None,
             table_root_uri: None,
-            iceberg_catalog_name: None,
-            iceberg_database: None,
-            iceberg_namespace: None,
-            iceberg_table: None,
-            delta_catalog_name: None,
-            delta_catalog_schema: None,
-            delta_catalog_table: None,
+            catalog: None,
             metrics,
             merge: None,
             schema_evolution: io::format::AcceptedSchemaEvolution {
@@ -184,6 +189,64 @@ impl AcceptedSinkAdapter for ParquetAcceptedAdapter {
             perf: None,
         })
     }
+
+    fn seed_unique_tracker(
+        &self,
+        tracker: &mut check::UniqueTracker,
+        ctx: &mut SeedContext<'_>,
+    ) -> FloeResult<()> {
+        match ctx.target {
+            Target::Local { base_path, .. } => {
+                let base = Path::new(base_path);
+                let part_files = parts::list_local_part_paths(base, "parquet")?;
+                for part_path in part_files {
+                    seed_from_parquet_path(tracker, &part_path, ctx.scan_cols, ctx.rename_back)?;
+                }
+            }
+            Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
+                let temp_dir = ctx.temp_dir.ok_or_else(|| {
+                    Box::new(StorageError(format!(
+                        "entity.name={} missing temp dir for parquet seed",
+                        ctx.entity.name
+                    ))) as Box<dyn std::error::Error + Send + Sync>
+                })?;
+                let spec = strategy::accepted_parquet_spec();
+                let (list_prefix, objects) = {
+                    let mut wctx = strategy::WriteContext {
+                        target: ctx.target,
+                        cloud: ctx.cloud,
+                        resolver: ctx.resolver,
+                        entity: ctx.entity,
+                    };
+                    strategy::list_part_objects(&mut wctx, spec)?
+                };
+                let client =
+                    ctx.cloud
+                        .client_for(ctx.resolver, ctx.target.storage(), ctx.entity)?;
+                for object in objects
+                    .into_iter()
+                    .filter(|obj| obj.key.starts_with(&list_prefix))
+                    .filter(|obj| parts::is_part_key(&obj.key, spec.extension))
+                {
+                    let local_path = client.download_to_temp(&object.uri, temp_dir)?;
+                    seed_from_parquet_path(tracker, &local_path, ctx.scan_cols, ctx.rename_back)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn seed_from_parquet_path(
+    tracker: &mut check::UniqueTracker,
+    path: &Path,
+    scan_cols: &[String],
+    rename_back: &std::collections::HashMap<String, String>,
+) -> FloeResult<()> {
+    let mut df = read_parquet_lazy(path, Some(scan_cols))?;
+    rename_output_columns(&mut df, rename_back)?;
+    tracker.seed_from_df(&df)?;
+    Ok(())
 }
 
 fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {

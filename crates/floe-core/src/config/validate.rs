@@ -7,6 +7,7 @@ use crate::config::{
 use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
 use crate::io::read::xml_selector;
+use crate::io::write::sink_format::sink_format;
 use crate::{warnings, ConfigError, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
@@ -537,28 +538,14 @@ fn validate_sink(
         entity.sink.accepted.storage.as_deref(),
     )?;
     storages.validate_reference(entity, "sink.accepted.storage", &accepted_storage)?;
-    if entity.sink.accepted.format == "delta" {
-        if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-            if storage_type != "local"
-                && storage_type != "s3"
-                && storage_type != "adls"
-                && storage_type != "gcs"
-            {
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format=delta is only supported on local, s3, adls, or gcs storage (got {})",
-                    entity.name, storage_type
-                ))));
-            }
-        }
-    }
-    if entity.sink.accepted.format == "iceberg" {
-        if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-            if storage_type != "local" && storage_type != "s3" && storage_type != "gcs" {
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format=iceberg is only supported on local, s3, or gcs storage for now (got {})",
-                    entity.name, storage_type
-                ))));
-            }
+    if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+        let fmt = sink_format(entity.sink.accepted.format.as_str())?;
+        if !fmt.supported_storages().contains(&storage_type) {
+            let supported = fmt.supported_storages().join(", ");
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
+                entity.name, entity.sink.accepted.format, storage_type, supported
+            ))));
         }
     }
     validate_iceberg_catalog_binding(entity, storages, catalogs, &accepted_storage)?;
@@ -593,19 +580,22 @@ fn validate_sink(
 
 fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     let write_mode = entity.sink.write_mode;
+    let fmt = sink_format(entity.sink.accepted.format.as_str())?;
+    if !fmt.supported_modes().contains(&write_mode) {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.write_mode={} is not supported by sink.accepted.format={}",
+            entity.name,
+            write_mode.as_str(),
+            entity.sink.accepted.format
+        ))));
+    }
+
     let is_merge_mode = matches!(
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
     );
     if is_merge_mode {
         let mode_name = write_mode.as_str();
-        if entity.sink.accepted.format != "delta" {
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.write_mode={} requires sink.accepted.format=delta",
-                entity.name, mode_name
-            ))));
-        }
-
         let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
             Box::new(ConfigError(format!(
                 "entity.name={} sink.write_mode={} requires schema.primary_key",
@@ -631,9 +621,16 @@ fn validate_merge_options(
         return Ok(());
     };
 
-    if entity.sink.accepted.format != "delta" {
+    let fmt = sink_format(entity.sink.accepted.format.as_str())?;
+    let supports_merge = fmt.supported_modes().iter().any(|m| {
+        matches!(
+            m,
+            crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+        )
+    });
+    if !supports_merge {
         return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.merge is only supported when sink.accepted.format=delta",
+            "entity.name={} sink.accepted.merge is only supported when sink.accepted.format supports merge (e.g. delta)",
             entity.name
         ))));
     }

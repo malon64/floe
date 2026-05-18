@@ -12,10 +12,13 @@ use polars::prelude::DataFrame;
 
 use crate::errors::RunError;
 use crate::io::format::{
-    AcceptedSinkAdapter, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
+    AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown, AcceptedWriteRequest,
+    CatalogRegistration,
 };
-use crate::io::storage::Target;
-use crate::{config, io, FloeResult};
+use crate::io::storage::{object_store, Target};
+use crate::io::unique_seed::seed_from_batches;
+use crate::io::write::sink_format::{SeedContext, SinkFormat};
+use crate::{check, config, io, FloeResult};
 
 use super::metrics;
 
@@ -31,20 +34,19 @@ use self::context::{build_iceberg_write_context, create_table, ensure_namespace}
 use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
-use self::metadata::parse_metadata_version_from_location;
-pub(crate) use self::rest::{write_via_rest_catalog, RestIcebergCatalogConfig};
+use self::metadata::{
+    latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
+    parse_metadata_version_from_location,
+};
+pub(crate) use self::rest::{build_rest_catalog, write_via_rest_catalog, RestIcebergCatalogConfig};
 use self::schema::{ensure_partition_spec_matches, ensure_schema_matches, prepare_iceberg_write};
 
-struct IcebergAcceptedAdapter;
+pub(crate) struct IcebergSinkFormat;
 
-static ICEBERG_ACCEPTED_ADAPTER: IcebergAcceptedAdapter = IcebergAcceptedAdapter;
+pub(crate) static ICEBERG_SINK_FORMAT: IcebergSinkFormat = IcebergSinkFormat;
 
 pub(crate) const ICEBERG_NAMESPACE: &str = "floe";
 pub(crate) const ICEBERG_CATALOG_NAME: &str = "floe_iceberg";
-
-pub(crate) fn iceberg_accepted_adapter() -> &'static dyn AcceptedSinkAdapter {
-    &ICEBERG_ACCEPTED_ADAPTER
-}
 
 #[derive(Debug)]
 pub(crate) struct PreparedIcebergWrite {
@@ -61,10 +63,7 @@ pub(crate) struct IcebergWriteResult {
     file_paths: Vec<String>,
     metrics: AcceptedWriteMetrics,
     table_root_uri: String,
-    iceberg_catalog_name: Option<String>,
-    iceberg_database: Option<String>,
-    iceberg_namespace: Option<String>,
-    iceberg_table: Option<String>,
+    catalog: Option<CatalogRegistration>,
     perf: AcceptedWritePerfBreakdown,
 }
 
@@ -168,19 +167,30 @@ pub(crate) struct GlueIcebergCatalogConfig {
     pub(crate) allow_takeover: bool,
 }
 
-impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
-    fn write_accepted(
-        &self,
-        target: &Target,
-        df: &mut DataFrame,
-        mode: config::WriteMode,
-        _output_stem: &str,
-        _temp_dir: Option<&Path>,
-        cloud: &mut io::storage::CloudClient,
-        resolver: &config::StorageResolver,
-        catalogs: &config::CatalogResolver,
-        entity: &config::EntityConfig,
-    ) -> FloeResult<AcceptedWriteOutput> {
+impl SinkFormat for IcebergSinkFormat {
+    fn format_name(&self) -> &'static str {
+        "iceberg"
+    }
+
+    fn supported_modes(&self) -> &'static [config::WriteMode] {
+        &[config::WriteMode::Overwrite, config::WriteMode::Append]
+    }
+
+    fn supported_storages(&self) -> &'static [&'static str] {
+        &["local", "s3", "gcs"]
+    }
+
+    fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
+        let AcceptedWriteRequest {
+            target,
+            df,
+            mode,
+            cloud,
+            resolver,
+            catalogs,
+            entity,
+            ..
+        } = req;
         write_iceberg_table_with_remote_context(
             df,
             target,
@@ -192,6 +202,74 @@ impl AcceptedSinkAdapter for IcebergAcceptedAdapter {
                 catalogs,
             }),
         )
+    }
+
+    fn seed_unique_tracker(
+        &self,
+        tracker: &mut check::UniqueTracker,
+        ctx: &mut SeedContext<'_>,
+    ) -> FloeResult<()> {
+        // When a catalog is configured, seed from the catalog-reported location (Glue/REST).
+        if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
+            ctx.resolver,
+            ctx.entity,
+            &ctx.entity.sink.accepted,
+        )? {
+            let catalog_cfg = IcebergCatalogConfig::from_resolved(&resolved)?;
+            let catalog_target = Target::from_resolved(&resolved.table_location)?;
+            let store =
+                object_store::iceberg_store_config(&catalog_target, ctx.resolver, ctx.entity)?;
+            return seed_iceberg_from_catalog(
+                tracker,
+                &catalog_cfg,
+                store.file_io_props,
+                store.warehouse_location,
+                ctx.entity,
+                ctx.scan_cols,
+                ctx.rename_back,
+            );
+        }
+
+        let store = object_store::iceberg_store_config(ctx.target, ctx.resolver, ctx.entity)?;
+
+        let metadata_location: Option<String> = match ctx.target {
+            Target::Local { base_path, .. } => {
+                latest_local_metadata_location(Path::new(base_path))?
+            }
+            Target::S3 {
+                storage, base_key, ..
+            } => {
+                let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
+                latest_s3_metadata_location(client, base_key)?
+            }
+            Target::Gcs {
+                storage, base_key, ..
+            } => {
+                let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
+                latest_gcs_metadata_location(client, base_key)?
+            }
+            Target::Adls { .. } => return Ok(()),
+        };
+        let Some(metadata_location) = metadata_location else {
+            return Ok(());
+        };
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| {
+                Box::new(RunError(format!("iceberg seed runtime init failed: {err}")))
+            })?;
+        let batches = runtime
+            .block_on(collect_iceberg_batches(
+                metadata_location,
+                store.file_io_props,
+                store.warehouse_location,
+                &ctx.entity.name,
+                ctx.scan_cols,
+            ))
+            .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
+        seed_from_batches(tracker, batches, ctx.rename_back)
     }
 }
 
@@ -237,16 +315,10 @@ fn write_iceberg_table_with_remote_context(
         table_version: result.metadata_version,
         snapshot_id: result.snapshot_id,
         table_root_uri: result
-            .iceberg_catalog_name
+            .catalog
             .as_ref()
             .map(|_| result.table_root_uri.clone()),
-        iceberg_catalog_name: result.iceberg_catalog_name,
-        iceberg_database: result.iceberg_database,
-        iceberg_namespace: result.iceberg_namespace,
-        iceberg_table: result.iceberg_table,
-        delta_catalog_name: None,
-        delta_catalog_schema: None,
-        delta_catalog_table: None,
+        catalog: result.catalog,
         metrics: result.metrics,
         merge: None,
         schema_evolution: crate::io::format::AcceptedSchemaEvolution {
@@ -471,6 +543,14 @@ async fn write_iceberg_table_async(
     );
     perf.metrics_read_ms = Some(metrics_start.elapsed().as_millis() as u64);
 
+    let catalog = catalog_cfg
+        .as_ref()
+        .map(|cfg| CatalogRegistration::IcebergGlue {
+            catalog_name: cfg.catalog_name().to_string(),
+            database: cfg.database().map(ToOwned::to_owned),
+            namespace: cfg.namespace().to_string(),
+            table: cfg.table().to_string(),
+        });
     Ok(IcebergWriteResult {
         files_written,
         snapshot_id,
@@ -478,14 +558,7 @@ async fn write_iceberg_table_async(
         file_paths,
         metrics,
         table_root_uri,
-        iceberg_catalog_name: catalog_cfg
-            .as_ref()
-            .map(|cfg| cfg.catalog_name().to_string()),
-        iceberg_database: catalog_cfg
-            .as_ref()
-            .and_then(|cfg| cfg.database().map(ToOwned::to_owned)),
-        iceberg_namespace: catalog_cfg.as_ref().map(|cfg| cfg.namespace().to_string()),
-        iceberg_table: catalog_cfg.as_ref().map(|cfg| cfg.table().to_string()),
+        catalog,
         perf,
     })
 }
@@ -494,4 +567,167 @@ pub(crate) fn map_iceberg_err(
     context: &'static str,
 ) -> impl FnOnce(iceberg::Error) -> Box<dyn std::error::Error + Send + Sync> {
     move |err| Box::new(RunError(format!("{context}: {err}")))
+}
+
+// ── Seeding helpers ───────────────────────────────────────────────────────────
+
+fn seed_iceberg_from_catalog(
+    tracker: &mut check::UniqueTracker,
+    catalog_cfg: &IcebergCatalogConfig,
+    file_io_props: HashMap<String, String>,
+    warehouse_location: String,
+    entity: &config::EntityConfig,
+    scan_cols: &[String],
+    rename_back: &HashMap<String, String>,
+) -> FloeResult<()> {
+    match catalog_cfg {
+        IcebergCatalogConfig::Glue(glue_cfg) => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| {
+                    Box::new(RunError(format!(
+                        "glue iceberg seed runtime init failed: {err}"
+                    )))
+                })?;
+            let glue_state = runtime
+                .block_on(load_glue_table_state(glue_cfg))
+                .map_err(|err| {
+                    Box::new(RunError(format!(
+                        "glue get_table for iceberg seed failed: {err}"
+                    )))
+                })?;
+            let Some(metadata_location) = glue_state.metadata_location else {
+                return Ok(());
+            };
+            let batches = runtime
+                .block_on(collect_iceberg_batches(
+                    metadata_location,
+                    file_io_props,
+                    warehouse_location,
+                    &entity.name,
+                    scan_cols,
+                ))
+                .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
+            seed_from_batches(tracker, batches, rename_back)
+        }
+        IcebergCatalogConfig::Rest(rest_cfg) => {
+            seed_iceberg_from_rest(tracker, rest_cfg, file_io_props, scan_cols, rename_back)
+        }
+    }
+}
+
+fn seed_iceberg_from_rest(
+    tracker: &mut check::UniqueTracker,
+    rest_cfg: &RestIcebergCatalogConfig,
+    file_io_props: HashMap<String, String>,
+    scan_cols: &[String],
+    rename_back: &HashMap<String, String>,
+) -> FloeResult<()> {
+    use futures::TryStreamExt;
+    use iceberg::{Catalog, NamespaceIdent, TableIdent};
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "rest iceberg seed runtime init failed: {err}"
+            )))
+        })?;
+
+    let batches = runtime
+        .block_on(async {
+            let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
+            let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
+
+            if !catalog
+                .namespace_exists(&namespace)
+                .await
+                .map_err(map_iceberg_err("rest iceberg seed namespace_exists failed"))?
+            {
+                return Ok(Vec::new());
+            }
+
+            let table_ident = TableIdent::new(namespace, rest_cfg.table.clone());
+            if !catalog
+                .table_exists(&table_ident)
+                .await
+                .map_err(map_iceberg_err("rest iceberg seed table_exists failed"))?
+            {
+                return Ok(Vec::new());
+            }
+
+            let table = catalog
+                .load_table(&table_ident)
+                .await
+                .map_err(map_iceberg_err("rest iceberg seed load_table failed"))?;
+
+            let scan = table
+                .scan()
+                .select(scan_cols.iter().cloned())
+                .build()
+                .map_err(map_iceberg_err("rest iceberg seed scan build failed"))?;
+
+            scan.to_arrow()
+                .await
+                .map_err(map_iceberg_err("rest iceberg seed to_arrow failed"))?
+                .try_filter(|b| std::future::ready(b.num_rows() > 0))
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(map_iceberg_err("rest iceberg seed collect failed"))
+        })
+        .map_err(|err: Box<dyn std::error::Error + Send + Sync>| {
+            Box::new(RunError(format!("rest iceberg seed failed: {err}")))
+        })?;
+
+    seed_from_batches(tracker, batches, rename_back)
+}
+
+// Uses table.scan().to_arrow() so the Iceberg reader applies positional and equality deletes
+// before returning rows — only live rows are seeded.
+async fn collect_iceberg_batches(
+    metadata_location: String,
+    catalog_props: HashMap<String, String>,
+    warehouse_location: String,
+    entity_name: &str,
+    scan_columns: &[String],
+) -> Result<Vec<RecordBatch>, iceberg::Error> {
+    use futures::TryStreamExt;
+    use iceberg::io::LocalFsStorageFactory;
+    use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
+    use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+
+    let is_local = !warehouse_location.starts_with("s3://")
+        && !warehouse_location.starts_with("gs://")
+        && !warehouse_location.starts_with("az://")
+        && !warehouse_location.starts_with("abfss://");
+
+    let mut props = catalog_props;
+    props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), warehouse_location);
+
+    let mut catalog_builder = MemoryCatalogBuilder::default();
+    if is_local {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    }
+    let catalog = catalog_builder.load(ICEBERG_CATALOG_NAME, props).await?;
+
+    let namespace = NamespaceIdent::new(ICEBERG_NAMESPACE.to_string());
+    if !catalog.namespace_exists(&namespace).await? {
+        catalog.create_namespace(&namespace, HashMap::new()).await?;
+    }
+
+    let table_name = sanitize_table_name(entity_name);
+    let table_ident = TableIdent::new(namespace, table_name);
+
+    let table = catalog
+        .register_table(&table_ident, metadata_location)
+        .await?;
+
+    let scan = table.scan().select(scan_columns.iter().cloned()).build()?;
+    let batch_stream = scan.to_arrow().await?;
+    batch_stream
+        .try_filter(|b| std::future::ready(b.num_rows() > 0))
+        .try_collect()
+        .await
 }

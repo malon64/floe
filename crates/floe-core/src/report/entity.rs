@@ -1,3 +1,4 @@
+use crate::io::format::CatalogRegistration;
 use crate::{check, config, report};
 
 use crate::report::build::{entity_metadata_json, source_options_json};
@@ -22,13 +23,7 @@ pub(crate) struct RunReportContext<'a> {
     pub accepted_table_version: Option<i64>,
     pub accepted_snapshot_id: Option<i64>,
     pub accepted_table_root_uri: Option<String>,
-    pub accepted_iceberg_catalog_name: Option<String>,
-    pub accepted_iceberg_database: Option<String>,
-    pub accepted_iceberg_namespace: Option<String>,
-    pub accepted_iceberg_table: Option<String>,
-    pub accepted_delta_catalog_name: Option<String>,
-    pub accepted_delta_catalog_schema: Option<String>,
-    pub accepted_delta_catalog_table: Option<String>,
+    pub accepted_catalog: Option<CatalogRegistration>,
     pub accepted_total_bytes_written: Option<u64>,
     pub accepted_avg_file_size_mb: Option<f64>,
     pub accepted_small_files_count: Option<u64>,
@@ -107,13 +102,39 @@ pub(crate) fn build_run_report(ctx: RunReportContext<'_>) -> report::RunReport {
             part_files: ctx.accepted_part_files,
             table_version: ctx.accepted_table_version,
             snapshot_id: ctx.accepted_snapshot_id,
-            iceberg_catalog_name: ctx.accepted_iceberg_catalog_name,
-            iceberg_database: ctx.accepted_iceberg_database,
-            iceberg_namespace: ctx.accepted_iceberg_namespace,
-            iceberg_table: ctx.accepted_iceberg_table,
-            delta_catalog_name: ctx.accepted_delta_catalog_name,
-            delta_catalog_schema: ctx.accepted_delta_catalog_schema,
-            delta_catalog_table: ctx.accepted_delta_catalog_table,
+            iceberg_catalog_name: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::IcebergGlue { catalog_name, .. }
+                | CatalogRegistration::IcebergRest { catalog_name, .. } => {
+                    Some(catalog_name.clone())
+                }
+                _ => None,
+            }),
+            iceberg_database: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::IcebergGlue { database, .. } => database.clone(),
+                _ => None,
+            }),
+            iceberg_namespace: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::IcebergGlue { namespace, .. }
+                | CatalogRegistration::IcebergRest { namespace, .. } => Some(namespace.clone()),
+                _ => None,
+            }),
+            iceberg_table: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::IcebergGlue { table, .. }
+                | CatalogRegistration::IcebergRest { table, .. } => Some(table.clone()),
+                _ => None,
+            }),
+            delta_catalog_name: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::UnityDelta { catalog_name, .. } => Some(catalog_name.clone()),
+                _ => None,
+            }),
+            delta_catalog_schema: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::UnityDelta { schema, .. } => Some(schema.clone()),
+                _ => None,
+            }),
+            delta_catalog_table: ctx.accepted_catalog.as_ref().and_then(|c| match c {
+                CatalogRegistration::UnityDelta { table, .. } => Some(table.clone()),
+                _ => None,
+            }),
             total_bytes_written: ctx.accepted_total_bytes_written,
             avg_file_size_mb: ctx.accepted_avg_file_size_mb,
             small_files_count: ctx.accepted_small_files_count,

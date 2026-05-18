@@ -2506,7 +2506,7 @@ entities:
 
     let err = validate(&config_path, ValidateOptions::default())
         .expect_err("merge_scd1 on non-delta sink should fail");
-    assert!(err.to_string().contains("sink.accepted.format=delta"));
+    assert!(err.to_string().contains("sink.write_mode=merge_scd1"));
 }
 
 #[test]
@@ -2569,5 +2569,5 @@ entities:
 
     let err = validate(&config_path, ValidateOptions::default())
         .expect_err("merge_scd2 on non-delta sink should fail");
-    assert!(err.to_string().contains("sink.accepted.format=delta"));
+    assert!(err.to_string().contains("sink.write_mode=merge_scd2"));
 }

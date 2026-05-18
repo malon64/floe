@@ -9,24 +9,8 @@ use crate::checks::normalize::{
 };
 use crate::errors::RunError;
 use crate::io::storage::Target;
+use crate::io::write::sink_format::{sink_format, SeedContext};
 use crate::{check, config, io, FloeResult};
-
-mod delta;
-mod iceberg;
-mod parquet;
-
-/// Implemented by each sink format to seed the UniqueTracker from its existing data.
-///
-/// `scan_cols` are the stored/output column names to project from the sink.
-/// `rename_back` maps stored name → runtime name for columns whose names differ.
-pub(crate) trait FormatSeeder {
-    fn seed(
-        &mut self,
-        unique_tracker: &mut check::UniqueTracker,
-        scan_cols: &[String],
-        rename_back: &HashMap<String, String>,
-    ) -> FloeResult<()>;
-}
 
 #[allow(clippy::too_many_arguments)]
 pub fn seed_unique_tracker_for_append(
@@ -48,30 +32,20 @@ pub fn seed_unique_tracker_for_append(
         return Ok(());
     }
     let (scan_cols, rename_back) = accepted_scan_projection(entity, &unique_columns)?;
-    match accepted_format {
-        "parquet" => parquet::ParquetSeeder {
-            target,
-            temp_dir,
-            cloud,
-            resolver,
-            entity,
-        }
-        .seed(unique_tracker, &scan_cols, &rename_back),
-        "delta" => delta::DeltaSeeder {
-            target,
-            resolver,
-            entity,
-        }
-        .seed(unique_tracker, &scan_cols, &rename_back),
-        "iceberg" => iceberg::IcebergSeeder {
-            target,
-            cloud,
-            resolver,
-            catalogs,
-            entity,
-        }
-        .seed(unique_tracker, &scan_cols, &rename_back),
-        _ => Ok(()),
+    let mut ctx = SeedContext {
+        target,
+        temp_dir,
+        cloud,
+        resolver,
+        catalogs,
+        entity,
+        scan_cols: &scan_cols,
+        rename_back: &rename_back,
+    };
+    // Unknown formats return Ok(()) — seeding is best-effort.
+    match sink_format(accepted_format) {
+        Ok(fmt) => fmt.seed_unique_tracker(unique_tracker, &mut ctx),
+        Err(_) => Ok(()),
     }
 }
 

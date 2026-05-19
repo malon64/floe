@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::config::{LineageConfig, StoragesConfig};
 use crate::profile::types::{ProfileConfig, ProfileRunner};
 use crate::{ConfigError, FloeResult};
 
@@ -25,6 +26,12 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
 
     validate_no_malformed_vars(&profile.variables)?;
     validate_profile_catalogs(profile)?;
+    if let Some(storages) = &profile.storages {
+        validate_profile_storages(storages)?;
+    }
+    if let Some(lineage) = &profile.lineage {
+        validate_profile_lineage(lineage)?;
+    }
 
     Ok(())
 }
@@ -63,6 +70,101 @@ fn validate_profile_catalogs(profile: &ProfileConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_profile_storages(storages: &StoragesConfig) -> FloeResult<()> {
+    if storages.definitions.is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.storages.definitions must not be empty".to_string(),
+        )));
+    }
+    const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
+    let mut names = HashSet::new();
+    for definition in &storages.definitions {
+        if definition.name.trim().is_empty() {
+            return Err(Box::new(ConfigError(
+                "profile.storages.definitions.name must not be empty".to_string(),
+            )));
+        }
+        if !names.insert(definition.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.storages.definitions name={} is duplicated",
+                definition.name
+            ))));
+        }
+        if !ALLOWED_STORAGE_TYPES.contains(&definition.fs_type.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.storages.definitions name={} type={} is unsupported (allowed: {})",
+                definition.name,
+                definition.fs_type,
+                ALLOWED_STORAGE_TYPES.join(", ")
+            ))));
+        }
+        if definition.fs_type == "s3" {
+            if definition.bucket.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "profile.storages.definitions name={} requires bucket for type s3",
+                    definition.name
+                ))));
+            }
+            if definition.region.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "profile.storages.definitions name={} requires region for type s3",
+                    definition.name
+                ))));
+            }
+        }
+        if definition.fs_type == "adls" {
+            if definition.account.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "profile.storages.definitions name={} requires account for type adls",
+                    definition.name
+                ))));
+            }
+            if definition.container.is_none() {
+                return Err(Box::new(ConfigError(format!(
+                    "profile.storages.definitions name={} requires container for type adls",
+                    definition.name
+                ))));
+            }
+        }
+        if definition.fs_type == "gcs" && definition.bucket.is_none() {
+            return Err(Box::new(ConfigError(format!(
+                "profile.storages.definitions name={} requires bucket for type gcs",
+                definition.name
+            ))));
+        }
+    }
+    let Some(default_name) = &storages.default else {
+        return Err(Box::new(ConfigError(
+            "profile.storages.default is required when storages is set".to_string(),
+        )));
+    };
+    if !names.contains(default_name.as_str()) {
+        return Err(Box::new(ConfigError(format!(
+            "profile.storages.default={default_name} does not match any definition"
+        ))));
+    }
+    Ok(())
+}
+
+fn validate_profile_lineage(lineage: &LineageConfig) -> FloeResult<()> {
+    if lineage.url.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.url must not be empty".to_string(),
+        )));
+    }
+    if lineage.namespace.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.namespace must not be empty".to_string(),
+        )));
+    }
+    if lineage.max_failures == Some(0) {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.max_failures must be at least 1".to_string(),
+        )));
+    }
     Ok(())
 }
 

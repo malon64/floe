@@ -120,6 +120,14 @@ pub fn run_with_runtime(
             .profile
             .as_ref()
             .and_then(|profile| profile.catalogs.clone()),
+        profile_storages: options
+            .profile
+            .as_ref()
+            .and_then(|profile| profile.storages.clone()),
+        profile_lineage: options
+            .profile
+            .as_ref()
+            .and_then(|profile| profile.lineage.clone()),
     };
     crate::validate_with_base(config_path, config_base.clone(), validate_options)?;
     let context = RunContext::new(config_path, config_base, &options, profile_vars)?;

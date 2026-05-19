@@ -56,6 +56,8 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
             "execution",
             "variables",
             "catalogs",
+            "storages",
+            "lineage",
             "validation",
         ],
     )?;
@@ -98,6 +100,16 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
         None => None,
     };
 
+    let storages = match hash_get(root, "storages") {
+        Some(value) => Some(crate::config::parse_storages(value)?),
+        None => None,
+    };
+
+    let lineage = match hash_get(root, "lineage") {
+        Some(value) => Some(crate::config::parse_lineage_config(value)?),
+        None => None,
+    };
+
     let validation = match hash_get(root, "validation") {
         Some(value) => Some(parse_validation(value)?),
         None => None,
@@ -110,6 +122,8 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
         execution,
         variables,
         catalogs,
+        storages,
+        lineage,
         validation,
     })
 }

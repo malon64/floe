@@ -40,6 +40,8 @@ pub struct ValidateOptions {
     pub entities: Vec<String>,
     pub profile_vars: std::collections::HashMap<String, String>,
     pub profile_catalogs: Option<config::CatalogsConfig>,
+    pub profile_storages: Option<config::StoragesConfig>,
+    pub profile_lineage: Option<config::LineageConfig>,
 }
 
 #[derive(Debug, Default)]
@@ -62,6 +64,8 @@ pub fn validate_with_base(
 ) -> FloeResult<()> {
     let mut config = config::parse_config_with_vars(config_path, &options.profile_vars)?;
     apply_profile_catalogs(&mut config, options.profile_catalogs.as_ref());
+    apply_profile_storages(&mut config, options.profile_storages.as_ref());
+    apply_profile_lineage(&mut config, options.profile_lineage.as_ref());
     config::validate_config(&config)?;
 
     if !options.entities.is_empty() {
@@ -86,9 +90,13 @@ pub fn load_config_with_profile_overrides(
     config_path: &Path,
     profile_vars: &std::collections::HashMap<String, String>,
     profile_catalogs: Option<&config::CatalogsConfig>,
+    profile_storages: Option<&config::StoragesConfig>,
+    profile_lineage: Option<&config::LineageConfig>,
 ) -> FloeResult<config::RootConfig> {
     let mut config = config::parse_config_with_vars(config_path, profile_vars)?;
     apply_profile_catalogs(&mut config, profile_catalogs);
+    apply_profile_storages(&mut config, profile_storages);
+    apply_profile_lineage(&mut config, profile_lineage);
     Ok(config)
 }
 
@@ -104,6 +112,24 @@ pub(crate) fn apply_profile_catalogs(
 ) {
     if let Some(catalogs) = profile_catalogs {
         config.catalogs = Some(catalogs.clone());
+    }
+}
+
+pub(crate) fn apply_profile_storages(
+    config: &mut config::RootConfig,
+    profile_storages: Option<&config::StoragesConfig>,
+) {
+    if let Some(storages) = profile_storages {
+        config.storages = Some(storages.clone());
+    }
+}
+
+pub(crate) fn apply_profile_lineage(
+    config: &mut config::RootConfig,
+    profile_lineage: Option<&config::LineageConfig>,
+) {
+    if let Some(lineage) = profile_lineage {
+        config.lineage = Some(lineage.clone());
     }
 }
 

@@ -658,7 +658,7 @@ fn parse_sink_delta_options(value: &Yaml, ctx: &str) -> FloeResult<DeltaSinkTarg
     })
 }
 
-fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
+pub(crate) fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
     let hash = yaml_hash(value, "storages")?;
     validate_known_keys(hash, "storages", &["default", "definitions"])?;
     let definitions_yaml = match hash_get(hash, "definitions") {
@@ -1129,7 +1129,7 @@ fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
     })
 }
 
-fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
+pub(crate) fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
     let hash = yaml_hash(value, "lineage")?;
     validate_known_keys(
         hash,

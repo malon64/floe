@@ -341,6 +341,12 @@ fn main() -> FloeResult<()> {
                 profile_catalogs: parsed_profile
                     .as_ref()
                     .and_then(|profile| profile.catalogs.clone()),
+                profile_storages: parsed_profile
+                    .as_ref()
+                    .and_then(|profile| profile.storages.clone()),
+                profile_lineage: parsed_profile
+                    .as_ref()
+                    .and_then(|profile| profile.lineage.clone()),
             };
 
             let validation_result =
@@ -354,6 +360,12 @@ fn main() -> FloeResult<()> {
                         parsed_profile
                             .as_ref()
                             .and_then(|profile| profile.catalogs.as_ref()),
+                        parsed_profile
+                            .as_ref()
+                            .and_then(|profile| profile.storages.as_ref()),
+                        parsed_profile
+                            .as_ref()
+                            .and_then(|profile| profile.lineage.as_ref()),
                     )?;
                     println!("Config valid: {}", config_location.display);
                     println!("Version: {}", config.version);
@@ -615,6 +627,12 @@ fn main() -> FloeResult<()> {
                     profile_catalogs: profile_config
                         .as_ref()
                         .and_then(|profile| profile.catalogs.clone()),
+                    profile_storages: profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.storages.clone()),
+                    profile_lineage: profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.lineage.clone()),
                 };
                 if let Err(err) =
                     validate_with_base(&config_location.path, config_location.base.clone(), options)
@@ -628,6 +646,12 @@ fn main() -> FloeResult<()> {
                     profile_config
                         .as_ref()
                         .and_then(|profile| profile.catalogs.as_ref()),
+                    profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.storages.as_ref()),
+                    profile_config
+                        .as_ref()
+                        .and_then(|profile| profile.lineage.as_ref()),
                 )?;
                 let manifest_json = build_common_manifest_json(
                     &config_location,

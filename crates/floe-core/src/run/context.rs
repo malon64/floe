@@ -33,6 +33,20 @@ impl RunContext {
                 .as_ref()
                 .and_then(|profile| profile.catalogs.as_ref()),
         );
+        crate::apply_profile_storages(
+            &mut config,
+            options
+                .profile
+                .as_ref()
+                .and_then(|profile| profile.storages.as_ref()),
+        );
+        crate::apply_profile_lineage(
+            &mut config,
+            options
+                .profile
+                .as_ref()
+                .and_then(|profile| profile.lineage.as_ref()),
+        );
         let storage_resolver = config::StorageResolver::new(&config, config_base)?;
         let catalog_resolver = config::CatalogResolver::new(&config)?;
         let config_dir =

@@ -8,6 +8,7 @@ use iceberg::memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE};
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
+use iceberg_storage_opendal::OpenDalStorageFactory;
 use polars::prelude::DataFrame;
 
 use crate::errors::RunError;
@@ -375,6 +376,7 @@ async fn write_iceberg_table_async(
     catalog_props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), table_root_uri.clone());
 
     let is_local = !table_root_uri.starts_with("s3://")
+        && !table_root_uri.starts_with("s3a://")
         && !table_root_uri.starts_with("gs://")
         && !table_root_uri.starts_with("az://")
         && !table_root_uri.starts_with("abfss://");
@@ -382,6 +384,20 @@ async fn write_iceberg_table_async(
     if is_local {
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    } else if table_root_uri.starts_with("s3://") || table_root_uri.starts_with("s3a://") {
+        let scheme = table_root_uri
+            .split("://")
+            .next()
+            .unwrap_or("s3")
+            .to_string();
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
+                configured_scheme: scheme,
+                customized_credential_load: None,
+            }));
+    } else if table_root_uri.starts_with("gs://") {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::Gcs));
     }
     let catalog = catalog_builder
         .load(catalog_name, catalog_props)
@@ -698,17 +714,35 @@ async fn collect_iceberg_batches(
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 
     let is_local = !warehouse_location.starts_with("s3://")
+        && !warehouse_location.starts_with("s3a://")
         && !warehouse_location.starts_with("gs://")
         && !warehouse_location.starts_with("az://")
         && !warehouse_location.starts_with("abfss://");
 
     let mut props = catalog_props;
-    props.insert(MEMORY_CATALOG_WAREHOUSE.to_string(), warehouse_location);
+    props.insert(
+        MEMORY_CATALOG_WAREHOUSE.to_string(),
+        warehouse_location.clone(),
+    );
 
     let mut catalog_builder = MemoryCatalogBuilder::default();
     if is_local {
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(LocalFsStorageFactory));
+    } else if warehouse_location.starts_with("s3://") || warehouse_location.starts_with("s3a://") {
+        let scheme = warehouse_location
+            .split("://")
+            .next()
+            .unwrap_or("s3")
+            .to_string();
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
+                configured_scheme: scheme,
+                customized_credential_load: None,
+            }));
+    } else if warehouse_location.starts_with("gs://") {
+        catalog_builder =
+            catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::Gcs));
     }
     let catalog = catalog_builder.load(ICEBERG_CATALOG_NAME, props).await?;
 

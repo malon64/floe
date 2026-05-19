@@ -41,7 +41,7 @@ uuid = "1"
 arrow = "57"
 iceberg = "0.9.0"
 iceberg-catalog-rest = "0.9.0"
-iceberg-storage-opendal = { version = "0.9.1", features = ["opendal-gcs"] }
+iceberg-storage-opendal = { version = "0.9.1", features = ["opendal-s3", "opendal-gcs"] }
 df-interchange = { version = "0.3.2", features = ["arrow_57", "polars_0_52"] }
 orc-rust = "0.7.1"
 

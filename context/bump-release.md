@@ -27,7 +27,7 @@ git checkout -b chore/bump-v<NEW_VERSION>
 
 ---
 
-## 3. Bump versions in all three `Cargo.toml` files
+## 3. Bump versions in all three `Cargo.toml` files and `pyproject.toml`
 
 Files to update — change `version = "..."` **and** the `floe-core` dependency version in the crates that reference it:
 
@@ -36,8 +36,9 @@ Files to update — change `version = "..."` **and** the `floe-core` dependency 
 | `crates/floe-core/Cargo.toml` | `version` |
 | `crates/floe-cli/Cargo.toml` | `version`, `floe-core` dependency version |
 | `crates/floe-python/Cargo.toml` | `version`, `floe-core` dependency version |
+| `crates/floe-python/pyproject.toml` | `version` (the `[project]` version — controls the PyPI wheel version) |
 
-There is no workspace-level `version` field — each crate is bumped independently but all three must stay in sync.
+There is no workspace-level `version` field — each crate is bumped independently but all four files must stay in sync.
 
 ---
 
@@ -101,6 +102,7 @@ cargo test -p floe-core
 git add crates/floe-core/Cargo.toml \
         crates/floe-cli/Cargo.toml \
         crates/floe-python/Cargo.toml \
+        crates/floe-python/pyproject.toml \
         Cargo.lock \
         CHANGELOG.md \
         docs/ \
@@ -124,7 +126,8 @@ PR body template:
 - Update docs: <list doc files touched>.
 
 ## Checklist
-- [ ] All three `Cargo.toml` versions updated
+- [ ] All three `Cargo.toml` versions updated (floe-core, floe-cli, floe-python)
+- [ ] `crates/floe-python/pyproject.toml` version updated
 - [ ] `Cargo.lock` updated via `cargo check`
 - [ ] `CHANGELOG.md` entry written
 - [ ] Docs updated for all user-visible changes

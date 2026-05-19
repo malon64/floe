@@ -2,6 +2,17 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.4.1
+
+- **Profile `storages` and `lineage` overrides** (`docs/profiles.md`):
+  - Profile files can now declare a `storages` section and a `lineage` section alongside the existing `catalogs` override. Both are applied as wholesale config replacements before validation and run, following the same pattern as `catalogs`.
+  - `floe validate --profile`, `floe run --profile`, and `floe manifest generate --profile` all honour the new sections.
+  - Python bindings (`floe.validate`) pass storages and lineage through to the merged config.
+  - Profile validation now enforces the same semantic constraints as config validation:
+    - `storages.default` is required whenever `storages` is declared.
+    - Storage definitions must use a supported type (`local`, `s3`, `adls`, `gcs`) and supply type-required fields (`s3`: bucket + region; `adls`: account + container; `gcs`: bucket).
+    - `lineage.namespace` must not be empty; `lineage.max_failures` must be ≥ 1 when set.
+
 ## v0.4.0
 
 - **OpenLineage circuit breaker and retry** (`docs/lineage.md`):

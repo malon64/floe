@@ -38,6 +38,8 @@ fn load_optional_profile(
             variables: vars,
             validation: None,
             catalogs: None,
+            storages: None,
+            lineage: None,
         })),
     }
 }
@@ -59,7 +61,9 @@ pub fn validate(
             .as_ref()
             .map(|p| p.variables.clone())
             .unwrap_or_default(),
-        profile_catalogs: profile.and_then(|p| p.catalogs),
+        profile_catalogs: profile.as_ref().and_then(|p| p.catalogs.clone()),
+        profile_storages: profile.as_ref().and_then(|p| p.storages.clone()),
+        profile_lineage: profile.and_then(|p| p.lineage),
     };
     py.allow_threads(|| floe_core::validate(&path, options))
         .map_err(to_py_err)

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::config::{LineageConfig, StoragesConfig};
 use crate::profile::types::{ProfileConfig, ProfileRunner};
 use crate::{ConfigError, FloeResult};
 
@@ -25,6 +26,12 @@ pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
 
     validate_no_malformed_vars(&profile.variables)?;
     validate_profile_catalogs(profile)?;
+    if let Some(storages) = &profile.storages {
+        validate_profile_storages(storages)?;
+    }
+    if let Some(lineage) = &profile.lineage {
+        validate_profile_lineage(lineage)?;
+    }
 
     Ok(())
 }
@@ -63,6 +70,45 @@ fn validate_profile_catalogs(profile: &ProfileConfig) -> FloeResult<()> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_profile_storages(storages: &StoragesConfig) -> FloeResult<()> {
+    if storages.definitions.is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.storages.definitions must not be empty".to_string(),
+        )));
+    }
+    let mut names = HashSet::new();
+    for definition in &storages.definitions {
+        if definition.name.trim().is_empty() {
+            return Err(Box::new(ConfigError(
+                "profile.storages.definitions.name must not be empty".to_string(),
+            )));
+        }
+        if !names.insert(definition.name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.storages.definitions name={} is duplicated",
+                definition.name
+            ))));
+        }
+    }
+    if let Some(default_name) = &storages.default {
+        if !names.contains(default_name.as_str()) {
+            return Err(Box::new(ConfigError(format!(
+                "profile.storages.default={default_name} does not match any definition"
+            ))));
+        }
+    }
+    Ok(())
+}
+
+fn validate_profile_lineage(lineage: &LineageConfig) -> FloeResult<()> {
+    if lineage.url.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.url must not be empty".to_string(),
+        )));
+    }
     Ok(())
 }
 

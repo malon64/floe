@@ -615,7 +615,7 @@ fn parent_prefix(key: &str) -> String {
     }
 }
 
-fn is_remote_uri(value: &str) -> bool {
+pub(crate) fn is_remote_uri(value: &str) -> bool {
     value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
 }
 

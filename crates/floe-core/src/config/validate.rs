@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::config::storage::is_remote_uri;
 use crate::config::{
     CatalogDefinition, CatalogTypeConfig, EntityConfig, IncrementalMode, PolicySeverity,
     RootConfig, SourceOptions, StorageDefinition,
@@ -128,6 +129,12 @@ fn validate_report(
 ) -> FloeResult<()> {
     let storage_name = storages.resolve_report_name(report.storage.as_deref())?;
     storages.validate_report_reference("report.storage", &storage_name)?;
+    if storages.definition_type(&storage_name) == Some("local") && is_remote_uri(&report.path) {
+        return Err(Box::new(ConfigError(format!(
+            "report.path must be a local path (got {})",
+            report.path
+        ))));
+    }
     Ok(())
 }
 

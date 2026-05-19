@@ -93,12 +93,15 @@ fn validate_profile_storages(storages: &StoragesConfig) -> FloeResult<()> {
             ))));
         }
     }
-    if let Some(default_name) = &storages.default {
-        if !names.contains(default_name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
-                "profile.storages.default={default_name} does not match any definition"
-            ))));
-        }
+    let Some(default_name) = &storages.default else {
+        return Err(Box::new(ConfigError(
+            "profile.storages.default is required when storages is set".to_string(),
+        )));
+    };
+    if !names.contains(default_name.as_str()) {
+        return Err(Box::new(ConfigError(format!(
+            "profile.storages.default={default_name} does not match any definition"
+        ))));
     }
     Ok(())
 }

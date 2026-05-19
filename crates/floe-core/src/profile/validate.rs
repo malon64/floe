@@ -112,6 +112,16 @@ fn validate_profile_lineage(lineage: &LineageConfig) -> FloeResult<()> {
             "profile.lineage.url must not be empty".to_string(),
         )));
     }
+    if lineage.namespace.trim().is_empty() {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.namespace must not be empty".to_string(),
+        )));
+    }
+    if lineage.max_failures == Some(0) {
+        return Err(Box::new(ConfigError(
+            "profile.lineage.max_failures must be at least 1".to_string(),
+        )));
+    }
     Ok(())
 }
 

@@ -110,6 +110,38 @@ entities:
 }
 
 #[test]
+fn remote_report_path_rejected_when_storage_is_local() {
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "s3://floe-demo-bucket/reports"
+entities:
+{}"#,
+        base_entity("customer")
+    );
+    assert_validation_error(
+        &yaml,
+        &["report.path must be a local path (got s3://floe-demo-bucket/reports)"],
+    );
+}
+
+#[test]
+fn remote_report_path_rejected_for_gcs() {
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "gs://floe-demo-bucket/reports"
+entities:
+{}"#,
+        base_entity("customer")
+    );
+    assert_validation_error(
+        &yaml,
+        &["report.path must be a local path (got gs://floe-demo-bucket/reports)"],
+    );
+}
+
+#[test]
 fn supported_config_versions_are_valid() {
     for version in &["0.2", "0.3"] {
         assert_validation_ok(&base_config_with_version(version, &base_entity("customer")));

@@ -1,6 +1,10 @@
-use floe_core::config::LineageConfig;
+use floe_core::config::{
+    EntityConfig, IncrementalMode, LineageConfig, PolicyConfig, PolicySeverity, SchemaConfig,
+    SinkConfig, SinkTarget, SourceConfig, WriteMode,
+};
 use floe_core::lineage::OpenLineageObserver;
 use floe_core::run::events::{RunEvent, RunObserver};
+use serde_json::json;
 
 fn make_config(server_url: &str, max_failures: Option<u32>) -> LineageConfig {
     LineageConfig {
@@ -166,6 +170,157 @@ fn circuit_stays_closed_after_recovery() {
     );
     assert!(!obs.is_circuit_open());
     success_mock.assert();
+}
+
+fn make_entity(
+    name: &str,
+    source_path: &str,
+    accepted_path: &str,
+    rejected_path: Option<&str>,
+) -> EntityConfig {
+    EntityConfig {
+        name: name.to_string(),
+        metadata: None,
+        domain: None,
+        incremental_mode: IncrementalMode::None,
+        state: None,
+        source: SourceConfig {
+            format: "csv".to_string(),
+            path: source_path.to_string(),
+            storage: None,
+            options: None,
+            cast_mode: None,
+        },
+        sink: SinkConfig {
+            write_mode: WriteMode::Overwrite,
+            accepted: SinkTarget {
+                format: "parquet".to_string(),
+                path: accepted_path.to_string(),
+                storage: None,
+                options: None,
+                merge: None,
+                iceberg: None,
+                delta: None,
+                partition_by: None,
+                partition_spec: None,
+                write_mode: WriteMode::Overwrite,
+            },
+            rejected: rejected_path.map(|p| SinkTarget {
+                format: "csv".to_string(),
+                path: p.to_string(),
+                storage: None,
+                options: None,
+                merge: None,
+                iceberg: None,
+                delta: None,
+                partition_by: None,
+                partition_spec: None,
+                write_mode: WriteMode::Overwrite,
+            }),
+            archive: None,
+        },
+        policy: PolicyConfig {
+            severity: PolicySeverity::Warn,
+        },
+        schema: SchemaConfig {
+            normalize_columns: None,
+            mismatch: None,
+            schema_evolution: None,
+            primary_key: None,
+            unique_keys: None,
+            columns: Vec::new(),
+        },
+        pii: None,
+    }
+}
+
+fn entity_finished_event(name: &str, status: &str) -> RunEvent {
+    RunEvent::EntityFinished {
+        run_id: "test-run-1".to_string(),
+        name: name.to_string(),
+        status: status.to_string(),
+        files: 2,
+        rows: 100,
+        accepted: 90,
+        rejected: 10,
+        warnings: 1,
+        errors: 0,
+        ts_ms: 1_002_000,
+    }
+}
+
+// COMPLETE entity event uses source URI as input dataset name and accepted path as output.
+#[test]
+fn entity_complete_event_has_source_input_and_accepted_output() {
+    let mut server = mockito::Server::new();
+
+    // EntityStarted (START) + EntityFinished (COMPLETE) = 2 posts.
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::PartialJson(json!({
+                "eventType": "COMPLETE",
+                "inputs": [{ "name": "/data/in/" }],
+                "outputs": [{ "name": "/data/out/" }]
+            })),
+        ]))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
+// COMPLETE entity event with a rejected sink includes both accepted and rejected in outputs.
+#[test]
+fn entity_complete_event_includes_rejected_output_when_configured() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::PartialJson(json!({
+                "eventType": "COMPLETE",
+                "inputs": [{ "name": "/data/in/" }],
+                "outputs": [
+                    { "name": "/data/out/" },
+                    { "name": "/data/rejected/" }
+                ]
+            })),
+        ]))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let entity = make_entity("orders", "/data/in/", "/data/out/", Some("/data/rejected/"));
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
 }
 
 // Circuit state is reset at the start of each new run (RunStarted) so a

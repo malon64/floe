@@ -2,6 +2,14 @@
 
 All notable changes to Floe are documented in this file.
 
+## Unreleased
+
+- **OpenLineage: source and sink datasets emitted separately** (`docs/lineage.md`, fixes #317):
+  - Entity `COMPLETE`/`FAIL` events now set `inputs` to the **source dataset** (named after `source.path`) and `outputs` to the **accepted sink dataset** (named after `sink.accepted.path`).
+  - When a rejected sink is configured, a second output dataset (named after `sink.rejected.path`) is appended to `outputs`.
+  - Schema (`SchemaDataset`), `DataQualityMetrics`, and `FloeQualityRun` facets are attached to the source input dataset, which is the correct OpenLineage placement for input facets.
+  - Previously, `inputs` contained a single dataset named after the entity (not the path) and `outputs` was always empty, causing Marquez to show a dead-end lineage graph.
+
 ## v0.4.1
 
 - **Profile `storages` and `lineage` overrides** (`docs/profiles.md`):

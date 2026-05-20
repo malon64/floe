@@ -34,20 +34,36 @@ env-vars mechanism used for the rest of the config.
 For each Floe run, Floe posts OpenLineage `RunEvent` objects to
 `POST <url>/api/v1/lineage`:
 
-| Floe lifecycle       | OpenLineage event type | Notes                                                   |
-|----------------------|------------------------|---------------------------------------------------------|
-| Run begins           | `START`                | Top-level run job                                       |
-| Entity begins        | `START`                | Per-entity job `<namespace>.<entity>`                   |
-| Entity finishes (ok) | `COMPLETE`             | Includes `DataQualityMetrics`, `FloeQualityRun`, `SchemaDataset` facets |
-| Entity finishes (err)| `FAIL`                 | When entity status is `failed` or `aborted`             |
-| Run finishes (ok)    | `COMPLETE`             | Top-level run job                                       |
-| Run finishes (err)   | `FAIL`                 | Top-level run job                                       |
+| Floe lifecycle        | OpenLineage event type | Notes                                                                  |
+|-----------------------|------------------------|------------------------------------------------------------------------|
+| Run begins            | `START`                | Top-level run job                                                      |
+| Entity begins         | `START`                | Per-entity job `<namespace>.<entity>`                                  |
+| Entity finishes (ok)  | `COMPLETE`             | Inputs = source dataset; outputs = accepted (+ rejected) sink datasets |
+| Entity finishes (err) | `FAIL`                 | Same input/output structure as COMPLETE                                |
+| Run finishes (ok)     | `COMPLETE`             | Top-level run job                                                      |
+| Run finishes (err)    | `FAIL`                 | Top-level run job                                                      |
 
-### Facets on entity COMPLETE events
+### Datasets on entity COMPLETE/FAIL events
+
+Each entity event carries the actual data movement as OpenLineage datasets:
+
+- **`inputs`** — one dataset named after `source.path`; carries schema, data quality, and Floe quality run facets
+- **`outputs`** — one dataset named after `sink.accepted.path`; plus one named after `sink.rejected.path` when a rejected sink is configured
+
+This produces a lineage graph in Marquez (and compatible tools) of the form:
+
+```text
+source path  →  <namespace>.<entity> job  →  accepted sink path
+                                          →  rejected sink path (when present)
+```
+
+### Facets on entity COMPLETE/FAIL events
+
+Attached to the **source input dataset**:
 
 - **`DataQualityMetrics`** (`dataQualityMetrics`) — `rowCount`, `validCount`, `invalidCount`
 - **`FloeQualityRun`** — `entity`, `rejectionRate`, `files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`
-- **`SchemaDataset`** — column names and types from `schema.columns`
+- **`SchemaDataset`** (`schema`) — column names and types from `schema.columns`
 
 ### ParentRun facet (Airflow / Dagster)
 

@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 use crate::config::{EntityConfig, LineageConfig};
 use crate::run::events::{RunEvent, RunObserver};
 
+struct EntityUris {
+    source: String,
+    accepted: String,
+    rejected: Option<String>,
+}
+
 pub struct OpenLineageObserver {
     client: reqwest::blocking::Client,
     config: LineageConfig,
@@ -15,6 +21,7 @@ pub struct OpenLineageObserver {
     entity_run_ids: Mutex<HashMap<String, String>>,
     run_start_ms: Mutex<Option<u128>>,
     entity_schemas: HashMap<String, Vec<(String, String)>>,
+    entity_uris: HashMap<String, EntityUris>,
     consecutive_failures: AtomicUsize,
     circuit_open: AtomicBool,
 }
@@ -44,6 +51,20 @@ impl OpenLineageObserver {
             })
             .collect();
 
+        let entity_uris = entities
+            .iter()
+            .map(|e| {
+                (
+                    e.name.clone(),
+                    EntityUris {
+                        source: e.source.path.clone(),
+                        accepted: e.sink.accepted.path.clone(),
+                        rejected: e.sink.rejected.as_ref().map(|r| r.path.clone()),
+                    },
+                )
+            })
+            .collect();
+
         Ok(Self {
             client,
             config: config.clone(),
@@ -51,6 +72,7 @@ impl OpenLineageObserver {
             entity_run_ids: Mutex::new(HashMap::new()),
             run_start_ms: Mutex::new(None),
             entity_schemas,
+            entity_uris,
             consecutive_failures: AtomicUsize::new(0),
             circuit_open: AtomicBool::new(false),
         })
@@ -180,6 +202,7 @@ impl OpenLineageObserver {
         event_type: &str,
         ts_ms: u128,
         stats: Option<EntityStats>,
+        uris: Option<&EntityUris>,
     ) {
         let event_time = ms_to_iso8601(ts_ms);
         let job_name = format!("{}.{name}", self.config.namespace);
@@ -189,50 +212,71 @@ impl OpenLineageObserver {
             run_facets["parent"] = parent;
         }
 
-        // Build inputs with all facets for COMPLETE events; empty for START.
-        let inputs = if let Some(ref s) = stats {
-            let rejection_rate = if s.rows > 0 {
-                s.rejected as f64 / s.rows as f64
-            } else {
-                0.0
-            };
-            let schema_facet = json!({
-                "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
-                    json!({ "name": col_name, "type": col_type })
-                }).collect::<Vec<_>>(),
-                "_producer": self.producer(),
-                "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
-            });
-            let dq_facet = json!({
-                "rowCount": s.rows,
-                "validCount": s.accepted,
-                "invalidCount": s.rejected,
-                "_producer": self.producer(),
-                "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
-            });
-            let floe_facet = json!({
-                "entity": name,
-                "rejectionRate": rejection_rate,
-                "files": s.files,
-                "rows": s.rows,
-                "accepted": s.accepted,
-                "rejected": s.rejected,
-                "warnings": s.warnings,
-                "errors": s.errors,
-                "_producer": self.producer(),
-                "_schemaURL": "https://github.com/malon64/floe/schemas/FloeQualityRunFacet.json"
-            });
-            json!([{
-                "namespace": self.config.namespace,
-                "name": name,
-                "facets": {
-                    "schema": schema_facet,
-                    "dataQualityMetrics": dq_facet,
-                    "floeQualityRun": floe_facet
+        // Build inputs: source dataset with schema and quality facets on COMPLETE/FAIL.
+        let inputs = match (stats.as_ref(), uris) {
+            (Some(s), Some(u)) => {
+                let rejection_rate = if s.rows > 0 {
+                    s.rejected as f64 / s.rows as f64
+                } else {
+                    0.0
+                };
+                let schema_facet = json!({
+                    "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
+                        json!({ "name": col_name, "type": col_type })
+                    }).collect::<Vec<_>>(),
+                    "_producer": self.producer(),
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
+                });
+                let dq_facet = json!({
+                    "rowCount": s.rows,
+                    "validCount": s.accepted,
+                    "invalidCount": s.rejected,
+                    "_producer": self.producer(),
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
+                });
+                let floe_facet = json!({
+                    "entity": name,
+                    "rejectionRate": rejection_rate,
+                    "files": s.files,
+                    "rows": s.rows,
+                    "accepted": s.accepted,
+                    "rejected": s.rejected,
+                    "warnings": s.warnings,
+                    "errors": s.errors,
+                    "_producer": self.producer(),
+                    "_schemaURL": "https://github.com/malon64/floe/schemas/FloeQualityRunFacet.json"
+                });
+                json!([{
+                    "namespace": self.config.namespace,
+                    "name": u.source,
+                    "facets": {
+                        "schema": schema_facet,
+                        "dataQualityMetrics": dq_facet,
+                        "floeQualityRun": floe_facet
+                    }
+                }])
+            }
+            _ => json!([]),
+        };
+
+        // Build outputs: accepted sink always present; rejected sink when configured.
+        let outputs = match uris {
+            Some(u) => {
+                let mut out = vec![json!({
+                    "namespace": self.config.namespace,
+                    "name": u.accepted,
+                    "facets": {}
+                })];
+                if let Some(ref rej) = u.rejected {
+                    out.push(json!({
+                        "namespace": self.config.namespace,
+                        "name": rej,
+                        "facets": {}
+                    }));
                 }
-            }])
-        } else {
-            json!([])
+                json!(out)
+            }
+            None => json!([]),
         };
 
         let body = json!({
@@ -248,7 +292,7 @@ impl OpenLineageObserver {
                 "facets": {}
             },
             "inputs": inputs,
-            "outputs": [],
+            "outputs": outputs,
             "producer": self.producer(),
             "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent"
         });
@@ -329,7 +373,7 @@ impl RunObserver for OpenLineageObserver {
                 if let Ok(mut guard) = self.entity_run_ids.lock() {
                     guard.insert(name.clone(), entity_run_id.clone());
                 }
-                self.emit_entity_run_event(&entity_run_id, &name, "START", ts_ms, None);
+                self.emit_entity_run_event(&entity_run_id, &name, "START", ts_ms, None, None);
             }
             RunEvent::EntityFinished {
                 run_id,
@@ -364,7 +408,15 @@ impl RunObserver for OpenLineageObserver {
                     errors,
                     schema_fields,
                 };
-                self.emit_entity_run_event(&entity_run_id, &name, event_type, ts_ms, Some(stats));
+                let uris = self.entity_uris.get(&name);
+                self.emit_entity_run_event(
+                    &entity_run_id,
+                    &name,
+                    event_type,
+                    ts_ms,
+                    Some(stats),
+                    uris,
+                );
             }
             RunEvent::RunFinished {
                 run_id,

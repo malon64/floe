@@ -214,7 +214,10 @@ fn incremental_file_mode_skips_seen_files_and_commits_once() {
     assert_eq!(report.results.files_skipped, 1);
     assert_eq!(report.results.rows_total, 0);
     assert_eq!(report.files[0].status, FileStatus::Skipped);
-    assert_eq!(report.files[0].skip_reason.as_deref(), Some("already_ingested"));
+    assert_eq!(
+        report.files[0].skip_reason.as_deref(),
+        Some("already_ingested")
+    );
     assert_eq!(report.files[0].validation.warnings, 0);
     let second_state = read_entity_state(&state_file)
         .expect("read state again")
@@ -258,7 +261,10 @@ fn incremental_file_mode_warns_and_skips_changed_files() {
     assert_eq!(report.results.rows_total, 0);
     assert_eq!(report.results.warnings_total, 1);
     assert_eq!(report.files[0].status, FileStatus::Skipped);
-    assert_eq!(report.files[0].skip_reason.as_deref(), Some("already_ingested_changed"));
+    assert_eq!(
+        report.files[0].skip_reason.as_deref(),
+        Some("already_ingested_changed")
+    );
     assert_eq!(report.files[0].validation.warnings, 1);
     let warning = report.files[0]
         .mismatch

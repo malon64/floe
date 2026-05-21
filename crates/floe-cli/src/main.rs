@@ -1,10 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
     add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
-    load_config_with_profile_overrides, load_config_with_profile_vars, parse_profile,
-    reset_entity_state_with_base, resolve_config_location, run_with_base, run_with_manifest_path,
-    set_observer, validate_profile, validate_with_base, AddEntityOptions, FloeResult,
-    MultiObserver, RunEvent, RunOptions, ValidateOptions,
+    load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
+    resolve_config_location, run_with_base, run_with_manifest_path, set_observer, validate_profile,
+    validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunEvent, RunOptions,
+    ValidateOptions,
 };
 use std::io::Write;
 
@@ -604,9 +604,16 @@ fn main() -> FloeResult<()> {
 
             // Load config early to check for lineage block so we can install
             // a composed observer before run_with_base. Apply profile vars so
-            // that {{VAR}} placeholders in lineage.url / lineage.api_key are expanded.
-            let early_config =
-                load_config_with_profile_vars(&config_location.path, &profile_vars_for_lineage);
+            // that {{VAR}} placeholders in lineage.url / lineage.api_key are expanded,
+            // and apply profile overrides so that a lineage block defined only in the
+            // profile is visible here.
+            let early_config = load_config_with_profile_overrides(
+                &config_location.path,
+                &profile_vars_for_lineage,
+                options.profile.as_ref().and_then(|p| p.catalogs.as_ref()),
+                options.profile.as_ref().and_then(|p| p.storages.as_ref()),
+                options.profile.as_ref().and_then(|p| p.lineage.as_ref()),
+            );
             let lineage_observer = early_config
                 .as_ref()
                 .ok()

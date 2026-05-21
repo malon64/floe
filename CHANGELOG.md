@@ -2,13 +2,24 @@
 
 All notable changes to Floe are documented in this file.
 
-## Unreleased
+## v0.4.2
 
 - **OpenLineage: source and sink datasets emitted separately** (`docs/lineage.md`, fixes #317):
   - Entity `COMPLETE`/`FAIL` events now set `inputs` to the **source dataset** (named after `source.path`) and `outputs` to the **accepted sink dataset** (named after `sink.accepted.path`).
   - When a rejected sink is configured, a second output dataset (named after `sink.rejected.path`) is appended to `outputs`.
   - Schema (`SchemaDataset`), `DataQualityMetrics`, and `FloeQualityRun` facets are attached to the source input dataset, which is the correct OpenLineage placement for input facets.
   - Previously, `inputs` contained a single dataset named after the entity (not the path) and `outputs` was always empty, causing Marquez to show a dead-end lineage graph.
+
+- **OpenLineage observer now installed from profile `lineage` block** (fixes #316):
+  - `floe run --profile` now uses `load_config_with_profile_overrides` for the early config load that wires up the OpenLineage observer. Previously it used `load_config_with_profile_vars`, which substituted `{{VAR}}` placeholders but did not merge the `lineage` section from the profile. Users who declared `lineage:` only in their profile file saw no lineage events emitted.
+
+- **Profile support for `floe state inspect` and `floe state reset`** (fixes #320):
+  - Both state subcommands now accept `-p / --profile <path>`. Without a profile, configs that reference `{{VAR}}` placeholders would fail with "unknown variable" errors. The same profile-loading path used by `validate` and `run` (variable resolution + storages/catalogs/lineage merging) is now applied before reading or resetting entity state.
+
+- **Incremental state committed for rejected terminal outcomes** (fixes #327):
+  - In `incremental_mode: file`, files whose rows are fully or partially rejected under `severity: reject` are now committed to state after the run. Previously, any `RunStatus::Rejected` caused state to be released, making Floe reprocess the same file on every subsequent run and duplicate accepted/rejected sink outputs. `Aborted` and `Failed` outcomes still release state, as those represent incomplete processing where reprocessing is safe.
+
+- **`dagster-floe` 0.1.6**: version bump accompanying the floe 0.4.2 release.
 
 ## v0.4.1
 

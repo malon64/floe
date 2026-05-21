@@ -20,6 +20,22 @@ fn validate_default_output_is_human_text() {
 }
 
 #[test]
+fn validate_with_profile_includes_profile_in_next_command() {
+    let config_path = repo_root().join("example/config.yml");
+    let profile_path = repo_root().join("example/profiles/dev.yml");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["validate", "-c"])
+        .arg(&config_path)
+        .args(["--profile"])
+        .arg(&profile_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Next: floe run -c "))
+        .stdout(predicate::str::contains(" -p "));
+}
+
+#[test]
 fn validate_with_output_flag_is_rejected() {
     let config_path = repo_root().join("example/config.yml");
 

@@ -272,6 +272,8 @@ pub struct PolicyEcho {
 #[serde(rename_all = "snake_case")]
 pub struct ResultsTotals {
     pub files_total: u64,
+    #[serde(default)]
+    pub files_skipped: u64,
     pub rows_total: u64,
     pub accepted_total: u64,
     pub rejected_total: u64,
@@ -287,6 +289,8 @@ pub struct FileReport {
     pub row_count: u64,
     pub accepted_count: u64,
     pub rejected_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_reason: Option<String>,
     pub mismatch: FileMismatch,
     pub output: FileOutput,
     pub validation: FileValidation,
@@ -357,6 +361,7 @@ pub enum FileStatus {
     Rejected,
     Aborted,
     Failed,
+    Skipped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

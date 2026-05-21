@@ -84,6 +84,7 @@ fn sample_report() -> RunReport {
         unique_constraints: Vec::new(),
         results: ResultsTotals {
             files_total: 1,
+            files_skipped: 0,
             rows_total: 10,
             accepted_total: 10,
             rejected_total: 0,
@@ -96,6 +97,7 @@ fn sample_report() -> RunReport {
             row_count: 10,
             accepted_count: 10,
             rejected_count: 0,
+            skip_reason: None,
             mismatch: FileMismatch {
                 declared_columns_count: 1,
                 input_columns_count: 1,
@@ -147,6 +149,7 @@ fn sample_summary() -> RunSummaryReport {
         },
         results: ResultsTotals {
             files_total: 1,
+            files_skipped: 0,
             rows_total: 10,
             accepted_total: 10,
             rejected_total: 0,
@@ -158,6 +161,7 @@ fn sample_summary() -> RunSummaryReport {
             status: RunStatus::Success,
             results: ResultsTotals {
                 files_total: 1,
+                files_skipped: 0,
                 rows_total: 10,
                 accepted_total: 10,
                 rejected_total: 0,

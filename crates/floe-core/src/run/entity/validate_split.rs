@@ -194,6 +194,7 @@ pub(super) fn run_validate_split_phase(
                     row_count: 0,
                     accepted_count: 0,
                     rejected_count: 0,
+                    skip_reason: None,
                     mismatch: report::FileMismatch {
                         declared_columns_count: mismatch_report.declared_columns_count,
                         input_columns_count: mismatch_report.input_columns_count,
@@ -609,6 +610,7 @@ pub(super) fn run_validate_split_phase(
             row_count,
             accepted_count,
             rejected_count,
+            skip_reason: None,
             mismatch: mismatch_report,
             output: report::FileOutput {
                 accepted_path: None,
@@ -635,6 +637,7 @@ pub(super) fn run_validate_split_phase(
             entity: entity.name.clone(),
             input: input_file.source_uri.clone(),
             status: file_status_str(status).to_string(),
+            skip_reason: None,
             rows: row_count,
             accepted: accepted_count,
             rejected: rejected_count,
@@ -664,5 +667,6 @@ fn file_status_str(status: report::FileStatus) -> &'static str {
         report::FileStatus::Rejected => "rejected",
         report::FileStatus::Aborted => "aborted",
         report::FileStatus::Failed => "failed",
+        report::FileStatus::Skipped => "skipped",
     }
 }

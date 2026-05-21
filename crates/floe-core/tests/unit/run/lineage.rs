@@ -240,6 +240,7 @@ fn entity_finished_event(name: &str, status: &str) -> RunEvent {
         name: name.to_string(),
         status: status.to_string(),
         files: 2,
+        files_skipped: 0,
         rows: 100,
         accepted: 90,
         rejected: 10,

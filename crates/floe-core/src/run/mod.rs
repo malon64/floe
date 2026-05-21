@@ -227,6 +227,7 @@ fn run_from_context(
                 name: entity_name,
                 status: "failed".to_string(),
                 files: 0,
+                files_skipped: 0,
                 rows: 0,
                 accepted: 0,
                 rejected: 0,
@@ -254,6 +255,7 @@ fn run_from_context(
             name: report.entity.name.clone(),
             status: run_status_str(status).to_string(),
             files: report.results.files_total,
+            files_skipped: report.results.files_skipped,
             rows: report.results.rows_total,
             accepted: report.results.accepted_total,
             rejected: report.results.rejected_total,
@@ -296,6 +298,7 @@ fn run_from_context(
         status: run_status_str(summary.run.status).to_string(),
         exit_code: summary.run.exit_code,
         files: summary.results.files_total,
+        files_skipped: summary.results.files_skipped,
         rows: summary.results.rows_total,
         accepted: summary.results.accepted_total,
         rejected: summary.results.rejected_total,
@@ -412,6 +415,7 @@ fn build_run_summary(
 ) -> report::RunSummaryReport {
     let mut totals = report::ResultsTotals {
         files_total: 0,
+        files_skipped: 0,
         rows_total: 0,
         accepted_total: 0,
         rejected_total: 0,
@@ -424,6 +428,7 @@ fn build_run_summary(
     for outcome in entity_outcomes {
         let report = &outcome.report;
         totals.files_total += report.results.files_total;
+        totals.files_skipped += report.results.files_skipped;
         totals.rows_total += report.results.rows_total;
         totals.accepted_total += report.results.accepted_total;
         totals.rejected_total += report.results.rejected_total;
@@ -558,6 +563,7 @@ fn create_dry_run_outcome(
             ),
             results: report::ResultsTotals {
                 files_total: 0,
+                files_skipped: 0,
                 rows_total: 0,
                 accepted_total: 0,
                 rejected_total: 0,

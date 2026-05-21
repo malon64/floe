@@ -159,13 +159,17 @@ fn format_entity_output(entity: &EntityOutcome, mode: OutputMode) -> Vec<String>
 
 fn format_file_line(file: &report::FileReport, elapsed_ms: Option<u64>) -> String {
     let mut line = format!(
-        "  {} {} rows={} accepted={} rejected={}",
+        "  {} {}",
         format_file_status(file.status),
         short_path(&file.input_file),
-        file.row_count,
-        file.accepted_count,
-        file.rejected_count
     );
+    if let Some(ref reason) = file.skip_reason {
+        line.push_str(&format!(" reason={reason}"));
+    }
+    line.push_str(&format!(
+        " rows={} accepted={} rejected={}",
+        file.row_count, file.accepted_count, file.rejected_count
+    ));
     if let Some(ms) = elapsed_ms {
         line.push_str(&format!(" elapsed_ms={ms}"));
     }
@@ -186,13 +190,22 @@ fn format_run_summary(outcome: &RunOutcome, include_run_info: bool) -> Vec<Strin
             outcome.report_base_path.as_deref().unwrap_or("(disabled)")
         ));
     }
-    lines.push(format!(
-        "Totals: files={} rows={} accepted={} rejected={}",
-        outcome.summary.results.files_total,
-        outcome.summary.results.rows_total,
-        outcome.summary.results.accepted_total,
-        outcome.summary.results.rejected_total
-    ));
+    {
+        let skipped = outcome.summary.results.files_skipped;
+        let skipped_part = if skipped > 0 {
+            format!(" skipped={skipped}")
+        } else {
+            String::new()
+        };
+        lines.push(format!(
+            "Totals: files={} rows={} accepted={} rejected={}{}",
+            outcome.summary.results.files_total,
+            outcome.summary.results.rows_total,
+            outcome.summary.results.accepted_total,
+            outcome.summary.results.rejected_total,
+            skipped_part
+        ));
+    }
     lines.push(format!(
         "Overall: {} (exit_code={})",
         format_run_status(outcome.summary.run.status),
@@ -223,6 +236,7 @@ fn format_file_status(status: report::FileStatus) -> &'static str {
         report::FileStatus::Rejected => "REJECTED",
         report::FileStatus::Aborted => "ABORTED",
         report::FileStatus::Failed => "FAILED",
+        report::FileStatus::Skipped => "SKIPPED",
     }
 }
 

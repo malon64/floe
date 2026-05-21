@@ -115,6 +115,35 @@ def test_manifest_schema_accepts_extended_k8_runner_fields(tmp_path: Path):
     assert k8s_runner.secrets is not None and k8s_runner.secrets[0]["name"] == "API_TOKEN"
 
 
+def test_entity_source_uri_parsed_from_source_object():
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    manifest = load_manifest(fixture)
+
+    assert manifest.entities[0].source_uri == "./in/hr/employees.csv"
+    assert manifest.entities[1].source_uri == "./in/sales/orders.csv"
+
+
+def test_entity_policy_severity_parsed():
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    manifest = load_manifest(fixture)
+
+    # employees uses "reject", orders uses "warn"
+    assert manifest.entities[0].policy_severity == "reject"
+    assert manifest.entities[1].policy_severity == "warn"
+
+
+def test_entity_policy_severity_defaults_to_none_when_absent(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    # Remove policy_severity from first entity
+    del payload["entities"][0]["policy_severity"]
+    manifest_path = tmp_path / "manifest.no_policy.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    manifest = load_manifest(manifest_path)
+    assert manifest.entities[0].policy_severity is None
+
+
 def test_manifest_schema_accepts_databricks_runner_fields(tmp_path: Path):
     fixture = Path(__file__).parent / "fixtures" / "manifest.json"
     payload = json.loads(fixture.read_text(encoding="utf-8"))

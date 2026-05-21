@@ -3,10 +3,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
-    CommonManifest, ManifestArchiveTarget, ManifestDomain, ManifestEntity, ManifestExecution,
-    ManifestExecutionDefaults, ManifestResultContract, ManifestRunnerAuth,
-    ManifestRunnerDefinition, ManifestRunnerResources, ManifestRunnerSecret, ManifestRunners,
-    ManifestSinkTarget, ManifestSinks, ManifestSource,
+    CommonManifest, ManifestArchiveTarget, ManifestColumnDef, ManifestDomain, ManifestEntity,
+    ManifestEntitySchema, ManifestExecution, ManifestExecutionDefaults, ManifestResultContract,
+    ManifestRunnerAuth, ManifestRunnerDefinition, ManifestRunnerResources, ManifestRunnerSecret,
+    ManifestRunners, ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
@@ -128,6 +128,45 @@ fn build_common_manifest(
         }
         let tags = if tags.is_empty() { None } else { Some(tags) };
 
+        let schema = ManifestEntitySchema {
+            columns: entity
+                .schema
+                .columns
+                .iter()
+                .map(|c| ManifestColumnDef {
+                    name: c.name.clone(),
+                    column_type: c.column_type.clone(),
+                    source: c.source.clone(),
+                    nullable: c.nullable,
+                    unique: c.unique,
+                    width: c.width,
+                    trim: c.trim,
+                })
+                .collect(),
+            primary_key: entity.schema.primary_key.clone().unwrap_or_default(),
+            unique_keys: entity.schema.unique_keys.clone().unwrap_or_default(),
+            normalize_columns: entity
+                .schema
+                .normalize_columns
+                .as_ref()
+                .and_then(|v| serde_json::to_value(v).ok()),
+            mismatch: entity
+                .schema
+                .mismatch
+                .as_ref()
+                .and_then(|v| serde_json::to_value(v).ok()),
+            schema_evolution: entity
+                .schema
+                .schema_evolution
+                .as_ref()
+                .and_then(|v| serde_json::to_value(v).ok()),
+        };
+
+        let pii = entity
+            .pii
+            .as_ref()
+            .and_then(|v| serde_json::to_value(v).ok());
+
         manifest_entities.push(ManifestEntity {
             name: entity.name.clone(),
             domain: entity.domain.clone(),
@@ -153,23 +192,56 @@ fn build_common_manifest(
                     uri: accepted.uri,
                     path: entity.sink.accepted.path.clone(),
                     resolved: accepted.resolved,
+                    options: entity
+                        .sink
+                        .accepted
+                        .options
+                        .as_ref()
+                        .and_then(|v| serde_json::to_value(v).ok()),
+                    partition_by: entity.sink.accepted.partition_by.clone(),
+                    merge: entity
+                        .sink
+                        .accepted
+                        .merge
+                        .as_ref()
+                        .and_then(|v| serde_json::to_value(v).ok()),
+                    iceberg: entity
+                        .sink
+                        .accepted
+                        .iceberg
+                        .as_ref()
+                        .and_then(|v| serde_json::to_value(v).ok()),
+                    delta: entity
+                        .sink
+                        .accepted
+                        .delta
+                        .as_ref()
+                        .and_then(|v| serde_json::to_value(v).ok()),
                 },
-                rejected: rejected.map(|value| ManifestSinkTarget {
-                    format: entity
-                        .sink
-                        .rejected
-                        .as_ref()
-                        .map(|target| target.format.clone())
-                        .unwrap_or_else(|| "csv".to_string()),
-                    storage: value.storage,
-                    uri: value.uri,
-                    path: entity
-                        .sink
-                        .rejected
-                        .as_ref()
-                        .map(|target| target.path.clone())
-                        .unwrap_or_default(),
-                    resolved: value.resolved,
+                rejected: rejected.map(|value| {
+                    let rej = entity.sink.rejected.as_ref();
+                    ManifestSinkTarget {
+                        format: rej
+                            .map(|t| t.format.clone())
+                            .unwrap_or_else(|| "csv".to_string()),
+                        storage: value.storage,
+                        uri: value.uri,
+                        path: rej.map(|t| t.path.clone()).unwrap_or_default(),
+                        resolved: value.resolved,
+                        options: rej
+                            .and_then(|t| t.options.as_ref())
+                            .and_then(|v| serde_json::to_value(v).ok()),
+                        partition_by: rej.and_then(|t| t.partition_by.clone()),
+                        merge: rej
+                            .and_then(|t| t.merge.as_ref())
+                            .and_then(|v| serde_json::to_value(v).ok()),
+                        iceberg: rej
+                            .and_then(|t| t.iceberg.as_ref())
+                            .and_then(|v| serde_json::to_value(v).ok()),
+                        delta: rej
+                            .and_then(|t| t.delta.as_ref())
+                            .and_then(|v| serde_json::to_value(v).ok()),
+                    }
                 }),
                 archive: archive.map(|value| ManifestArchiveTarget {
                     storage: value.storage,
@@ -184,11 +256,28 @@ fn build_common_manifest(
                 }),
             },
             runner: None,
+            policy_severity: entity.policy.severity.as_str().to_string(),
+            write_mode: entity.sink.write_mode.as_str().to_string(),
+            incremental_mode: entity.incremental_mode.as_str().to_string(),
+            schema,
+            pii,
+            state_path: entity.state.as_ref().and_then(|s| s.path.clone()),
         });
     }
 
     let config_uri = canonical_config_uri(&config_location.display);
     let config_checksum = None;
+
+    // Serialize profile sections as opaque JSON values so they can be re-applied at run time.
+    let storages = profile
+        .and_then(|p| p.storages.as_ref())
+        .and_then(|v| serde_json::to_value(v).ok());
+    let catalogs = profile
+        .and_then(|p| p.catalogs.as_ref())
+        .and_then(|v| serde_json::to_value(v).ok());
+    let lineage = profile
+        .and_then(|p| p.lineage.as_ref())
+        .and_then(|v| serde_json::to_value(v).ok());
 
     CommonManifest {
         schema: "floe.manifest.v1",
@@ -213,6 +302,9 @@ fn build_common_manifest(
         execution: default_execution_contract(),
         runners: runners_contract(profile),
         entities: manifest_entities,
+        storages,
+        catalogs,
+        lineage,
     }
 }
 
@@ -315,8 +407,8 @@ fn default_execution_contract() -> ManifestExecution {
         entrypoint: "floe",
         base_args: vec![
             "run",
-            "-c",
-            "{config_uri}",
+            "--manifest",
+            "{manifest_uri}",
             "--log-format",
             "json",
             "--quiet",

@@ -15,6 +15,15 @@ pub struct CommonManifest {
     pub execution: ManifestExecution,
     pub runners: ManifestRunners,
     pub entities: Vec<ManifestEntity>,
+    /// Storage backend definitions from the profile (if a profile was supplied).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storages: Option<serde_json::Value>,
+    /// Catalog definitions from the profile (if a profile was supplied).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalogs: Option<serde_json::Value>,
+    /// Lineage configuration from the profile (if a profile was supplied).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +116,49 @@ pub struct ManifestEntity {
     pub source: ManifestSource,
     pub sinks: ManifestSinks,
     pub runner: Option<String>,
+    /// Policy severity: "warn" | "reject" | "abort".
+    pub policy_severity: String,
+    /// Sink write mode: "overwrite" | "append" | "merge_scd1" | "merge_scd2".
+    pub write_mode: String,
+    /// Incremental processing mode: "none" | "archive" | "file" | "row".
+    pub incremental_mode: String,
+    /// Full schema definition for this entity.
+    pub schema: ManifestEntitySchema,
+    /// PII masking configuration, if configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pii: Option<serde_json::Value>,
+    /// Incremental state file path, if configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManifestEntitySchema {
+    pub columns: Vec<ManifestColumnDef>,
+    pub primary_key: Vec<String>,
+    pub unique_keys: Vec<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalize_columns: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mismatch: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_evolution: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManifestColumnDef {
+    pub name: String,
+    pub column_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unique: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,6 +186,16 @@ pub struct ManifestSinkTarget {
     pub uri: String,
     pub path: String,
     pub resolved: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partition_by: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iceberg: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]

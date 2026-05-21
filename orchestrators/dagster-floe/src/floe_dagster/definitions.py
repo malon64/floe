@@ -105,7 +105,7 @@ def build_definitions_from_manifest_paths(
             seen_job_names.add(manifest_job_name)
             selection = AssetSelection.assets(
                 *[entity.asset_key for entity in manifest_entities]
-            )
+            ).required_multi_asset_neighbors()
             jobs.append(
                 define_asset_job(
                     name=manifest_job_name,

@@ -94,8 +94,8 @@ pub struct ManifestColumnDefForRun {
 /// Parse a manifest JSON string and reconstruct a minimal RootConfig.
 /// Returns (config, report_base_uri).
 pub fn config_from_manifest_json(json: &str) -> FloeResult<(crate::config::RootConfig, String)> {
-    let manifest: ManifestForRun = serde_json::from_str(json)
-        .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
+    let manifest: ManifestForRun =
+        serde_json::from_str(json).map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
             Box::new(ConfigError(format!("manifest parse error: {err}")))
         })?;
 
@@ -136,8 +136,7 @@ pub fn config_from_manifest_json(json: &str) -> FloeResult<(crate::config::RootC
 fn entity_from_manifest(m: &ManifestEntityForRun) -> FloeResult<EntityConfig> {
     let policy_severity = parse_policy_severity(m.policy_severity.as_deref().unwrap_or("warn"));
     let write_mode = parse_write_mode(m.write_mode.as_deref().unwrap_or("overwrite"));
-    let incremental_mode =
-        parse_incremental_mode(m.incremental_mode.as_deref().unwrap_or("none"));
+    let incremental_mode = parse_incremental_mode(m.incremental_mode.as_deref().unwrap_or("none"));
 
     let source_options: Option<SourceOptions> = m
         .source
@@ -203,7 +202,10 @@ fn entity_from_manifest(m: &ManifestEntityForRun) -> FloeResult<EntityConfig> {
     })
 }
 
-fn sink_target_from_manifest(m: &ManifestSinkTargetForRun, default_write_mode: WriteMode) -> SinkTarget {
+fn sink_target_from_manifest(
+    m: &ManifestSinkTargetForRun,
+    default_write_mode: WriteMode,
+) -> SinkTarget {
     let write_mode = m
         .write_mode
         .as_deref()

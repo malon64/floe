@@ -131,9 +131,18 @@ enum Command {
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
-        #[arg(short, long, conflicts_with = "manifest", help = "Path or URI to the Floe config file")]
+        #[arg(
+            short,
+            long,
+            conflicts_with = "manifest",
+            help = "Path or URI to the Floe config file"
+        )]
         config: Option<String>,
-        #[arg(long, conflicts_with = "config", help = "Path to a self-contained Floe manifest JSON file")]
+        #[arg(
+            long,
+            conflicts_with = "config",
+            help = "Path to a self-contained Floe manifest JSON file"
+        )]
         manifest: Option<String>,
         #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
@@ -509,10 +518,7 @@ fn main() -> FloeResult<()> {
                 Some(c) => c,
                 None => {
                     let mut err_out = std::io::stderr().lock();
-                    let _ = writeln!(
-                        err_out,
-                        "Error: one of --config or --manifest is required"
-                    );
+                    let _ = writeln!(err_out, "Error: one of --config or --manifest is required");
                     let _ = err_out.flush();
                     std::process::exit(1);
                 }

@@ -443,11 +443,7 @@ fn run_with_manifest_file_executes_entity() {
     let manifest_path = tmp.path().join("manifest.json");
     let input_dir = tmp.path().join("in/orders");
     fs::create_dir_all(&input_dir).expect("create input dir");
-    fs::write(
-        input_dir.join("orders.csv"),
-        "order_id\n001\n002\n",
-    )
-    .expect("write csv");
+    fs::write(input_dir.join("orders.csv"), "order_id\n001\n002\n").expect("write csv");
 
     // Generate the manifest first.
     Command::new(assert_cmd::cargo::cargo_bin!("floe"))
@@ -464,19 +460,19 @@ fn run_with_manifest_file_executes_entity() {
     let entity = &mut manifest["entities"][0];
     entity["source"]["path"] = Value::String(input_dir.display().to_string());
     entity["source"]["uri"] = Value::String(input_dir.display().to_string());
-    entity["sinks"]["accepted"]["path"] = Value::String(
-        tmp.path().join("out/orders").display().to_string(),
-    );
-    entity["sinks"]["accepted"]["uri"] = Value::String(
-        tmp.path().join("out/orders").display().to_string(),
-    );
-    entity["sinks"]["rejected"]["path"] = Value::String(
-        tmp.path().join("out/rejected").display().to_string(),
-    );
-    entity["sinks"]["rejected"]["uri"] = Value::String(
-        tmp.path().join("out/rejected").display().to_string(),
-    );
-    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).expect("rewrite manifest");
+    entity["sinks"]["accepted"]["path"] =
+        Value::String(tmp.path().join("out/orders").display().to_string());
+    entity["sinks"]["accepted"]["uri"] =
+        Value::String(tmp.path().join("out/orders").display().to_string());
+    entity["sinks"]["rejected"]["path"] =
+        Value::String(tmp.path().join("out/rejected").display().to_string());
+    entity["sinks"]["rejected"]["uri"] =
+        Value::String(tmp.path().join("out/rejected").display().to_string());
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .expect("rewrite manifest");
 
     Command::new(assert_cmd::cargo::cargo_bin!("floe"))
         .args(["run", "--manifest"])

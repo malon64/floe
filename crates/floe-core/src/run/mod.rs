@@ -93,10 +93,7 @@ pub fn run_with_base(
     run_with_runtime(config_path, config_base, options, &mut runtime)
 }
 
-pub fn run_with_manifest_path(
-    manifest_path: &Path,
-    options: RunOptions,
-) -> FloeResult<RunOutcome> {
+pub fn run_with_manifest_path(manifest_path: &Path, options: RunOptions) -> FloeResult<RunOutcome> {
     let mut runtime = DefaultRuntime::new();
     run_with_manifest_runtime(manifest_path, options, &mut runtime)
 }
@@ -113,7 +110,13 @@ pub(crate) fn run_with_manifest_runtime(
     if !options.entities.is_empty() {
         validate_entities(&config, &options.entities)?;
     }
-    let context = RunContext::from_config(config, config_base, manifest_path, &report_base_uri, &options)?;
+    let context = RunContext::from_config(
+        config,
+        config_base,
+        manifest_path,
+        &report_base_uri,
+        &options,
+    )?;
     run_from_context(context, options, runtime)
 }
 

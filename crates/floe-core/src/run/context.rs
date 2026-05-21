@@ -101,33 +101,32 @@ impl RunContext {
         let config_path = crate::io::storage::paths::normalize_local_path(manifest_path);
 
         // The manifest embeds report_base_uri; resolve it to a target if it looks local.
-        let (report_target, report_base_path) = if !report_base_uri.is_empty()
-            && report_base_uri != "report"
-        {
-            let local_path = if let Some(stripped) = report_base_uri.strip_prefix("local://") {
-                Some(std::path::PathBuf::from(stripped))
-            } else if !report_base_uri.contains("://") {
-                Some(std::path::PathBuf::from(report_base_uri))
-            } else {
-                None
-            };
-            let base_path = local_path
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| report_base_uri.to_string());
-            // Only attempt to create a Target for local paths; skip for remote URIs.
-            let report_target = local_path.as_ref().and_then(|path| {
-                let resolved = config::ResolvedPath {
-                    storage: "local".to_string(),
-                    uri: report_base_uri.to_string(),
-                    local_path: Some(path.clone()),
+        let (report_target, report_base_path) =
+            if !report_base_uri.is_empty() && report_base_uri != "report" {
+                let local_path = if let Some(stripped) = report_base_uri.strip_prefix("local://") {
+                    Some(std::path::PathBuf::from(stripped))
+                } else if !report_base_uri.contains("://") {
+                    Some(std::path::PathBuf::from(report_base_uri))
+                } else {
+                    None
                 };
-                Target::from_resolved(&resolved).ok()
-            });
-            (report_target, Some(base_path))
-        } else {
-            (None, None)
-        };
+                let base_path = local_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| report_base_uri.to_string());
+                // Only attempt to create a Target for local paths; skip for remote URIs.
+                let report_target = local_path.as_ref().and_then(|path| {
+                    let resolved = config::ResolvedPath {
+                        storage: "local".to_string(),
+                        uri: report_base_uri.to_string(),
+                        local_path: Some(path.clone()),
+                    };
+                    Target::from_resolved(&resolved).ok()
+                });
+                (report_target, Some(base_path))
+            } else {
+                (None, None)
+            };
 
         let started_at = report::now_rfc3339();
         let run_id = options

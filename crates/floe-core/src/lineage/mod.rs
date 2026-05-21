@@ -380,6 +380,7 @@ impl RunObserver for OpenLineageObserver {
                 name,
                 status,
                 files,
+                files_skipped: _,
                 rows,
                 accepted,
                 rejected,

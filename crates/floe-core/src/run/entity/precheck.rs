@@ -101,6 +101,7 @@ pub(super) fn run_precheck(
                     row_count: 0,
                     accepted_count: 0,
                     rejected_count: 0,
+                    skip_reason: None,
                     mismatch: report::FileMismatch {
                         declared_columns_count: mismatch_columns.len() as u64,
                         input_columns_count: 0,
@@ -138,6 +139,7 @@ pub(super) fn run_precheck(
                         "rejected"
                     }
                     .to_string(),
+                    skip_reason: None,
                     rows: 0,
                     accepted: 0,
                     rejected: 0,
@@ -206,6 +208,7 @@ pub(super) fn run_precheck(
                         row_count: 0,
                         accepted_count: 0,
                         rejected_count: 0,
+                        skip_reason: None,
                         mismatch: report::FileMismatch {
                             declared_columns_count: mismatch_columns.len() as u64,
                             input_columns_count: 0,
@@ -244,6 +247,7 @@ pub(super) fn run_precheck(
                             "rejected"
                         }
                         .to_string(),
+                        skip_reason: None,
                         rows: 0,
                         accepted: 0,
                         rejected: 0,
@@ -320,6 +324,7 @@ pub(super) fn run_precheck(
                 row_count,
                 accepted_count,
                 rejected_count,
+                skip_reason: None,
                 mismatch: mismatch_report,
                 output: report::FileOutput {
                     accepted_path,
@@ -351,6 +356,7 @@ pub(super) fn run_precheck(
                     "rejected"
                 }
                 .to_string(),
+                skip_reason: None,
                 rows: row_count,
                 accepted: accepted_count,
                 rejected: rejected_count,

@@ -114,6 +114,7 @@ pub fn emit_failed_run_events_to(
         status: "failed".to_string(),
         exit_code: 1,
         files: 0,
+        files_skipped: 0,
         rows: 0,
         accepted: 0,
         rejected: 0,
@@ -153,7 +154,7 @@ fn level_for_event(event: &RunEvent) -> Level {
         | RunEvent::FileStarted { .. }
         | RunEvent::SchemaEvolutionApplied { .. } => Level::Info,
         RunEvent::FileFinished { status, .. } => match status.as_str() {
-            "success" => Level::Info,
+            "success" | "skipped" => Level::Info,
             "rejected" => Level::Warn,
             "aborted" | "failed" => Level::Error,
             _ => Level::Info,
@@ -232,19 +233,27 @@ pub fn format_event_text(event: &RunEvent) -> String {
             entity,
             input,
             status,
+            skip_reason,
             rows,
             accepted,
             rejected,
             elapsed_ms,
             ..
-        } => format!(
-            "file_finished entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
-            entity, input, status, rows, accepted, rejected, elapsed_ms
-        ),
+        } => {
+            let mut out = format!(
+                "file_finished entity={} input={} status={} rows={} accepted={} rejected={} elapsed_ms={}",
+                entity, input, status, rows, accepted, rejected, elapsed_ms
+            );
+            if let Some(reason) = skip_reason {
+                out.push_str(&format!(" skip_reason={reason}"));
+            }
+            out
+        }
         RunEvent::EntityFinished {
             name,
             status,
             files,
+            files_skipped,
             rows,
             accepted,
             rejected,
@@ -252,8 +261,8 @@ pub fn format_event_text(event: &RunEvent) -> String {
             errors,
             ..
         } => format!(
-            "entity_finished name={} status={} files={} rows={} accepted={} rejected={} warnings={} errors={}",
-            name, status, files, rows, accepted, rejected, warnings, errors
+            "entity_finished name={} status={} files={} files_skipped={} rows={} accepted={} rejected={} warnings={} errors={}",
+            name, status, files, files_skipped, rows, accepted, rejected, warnings, errors
         ),
         RunEvent::SchemaEvolutionApplied {
             entity,

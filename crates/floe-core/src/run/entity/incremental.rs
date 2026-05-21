@@ -47,7 +47,11 @@ pub(super) fn prepare_incremental_context(
 
     for (input_file, recorded) in &claim_outcome.already_processed {
         if file_state_matches(recorded, input_file) {
-            skipped_reports.push(build_skipped_report(input_file.source_uri.clone(), None));
+            skipped_reports.push(build_skipped_report(
+                input_file.source_uri.clone(),
+                "already_ingested",
+                None,
+            ));
         } else {
             let message = format!(
                 "entity.name={} incremental_mode=file skipping previously ingested file with changed metadata: {} (recorded size={:?}, mtime={:?}; current size={:?}, mtime={:?})",
@@ -67,6 +71,7 @@ pub(super) fn prepare_incremental_context(
             );
             skipped_reports.push(build_skipped_report(
                 input_file.source_uri.clone(),
+                "already_ingested_changed",
                 Some(message),
             ));
         }
@@ -83,7 +88,11 @@ pub(super) fn prepare_incremental_context(
             Some("incremental_file_claimed"),
             &message,
         );
-        skipped_reports.push(build_skipped_report(source_uri, Some(message)));
+        skipped_reports.push(build_skipped_report(
+            source_uri,
+            "active_claim",
+            Some(message),
+        ));
     }
 
     Ok(IncrementalContext {
@@ -104,14 +113,19 @@ fn file_state_matches(recorded: &EntityFileState, input_file: &InputFile) -> boo
     recorded.size == input_file.source_size && recorded.mtime == input_file.source_mtime
 }
 
-fn build_skipped_report(input_file: String, warning: Option<String>) -> FileReport {
+fn build_skipped_report(
+    input_file: String,
+    skip_reason: &str,
+    warning: Option<String>,
+) -> FileReport {
     let warnings = u64::from(warning.is_some());
     FileReport {
         input_file,
-        status: FileStatus::Success,
+        status: FileStatus::Skipped,
         row_count: 0,
         accepted_count: 0,
         rejected_count: 0,
+        skip_reason: Some(skip_reason.to_string()),
         mismatch: FileMismatch {
             declared_columns_count: 0,
             input_columns_count: 0,

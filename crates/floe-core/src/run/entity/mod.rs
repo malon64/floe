@@ -32,7 +32,7 @@ mod validate_split;
 pub(crate) use resolve::{resolve_entity_targets, ResolvedEntityTargets};
 
 use crate::report::entity::{build_run_report, RunReportContext};
-use crate::run::events::RunObserver;
+use crate::run::events::{event_time_ms, RunEvent, RunObserver};
 use accepted_write::{run_accepted_write_phase, AcceptedWritePhaseContext};
 use precheck::{run_precheck, PrecheckContext};
 use process::sink_options_warning;
@@ -146,6 +146,7 @@ pub(super) fn run_entity(
         Vec::with_capacity(input_files.len() + incremental.skipped_reports.len());
     let mut totals = report::ResultsTotals {
         files_total: 0,
+        files_skipped: 0,
         rows_total: 0,
         accepted_total: 0,
         rejected_total: 0,
@@ -177,7 +178,20 @@ pub(super) fn run_entity(
     let mut file_timings_ms =
         Vec::with_capacity(input_files.len() + incremental.skipped_reports.len());
     for skipped in incremental.skipped_reports {
+        observer.on_event(RunEvent::FileFinished {
+            run_id: context.run_id.clone(),
+            entity: entity.name.clone(),
+            input: skipped.input_file.clone(),
+            status: "skipped".to_string(),
+            skip_reason: skipped.skip_reason.clone(),
+            rows: 0,
+            accepted: 0,
+            rejected: 0,
+            elapsed_ms: 0,
+            ts_ms: event_time_ms(),
+        });
         totals.files_total += 1;
+        totals.files_skipped += 1;
         totals.warnings_total += skipped.validation.warnings;
         file_reports.push(skipped);
         file_timings_ms.push(Some(0));

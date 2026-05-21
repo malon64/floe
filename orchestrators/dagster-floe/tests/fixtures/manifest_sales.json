@@ -44,6 +44,9 @@
       "source_format": "csv",
       "accepted_sink_uri": "./out/accepted/orders",
       "rejected_sink_uri": "./out/rejected/orders",
+      "policy_severity": "warn",
+      "write_mode": "append",
+      "incremental_mode": "file",
       "runner": null,
       "source": {
         "format": "csv",

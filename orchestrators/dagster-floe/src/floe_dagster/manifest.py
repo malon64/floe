@@ -23,12 +23,18 @@ class ManifestEntity:
     rejected_sink_uri: str | None
     asset_key: list[str]
     runner: str | None
+    source_uri: str | None = None
+    policy_severity: str | None = None
+    write_mode: str | None = None
+    incremental_mode: str | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestEntity":
         asset_key = _required_string_list(data, "asset_key")
         if not asset_key:
             raise ValueError("entities[].asset_key must contain at least one part")
+        source = data.get("source") or {}
+        source_uri = _optional_str(source, "uri") if isinstance(source, dict) else None
         return ManifestEntity(
             name=_required_str(data, "name"),
             domain=_optional_str(data, "domain"),
@@ -38,6 +44,10 @@ class ManifestEntity:
             rejected_sink_uri=_optional_str(data, "rejected_sink_uri"),
             asset_key=asset_key,
             runner=_optional_str(data, "runner"),
+            source_uri=source_uri,
+            policy_severity=_optional_str(data, "policy_severity"),
+            write_mode=_optional_str(data, "write_mode"),
+            incremental_mode=_optional_str(data, "incremental_mode"),
         )
 
 
@@ -183,6 +193,9 @@ class DagsterManifest:
     execution: ManifestExecution
     runners: ManifestRunners
     entities: list[ManifestEntity]
+    storages: dict[str, Any] | None = None
+    catalogs: dict[str, Any] | None = None
+    lineage: dict[str, Any] | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "DagsterManifest":
@@ -196,6 +209,9 @@ class DagsterManifest:
         if not isinstance(entities_raw, list):
             raise ValueError("entities must be a list")
         entities = [ManifestEntity.from_dict(item) for item in entities_raw]
+        storages = data.get("storages")
+        catalogs = data.get("catalogs")
+        lineage = data.get("lineage")
         return DagsterManifest(
             schema=schema,
             generated_at_ts_ms=generated_at,
@@ -208,6 +224,9 @@ class DagsterManifest:
             execution=ManifestExecution.from_dict(_required_object(data, "execution")),
             runners=ManifestRunners.from_dict(_required_object(data, "runners")),
             entities=entities,
+            storages=storages if isinstance(storages, dict) else None,
+            catalogs=catalogs if isinstance(catalogs, dict) else None,
+            lineage=lineage if isinstance(lineage, dict) else None,
         )
 
 
@@ -238,10 +257,17 @@ def render_execution_args(
     config_uri: str,
     entity_name: str | None,
     run_id: str | None = None,
+    manifest_uri: str | None = None,
 ) -> list[str]:
     args: list[str] = []
     args.extend(
-        _render_token(token, config_uri=config_uri, entity_name=None, run_id=run_id)
+        _render_token(
+            token,
+            config_uri=config_uri,
+            entity_name=None,
+            run_id=run_id,
+            manifest_uri=manifest_uri,
+        )
         for token in execution.base_args
     )
     if entity_name is not None:
@@ -251,6 +277,7 @@ def render_execution_args(
                 config_uri=config_uri,
                 entity_name=entity_name,
                 run_id=run_id,
+                manifest_uri=manifest_uri,
             )
             for token in execution.per_entity_args
         )
@@ -273,8 +300,11 @@ def _render_token(
     config_uri: str,
     entity_name: str | None,
     run_id: str | None,
+    manifest_uri: str | None = None,
 ) -> str:
     rendered = token.replace("{config_uri}", config_uri)
+    if manifest_uri is not None:
+        rendered = rendered.replace("{manifest_uri}", manifest_uri)
     if entity_name is not None:
         rendered = rendered.replace("{entity_name}", entity_name)
     if run_id is not None:

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use polars::polars_utils::pl_str::PlSmallStr;
 use polars::prelude::{
     CsvEncoding, CsvParseOptions, CsvReadOptions, DataType, NullValues, TimeUnit,
@@ -21,7 +23,7 @@ pub struct RootConfig {
     pub entities: Vec<EntityConfig>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineageConfig {
     pub url: String,
     pub api_key: Option<String>,
@@ -66,12 +68,12 @@ pub struct EntityConfig {
     pub pii: Option<PiiConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PiiConfig {
     pub columns: Vec<PiiColumnConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PiiColumnConfig {
     pub name: String,
     pub strategy: PiiStrategy,
@@ -79,7 +81,8 @@ pub struct PiiColumnConfig {
     pub redact_value: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PiiStrategy {
     Hash,
     Drop,
@@ -103,7 +106,8 @@ impl EntityConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum IncrementalMode {
     #[default]
     None,
@@ -146,7 +150,7 @@ pub struct SourceConfig {
     pub cast_mode: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SourceOptions {
     pub header: Option<bool>,
     pub separator: Option<String>,
@@ -262,7 +266,8 @@ pub struct SinkConfig {
     pub archive: Option<ArchiveTarget>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WriteMode {
     #[default]
     Overwrite,
@@ -300,34 +305,34 @@ pub const DEFAULT_SCD2_CURRENT_FLAG_COLUMN: &str = "__floe_is_current";
 pub const DEFAULT_SCD2_VALID_FROM_COLUMN: &str = "__floe_valid_from";
 pub const DEFAULT_SCD2_VALID_TO_COLUMN: &str = "__floe_valid_to";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeOptionsConfig {
     pub ignore_columns: Option<Vec<String>>,
     pub compare_columns: Option<Vec<String>>,
     pub scd2: Option<MergeScd2OptionsConfig>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeScd2OptionsConfig {
     pub current_flag_column: Option<String>,
     pub valid_from_column: Option<String>,
     pub valid_to_column: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SinkOptions {
     pub compression: Option<String>,
     pub row_group_size: Option<u64>,
     pub max_size_per_file: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IcebergPartitionFieldConfig {
     pub column: String,
     pub transform: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IcebergSinkTargetConfig {
     pub catalog: Option<String>,
     pub namespace: Option<String>,
@@ -335,7 +340,7 @@ pub struct IcebergSinkTargetConfig {
     pub location: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeltaSinkTargetConfig {
     /// Name of the catalog definition to use (falls back to `catalogs.default`).
     pub catalog: Option<String>,
@@ -345,13 +350,13 @@ pub struct DeltaSinkTargetConfig {
     pub table: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoragesConfig {
     pub default: Option<String>,
     pub definitions: Vec<StorageDefinition>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageDefinition {
     pub name: String,
     pub fs_type: String,
@@ -362,7 +367,7 @@ pub struct StorageDefinition {
     pub prefix: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogsConfig {
     pub default: Option<String>,
     pub definitions: Vec<CatalogDefinition>,
@@ -371,7 +376,8 @@ pub struct CatalogsConfig {
 /// Type-specific configuration for a catalog definition.
 /// Each variant carries only the fields relevant to that catalog type.
 /// Add a new variant here when supporting a new catalog type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum CatalogTypeConfig {
     Glue {
         region: String,
@@ -419,7 +425,7 @@ impl CatalogTypeConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogDefinition {
     pub name: String,
     pub type_config: CatalogTypeConfig,
@@ -440,7 +446,8 @@ pub struct ArchiveTarget {
     pub storage: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PolicySeverity {
     #[default]
     Warn,
@@ -469,7 +476,7 @@ pub struct PolicyConfig {
     pub severity: PolicySeverity,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct SchemaConfig {
     pub normalize_columns: Option<NormalizeColumnsConfig>,
     pub mismatch: Option<SchemaMismatchConfig>,
@@ -485,19 +492,20 @@ impl SchemaConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NormalizeColumnsConfig {
     pub enabled: Option<bool>,
     pub strategy: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SchemaEvolutionConfig {
     pub mode: SchemaEvolutionMode,
     pub on_incompatible: SchemaEvolutionIncompatibleAction,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SchemaEvolutionMode {
     #[default]
     Strict,
@@ -513,7 +521,8 @@ impl SchemaEvolutionMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SchemaEvolutionIncompatibleAction {
     #[default]
     Fail,
@@ -527,13 +536,13 @@ impl SchemaEvolutionIncompatibleAction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SchemaMismatchConfig {
     pub missing_columns: Option<String>,
     pub extra_columns: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ColumnConfig {
     pub name: String,
     pub source: Option<String>,

@@ -28,6 +28,7 @@ class Runner:
         log_format: str = "json",
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
+        manifest_uri: str | None = None,
     ) -> RunResult:
         raise NotImplementedError
 
@@ -44,6 +45,7 @@ class LocalRunner(Runner):
         log_format: str = "json",
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
+        manifest_uri: str | None = None,
     ) -> RunResult:
         if runner_definition is not None and runner_definition.runner_type == "kubernetes_job":
             if execution is None:
@@ -51,7 +53,11 @@ class LocalRunner(Runner):
             args = [*self._floe_cmd]
             args.extend(
                 render_execution_args(
-                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                    execution,
+                    config_uri=config_uri,
+                    entity_name=entity,
+                    run_id=run_id,
+                    manifest_uri=manifest_uri,
                 )
             )
             from .kubernetes_runner import run_kubernetes_job
@@ -64,7 +70,11 @@ class LocalRunner(Runner):
             args = [*self._floe_cmd]
             args.extend(
                 render_execution_args(
-                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                    execution,
+                    config_uri=config_uri,
+                    entity_name=entity,
+                    run_id=run_id,
+                    manifest_uri=manifest_uri,
                 )
             )
             from .databricks_runner import run_databricks_job
@@ -90,7 +100,11 @@ class LocalRunner(Runner):
             args = [*self._floe_cmd]
             args.extend(
                 render_execution_args(
-                    execution, config_uri=config_uri, entity_name=entity, run_id=run_id
+                    execution,
+                    config_uri=config_uri,
+                    entity_name=entity,
+                    run_id=run_id,
+                    manifest_uri=manifest_uri,
                 )
             )
             if run_id and not _contains_run_id_placeholder(execution):

@@ -56,6 +56,9 @@
       "source_format": "csv",
       "accepted_sink_uri": "./out/accepted/employees",
       "rejected_sink_uri": "./out/rejected/employees",
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
       "runner": null,
       "source": {
         "format": "csv",
@@ -92,6 +95,9 @@
       "source_format": "csv",
       "accepted_sink_uri": "./out/accepted/orders",
       "rejected_sink_uri": "./out/rejected/orders",
+      "policy_severity": "warn",
+      "write_mode": "append",
+      "incremental_mode": "file",
       "runner": "k8s",
       "source": {
         "format": "csv",

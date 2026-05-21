@@ -44,6 +44,9 @@
       "source_format": "csv",
       "accepted_sink_uri": "./out/accepted/employees",
       "rejected_sink_uri": "./out/rejected/employees",
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
       "runner": null,
       "source": {
         "format": "csv",

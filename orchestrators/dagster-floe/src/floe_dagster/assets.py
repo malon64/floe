@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from dagster import Definitions, Failure, MaterializeResult, asset
+from dagster import (
+    AssetKey,
+    AssetOut,
+    Definitions,
+    Failure,
+    Output,
+    multi_asset,
+)
 
 from .k8s_status import STATUS_SUCCEEDED
 
@@ -49,12 +56,10 @@ def build_floe_asset_defs(
     for entity in entity_items:
         runner_definition = resolve_entity_runner(manifest, entity)
         assets_defs.append(
-            _make_entity_asset(
-                key_prefix=list(entity.asset_key[:-1]),
-                asset_name=entity.asset_key[-1],
-                group_name=entity.group_name,
-                entity_name=entity.name,
+            _make_entity_multi_asset(
+                entity=entity,
                 config_uri=config_uri,
+                manifest_path=manifest_path,
                 runner=runner,
                 execution=manifest.execution,
                 runner_definition=runner_definition,
@@ -73,32 +78,53 @@ def selected_manifest_entities(
     return [item for item in manifest.entities if item.name in selected]
 
 
-def _make_entity_asset(
+def _has_rejected_asset(entity: ManifestEntity) -> bool:
+    if entity.policy_severity is not None:
+        return entity.policy_severity in ("reject", "abort")
+    # Backward compat: old manifests without policy_severity
+    return entity.rejected_sink_uri is not None
+
+
+def _make_entity_multi_asset(
     *,
-    key_prefix: list[str],
-    asset_name: str,
-    group_name: str,
-    entity_name: str,
+    entity: ManifestEntity,
     config_uri: str,
+    manifest_path: str,
     runner: Runner,
     execution: ManifestExecution,
     runner_definition: ManifestRunnerDefinition,
 ):
-    asset_key = [*key_prefix, asset_name]
+    accepted_key = list(entity.asset_key)
+    source_dep_key = list(entity.asset_key[:-1]) + [entity.asset_key[-1] + "_source"]
+    has_rejected = _has_rejected_asset(entity)
+    rejected_key = list(entity.asset_key[:-1]) + [entity.asset_key[-1] + "_rejected"]
 
-    @asset(
+    asset_name = entity.asset_key[-1]
+    group_name = entity.group_name
+    entity_name = entity.name
+
+    outs: dict[str, AssetOut] = {
+        "accepted": AssetOut(key=AssetKey(accepted_key), is_required=True),
+    }
+    if has_rejected:
+        outs["rejected"] = AssetOut(key=AssetKey(rejected_key), is_required=False)
+
+    @multi_asset(
         name=asset_name,
-        key_prefix=key_prefix,
+        outs=outs,
+        deps=[AssetKey(source_dep_key)],
         group_name=group_name,
-        check_specs=build_asset_check_specs(asset_key),
+        check_specs=build_asset_check_specs(accepted_key),
+        can_subset=False,
     )
-    def _asset(context):
+    def _multi_asset(context):
         run = getattr(context, "run", None)
         run_id = getattr(run, "run_id", None) if run is not None else None
         if run_id is None:
             run_id = getattr(context, "run_id", None)
         result = runner.run_floe_entity(
             config_uri=config_uri,
+            manifest_uri=manifest_path,
             run_id=run_id,
             entity=entity_name,
             log_format=execution.log_format,
@@ -163,7 +189,7 @@ def _make_entity_asset(
             metadata["backend_metadata"] = result.backend_metadata
 
         check_results = build_asset_check_results(
-            asset_key=asset_key,
+            asset_key=accepted_key,
             entity_name=entity_name,
             finished=finished,
             entity_report=entity_report_json,
@@ -184,9 +210,16 @@ def _make_entity_asset(
                 metadata=metadata,
             )
 
-        yield MaterializeResult(metadata=metadata)
+        yield Output(value=None, output_name="accepted", metadata=metadata)
+        if has_rejected:
+            rejected_metadata = {
+                "run_id": finished.run_id,
+                "rejected": entity_stats.get("rejected"),
+                "status": finished.status,
+            }
+            yield Output(value=None, output_name="rejected", metadata=rejected_metadata)
 
-    return _asset
+    return _multi_asset
 
 
 def _load_summary_json(summary_uri: str, config_uri: str) -> dict[str, Any]:

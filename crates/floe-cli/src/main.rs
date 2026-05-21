@@ -2,9 +2,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
     add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
     load_config_with_profile_overrides, load_config_with_profile_vars, parse_profile,
-    reset_entity_state_with_base, resolve_config_location, run_with_base, set_observer,
-    validate_profile, validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunEvent,
-    RunOptions, ValidateOptions,
+    reset_entity_state_with_base, resolve_config_location, run_with_base, run_with_manifest_path,
+    set_observer, validate_profile, validate_with_base, AddEntityOptions, FloeResult,
+    MultiObserver, RunEvent, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -131,8 +131,19 @@ enum Command {
     },
     #[command(about = "Run the ingestion pipeline", long_about = RUN_LONG_ABOUT)]
     Run {
-        #[arg(short, long, help = "Path or URI to the Floe config file")]
-        config: String,
+        #[arg(
+            short,
+            long,
+            conflicts_with = "manifest",
+            help = "Path or URI to the Floe config file"
+        )]
+        config: Option<String>,
+        #[arg(
+            long,
+            conflicts_with = "config",
+            help = "Path to a self-contained Floe manifest JSON file"
+        )]
+        manifest: Option<String>,
         #[arg(long, help = "Optional run id (defaults to a generated value)")]
         run_id: Option<String>,
         #[arg(
@@ -402,6 +413,7 @@ fn main() -> FloeResult<()> {
         }
         Command::Run {
             config,
+            manifest,
             run_id,
             entities,
             quiet,
@@ -413,6 +425,104 @@ fn main() -> FloeResult<()> {
             let started_at = floe_core::report::now_rfc3339();
             let computed_run_id =
                 run_id.unwrap_or_else(|| floe_core::report::run_id_from_timestamp(&started_at));
+
+            // Build log observer early so failure paths can emit directly to it.
+            let log_obs = logging::build_log_observer(log_format.clone());
+
+            if let Some(manifest_path_str) = manifest {
+                // --- Manifest mode: no config file, no profile ---
+                let manifest_path = std::path::PathBuf::from(&manifest_path_str);
+
+                // Wire up lineage from manifest's embedded lineage block.
+                let lineage_observer = {
+                    let json = std::fs::read_to_string(&manifest_path).ok();
+                    json.and_then(|j| floe_core::config_from_manifest_json(&j).ok())
+                        .and_then(|(cfg, _)| cfg.lineage)
+                        .and_then(|lineage_cfg| {
+                            match floe_core::lineage::build_observer(&lineage_cfg, &[]) {
+                                Ok(obs) => Some(obs),
+                                Err(err) => {
+                                    eprintln!("Warning: lineage observer disabled: {err}");
+                                    None
+                                }
+                            }
+                        })
+                };
+                let mut obs_vec = Vec::new();
+                let has_log_obs = log_obs.is_some();
+                if let Some(log) = log_obs {
+                    obs_vec.push(log);
+                }
+                if let Some(lin) = lineage_observer {
+                    obs_vec.push(lin);
+                }
+                if !has_log_obs && !obs_vec.is_empty() {
+                    obs_vec.push(logging::build_warn_sink());
+                }
+                if !obs_vec.is_empty() {
+                    let _ = set_observer(std::sync::Arc::new(MultiObserver::new(obs_vec)));
+                }
+
+                let options = RunOptions {
+                    run_id: Some(computed_run_id.clone()),
+                    entities,
+                    dry_run,
+                    profile: None,
+                };
+
+                let outcome = match run_with_manifest_path(&manifest_path, options) {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        if !floe_core::run::events::is_run_started() {
+                            floe_core::run::events::default_observer().on_event(
+                                RunEvent::RunStarted {
+                                    run_id: computed_run_id.clone(),
+                                    config: manifest_path_str.clone(),
+                                    report_base: None,
+                                    ts_ms: floe_core::run::events::event_time_ms(),
+                                },
+                            );
+                        }
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
+                let mode = if quiet {
+                    output::OutputMode::Quiet
+                } else if verbose {
+                    output::OutputMode::Verbose
+                } else {
+                    output::OutputMode::Default
+                };
+                let summary = output::format_run_output(&outcome, mode, dry_run);
+                match log_format {
+                    LogFormat::Json => {
+                        let mut err = std::io::stderr().lock();
+                        let _ = writeln!(err, "{summary}");
+                        let _ = err.flush();
+                    }
+                    LogFormat::Text | LogFormat::Off => {
+                        let mut out = std::io::stdout().lock();
+                        let _ = writeln!(out, "{summary}");
+                        let _ = out.flush();
+                    }
+                }
+                std::process::exit(outcome.summary.run.exit_code);
+            }
+
+            // --- Config mode (default) ---
+            let config = match config {
+                Some(c) => c,
+                None => {
+                    let mut err_out = std::io::stderr().lock();
+                    let _ = writeln!(err_out, "Error: one of --config or --manifest is required");
+                    let _ = err_out.flush();
+                    std::process::exit(1);
+                }
+            };
 
             let profile_config = if let Some(ref profile_path) = profile {
                 let path = std::path::Path::new(profile_path);
@@ -443,10 +553,6 @@ fn main() -> FloeResult<()> {
                 .as_ref()
                 .map(|p| p.variables.clone())
                 .unwrap_or_default();
-
-            // Build log observer early (before set_observer) so early failure
-            // paths can emit directly to it without going through the global observer.
-            let log_obs = logging::build_log_observer(log_format.clone());
 
             let options = RunOptions {
                 run_id: Some(computed_run_id.clone()),

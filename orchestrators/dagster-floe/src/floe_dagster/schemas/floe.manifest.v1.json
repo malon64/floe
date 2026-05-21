@@ -400,6 +400,24 @@
         }
       }
     },
+    "storages": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "catalogs": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "lineage": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "entities": {
       "type": "array",
       "items": {
@@ -465,6 +483,83 @@
               "string",
               "null"
             ]
+          },
+          "policy_severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "warn",
+              "reject",
+              "abort",
+              null
+            ]
+          },
+          "write_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incremental_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pii": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "schema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "primary_key": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unique_keys": {
+                "type": "array"
+              },
+              "normalize_columns": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "mismatch": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "schema_evolution": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
           },
           "source": {
             "type": "object",
@@ -576,6 +671,45 @@
         },
         "resolved": {
           "type": "boolean"
+        },
+        "options": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "partition_by": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "merge": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "iceberg": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "delta": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "write_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

@@ -445,7 +445,7 @@ fn incremental_file_mode_overwrite_noop_preserves_accepted_output() {
 }
 
 #[test]
-fn incremental_file_mode_does_not_commit_state_after_unsuccessful_entity() {
+fn incremental_file_mode_commits_state_after_rejected_entity() {
     let root = tempfile::TempDir::new().expect("temp dir");
     let input_dir = root.path().join("in");
     let accepted_dir = root.path().join("out/accepted");
@@ -469,9 +469,49 @@ fn incremental_file_mode_does_not_commit_state_after_unsuccessful_entity() {
 
     let outcome = run_config(&config_path, "incremental-rejected");
     assert_eq!(outcome.summary.run.status, RunStatus::Rejected);
-    assert!(read_entity_state(&state_path(&input_dir))
+    let state = read_entity_state(&state_path(&input_dir))
         .expect("read state")
-        .is_none());
+        .expect("state should be committed after a rejected terminal outcome");
+    assert_eq!(
+        state.files.len(),
+        1,
+        "rejected file should be in committed state"
+    );
+}
+
+#[test]
+fn incremental_file_mode_does_not_commit_state_after_aborted_entity() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let rejected_dir = root.path().join("out/rejected");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    // CSV is missing the required "name" column; with severity:abort + reject_file mismatch
+    // the file-level schema error produces FileStatus::Aborted.
+    write_csv(&input_dir, "customers.csv", "id\n1\n");
+    let mismatch_block = "      mismatch:\n        missing_columns: \"reject_file\"\n";
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            Some(&rejected_dir),
+            &report_dir,
+            "abort",
+            mismatch_block,
+            None,
+        ),
+    );
+
+    let outcome = run_config(&config_path, "incremental-aborted");
+    assert_eq!(outcome.summary.run.status, RunStatus::Aborted);
+    assert!(
+        read_entity_state(&state_path(&input_dir))
+            .expect("read state")
+            .is_none(),
+        "state should not be committed after an aborted run"
+    );
 }
 
 #[test]

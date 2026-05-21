@@ -367,7 +367,9 @@ pub(super) fn run_entity(
         );
         if matches!(
             status,
-            report::RunStatus::Success | report::RunStatus::SuccessWithWarnings
+            report::RunStatus::Success
+                | report::RunStatus::SuccessWithWarnings
+                | report::RunStatus::Rejected
         ) {
             pending_state.commit(context, runtime.storage(), entity)?;
         } else {

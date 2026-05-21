@@ -73,7 +73,7 @@ floe run      -c config.yml   # run the pipeline
 | S3 storage | [docs/storages/s3.md](docs/storages/s3.md) |
 | ADLS storage | [docs/storages/adls.md](docs/storages/adls.md) |
 | GCS storage | [docs/storages/gcs.md](docs/storages/gcs.md) |
-| Incremental ingestion | [docs/profiles.md](docs/profiles.md) |
+| Environement specific profile config | [docs/profiles.md](docs/profiles.md) [docs/variables.md](docs/variables.md) |
 | Run reports | [docs/report.md](docs/report.md) |
 | CLI reference | [docs/cli.md](docs/cli.md) |
 | Orchestration (Dagster / Airflow) | [docs/summary.md](docs/summary.md) |

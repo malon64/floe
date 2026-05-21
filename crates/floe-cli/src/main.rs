@@ -404,7 +404,17 @@ fn main() -> FloeResult<()> {
                         }
                         println!("  Severity: {}", entity.policy.severity);
                     }
-                    println!("Next: floe run -c {}", config_location.display);
+                    if let Some(ref p) = profile {
+                        let profile_display = std::fs::canonicalize(p)
+                            .map(|c| c.display().to_string())
+                            .unwrap_or_else(|_| p.clone());
+                        println!(
+                            "Next: floe run -c {} -p {}",
+                            config_location.display, profile_display
+                        );
+                    } else {
+                        println!("Next: floe run -c {}", config_location.display);
+                    }
                     let _ = std::io::stdout().lock().flush();
                     Ok(())
                 }

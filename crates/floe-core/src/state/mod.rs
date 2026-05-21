@@ -376,13 +376,12 @@ pub fn inspect_entity_state(
     })
 }
 
-pub fn reset_entity_state_with_base(
-    config_path: &Path,
+pub fn reset_entity_state(
+    config: &RootConfig,
     config_base: ConfigBase,
     entity_name: &str,
 ) -> FloeResult<bool> {
-    let config = crate::load_config(config_path)?;
-    let (entity, path) = resolve_entity_state_target(&config, config_base.clone(), entity_name)?;
+    let (entity, path) = resolve_entity_state_target(config, config_base.clone(), entity_name)?;
     let target = state_target_from_resolved(&path)?;
     match target {
         EntityStateTarget::Local { path, .. } => {
@@ -394,7 +393,7 @@ pub fn reset_entity_state_with_base(
         }
         EntityStateTarget::Remote { storage, uri } => {
             let mut cloud = CloudClient::new();
-            let resolver = StorageResolver::new(&config, config_base)?;
+            let resolver = StorageResolver::new(config, config_base)?;
             let client = cloud.client_for_context(
                 &resolver,
                 &storage,
@@ -412,6 +411,15 @@ pub fn reset_entity_state_with_base(
             }
         }
     }
+}
+
+pub fn reset_entity_state_with_base(
+    config_path: &Path,
+    config_base: ConfigBase,
+    entity_name: &str,
+) -> FloeResult<bool> {
+    let config = crate::load_config(config_path)?;
+    reset_entity_state(&config, config_base, entity_name)
 }
 
 fn resolve_entity_state_target<'a>(

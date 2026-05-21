@@ -1,10 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use floe_core::{
-    add_entity_to_config, build_common_manifest_json, inspect_entity_state_with_base,
-    load_config_with_profile_overrides, parse_profile, reset_entity_state_with_base,
-    resolve_config_location, run_with_base, run_with_manifest_path, set_observer, validate_profile,
-    validate_with_base, AddEntityOptions, FloeResult, MultiObserver, RunEvent, RunOptions,
-    ValidateOptions,
+    add_entity_to_config, build_common_manifest_json, inspect_entity_state,
+    load_config_with_profile_overrides, parse_profile, reset_entity_state, resolve_config_location,
+    run_with_base, run_with_manifest_path, set_observer, validate_profile, validate_with_base,
+    AddEntityOptions, FloeResult, MultiObserver, RunEvent, RunOptions, ValidateOptions,
 };
 use std::io::Write;
 
@@ -91,7 +90,9 @@ const STATE_LONG_ABOUT: &str = concat!(
     "\n",
     "Examples:\n",
     "  floe state inspect -c example/config.yml --entity customers\n",
+    "  floe state inspect -c example/config.yml -p profiles/local.yml --entity customers\n",
     "  floe state reset -c example/config.yml --entity customers --yes\n",
+    "  floe state reset -c example/config.yml -p profiles/local.yml --entity customers --yes\n",
 );
 
 mod logging;
@@ -226,6 +227,12 @@ enum StateCommand {
         config: String,
         #[arg(long, help = "Entity name")]
         entity: String,
+        #[arg(
+            short = 'p',
+            long,
+            help = "Optional path to a Floe environment profile YAML file"
+        )]
+        profile: Option<String>,
     },
     #[command(about = "Reset entity state")]
     Reset {
@@ -235,6 +242,12 @@ enum StateCommand {
         entity: String,
         #[arg(long, help = "Required confirmation to delete the state object")]
         yes: bool,
+        #[arg(
+            short = 'p',
+            long,
+            help = "Optional path to a Floe environment profile YAML file"
+        )]
+        profile: Option<String>,
     },
 }
 
@@ -846,10 +859,17 @@ fn main() -> FloeResult<()> {
             Ok(())
         }
         Command::State { command } => match command {
-            StateCommand::Inspect { config, entity } => {
+            StateCommand::Inspect {
+                config,
+                entity,
+                profile,
+            } => {
+                let parsed_profile = load_state_profile(profile);
                 let config_location = resolve_or_exit(&config);
-                let inspection = match inspect_entity_state_with_base(
-                    &config_location.path,
+                let effective_config =
+                    load_effective_config_for_state(&config_location, parsed_profile);
+                let inspection = match inspect_entity_state(
+                    &effective_config,
                     config_location.base.clone(),
                     &entity,
                 ) {
@@ -892,6 +912,7 @@ fn main() -> FloeResult<()> {
                 config,
                 entity,
                 yes,
+                profile,
             } => {
                 if !yes {
                     exit_with_error(Box::new(std::io::Error::new(
@@ -900,17 +921,20 @@ fn main() -> FloeResult<()> {
                     )));
                 }
 
+                let parsed_profile = load_state_profile(profile);
                 let config_location = resolve_or_exit(&config);
-                let removed = match reset_entity_state_with_base(
-                    &config_location.path,
+                let effective_config =
+                    load_effective_config_for_state(&config_location, parsed_profile);
+                let removed = match reset_entity_state(
+                    &effective_config,
                     config_location.base.clone(),
                     &entity,
                 ) {
                     Ok(removed) => removed,
                     Err(err) => exit_with_error(err),
                 };
-                let inspection = match inspect_entity_state_with_base(
-                    &config_location.path,
+                let inspection = match inspect_entity_state(
+                    &effective_config,
                     config_location.base.clone(),
                     &entity,
                 ) {
@@ -945,4 +969,47 @@ fn exit_with_error(err: Box<dyn std::error::Error + Send + Sync>) -> ! {
     let _ = writeln!(err_out, "Error: {err}");
     let _ = err_out.flush();
     std::process::exit(1);
+}
+
+fn load_state_profile(profile: Option<String>) -> Option<floe_core::ProfileConfig> {
+    let profile_path = profile?;
+    let path = std::path::Path::new(&profile_path);
+    let parsed = match parse_profile(path) {
+        Ok(p) => p,
+        Err(err) => exit_with_error(err),
+    };
+    if let Err(err) = validate_profile(&parsed) {
+        exit_with_error(err);
+    }
+    Some(parsed)
+}
+
+fn load_effective_config_for_state(
+    config_location: &floe_core::ConfigLocation,
+    parsed_profile: Option<floe_core::ProfileConfig>,
+) -> floe_core::config::RootConfig {
+    let profile_vars = if let Some(ref parsed) = parsed_profile {
+        let config_env_vars =
+            floe_core::extract_config_env_vars(&config_location.path).unwrap_or_default();
+        match floe_core::resolve_vars(floe_core::VarSources {
+            profile: &parsed.variables,
+            cli: &std::collections::HashMap::new(),
+            config: &config_env_vars,
+        }) {
+            Ok(vars) => vars,
+            Err(err) => exit_with_error(err),
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+    match load_config_with_profile_overrides(
+        &config_location.path,
+        &profile_vars,
+        parsed_profile.as_ref().and_then(|p| p.catalogs.as_ref()),
+        parsed_profile.as_ref().and_then(|p| p.storages.as_ref()),
+        parsed_profile.as_ref().and_then(|p| p.lineage.as_ref()),
+    ) {
+        Ok(config) => config,
+        Err(err) => exit_with_error(err),
+    }
 }

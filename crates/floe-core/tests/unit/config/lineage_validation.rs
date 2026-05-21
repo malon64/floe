@@ -1,4 +1,5 @@
-use floe_core::{validate, ValidateOptions};
+use floe_core::config::LineageConfig;
+use floe_core::{load_config_with_profile_overrides, validate, ValidateOptions};
 
 use super::super::common::write_temp_config;
 
@@ -151,4 +152,50 @@ entities:
 "#;
     let path = write_temp_config(config);
     validate(&path, ValidateOptions::default()).expect("max_failures: 5 should be valid");
+}
+
+// Regression test for issue #316: load_config_with_profile_overrides must merge
+// a lineage block that exists only in the profile, not the base config.
+#[test]
+fn profile_lineage_overrides_empty_config() {
+    let base = r#"version: "0.1"
+report:
+  path: "/tmp/reports"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "/tmp/input"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "/tmp/out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let path = write_temp_config(base);
+    let profile_lineage = LineageConfig {
+        url: "http://localhost:5000".to_string(),
+        namespace: "floe-demo-local".to_string(),
+        api_key: None,
+        timeout_secs: Some(2),
+        producer: None,
+        max_failures: None,
+    };
+    let config = load_config_with_profile_overrides(
+        &path,
+        &std::collections::HashMap::new(),
+        None,
+        None,
+        Some(&profile_lineage),
+    )
+    .expect("config with profile lineage override should parse");
+
+    let lineage = config.lineage.expect("lineage should be set from profile");
+    assert_eq!(lineage.url, "http://localhost:5000");
+    assert_eq!(lineage.namespace, "floe-demo-local");
 }

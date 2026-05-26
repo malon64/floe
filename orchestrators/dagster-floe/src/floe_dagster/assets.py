@@ -69,6 +69,15 @@ def build_floe_asset_defs(
         )
 
     source_assets = _build_source_assets(entity_items)
+    entity_key_set = {tuple(e.asset_key) for e in entity_items}
+    for sa in source_assets:
+        sk = tuple(sa.key.path)
+        if sk in entity_key_set:
+            collision = "/".join(sa.key.path)
+            raise ValueError(
+                f"duplicate asset key {collision!r}: generated source key collides with "
+                f"an existing entity key in {manifest_path}"
+            )
     return assets_defs, source_assets, entity_items
 
 
@@ -88,13 +97,20 @@ def _has_rejected_asset(entity: ManifestEntity) -> bool:
     return entity.rejected_sink_uri is not None
 
 
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _count_files_with_rejections(report: dict[str, Any]) -> int:
     files = report.get("files")
     if not isinstance(files, list):
         return 0
     return sum(
         1 for f in files
-        if isinstance(f, dict) and (f.get("rejected_count") or 0) > 0
+        if isinstance(f, dict) and _safe_int(f.get("rejected_count")) > 0
     )
 
 
@@ -114,9 +130,11 @@ def _dominant_rejection_reason(report: dict[str, Any]) -> str | None:
             if not isinstance(rule, dict):
                 continue
             name = rule.get("rule") or ""
-            violations = rule.get("violations") or 0
-            if isinstance(violations, (int, float)) and violations > 0 and name:
-                counts[name] = counts.get(name, 0) + int(violations)
+            if not isinstance(name, str) or not name:
+                continue
+            violations = _safe_int(rule.get("violations"))
+            if violations > 0:
+                counts[name] = counts.get(name, 0) + violations
     if not counts:
         return None
     return max(counts, key=lambda k: counts[k])

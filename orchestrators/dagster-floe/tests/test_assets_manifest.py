@@ -328,3 +328,35 @@ def test_dominant_rejection_reason_rules_is_null() -> None:
 def test_dominant_rejection_reason_non_dict_rule_element() -> None:
     report = {"files": [{"validation": {"rules": [None, {"rule": "not_null", "violations": 1}]}}]}
     assert _dominant_rejection_reason(report) == "not_null"
+
+
+# ── schema-drift / type-coercion edge cases ───────────────────────────────────
+
+def test_count_files_with_rejections_string_count() -> None:
+    """rejected_count as string (schema drift) is coerced to int."""
+    report = {"files": [{"rejected_count": "2"}, {"rejected_count": "0"}]}
+    assert _count_files_with_rejections(report) == 1
+
+
+def test_dominant_rejection_reason_list_rule_name() -> None:
+    """Non-string rule name is skipped without raising TypeError."""
+    report = {"files": [{"validation": {"rules": [{"rule": ["cast_error"], "violations": 1}]}}]}
+    assert _dominant_rejection_reason(report) is None
+
+
+def test_build_floe_asset_defs_raises_on_intra_manifest_source_key_collision(tmp_path) -> None:
+    """build_floe_asset_defs raises ValueError when a generated source key matches an entity key."""
+    import json
+
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    employees = payload["entities"][0]
+    payload["entities"].append({
+        **employees,
+        "name": "employees_source",
+        "asset_key": employees["asset_key"][:-1] + [employees["asset_key"][-1] + "_source"],
+    })
+    manifest_path = tmp_path / "manifest.collision.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate asset key"):
+        build_floe_asset_defs(manifest_path=str(manifest_path), runner=_NoopRunner())

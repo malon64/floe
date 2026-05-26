@@ -267,7 +267,7 @@ fn entity_complete_event_has_source_input_and_accepted_output() {
         .match_body(mockito::Matcher::AllOf(vec![
             mockito::Matcher::PartialJson(json!({
                 "eventType": "COMPLETE",
-                "inputs": [{ "name": "orders_source" }],
+                "inputs": [{ "namespace": "test-ns.source", "name": "orders" }],
                 "outputs": [{ "name": "orders" }]
             })),
         ]))
@@ -302,10 +302,10 @@ fn entity_complete_event_includes_rejected_output_when_configured() {
         .match_body(mockito::Matcher::AllOf(vec![
             mockito::Matcher::PartialJson(json!({
                 "eventType": "COMPLETE",
-                "inputs": [{ "name": "orders_source" }],
+                "inputs": [{ "namespace": "test-ns.source", "name": "orders" }],
                 "outputs": [
-                    { "name": "orders" },
-                    { "name": "orders_rejected" }
+                    { "namespace": "test-ns", "name": "orders" },
+                    { "namespace": "test-ns.rejected", "name": "orders" }
                 ]
             })),
         ]))
@@ -340,7 +340,8 @@ fn source_dataset_has_symlinks_with_directory_type() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "name": "orders_source",
+                "namespace": "test-ns.source",
+                "name": "orders",
                 "facets": {
                     "symlinks": {
                         "identifiers": [{ "name": "/data/in/", "type": "DIRECTORY" }]
@@ -495,7 +496,8 @@ fn rejected_dq_reflects_rejected_rows_only() {
             "outputs": [
                 {},
                 {
-                    "name": "orders_rejected",
+                    "namespace": "test-ns.rejected",
+                    "name": "orders",
                     "facets": {
                         "dataQualityMetrics": {
                             "rowCount": 10_u64,
@@ -594,7 +596,8 @@ fn split_storage_uri_s3() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "name": "orders_source",
+                "namespace": "test-ns.source",
+                "name": "orders",
                 "facets": {
                     "symlinks": {
                         "identifiers": [{
@@ -642,7 +645,8 @@ fn split_storage_uri_adls() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "name": "orders_source",
+                "namespace": "test-ns.source",
+                "name": "orders",
                 "facets": {
                     "symlinks": {
                         "identifiers": [{

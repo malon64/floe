@@ -222,11 +222,11 @@ impl OpenLineageObserver {
                     0.0
                 };
 
-                // Input: source dataset — logical name + symlinks facet pointing to the real path.
+                // Input: source dataset — sub-namespace avoids collision with real entity names.
                 let (src_ns, src_path) = split_storage_uri(&u.source);
                 let inputs = json!([{
-                    "namespace": self.config.namespace,
-                    "name": format!("{name}_source"),
+                    "namespace": format!("{}.source", self.config.namespace),
+                    "name": name,
                     "facets": {
                         "symlinks": symlinks_facet(self.producer(), &src_ns, &src_path, "DIRECTORY")
                     }
@@ -280,8 +280,8 @@ impl OpenLineageObserver {
                         "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
                     });
                     out.push(json!({
-                        "namespace": self.config.namespace,
-                        "name": format!("{name}_rejected"),
+                        "namespace": format!("{}.rejected", self.config.namespace),
+                        "name": name,
                         "facets": {
                             "symlinks": symlinks_facet(self.producer(), &rej_ns, &rej_path, "DIRECTORY"),
                             "dataQualityMetrics": rejected_dq_facet
@@ -347,11 +347,10 @@ fn split_storage_uri(uri: &str) -> (String, String) {
     };
     let cloud_prefixes = ["s3://", "gs://", "gcs://", "az://", "abfss://"];
     for prefix in cloud_prefixes {
-        if normalized.starts_with(prefix) {
-            let after_scheme = &normalized[prefix.len()..];
+        if let Some(after_scheme) = normalized.strip_prefix(prefix) {
             if let Some(slash) = after_scheme.find('/') {
                 let authority = normalized[..prefix.len() + slash].to_string();
-                let path = normalized[prefix.len() + slash..].to_string();
+                let path = after_scheme[slash..].to_string();
                 return (authority, path);
             }
             return (normalized, "/".to_string());

@@ -19,6 +19,7 @@ def build_runner_from_env() -> Runner:
 def build_definitions(
     *,
     manifest_path: str,
+    manifest_uri: str | None = None,
     entities: list[str] | None = None,
     runner: Runner | None = None,
     with_job: bool = True,
@@ -26,6 +27,7 @@ def build_definitions(
 ) -> Definitions:
     return build_definitions_from_manifest_paths(
         manifest_paths=[manifest_path],
+        manifest_uri=manifest_uri,
         entities=entities,
         runner=runner,
         with_job=with_job,
@@ -59,6 +61,7 @@ def build_definitions_from_manifest_dir(
 def build_definitions_from_manifest_paths(
     *,
     manifest_paths: Iterable[str],
+    manifest_uri: str | None = None,
     entities: list[str] | None = None,
     runner: Runner | None = None,
     with_job: bool = True,
@@ -81,6 +84,7 @@ def build_definitions_from_manifest_paths(
         selected_entities = None if entities is None else list(entities)
         manifest_assets, manifest_source_assets, manifest_entities = build_floe_asset_defs(
             manifest_path=manifest_path,
+            manifest_uri=manifest_uri,
             runner=runner_impl,
             entities=selected_entities,
         )

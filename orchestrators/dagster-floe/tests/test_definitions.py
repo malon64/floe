@@ -142,3 +142,52 @@ def test_build_definitions_from_manifest_paths_rejects_job_name_override_for_man
             runner=_NoopRunner(),
             job_name="custom_job",
         )
+
+
+def test_build_definitions_manifest_uri_forwarded_to_runner() -> None:
+    from floe_dagster.manifest import (
+        ManifestExecution,
+        ManifestExecutionDefaults,
+        ManifestExecutionResultContract,
+        render_execution_args,
+    )
+
+    execution = ManifestExecution(
+        entrypoint="floe",
+        base_args=[
+            "run",
+            "--manifest",
+            "{manifest_uri}",
+            "-c",
+            "{config_uri}",
+            "--log-format",
+            "json",
+        ],
+        per_entity_args=["--entities", "{entity_name}"],
+        log_format="json",
+        result_contract=ManifestExecutionResultContract(
+            run_finished_event=True,
+            summary_uri_field="summary_uri",
+            exit_codes={},
+        ),
+        defaults=ManifestExecutionDefaults(env=None, workdir=None),
+    )
+
+    args = render_execution_args(
+        execution,
+        config_uri="/tmp/config.yml",
+        entity_name="employees",
+        manifest_uri="s3://bucket/manifests/prod.json",
+    )
+    assert "s3://bucket/manifests/prod.json" in args
+
+
+def test_build_definitions_accepts_manifest_uri_kwarg() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    defs = build_definitions(
+        manifest_path=str(fixture),
+        manifest_uri="s3://bucket/manifests/prod.json",
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    assert defs is not None

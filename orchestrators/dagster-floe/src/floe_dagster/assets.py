@@ -37,18 +37,25 @@ def load_floe_assets(
     runner: Runner,
     entities: list[str] | None = None,
     register_source_assets: bool = True,
+    manifest_uri: str | None = None,
 ) -> Definitions:
     """Build a Dagster Definitions for the given manifest.
 
     register_source_assets: if False, skip SourceAsset registration for source keys.
         Set to False when another Dagster pipeline in the same workspace already
         materialises those keys to avoid asset key conflicts.
+
+    manifest_uri: optional runtime URI passed as {manifest_uri} into the execution
+        args for kubernetes_job and databricks_job runners. When omitted, manifest_path
+        is used. Set this when the Dagster code server loads the manifest from a local
+        path but the runner pod must reference it via object storage (e.g. s3://).
     """
     assets_defs, source_assets, _selected_entities = build_floe_asset_defs(
         manifest_path=manifest_path,
         runner=runner,
         entities=entities,
         register_source_assets=register_source_assets,
+        manifest_uri=manifest_uri,
     )
     return Definitions(assets=[*assets_defs, *source_assets])
 
@@ -58,6 +65,7 @@ def build_floe_asset_defs(
     runner: Runner,
     entities: list[str] | None = None,
     register_source_assets: bool = True,
+    manifest_uri: str | None = None,
 ) -> tuple[list[Any], list[SourceAsset], list[ManifestEntity]]:
     manifest = load_manifest(manifest_path)
     config_uri = resolve_config_uri(manifest_path, manifest.config_uri)
@@ -71,6 +79,7 @@ def build_floe_asset_defs(
                 entity=entity,
                 config_uri=config_uri,
                 manifest_path=manifest_path,
+                manifest_uri=manifest_uri,
                 runner=runner,
                 execution=manifest.execution,
                 runner_definition=runner_definition,
@@ -154,6 +163,7 @@ def _make_entity_multi_asset(
     entity: ManifestEntity,
     config_uri: str,
     manifest_path: str,
+    manifest_uri: str | None = None,
     runner: Runner,
     execution: ManifestExecution,
     runner_definition: ManifestRunnerDefinition,
@@ -189,7 +199,7 @@ def _make_entity_multi_asset(
         dagster_job_name = getattr(run, "job_name", None) if run is not None else None
         result = runner.run_floe_entity(
             config_uri=config_uri,
-            manifest_uri=manifest_path,
+            manifest_uri=manifest_uri or manifest_path,
             run_id=run_id,
             entity=entity_name,
             log_format=execution.log_format,

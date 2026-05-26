@@ -176,3 +176,38 @@ def test_manifest_schema_accepts_databricks_runner_fields(tmp_path: Path):
     assert runner.runner_type == "databricks_job"
     assert runner.command == ["floe"]
     assert runner.workspace_url == "https://adb-1234.5.azuredatabricks.net"
+
+
+def test_load_manifest_remote_uri_raises_if_fsspec_missing(monkeypatch) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "fsspec", None)
+    with pytest.raises(ImportError, match="fsspec"):
+        load_manifest("s3://bucket/manifest.json")
+
+
+def test_load_manifest_remote_uri_uses_fsspec(monkeypatch) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    manifest_text = fixture.read_text(encoding="utf-8")
+
+    class _FakeFile:
+        def __init__(self, text):
+            self._text = text
+
+        def read(self):
+            return self._text
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    import types
+
+    fake_fsspec = types.ModuleType("fsspec")
+    fake_fsspec.open = lambda uri, *args, **kwargs: _FakeFile(manifest_text)
+    monkeypatch.setitem(__import__("sys").modules, "fsspec", fake_fsspec)
+
+    result = load_manifest("s3://bucket/test/manifest.json")
+    assert result.manifest_id

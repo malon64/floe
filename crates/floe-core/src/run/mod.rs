@@ -104,9 +104,11 @@ pub(crate) fn run_with_manifest_runtime(
     runtime: &mut dyn Runtime,
 ) -> FloeResult<RunOutcome> {
     init_thread_pool();
-    let json = std::fs::read_to_string(manifest_path)?;
+    let manifest_str = manifest_path.to_string_lossy();
+    let location = config::resolve_config_location(&manifest_str)?;
+    let json = std::fs::read_to_string(&location.path)?;
     let (config, report_base_uri) = crate::manifest::config_from_manifest_json(&json)?;
-    let config_base = config::ConfigBase::local_from_path(manifest_path);
+    let config_base = location.base.clone();
     if !options.entities.is_empty() {
         validate_entities(&config, &options.entities)?;
     }

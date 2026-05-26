@@ -25,8 +25,9 @@ class _StaticRunner(Runner):
         execution=None,
         runner_definition=None,
         manifest_uri: str | None = None,
+        dagster_job_name: str | None = None,
     ) -> RunResult:
-        del config_uri, run_id, entity, log_format, execution, runner_definition, manifest_uri
+        del config_uri, run_id, entity, log_format, execution, runner_definition, manifest_uri, dagster_job_name
         return self._result
 
 

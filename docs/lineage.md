@@ -15,16 +15,18 @@ lineage:
   api_key: "{{OPENLINEAGE_API_KEY}}"   # optional — Bearer token
   timeout_secs: 5                       # optional, default 5
   producer: "https://github.com/myorg/floe"  # optional
+  job_name: "orders_ingestion"          # optional
 ```
 
-| Field            | Required | Description                                                          |
-|------------------|----------|----------------------------------------------------------------------|
-| `url`            | yes      | Base URL of the OpenLineage-compatible endpoint                      |
-| `namespace`      | yes      | OpenLineage namespace used for all jobs and datasets in this run     |
-| `api_key`        | no       | Bearer token sent in the `Authorization` header                      |
-| `timeout_secs`   | no       | HTTP request timeout in seconds (default: `5`)                       |
-| `producer`       | no       | URI identifying this producer (default: the Floe GitHub URL)        |
-| `max_failures`   | no       | Consecutive failures before the circuit opens (default: `3`)        |
+| Field          | Required | Description |
+|----------------|----------|-------------|
+| `url`          | yes      | Base URL of the OpenLineage-compatible endpoint |
+| `namespace`    | yes      | OpenLineage namespace used for all jobs and datasets in this run |
+| `api_key`      | no       | Bearer token sent in the `Authorization` header |
+| `timeout_secs` | no       | HTTP request timeout in seconds (default: `5`) |
+| `producer`     | no       | URI identifying this producer. Defaults to the versioned release URL for the current build (e.g. `https://github.com/malon64/floe/releases/tag/v0.4.2`). |
+| `max_failures` | no       | Consecutive failures before the circuit opens (default: `3`) |
+| `job_name`     | no       | Stable OpenLineage job name for top-level `RunStarted`/`RunFinished` events. Defaults to the config file stem (e.g. `orders.yml` → `orders`), fallback `floe-run`. Use this to group multiple runs under the same Marquez job node. |
 
 `api_key` supports `{{VAR}}` placeholder expansion via the same profile and
 env-vars mechanism used for the rest of the config.

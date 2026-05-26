@@ -462,7 +462,7 @@ fn main() -> FloeResult<()> {
                     json.and_then(|j| floe_core::config_from_manifest_json(&j).ok())
                         .and_then(|(cfg, _)| cfg.lineage)
                         .and_then(|lineage_cfg| {
-                            match floe_core::lineage::build_observer(&lineage_cfg, &[]) {
+                            match floe_core::lineage::build_observer(&lineage_cfg, &[], "") {
                                 Ok(obs) => Some(obs),
                                 Err(err) => {
                                     eprintln!("Warning: lineage observer disabled: {err}");
@@ -632,7 +632,11 @@ fn main() -> FloeResult<()> {
                 .ok()
                 .and_then(|c| c.lineage.as_ref().map(|l| (l, c.entities.as_slice())))
                 .and_then(|(lineage_cfg, entities)| {
-                    match floe_core::lineage::build_observer(lineage_cfg, entities) {
+                    match floe_core::lineage::build_observer(
+                        lineage_cfg,
+                        entities,
+                        config_location.path.to_str().unwrap_or(""),
+                    ) {
                         Ok(obs) => Some(obs),
                         Err(err) => {
                             eprintln!("Warning: lineage observer disabled: {err}");

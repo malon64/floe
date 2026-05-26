@@ -6,7 +6,8 @@ from importlib import resources
 import json
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+import posixpath
+from urllib.parse import unquote, urlparse, urlunparse
 
 from jsonschema import Draft202012Validator
 
@@ -265,6 +266,12 @@ def resolve_config_uri(manifest_path: str | Path, config_uri: str) -> str:
     config_path = Path(config_uri)
     if config_path.is_absolute():
         return str(config_path)
+
+    manifest_str = str(manifest_path)
+    if _is_remote_uri(manifest_str):
+        parsed = urlparse(manifest_str)
+        new_path = posixpath.normpath(posixpath.join(posixpath.dirname(parsed.path), config_uri))
+        return urlunparse(parsed._replace(path=new_path, params="", query="", fragment=""))
 
     base = Path(manifest_path).resolve().parent
     return str((base / config_path).resolve())

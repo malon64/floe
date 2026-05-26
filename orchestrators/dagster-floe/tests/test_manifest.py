@@ -178,6 +178,16 @@ def test_manifest_schema_accepts_databricks_runner_fields(tmp_path: Path):
     assert runner.workspace_url == "https://adb-1234.5.azuredatabricks.net"
 
 
+def test_resolve_config_uri_with_remote_manifest_relative_path():
+    result = resolve_config_uri("s3://bucket/manifests/prod.json", "../configs/prod.yml")
+    assert result == "s3://bucket/configs/prod.yml"
+
+
+def test_resolve_config_uri_with_remote_manifest_same_dir():
+    result = resolve_config_uri("s3://bucket/manifests/prod.json", "prod.yml")
+    assert result == "s3://bucket/manifests/prod.yml"
+
+
 def test_load_manifest_remote_uri_raises_if_fsspec_missing(monkeypatch) -> None:
     import sys
 

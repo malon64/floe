@@ -131,6 +131,19 @@ def test_build_definitions_rejects_source_key_collision(tmp_path) -> None:
         )
 
 
+def test_build_definitions_from_manifest_paths_rejects_manifest_uri_for_many() -> None:
+    fixture_dir = Path(__file__).parent / "fixtures"
+    with pytest.raises(ValueError, match="manifest_uri override"):
+        build_definitions_from_manifest_paths(
+            manifest_paths=[
+                str((fixture_dir / "manifest_hr.json").resolve()),
+                str((fixture_dir / "manifest_sales.json").resolve()),
+            ],
+            runner=_NoopRunner(),
+            manifest_uri="s3://bucket/manifests/prod.json",
+        )
+
+
 def test_build_definitions_from_manifest_paths_rejects_job_name_override_for_many() -> None:
     fixture_dir = Path(__file__).parent / "fixtures"
     with pytest.raises(ValueError, match="job_name override"):

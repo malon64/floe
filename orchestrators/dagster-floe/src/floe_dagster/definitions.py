@@ -72,6 +72,8 @@ def build_definitions_from_manifest_paths(
         raise ValueError("manifest_paths cannot be empty")
     if job_name is not None and len(manifest_paths_list) != 1:
         raise ValueError("job_name override is only supported for a single manifest")
+    if manifest_uri is not None and len(manifest_paths_list) != 1:
+        raise ValueError("manifest_uri override is only supported for a single manifest")
 
     runner_impl = runner or build_runner_from_env()
     assets_defs: list[object] = []

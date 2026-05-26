@@ -306,7 +306,7 @@ impl OpenLineageObserver {
                             let entry = json!({
                                 "inputFields": [{
                                     "namespace": format!("{}.source", self.config.namespace),
-                                    "dataset": name,
+                                    "name": name,
                                     "field": src
                                 }]
                             });

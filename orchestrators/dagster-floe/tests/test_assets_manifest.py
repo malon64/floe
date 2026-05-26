@@ -238,6 +238,28 @@ def test_source_asset_group_matches_entity_group() -> None:
     assert source_assets[0].group_name == entities[0].group_name
 
 
+def test_register_source_assets_false_returns_empty_source_list() -> None:
+    """register_source_assets=False skips SourceAsset creation (opt-out for upstream pipelines)."""
+    _asset_defs, source_assets, _entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+        register_source_assets=False,
+    )
+    assert source_assets == []
+
+
+def test_load_floe_assets_register_source_assets_false() -> None:
+    """load_floe_assets passes register_source_assets=False through to build_floe_asset_defs."""
+    defs = load_floe_assets(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+        register_source_assets=False,
+    )
+    assert defs is not None
+
+
 # ── rejected metadata helpers ─────────────────────────────────────────────────
 
 def test_count_files_with_rejections_empty_report() -> None:

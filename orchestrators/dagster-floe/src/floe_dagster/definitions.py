@@ -79,16 +79,20 @@ def build_definitions_from_manifest_paths(
     for manifest_path in manifest_paths_list:
         manifest = load_manifest(manifest_path)
         selected_entities = None if entities is None else list(entities)
-        manifest_assets, manifest_entities = build_floe_asset_defs(
+        manifest_assets, manifest_source_assets, manifest_entities = build_floe_asset_defs(
             manifest_path=manifest_path,
             runner=runner_impl,
             entities=selected_entities,
         )
         assets_defs.extend(manifest_assets)
+        assets_defs.extend(manifest_source_assets)
         _validate_no_duplicate_asset_keys(
             seen_asset_keys=seen_asset_keys,
             manifest_path=manifest_path,
-            entity_asset_keys=[entity.asset_key for entity in manifest_entities],
+            entity_asset_keys=(
+                [entity.asset_key for entity in manifest_entities]
+                + [list(sa.key.path) for sa in manifest_source_assets]
+            ),
         )
 
         if with_job and manifest_entities:

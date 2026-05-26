@@ -248,7 +248,7 @@ def test_asset_emits_native_dagster_asset_checks_from_floe_reports(tmp_path: Pat
     )
 
     manifest_path = Path(__file__).parent / "fixtures" / "manifest.json"
-    assets_defs, _ = build_floe_asset_defs(
+    assets_defs, _source_assets, _ = build_floe_asset_defs(
         manifest_path=str(manifest_path),
         runner=_StaticRunner(stdout),
         entities=["employees"],

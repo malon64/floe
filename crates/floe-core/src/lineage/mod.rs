@@ -212,14 +212,28 @@ impl OpenLineageObserver {
             run_facets["parent"] = parent;
         }
 
-        // Build inputs: source dataset with schema and quality facets on COMPLETE/FAIL.
-        let inputs = match (stats.as_ref(), uris) {
+        // Build inputs/outputs based on whether stats and uris are present (COMPLETE/FAIL)
+        // or absent (START — keep both empty).
+        let (inputs, outputs) = match (stats.as_ref(), uris) {
             (Some(s), Some(u)) => {
                 let rejection_rate = if s.rows > 0 {
                     s.rejected as f64 / s.rows as f64
                 } else {
                     0.0
                 };
+
+                // Input: source dataset — sub-namespace avoids collision with real entity names.
+                let (src_ns, src_path) = split_storage_uri(&u.source);
+                let inputs = json!([{
+                    "namespace": format!("{}.source", self.config.namespace),
+                    "name": name,
+                    "facets": {
+                        "symlinks": symlinks_facet(self.producer(), &src_ns, &src_path, "DIRECTORY")
+                    }
+                }]);
+
+                // Accepted output: entity name as logical identifier, TABLE type.
+                let (acc_ns, acc_path) = split_storage_uri(&u.accepted);
                 let schema_facet = json!({
                     "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
                         json!({ "name": col_name, "type": col_type })
@@ -227,56 +241,57 @@ impl OpenLineageObserver {
                     "_producer": self.producer(),
                     "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
                 });
-                let dq_facet = json!({
-                    "rowCount": s.rows,
+                let accepted_dq_facet = json!({
+                    "rowCount": s.accepted,
                     "validCount": s.accepted,
-                    "invalidCount": s.rejected,
+                    "invalidCount": 0u64,
                     "_producer": self.producer(),
-                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsOutputDatasetFacet.json"
                 });
                 let floe_facet = json!({
                     "entity": name,
                     "rejectionRate": rejection_rate,
                     "files": s.files,
                     "rows": s.rows,
-                    "accepted": s.accepted,
-                    "rejected": s.rejected,
                     "warnings": s.warnings,
                     "errors": s.errors,
                     "_producer": self.producer(),
                     "_schemaURL": "https://github.com/malon64/floe/schemas/FloeQualityRunFacet.json"
                 });
-                json!([{
-                    "namespace": self.config.namespace,
-                    "name": u.source,
-                    "facets": {
-                        "schema": schema_facet,
-                        "dataQualityMetrics": dq_facet,
-                        "floeQualityRun": floe_facet
-                    }
-                }])
-            }
-            _ => json!([]),
-        };
-
-        // Build outputs: accepted sink always present; rejected sink when configured.
-        let outputs = match uris {
-            Some(u) => {
                 let mut out = vec![json!({
                     "namespace": self.config.namespace,
-                    "name": u.accepted,
-                    "facets": {}
+                    "name": name,
+                    "facets": {
+                        "symlinks": symlinks_facet(self.producer(), &acc_ns, &acc_path, "TABLE"),
+                        "schema": schema_facet,
+                        "dataQualityMetrics": accepted_dq_facet,
+                        "floeQualityRun": floe_facet
+                    }
                 })];
+
+                // Rejected output (when configured): DIRECTORY type, rejected-row quality metrics.
                 if let Some(ref rej) = u.rejected {
+                    let (rej_ns, rej_path) = split_storage_uri(rej);
+                    let rejected_dq_facet = json!({
+                        "rowCount": s.rejected,
+                        "validCount": 0u64,
+                        "invalidCount": s.rejected,
+                        "_producer": self.producer(),
+                        "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsOutputDatasetFacet.json"
+                    });
                     out.push(json!({
-                        "namespace": self.config.namespace,
-                        "name": rej,
-                        "facets": {}
+                        "namespace": format!("{}.rejected", self.config.namespace),
+                        "name": name,
+                        "facets": {
+                            "symlinks": symlinks_facet(self.producer(), &rej_ns, &rej_path, "DIRECTORY"),
+                            "dataQualityMetrics": rejected_dq_facet
+                        }
                     }));
                 }
-                json!(out)
+
+                (inputs, json!(out))
             }
-            None => json!([]),
+            _ => (json!([]), json!([])),
         };
 
         let body = json!({
@@ -322,6 +337,30 @@ fn ms_to_iso8601(ms: u128) -> String {
         }
         Err(_) => ms.to_string(),
     }
+}
+
+fn split_storage_uri(uri: &str) -> (String, String) {
+    // abfss:// must precede abfs:// so the longer prefix matches first.
+    let cloud_prefixes = ["s3://", "gs://", "gcs://", "az://", "abfss://", "abfs://"];
+    for prefix in cloud_prefixes {
+        if let Some(after_scheme) = uri.strip_prefix(prefix) {
+            if let Some(slash) = after_scheme.find('/') {
+                let authority = uri[..prefix.len() + slash].to_string();
+                let path = after_scheme[slash..].to_string();
+                return (authority, path);
+            }
+            return (uri.to_string(), "/".to_string());
+        }
+    }
+    ("file".to_string(), uri.to_string())
+}
+
+fn symlinks_facet(producer: &str, namespace: &str, name: &str, ds_type: &str) -> Value {
+    json!({
+        "identifiers": [{ "namespace": namespace, "name": name, "type": ds_type }],
+        "_producer": producer,
+        "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SymlinksDatasetFacet.json"
+    })
 }
 
 impl RunObserver for OpenLineageObserver {

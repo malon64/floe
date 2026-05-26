@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,51 @@ def test_build_definitions_from_manifest_paths_rejects_duplicate_asset_keys() ->
     with pytest.raises(ValueError, match="duplicate asset key"):
         build_definitions_from_manifest_paths(
             manifest_paths=[str(fixture.resolve()), str(fixture.resolve())],
+            runner=_NoopRunner(),
+        )
+
+
+def test_build_definitions_rejects_source_key_collision(tmp_path) -> None:
+    """Generated _source key must not collide with an existing entity key across manifests."""
+    base = json.loads(
+        (Path(__file__).parent / "fixtures" / "manifest_hr.json").read_text(encoding="utf-8")
+    )
+
+    # Manifest A: entity with key ["sales", "orders"] → generates source key ["sales", "orders_source"]
+    manifest_a = dict(base)
+    manifest_a["manifest_id"] = "manifest-a"
+    manifest_a["entities"] = [
+        {
+            **base["entities"][0],
+            "name": "orders",
+            "asset_key": ["sales", "orders"],
+            "accepted_sink_uri": "./out/accepted/orders",
+            "rejected_sink_uri": None,
+            "policy_severity": "warn",
+        }
+    ]
+    path_a = tmp_path / "manifest_a.json"
+    path_a.write_text(json.dumps(manifest_a), encoding="utf-8")
+
+    # Manifest B: entity whose key IS ["sales", "orders_source"] — collides with A's source key
+    manifest_b = dict(base)
+    manifest_b["manifest_id"] = "manifest-b"
+    manifest_b["entities"] = [
+        {
+            **base["entities"][0],
+            "name": "orders_source",
+            "asset_key": ["sales", "orders_source"],
+            "accepted_sink_uri": "./out/accepted/orders_source",
+            "rejected_sink_uri": None,
+            "policy_severity": "warn",
+        }
+    ]
+    path_b = tmp_path / "manifest_b.json"
+    path_b.write_text(json.dumps(manifest_b), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate asset key"):
+        build_definitions_from_manifest_paths(
+            manifest_paths=[str(path_a), str(path_b)],
             runner=_NoopRunner(),
         )
 

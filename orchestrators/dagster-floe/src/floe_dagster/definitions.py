@@ -89,7 +89,10 @@ def build_definitions_from_manifest_paths(
         _validate_no_duplicate_asset_keys(
             seen_asset_keys=seen_asset_keys,
             manifest_path=manifest_path,
-            entity_asset_keys=[entity.asset_key for entity in manifest_entities],
+            entity_asset_keys=(
+                [entity.asset_key for entity in manifest_entities]
+                + [list(sa.key.path) for sa in manifest_source_assets]
+            ),
         )
 
         if with_job and manifest_entities:

@@ -31,6 +31,7 @@ pub struct LineageConfig {
     pub namespace: String,
     pub producer: Option<String>,
     pub max_failures: Option<u32>,
+    pub job_name: Option<String>,
 }
 
 #[derive(Debug)]

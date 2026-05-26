@@ -186,6 +186,7 @@ def _make_entity_multi_asset(
         run_id = getattr(run, "run_id", None) if run is not None else None
         if run_id is None:
             run_id = getattr(context, "run_id", None)
+        dagster_job_name = getattr(run, "job_name", None) if run is not None else None
         result = runner.run_floe_entity(
             config_uri=config_uri,
             manifest_uri=manifest_path,
@@ -194,6 +195,7 @@ def _make_entity_multi_asset(
             log_format=execution.log_format,
             execution=execution,
             runner_definition=runner_definition,
+            dagster_job_name=dagster_job_name,
         )
 
         if result.stderr.strip():

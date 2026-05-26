@@ -1,6 +1,6 @@
 use floe_core::config::{
-    EntityConfig, IncrementalMode, LineageConfig, PolicyConfig, PolicySeverity, SchemaConfig,
-    SinkConfig, SinkTarget, SourceConfig, WriteMode,
+    ColumnConfig, EntityConfig, IncrementalMode, LineageConfig, PolicyConfig, PolicySeverity,
+    SchemaConfig, SinkConfig, SinkTarget, SourceConfig, WriteMode,
 };
 use floe_core::lineage::OpenLineageObserver;
 use floe_core::run::events::{RunEvent, RunObserver};
@@ -14,6 +14,7 @@ fn make_config(server_url: &str, max_failures: Option<u32>) -> LineageConfig {
         namespace: "test-ns".to_string(),
         producer: None,
         max_failures,
+        job_name: None,
     }
 }
 
@@ -48,7 +49,7 @@ fn circuit_opens_after_threshold() {
         .create();
 
     let config = make_config(&server.url(), Some(1));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     // RunStarted: resets circuit state, then POSTs once → all 3 retries fail → circuit opens.
     obs.on_event(run_started_event());
@@ -76,7 +77,7 @@ fn success_resets_failure_counter() {
         .create();
 
     let config = make_config(&server.url(), Some(3));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     obs.on_event(run_started_event());
     obs.on_event(entity_started_event());
@@ -104,7 +105,7 @@ fn non_retryable_error_counts_without_retry() {
         .create();
 
     let config = make_config(&server.url(), Some(3));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     obs.on_event(run_started_event());
 
@@ -128,7 +129,7 @@ fn rate_limit_response_is_retried() {
         .create();
 
     let config = make_config(&server.url(), Some(5));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     obs.on_event(run_started_event());
 
@@ -149,7 +150,7 @@ fn circuit_stays_closed_after_recovery() {
         .create();
 
     let config = make_config(&server.url(), Some(3));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     obs.on_event(run_started_event());
     assert_eq!(obs.consecutive_failures(), 1);
@@ -277,7 +278,7 @@ fn entity_complete_event_has_source_input_and_accepted_output() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -315,7 +316,7 @@ fn entity_complete_event_includes_rejected_output_when_configured() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", Some("/data/rejected/"));
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -355,7 +356,7 @@ fn source_dataset_has_symlinks_with_directory_type() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -394,7 +395,7 @@ fn accepted_dataset_has_symlinks_with_table_type() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -426,7 +427,7 @@ fn accepted_dataset_has_schema_facet() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -468,7 +469,7 @@ fn accepted_dq_reflects_accepted_rows_only() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -514,7 +515,7 @@ fn rejected_dq_reflects_rejected_rows_only() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", Some("/data/rejected/"));
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -570,7 +571,7 @@ fn floe_quality_run_has_no_accepted_rejected_keys() {
 
     let entity = make_entity("orders", "/data/in/", "/data/out/", None);
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -620,7 +621,7 @@ fn split_storage_uri_s3() {
         None,
     );
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -669,7 +670,7 @@ fn split_storage_uri_adls() {
         None,
     );
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -718,7 +719,160 @@ fn split_storage_uri_abfs_preserved() {
         None,
     );
     let config = make_config(&server.url(), None);
-    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
+// RunStarted uses the config file stem as a stable job name, not the run UUID.
+#[test]
+fn run_started_uses_stable_job_name_derived_from_config_path() {
+    let mut server = mockito::Server::new();
+
+    let _mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "START",
+            "job": { "namespace": "test-ns", "name": "orders" }
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[], "pipelines/orders.yml").unwrap();
+
+    obs.on_event(run_started_event());
+    _mock.assert();
+}
+
+// lineage.job_name overrides the config-path-derived stable name.
+#[test]
+fn run_job_name_override_via_config_field() {
+    let mut server = mockito::Server::new();
+
+    let _mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "START",
+            "job": { "namespace": "test-ns", "name": "my-pipeline" }
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut config = make_config(&server.url(), None);
+    config.job_name = Some("my-pipeline".to_string());
+    let obs = OpenLineageObserver::new(&config, &[], "orders.yml").unwrap();
+
+    obs.on_event(run_started_event());
+    _mock.assert();
+}
+
+fn make_column(name: &str, column_type: &str, source: Option<&str>) -> ColumnConfig {
+    ColumnConfig {
+        name: name.to_string(),
+        source: source.map(|s| s.to_string()),
+        column_type: column_type.to_string(),
+        nullable: None,
+        unique: None,
+        width: None,
+        trim: None,
+    }
+}
+
+// columnLineage facet maps each output column to itself when no explicit source field is set.
+#[test]
+fn accepted_dataset_has_column_lineage_facet() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "outputs": [{
+                "name": "orders",
+                "facets": {
+                    "columnLineage": {
+                        "fields": {
+                            "order_id": {
+                                "inputFields": [{
+                                    "namespace": "test-ns",
+                                    "dataset": "orders_source",
+                                    "field": "order_id"
+                                }]
+                            }
+                        }
+                    }
+                }
+            }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    entity.schema.columns = vec![make_column("order_id", "string", None)];
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
+// columnLineage facet uses the source field when set instead of the output column name.
+#[test]
+fn column_lineage_uses_source_field_when_set() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "outputs": [{
+                "name": "orders",
+                "facets": {
+                    "columnLineage": {
+                        "fields": {
+                            "amount": {
+                                "inputFields": [{
+                                    "namespace": "test-ns",
+                                    "dataset": "orders_source",
+                                    "field": "raw_amt"
+                                }]
+                            }
+                        }
+                    }
+                }
+            }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    entity.schema.columns = vec![make_column("amount", "float64", Some("raw_amt"))];
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(entity_started_event());
     obs.on_event(entity_finished_event("orders", "success"));
@@ -741,7 +895,7 @@ fn circuit_resets_on_new_run_started() {
         .create();
 
     let config = make_config(&server.url(), Some(1));
-    let obs = OpenLineageObserver::new(&config, &[]).unwrap();
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
 
     obs.on_event(run_started_event());
     assert!(obs.is_circuit_open());

@@ -8,6 +8,18 @@ use serde_json::{json, Value};
 use crate::config::{EntityConfig, LineageConfig};
 use crate::run::events::{RunEvent, RunObserver};
 
+const DEFAULT_PRODUCER: &str = concat!(
+    "https://github.com/malon64/floe/releases/tag/v",
+    env!("CARGO_PKG_VERSION")
+);
+
+#[derive(Clone)]
+struct ColumnMapping {
+    output_name: String,
+    column_type: String,
+    source_field: Option<String>,
+}
+
 struct EntityUris {
     source: String,
     accepted: String,
@@ -20,14 +32,19 @@ pub struct OpenLineageObserver {
     entity_start_ms: Mutex<HashMap<String, u128>>,
     entity_run_ids: Mutex<HashMap<String, String>>,
     run_start_ms: Mutex<Option<u128>>,
-    entity_schemas: HashMap<String, Vec<(String, String)>>,
+    entity_schemas: HashMap<String, Vec<ColumnMapping>>,
     entity_uris: HashMap<String, EntityUris>,
+    run_job_name: String,
     consecutive_failures: AtomicUsize,
     circuit_open: AtomicBool,
 }
 
 impl OpenLineageObserver {
-    pub fn new(config: &LineageConfig, entities: &[EntityConfig]) -> crate::FloeResult<Self> {
+    pub fn new(
+        config: &LineageConfig,
+        entities: &[EntityConfig],
+        config_path: &str,
+    ) -> crate::FloeResult<Self> {
         let timeout = Duration::from_secs(config.timeout_secs.unwrap_or(5));
         let client = reqwest::blocking::Client::builder()
             .timeout(timeout)
@@ -38,14 +55,30 @@ impl OpenLineageObserver {
                 ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
+        let run_job_name = config
+            .job_name
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                std::path::Path::new(config_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("floe-run")
+                    .to_string()
+            });
+
         let entity_schemas = entities
             .iter()
             .map(|e| {
-                let fields: Vec<(String, String)> = e
+                let fields: Vec<ColumnMapping> = e
                     .schema
                     .columns
                     .iter()
-                    .map(|c| (c.name.clone(), c.column_type.clone()))
+                    .map(|c| ColumnMapping {
+                        output_name: c.name.clone(),
+                        column_type: c.column_type.clone(),
+                        source_field: c.source.clone(),
+                    })
                     .collect();
                 (e.name.clone(), fields)
             })
@@ -73,6 +106,7 @@ impl OpenLineageObserver {
             run_start_ms: Mutex::new(None),
             entity_schemas,
             entity_uris,
+            run_job_name,
             consecutive_failures: AtomicUsize::new(0),
             circuit_open: AtomicBool::new(false),
         })
@@ -155,10 +189,7 @@ impl OpenLineageObserver {
     }
 
     fn producer(&self) -> &str {
-        self.config
-            .producer
-            .as_deref()
-            .unwrap_or("https://github.com/malon64/floe")
+        self.config.producer.as_deref().unwrap_or(DEFAULT_PRODUCER)
     }
 
     fn parent_run_facet(&self) -> Option<Value> {
@@ -235,8 +266,8 @@ impl OpenLineageObserver {
                 // Accepted output: entity name as logical identifier, TABLE type.
                 let (acc_ns, acc_path) = split_storage_uri(&u.accepted);
                 let schema_facet = json!({
-                    "fields": s.schema_fields.iter().map(|(col_name, col_type)| {
-                        json!({ "name": col_name, "type": col_type })
+                    "fields": s.schema_fields.iter().map(|col| {
+                        json!({ "name": col.output_name, "type": col.column_type })
                     }).collect::<Vec<_>>(),
                     "_producer": self.producer(),
                     "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json"
@@ -258,15 +289,41 @@ impl OpenLineageObserver {
                     "_producer": self.producer(),
                     "_schemaURL": "https://github.com/malon64/floe/schemas/FloeQualityRunFacet.json"
                 });
+
+                let mut accepted_facets = json!({
+                    "symlinks": symlinks_facet(self.producer(), &acc_ns, &acc_path, "TABLE"),
+                    "schema": schema_facet,
+                    "dataQualityMetrics": accepted_dq_facet,
+                    "floeQualityRun": floe_facet
+                });
+
+                if !s.schema_fields.is_empty() {
+                    let fields_map: serde_json::Map<String, Value> = s
+                        .schema_fields
+                        .iter()
+                        .map(|col| {
+                            let src = col.source_field.as_deref().unwrap_or(&col.output_name);
+                            let entry = json!({
+                                "inputFields": [{
+                                    "namespace": self.config.namespace,
+                                    "dataset": format!("{name}_source"),
+                                    "field": src
+                                }]
+                            });
+                            (col.output_name.clone(), entry)
+                        })
+                        .collect();
+                    accepted_facets["columnLineage"] = json!({
+                        "fields": fields_map,
+                        "_producer": self.producer(),
+                        "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/ColumnLineageDatasetFacet.json"
+                    });
+                }
+
                 let mut out = vec![json!({
                     "namespace": self.config.namespace,
                     "name": name,
-                    "facets": {
-                        "symlinks": symlinks_facet(self.producer(), &acc_ns, &acc_path, "TABLE"),
-                        "schema": schema_facet,
-                        "dataQualityMetrics": accepted_dq_facet,
-                        "floeQualityRun": floe_facet
-                    }
+                    "facets": accepted_facets
                 })];
 
                 // Rejected output (when configured): DIRECTORY type, rejected-row quality metrics.
@@ -322,7 +379,7 @@ struct EntityStats {
     rejected: u64,
     warnings: u64,
     errors: u64,
-    schema_fields: Vec<(String, String)>,
+    schema_fields: Vec<ColumnMapping>,
 }
 
 fn ms_to_iso8601(ms: u128) -> String {
@@ -388,7 +445,7 @@ impl RunObserver for OpenLineageObserver {
                     },
                     "job": {
                         "namespace": self.config.namespace,
-                        "name": run_id,
+                        "name": self.run_job_name,
                         "facets": {}
                     },
                     "inputs": [],
@@ -483,7 +540,7 @@ impl RunObserver for OpenLineageObserver {
                     },
                     "job": {
                         "namespace": self.config.namespace,
-                        "name": run_id,
+                        "name": self.run_job_name,
                         "facets": {}
                     },
                     "inputs": [],
@@ -501,8 +558,9 @@ impl RunObserver for OpenLineageObserver {
 pub fn build_observer(
     config: &LineageConfig,
     entities: &[EntityConfig],
+    config_path: &str,
 ) -> crate::FloeResult<Arc<dyn RunObserver>> {
-    let obs = OpenLineageObserver::new(config, entities)?;
+    let obs = OpenLineageObserver::new(config, entities, config_path)?;
     Ok(Arc::new(obs))
 }
 

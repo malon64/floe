@@ -29,6 +29,7 @@ class Runner:
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
         manifest_uri: str | None = None,
+        dagster_job_name: str | None = None,
     ) -> RunResult:
         raise NotImplementedError
 
@@ -46,6 +47,7 @@ class LocalRunner(Runner):
         execution: ManifestExecution | None = None,
         runner_definition: ManifestRunnerDefinition | None = None,
         manifest_uri: str | None = None,
+        dagster_job_name: str | None = None,
     ) -> RunResult:
         if runner_definition is not None and runner_definition.runner_type == "kubernetes_job":
             if execution is None:
@@ -120,17 +122,20 @@ class LocalRunner(Runner):
             args.extend(["--log-format", log_format])
             cwd = None
             env_overrides = None
-        return _run(args, cwd=cwd, env_overrides=env_overrides)
+        return _run(args, cwd=cwd, env_overrides=env_overrides, dagster_job_name=dagster_job_name)
 
 
 def _run(
     args: list[str],
     cwd: str | None = None,
     env_overrides: dict[str, str] | None = None,
+    dagster_job_name: str | None = None,
 ) -> RunResult:
     env = os.environ.copy()
     if env_overrides:
         env.update(env_overrides)
+    if dagster_job_name:
+        env["DAGSTER_JOB_NAME"] = dagster_job_name
     proc = subprocess.run(
         args,
         cwd=cwd,

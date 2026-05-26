@@ -1141,6 +1141,7 @@ pub(crate) fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
             "namespace",
             "producer",
             "max_failures",
+            "job_name",
         ],
     )?;
     Ok(LineageConfig {
@@ -1150,5 +1151,6 @@ pub(crate) fn parse_lineage_config(value: &Yaml) -> FloeResult<LineageConfig> {
         namespace: get_string(hash, "namespace", "lineage")?,
         producer: opt_string(hash, "producer", "lineage")?,
         max_failures: opt_u32(hash, "max_failures", "lineage")?,
+        job_name: opt_string(hash, "job_name", "lineage")?,
     })
 }

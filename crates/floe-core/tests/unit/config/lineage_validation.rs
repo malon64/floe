@@ -185,6 +185,7 @@ entities:
         timeout_secs: Some(2),
         producer: None,
         max_failures: None,
+        job_name: None,
     };
     let config = load_config_with_profile_overrides(
         &path,

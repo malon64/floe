@@ -285,3 +285,46 @@ def test_dominant_rejection_reason_picks_highest_count() -> None:
         ]
     }
     assert _dominant_rejection_reason(report) == "cast_error"
+
+
+# ── defensive: malformed report payloads ─────────────────────────────────────
+
+def test_count_files_with_rejections_files_is_null() -> None:
+    assert _count_files_with_rejections({"files": None}) == 0
+
+
+def test_count_files_with_rejections_files_is_not_list() -> None:
+    assert _count_files_with_rejections({"files": "bad"}) == 0
+
+
+def test_count_files_with_rejections_non_dict_element() -> None:
+    report = {"files": [None, {"rejected_count": 2}, "oops"]}
+    assert _count_files_with_rejections(report) == 1
+
+
+def test_dominant_rejection_reason_files_is_null() -> None:
+    assert _dominant_rejection_reason({"files": None}) is None
+
+
+def test_dominant_rejection_reason_files_is_not_list() -> None:
+    assert _dominant_rejection_reason({"files": 42}) is None
+
+
+def test_dominant_rejection_reason_non_dict_file_element() -> None:
+    report = {"files": [None, {"validation": {"rules": [{"rule": "cast_error", "violations": 3}]}}]}
+    assert _dominant_rejection_reason(report) == "cast_error"
+
+
+def test_dominant_rejection_reason_validation_is_null() -> None:
+    report = {"files": [{"validation": None}]}
+    assert _dominant_rejection_reason(report) is None
+
+
+def test_dominant_rejection_reason_rules_is_null() -> None:
+    report = {"files": [{"validation": {"rules": None}}]}
+    assert _dominant_rejection_reason(report) is None
+
+
+def test_dominant_rejection_reason_non_dict_rule_element() -> None:
+    report = {"files": [{"validation": {"rules": [None, {"rule": "not_null", "violations": 1}]}}]}
+    assert _dominant_rejection_reason(report) == "not_null"

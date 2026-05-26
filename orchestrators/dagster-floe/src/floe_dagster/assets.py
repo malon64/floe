@@ -89,20 +89,34 @@ def _has_rejected_asset(entity: ManifestEntity) -> bool:
 
 
 def _count_files_with_rejections(report: dict[str, Any]) -> int:
+    files = report.get("files")
+    if not isinstance(files, list):
+        return 0
     return sum(
-        1 for f in report.get("files", [])
-        if f.get("rejected_count", 0) > 0
+        1 for f in files
+        if isinstance(f, dict) and (f.get("rejected_count") or 0) > 0
     )
 
 
 def _dominant_rejection_reason(report: dict[str, Any]) -> str | None:
+    files = report.get("files")
+    if not isinstance(files, list):
+        return None
     counts: dict[str, int] = {}
-    for f in report.get("files", []):
-        for rule in f.get("validation", {}).get("rules", []):
-            name = rule.get("rule", "")
-            violations = rule.get("violations", 0)
-            if violations > 0:
-                counts[name] = counts.get(name, 0) + violations
+    for f in files:
+        if not isinstance(f, dict):
+            continue
+        validation = f.get("validation")
+        rules = validation.get("rules") if isinstance(validation, dict) else None
+        if not isinstance(rules, list):
+            continue
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            name = rule.get("rule") or ""
+            violations = rule.get("violations") or 0
+            if isinstance(violations, (int, float)) and violations > 0 and name:
+                counts[name] = counts.get(name, 0) + int(violations)
     if not counts:
         return None
     return max(counts, key=lambda k: counts[k])

@@ -305,8 +305,8 @@ impl OpenLineageObserver {
                             let src = col.source_field.as_deref().unwrap_or(&col.output_name);
                             let entry = json!({
                                 "inputFields": [{
-                                    "namespace": self.config.namespace,
-                                    "dataset": format!("{name}_source"),
+                                    "namespace": format!("{}.source", self.config.namespace),
+                                    "dataset": name,
                                     "field": src
                                 }]
                             });

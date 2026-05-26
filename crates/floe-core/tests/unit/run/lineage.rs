@@ -807,8 +807,8 @@ fn accepted_dataset_has_column_lineage_facet() {
                         "fields": {
                             "order_id": {
                                 "inputFields": [{
-                                    "namespace": "test-ns",
-                                    "dataset": "orders_source",
+                                    "namespace": "test-ns.source",
+                                    "dataset": "orders",
                                     "field": "order_id"
                                 }]
                             }
@@ -855,8 +855,8 @@ fn column_lineage_uses_source_field_when_set() {
                         "fields": {
                             "amount": {
                                 "inputFields": [{
-                                    "namespace": "test-ns",
-                                    "dataset": "orders_source",
+                                    "namespace": "test-ns.source",
+                                    "dataset": "orders",
                                     "field": "raw_amt"
                                 }]
                             }

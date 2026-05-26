@@ -10,7 +10,9 @@ from dagster import (
     AssetOut,
     Definitions,
     Failure,
+    MetadataValue,
     Output,
+    SourceAsset,
     multi_asset,
 )
 
@@ -35,19 +37,19 @@ def load_floe_assets(
     runner: Runner,
     entities: list[str] | None = None,
 ) -> Definitions:
-    assets_defs, _selected_entities = build_floe_asset_defs(
+    assets_defs, source_assets, _selected_entities = build_floe_asset_defs(
         manifest_path=manifest_path,
         runner=runner,
         entities=entities,
     )
-    return Definitions(assets=assets_defs)
+    return Definitions(assets=[*assets_defs, *source_assets])
 
 
 def build_floe_asset_defs(
     manifest_path: str,
     runner: Runner,
     entities: list[str] | None = None,
-) -> tuple[list[Any], list[ManifestEntity]]:
+) -> tuple[list[Any], list[SourceAsset], list[ManifestEntity]]:
     manifest = load_manifest(manifest_path)
     config_uri = resolve_config_uri(manifest_path, manifest.config_uri)
     entity_items = selected_manifest_entities(manifest, entities)
@@ -66,7 +68,8 @@ def build_floe_asset_defs(
             )
         )
 
-    return assets_defs, entity_items
+    source_assets = _build_source_assets(entity_items)
+    return assets_defs, source_assets, entity_items
 
 
 def selected_manifest_entities(
@@ -83,6 +86,26 @@ def _has_rejected_asset(entity: ManifestEntity) -> bool:
         return entity.policy_severity in ("reject", "abort")
     # Backward compat: old manifests without policy_severity
     return entity.rejected_sink_uri is not None
+
+
+def _count_files_with_rejections(report: dict[str, Any]) -> int:
+    return sum(
+        1 for f in report.get("files", [])
+        if f.get("rejected_count", 0) > 0
+    )
+
+
+def _dominant_rejection_reason(report: dict[str, Any]) -> str | None:
+    counts: dict[str, int] = {}
+    for f in report.get("files", []):
+        for rule in f.get("validation", {}).get("rules", []):
+            name = rule.get("rule", "")
+            violations = rule.get("violations", 0)
+            if violations > 0:
+                counts[name] = counts.get(name, 0) + violations
+    if not counts:
+        return None
+    return max(counts, key=lambda k: counts[k])
 
 
 def _make_entity_multi_asset(
@@ -212,11 +235,23 @@ def _make_entity_multi_asset(
 
         yield Output(value=None, output_name="accepted", metadata=metadata)
         if has_rejected:
-            rejected_metadata = {
+            rows = entity_stats.get("rows") or 0
+            rejected_count = entity_stats.get("rejected") or 0
+            rejection_rate = rejected_count / rows if rows > 0 else 0.0
+            rejected_metadata: dict[str, Any] = {
                 "run_id": finished.run_id,
-                "rejected": entity_stats.get("rejected"),
+                "rejected": MetadataValue.int(rejected_count),
                 "status": finished.status,
+                "rejection_rate": MetadataValue.float(rejection_rate),
             }
+            if entity.rejected_sink_uri:
+                rejected_metadata["dagster/uri"] = MetadataValue.url(entity.rejected_sink_uri)
+            if entity_report_json:
+                files_with_rejections = _count_files_with_rejections(entity_report_json)
+                dominant = _dominant_rejection_reason(entity_report_json)
+                rejected_metadata["files_with_rejections"] = MetadataValue.int(files_with_rejections)
+                if dominant:
+                    rejected_metadata["dominant_rejection_reason"] = dominant
             yield Output(value=None, output_name="rejected", metadata=rejected_metadata)
 
     return _multi_asset
@@ -286,3 +321,21 @@ def _as_optional_str(value: Any) -> str | None:
     if isinstance(value, str):
         return value
     return str(value)
+
+
+def _build_source_assets(entity_items: list[ManifestEntity]) -> list[SourceAsset]:
+    source_assets = []
+    for entity in entity_items:
+        source_key = list(entity.asset_key[:-1]) + [entity.asset_key[-1] + "_source"]
+        metadata: dict[str, Any] = {"format": entity.source_format}
+        if entity.source_uri:
+            metadata["dagster/uri"] = MetadataValue.url(entity.source_uri)
+        source_assets.append(
+            SourceAsset(
+                key=AssetKey(source_key),
+                group_name=entity.group_name,
+                description=f"Raw source files for '{entity.name}' (format: {entity.source_format})",
+                metadata=metadata,
+            )
+        )
+    return source_assets

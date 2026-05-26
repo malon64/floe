@@ -6,7 +6,12 @@ import pytest
 
 from dagster import AssetKey
 
-from floe_dagster.assets import build_floe_asset_defs, load_floe_assets
+from floe_dagster.assets import (
+    _count_files_with_rejections,
+    _dominant_rejection_reason,
+    build_floe_asset_defs,
+    load_floe_assets,
+)
 from floe_dagster.manifest import ManifestRunnerDefinition
 from floe_dagster.runner import LocalRunner, RunResult, Runner
 
@@ -121,7 +126,7 @@ def test_local_runner_raises_not_implemented_for_unknown_runner() -> None:
 # ── multi-asset structure ──────────────────────────────────────────────────────
 
 def _get_asset_def(manifest_path, entity_name):
-    asset_defs, entities = build_floe_asset_defs(
+    asset_defs, _source_assets, entities = build_floe_asset_defs(
         manifest_path=str(manifest_path),
         runner=_NoopRunner(),
         entities=[entity_name],
@@ -171,3 +176,112 @@ def test_multi_asset_source_dep_declared() -> None:
     source_key = AssetKey(entity.asset_key[:-1] + [entity.asset_key[-1] + "_source"])
     dep_keys = set(asset_def.keys_by_input_name.values())
     assert source_key in dep_keys
+
+
+# ── SourceAsset registration ───────────────────────────────────────────────────
+
+def test_build_floe_asset_defs_returns_source_assets() -> None:
+    """build_floe_asset_defs returns a non-empty list of SourceAsset objects."""
+    _asset_defs, source_assets, _entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    assert len(source_assets) == 1
+    assert source_assets[0].key.path[-1].endswith("_source")
+
+
+def test_source_asset_key_matches_entity_source_dep() -> None:
+    """The SourceAsset key matches the dep declared in the multi-asset."""
+    _asset_defs, source_assets, entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    entity = entities[0]
+    expected_key = AssetKey(entity.asset_key[:-1] + [entity.asset_key[-1] + "_source"])
+    assert source_assets[0].key == expected_key
+
+
+def test_source_asset_has_format_metadata() -> None:
+    """SourceAsset metadata includes the source format."""
+    _asset_defs, source_assets, entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    entity = entities[0]
+    metadata = source_assets[0].metadata
+    assert "format" in metadata
+    assert metadata["format"].text == entity.source_format
+
+
+def test_source_asset_has_uri_metadata_when_source_uri_set() -> None:
+    """SourceAsset metadata includes dagster/uri when entity.source_uri is set."""
+    _asset_defs, source_assets, entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    entity = entities[0]
+    if entity.source_uri:
+        assert "dagster/uri" in source_assets[0].metadata
+
+
+def test_source_asset_group_matches_entity_group() -> None:
+    """SourceAsset group_name matches entity.group_name."""
+    _asset_defs, source_assets, entities = build_floe_asset_defs(
+        manifest_path=str(FIXTURE),
+        runner=_NoopRunner(),
+        entities=["employees"],
+    )
+    assert source_assets[0].group_name == entities[0].group_name
+
+
+# ── rejected metadata helpers ─────────────────────────────────────────────────
+
+def test_count_files_with_rejections_empty_report() -> None:
+    assert _count_files_with_rejections({}) == 0
+
+
+def test_count_files_with_rejections_no_rejections() -> None:
+    report = {"files": [{"rejected_count": 0}, {"rejected_count": 0}]}
+    assert _count_files_with_rejections(report) == 0
+
+
+def test_count_files_with_rejections_partial() -> None:
+    report = {"files": [{"rejected_count": 3}, {"rejected_count": 0}, {"rejected_count": 1}]}
+    assert _count_files_with_rejections(report) == 2
+
+
+def test_dominant_rejection_reason_empty_report() -> None:
+    assert _dominant_rejection_reason({}) is None
+
+
+def test_dominant_rejection_reason_no_violations() -> None:
+    report = {
+        "files": [{"validation": {"rules": [{"rule": "not_null", "violations": 0}]}}]
+    }
+    assert _dominant_rejection_reason(report) is None
+
+
+def test_dominant_rejection_reason_single_rule() -> None:
+    report = {
+        "files": [{"validation": {"rules": [{"rule": "cast_error", "violations": 5}]}}]
+    }
+    assert _dominant_rejection_reason(report) == "cast_error"
+
+
+def test_dominant_rejection_reason_picks_highest_count() -> None:
+    report = {
+        "files": [
+            {"validation": {"rules": [
+                {"rule": "not_null", "violations": 2},
+                {"rule": "cast_error", "violations": 7},
+            ]}},
+            {"validation": {"rules": [
+                {"rule": "not_null", "violations": 3},
+            ]}},
+        ]
+    }
+    assert _dominant_rejection_reason(report) == "cast_error"

@@ -29,7 +29,7 @@ def _execution(*, env: dict[str, str], workdir: str | None) -> ManifestExecution
 def test_local_runner_applies_execution_defaults(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(args, cwd=None, env_overrides=None):
+    def fake_run(args, cwd=None, env_overrides=None, dagster_job_name=None):
         captured["args"] = args
         captured["cwd"] = cwd
         captured["env_overrides"] = env_overrides
@@ -57,7 +57,7 @@ def test_local_runner_applies_execution_defaults(monkeypatch, tmp_path: Path) ->
 def test_local_runner_without_execution_keeps_default_process_context(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(args, cwd=None, env_overrides=None):
+    def fake_run(args, cwd=None, env_overrides=None, dagster_job_name=None):
         captured["args"] = args
         captured["cwd"] = cwd
         captured["env_overrides"] = env_overrides

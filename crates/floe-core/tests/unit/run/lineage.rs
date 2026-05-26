@@ -678,6 +678,55 @@ fn split_storage_uri_adls() {
     _complete_mock.assert();
 }
 
+// abfs:// URIs are preserved as-is in symlink identifiers (not normalised to abfss://).
+#[test]
+fn split_storage_uri_abfs_preserved() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{
+                "namespace": "test-ns.source",
+                "name": "orders",
+                "facets": {
+                    "symlinks": {
+                        "identifiers": [{
+                            "namespace": "abfs://container@acct.dfs.core.windows.net",
+                            "name": "/raw/",
+                            "type": "DIRECTORY"
+                        }]
+                    }
+                }
+            }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let entity = make_entity(
+        "orders",
+        "abfs://container@acct.dfs.core.windows.net/raw/",
+        "abfs://container@acct.dfs.core.windows.net/out/",
+        None,
+    );
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity]).unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
 // Circuit state is reset at the start of each new run (RunStarted) so a
 // recovered endpoint is retried in subsequent runs within the same process.
 #[test]

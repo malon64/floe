@@ -246,7 +246,7 @@ impl OpenLineageObserver {
                     "validCount": s.accepted,
                     "invalidCount": 0u64,
                     "_producer": self.producer(),
-                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsOutputDatasetFacet.json"
                 });
                 let floe_facet = json!({
                     "entity": name,
@@ -277,7 +277,7 @@ impl OpenLineageObserver {
                         "validCount": 0u64,
                         "invalidCount": s.rejected,
                         "_producer": self.producer(),
-                        "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsInputDatasetFacet.json"
+                        "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsOutputDatasetFacet.json"
                     });
                     out.push(json!({
                         "namespace": format!("{}.rejected", self.config.namespace),
@@ -340,23 +340,19 @@ fn ms_to_iso8601(ms: u128) -> String {
 }
 
 fn split_storage_uri(uri: &str) -> (String, String) {
-    let normalized = if uri.starts_with("abfs://") {
-        uri.replacen("abfs://", "abfss://", 1)
-    } else {
-        uri.to_string()
-    };
-    let cloud_prefixes = ["s3://", "gs://", "gcs://", "az://", "abfss://"];
+    // abfss:// must precede abfs:// so the longer prefix matches first.
+    let cloud_prefixes = ["s3://", "gs://", "gcs://", "az://", "abfss://", "abfs://"];
     for prefix in cloud_prefixes {
-        if let Some(after_scheme) = normalized.strip_prefix(prefix) {
+        if let Some(after_scheme) = uri.strip_prefix(prefix) {
             if let Some(slash) = after_scheme.find('/') {
-                let authority = normalized[..prefix.len() + slash].to_string();
+                let authority = uri[..prefix.len() + slash].to_string();
                 let path = after_scheme[slash..].to_string();
                 return (authority, path);
             }
-            return (normalized, "/".to_string());
+            return (uri.to_string(), "/".to_string());
         }
     }
-    ("file".to_string(), normalized)
+    ("file".to_string(), uri.to_string())
 }
 
 fn symlinks_facet(producer: &str, namespace: &str, name: &str, ds_type: &str) -> Value {

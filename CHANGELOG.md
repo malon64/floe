@@ -25,7 +25,7 @@ All notable changes to Floe are documented in this file.
   - Each entity now registers a companion `SourceAsset` (key `<entity_key>_source`) so Dagster's asset graph shows the upstream data source as a node. `register_source_assets=False` opts out for pipelines that manage their own upstream declarations.
   - Rejected output metadata now includes `dominant_rejection_reason` and `files_with_rejections` computed from the entity report, giving Dagster run pages actionable context without opening the floe report file.
 
-- **`dagster-floe` 0.2.7**, **`floe` 0.4.3**: version bumps for this release.
+- **`dagster-floe` 0.1.7**, **`floe` 0.4.3**: version bumps for this release.
 
 ## v0.4.2
 

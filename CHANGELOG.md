@@ -4,13 +4,28 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
-- **Remote manifest support for `floe run --manifest`** (fixes #342):
+## v0.4.3
+
+- **Remote manifest support for `floe run --manifest`** (`docs/cli.md`, fixes #342):
   - `floe run --manifest` now accepts `s3://`, `gs://`, and `abfs://` URIs, downloading the manifest to a temporary directory using the same `resolve_config_location` infrastructure used by `floe run --config`.
 
-- **`dagster-floe`: remote manifest loading and `manifest_uri` decoupling** (fixes #342):
-  - `load_manifest` accepts `s3://`, `gs://`, and `abfs://` URIs via `fsspec` (a transitive Dagster dependency), so the Dagster code server can parse manifests stored in object storage at parse time.
-  - `build_definitions`, `build_definitions_from_manifest_paths`, `load_floe_assets`, and `build_floe_asset_defs` accept an optional `manifest_uri` keyword argument. When provided, this URI (not `manifest_path`) is substituted for `{manifest_uri}` in execution args for `kubernetes_job` and `databricks_job` runners, decoupling the Dagster code-server's local parse path from the URI the runner pod receives.
-  - Backward-compatible: `manifest_uri` defaults to `None`, preserving existing behavior.
+- **OpenLineage: stable job name, versioned `_producer`, column lineage, and Dagster job injection** (`docs/lineage.md`, fixes #335 #336 #337 #338):
+  - Top-level `RunStarted`/`RunFinished` events now use a **stable job name** derived from the config file stem (e.g. `orders.yml` → job name `orders`) instead of the ephemeral run UUID, so run history accumulates on a single job node in Marquez.
+    - An optional `lineage.job_name` field in the config overrides the derived name.
+  - The `_producer` URI is now **versioned** via `env!("CARGO_PKG_VERSION")` at compile time (e.g. `https://github.com/malon64/floe/releases/tag/v0.4.3`) instead of a static string, enabling consumers to correlate lineage events with the exact release.
+  - **`ColumnLineageDatasetFacet`** is emitted on accepted output datasets, mapping each output column to its source field (or itself when no `source:` rename is configured). The `inputFields` dataset identity uses the same `(namespace, name)` tuple as the input dataset in the same event, so column-level edges are correctly joined in OpenLineage consumers.
+  - `dagster-floe` now injects **`DAGSTER_JOB_NAME`** into the floe subprocess environment, so the `ParentRunFacet` carries the correct Dagster job name rather than an empty string.
+
+- **OpenLineage: Marquez-compatible dataset naming and facet placement** (`docs/lineage.md`, fixes #340):
+  - Source input datasets use a `.source` sub-namespace (e.g. `myns.source`) to avoid colliding with the logical entity name used for accepted outputs.
+  - `SchemaDatasetFacet`, `DataQualityMetricsOutputDatasetFacet`, and `FloeQualityRunFacet` are placed on the accepted output dataset (the write side), matching OpenLineage's semantic: output facets describe what was written.
+  - Rejected output datasets use a `.rejected` sub-namespace and carry their own `DataQualityMetricsOutputDatasetFacet` with the rejected row counts.
+
+- **`dagster-floe`: `SourceAsset` registration and enriched rejected metadata** (fixes #339):
+  - Each entity now registers a companion `SourceAsset` (key `<entity_key>_source`) so Dagster's asset graph shows the upstream data source as a node. `register_source_assets=False` opts out for pipelines that manage their own upstream declarations.
+  - Rejected output metadata now includes `dominant_rejection_reason` and `files_with_rejections` computed from the entity report, giving Dagster run pages actionable context without opening the floe report file.
+
+- **`dagster-floe` 0.1.7**, **`floe` 0.4.3**: version bumps for this release.
 
 ## v0.4.2
 

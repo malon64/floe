@@ -61,6 +61,45 @@ The repository example includes two manifests by domain:
 - `example/manifests/hr.manifest.json`
 - `example/manifests/sales.manifest.json`
 
+## Asset checks
+
+Every accepted-output asset automatically gets quality checks registered in Dagster — no extra config needed. After each run, the connector reads the Floe run report and publishes pass/fail results for each entity.
+
+| Check | Fails when |
+| --- | --- |
+| `file_status` | One or more input files had a failed or error-level processing status (e.g., unreadable file, parse failure) |
+| `cast_error` | Type-casting failures exceeded the entity's policy threshold |
+| `not_null` | Null values found in non-nullable columns |
+| `unique` | Duplicate values found in uniqueness-constrained columns |
+| `schema_mismatch` | Incoming file schema is incompatible with the declared schema |
+
+Checks appear in the Dagster UI under each asset, linked to the run that produced them. A `WARN`-severity violation marks the check as a warning; `REJECT` or `ABORT` marks it as a failure.
+
+## Lineage integration
+
+The connector automatically injects two environment variables into every floe subprocess:
+
+- `DAGSTER_RUN_ID` — the current Dagster run ID
+- `DAGSTER_JOB_NAME` — the Dagster job name
+
+When lineage is enabled and both variables are present, floe attaches a **parent facet** to its OpenLineage run event. This facet declares that the Floe run is a child of the Dagster run, making the lineage graph show the full Dagster → Floe pipeline hierarchy.
+
+The Floe run event's own `job.name` is derived from `lineage.job_name` in the embedded manifest lineage config, or from the config file stem. To control it explicitly, add `job_name` to your lineage block when generating the manifest:
+
+```yaml
+# prod.yml (profile)
+lineage:
+  url: "http://marquez:5000"
+  namespace: "my-data-platform"
+  job_name: "orders-pipeline"   # sets job.name on the Floe OpenLineage run event
+```
+
+```bash
+floe manifest generate -c orders.yml -p prod.yml --output manifests/orders.json
+```
+
+See [docs/lineage.md](../../docs/lineage.md) for the full lineage config reference.
+
 ## Notes
 
 - This connector does **not** parse YAML directly; it consumes `floe.manifest.v1`.

@@ -1,10 +1,12 @@
 # Floe + Airflow (MVP example)
 
 This folder contains:
+
 - a reusable Python connector package (`src/airflow_floe`)
 - example DAGs (`dags/`) that consume the package
 
 For local setup of both Dagster and Airflow with isolated virtual environments, see:
+
 - `orchestrators/LOCAL_DEV.md`
 
 ## Contents
@@ -18,48 +20,68 @@ For local setup of both Dagster and Airflow with isolated virtual environments, 
 - `example/config.yml`: small Floe config for demo
 - `dags/floe_example_operator_dag.py`: example DAG using `FloeRunOperator`
 
+## Configuration
+
+The connector is driven entirely by environment variables. No code changes are needed to switch between single-manifest, multi-manifest, or fallback mode.
+
+| Env var | What it does |
+| --- | --- |
+| `FLOE_MANIFEST` | Primary: path to a `floe.manifest.v1` JSON — enables asset registration at parse time |
+| `FLOE_MANIFEST_DIR` | Multi-manifest mode: directory of `*.manifest.json` files; one DAG per file |
+| `FLOE_CONFIG` | Fallback run config used when manifest loading fails — DAG still executes `floe run`, but no assets are registered |
+| `FLOE_CMD` | Override the `floe` binary path (default: `floe` on `$PATH`) |
+
+**Manifest loading failure:** If `FLOE_MANIFEST` points to a path that cannot be loaded (file not found, invalid JSON, schema error), `build_dag_manifest_context_or_empty` catches the exception and returns an empty asset context — the DAG still runs `floe run` using `FLOE_CONFIG` as the config path, but no assets are registered or materialized.
+
+> **Note:** Setting only `FLOE_CONFIG` without a valid `FLOE_MANIFEST` does not guarantee "no assets". When `FLOE_MANIFEST` is unset, the example DAG defaults to the bundled example manifest (`example/manifest.airflow.json`), which registers its own assets. To run with no assets, either point `FLOE_MANIFEST` to a path that does not exist, or remove the default fallback from your DAG code.
+
+**Multi-manifest mode:** Each JSON file in `FLOE_MANIFEST_DIR` becomes a separate DAG. The DAG ID is derived from the manifest file name — for example `orders.manifest.json` → DAG `floe_orders`. Entity tasks within the DAG are generated from the manifest's `entities[]` list.
+
 ## Quick usage
 
 1. Make sure `floe` is available in PATH (or set `FLOE_CMD`).
+
 2. (Optional but recommended) install the connector package:
 
-```bash
-python -m pip install -e orchestrators/airflow-floe
-```
-3. Point Airflow DAGs folder to `orchestrators/airflow-floe/dags`.
-4. Set optional env vars:
+   ```bash
+   python -m pip install -e orchestrators/airflow-floe
+   ```
 
-```bash
-export FLOE_CMD="floe"
-export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manifest.airflow.json"
-# optional multi-manifest mode (1 manifest => 1 DAG):
-# export FLOE_MANIFEST_DIR="/absolute/path/to/orchestrators/airflow-floe/example/manifests"
-# optional override:
-# export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
-```
+3. Point Airflow DAGs folder to `orchestrators/airflow-floe/dags`.
+
+4. Set env vars:
+
+   ```bash
+   export FLOE_CMD="floe"
+   export FLOE_MANIFEST="/absolute/path/to/orchestrators/airflow-floe/example/manifest.airflow.json"
+   # optional multi-manifest mode (1 manifest => 1 DAG):
+   # export FLOE_MANIFEST_DIR="/absolute/path/to/orchestrators/airflow-floe/example/manifests"
+   # optional fallback (no assets registered):
+   # export FLOE_CONFIG="/absolute/path/to/orchestrators/airflow-floe/example/config.yml"
+   ```
 
 5. Generate manifest from Floe config:
 
-```bash
-floe manifest generate \
-  -c orchestrators/airflow-floe/example/config.yml \
-  --output orchestrators/airflow-floe/example/manifest.airflow.json
-```
+   ```bash
+   floe manifest generate \
+     -c orchestrators/airflow-floe/example/config.yml \
+     --output orchestrators/airflow-floe/example/manifest.airflow.json
+   ```
 
-For multi-manifest mode (one DAG per manifest), generate domain manifests:
+   For multi-manifest mode (one DAG per manifest), generate domain manifests:
 
-```bash
-floe manifest generate \
-  -c orchestrators/airflow-floe/example/config.hr.yml \
-  --output orchestrators/airflow-floe/example/manifests/hr.manifest.json
+   ```bash
+   floe manifest generate \
+     -c orchestrators/airflow-floe/example/config.hr.yml \
+     --output orchestrators/airflow-floe/example/manifests/hr.manifest.json
 
-floe manifest generate \
-  -c orchestrators/airflow-floe/example/config.sales.yml \
-  --output orchestrators/airflow-floe/example/manifests/sales.manifest.json
-```
+   floe manifest generate \
+     -c orchestrators/airflow-floe/example/config.sales.yml \
+     --output orchestrators/airflow-floe/example/manifests/sales.manifest.json
+   ```
 
 6. Trigger DAG `floe_example_operator`.
-   - In multi-manifest mode (`FLOE_MANIFEST_DIR`), DAGs are generated as `floe_<manifest_name>`.
+   In multi-manifest mode (`FLOE_MANIFEST_DIR`), DAGs are generated as `floe_<manifest_name>`.
 
 ## Notes
 
@@ -68,7 +90,6 @@ floe manifest generate \
   - terminal event: `run_finished`
 - Assets are created at parse time from `FLOE_MANIFEST` and materialized when run tasks finish.
 - `floe_example_operator` also publishes asset events when manifest assets are available.
-- If `FLOE_MANIFEST` is missing/invalid, DAGs still run with `FLOE_CONFIG` (or example config fallback) but no assets are loaded/materialized.
 - The returned task payload shape follows `floe.airflow.run.v1`.
 - Local run summaries emitted as `local://...` are resolved and loaded by the connector runtime helpers.
 - Floe NDJSON stdout/stderr are streamed into task logs (Audit/Task Log view) and still parsed for `run_finished`.

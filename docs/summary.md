@@ -17,8 +17,13 @@ important references so you can quickly find the right guide.
 - Run reports and JSON schema: [docs/report.md](report.md)
 - Logging for orchestrators (`--log-format`): [docs/logging.md](logging.md)
 
+## Python bindings
+
+- Using floe from Python and Jupyter notebooks: [docs/python-bindings.md](python-bindings.md)
+
 ## Orchestrators & manifests
 
+- Manifest generation — why, how, and what's inside: [docs/manifest.md](manifest.md)
 - CLI manifest generation (`floe manifest generate`): [docs/cli.md](cli.md)
 - Common orchestrator manifest schema: [orchestrators/schemas/floe.manifest.v1.json](../orchestrators/schemas/floe.manifest.v1.json)
 - Dagster integration package + examples: [orchestrators/dagster-floe/README.md](../orchestrators/dagster-floe/README.md)

@@ -61,6 +61,37 @@ The repository example includes two manifests by domain:
 - `example/manifests/hr.manifest.json`
 - `example/manifests/sales.manifest.json`
 
+## Asset checks
+
+Every accepted-output asset automatically gets quality checks registered in Dagster — no extra config needed. After each run, the connector reads the Floe run report and publishes pass/fail results for each entity.
+
+| Check | Fails when |
+| --- | --- |
+| `file_status` | No input files were found for the entity |
+| `cast_error` | Type-casting failures exceeded the entity's policy threshold |
+| `not_null` | Null values found in non-nullable columns |
+| `unique` | Duplicate values found in uniqueness-constrained columns |
+| `schema_mismatch` | Incoming file schema is incompatible with the declared schema |
+
+Checks appear in the Dagster UI under each asset, linked to the run that produced them. A `WARN`-severity violation marks the check as a warning; `REJECT` or `ABORT` marks it as a failure.
+
+## Lineage integration
+
+When floe has a `lineage` block in its config or profile, it emits OpenLineage events. The connector automatically injects `DAGSTER_JOB_NAME` into the floe subprocess environment — so the OpenLineage run event is attributed to the Dagster job name instead of a UUID.
+
+This works automatically with no configuration: the connector reads the Dagster job name from the current run context and passes it through.
+
+To enable lineage, add a `lineage` block to your **profile** (not to the manifest — the manifest is static):
+
+```yaml
+# prod.yml (profile)
+lineage:
+  url: "http://marquez:5000"
+  namespace: "my-data-platform"
+```
+
+Pass the profile to `load_floe_assets` via the manifest's `runners.definitions`, or set it as a default env var. See [docs/lineage.md](../../docs/lineage.md) for the full lineage config reference.
+
 ## Notes
 
 - This connector does **not** parse YAML directly; it consumes `floe.manifest.v1`.

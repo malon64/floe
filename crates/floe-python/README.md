@@ -70,6 +70,43 @@ except floe.FloeError as e:
 | `set_observer(callback)` | Register a live-event callback |
 | `clear_observer()` | Remove the current callback |
 
+## Jupyter
+
+`RunOutcome` renders as a color-coded HTML table automatically in Jupyter — no extra code needed. Just end a cell with the variable:
+
+```python
+outcome = floe.run("orders.yml")
+outcome  # renders inline HTML table with per-entity status, accepted/rejected counts
+```
+
+Use `outcome.to_dict()` to turn results into a plain dict for pandas:
+
+```python
+import pandas as pd
+df = pd.DataFrame(outcome.entity_reports)
+```
+
+## Observing progress
+
+Register a callback to receive live events as the run proceeds:
+
+```python
+floe.set_observer(lambda e: print(f"[{e['event']}]", e.get("name", e.get("entity", ""))))
+outcome = floe.run("orders.yml")
+floe.clear_observer()
+```
+
+Event types: `run_started`, `entity_started`, `file_started`, `file_finished`, `schema_evolution_applied`, `entity_finished`, `run_finished`, `log`. See the [full guide](../../docs/python-bindings.md#observing-runs-in-real-time) for all event fields.
+
+## Profile overrides
+
+Override config variables or cloud credentials without editing the YAML:
+
+```python
+floe.run("orders.yml", profile_vars={"incoming_root": "s3://my-bucket/incoming"})
+floe.run("orders.yml", profile_path="prod.yml")
+```
+
 ## Building from source
 
 ```bash
@@ -82,3 +119,7 @@ maturin develop
 ## License
 
 Apache 2.0
+
+---
+
+→ Full API reference and examples: [docs/python-bindings.md](../../docs/python-bindings.md)

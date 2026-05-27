@@ -98,7 +98,13 @@ impl RunContext {
         let catalog_resolver = config::CatalogResolver::new(&config)?;
         let config_dir =
             crate::io::storage::paths::normalize_local_path(storage_resolver.config_dir());
-        let config_path = crate::io::storage::paths::normalize_local_path(manifest_path);
+        let manifest_str = manifest_path.to_string_lossy();
+        let config_path = if config::is_remote_uri(&manifest_str) {
+            // Preserve the URI string as-is; normalize_local_path would collapse s3:// → s3:/
+            std::path::PathBuf::from(manifest_str.as_ref())
+        } else {
+            crate::io::storage::paths::normalize_local_path(manifest_path)
+        };
 
         // The manifest embeds report_base_uri; resolve it to a target if it looks local.
         let (report_target, report_base_path) =
@@ -146,5 +152,26 @@ impl RunContext {
             started_at,
             run_timer: Instant::now(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn remote_uri_preserved_via_pathbuf_from() {
+        // normalize_local_path iterates Path::components(), which collapses the double slash
+        // in "s3://..." producing "s3:/..." — this documents the bug that the fix avoids.
+        let uri = "s3://bucket/manifests/prod.json";
+        let normalized = crate::io::storage::paths::normalize_local_path(Path::new(uri));
+        assert_ne!(
+            normalized.display().to_string(),
+            uri,
+            "normalize_local_path should mangle s3:// (confirming the bug we guard against)"
+        );
+        // PathBuf::from preserves the raw bytes, so display() round-trips the URI correctly.
+        let preserved = std::path::PathBuf::from(uri);
+        assert_eq!(preserved.display().to_string(), uri);
     }
 }

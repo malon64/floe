@@ -67,7 +67,7 @@ Every accepted-output asset automatically gets quality checks registered in Dags
 
 | Check | Fails when |
 | --- | --- |
-| `file_status` | No input files were found for the entity |
+| `file_status` | One or more input files had a failed or error-level processing status (e.g., unreadable file, parse failure) |
 | `cast_error` | Type-casting failures exceeded the entity's policy threshold |
 | `not_null` | Null values found in non-nullable columns |
 | `unique` | Duplicate values found in uniqueness-constrained columns |

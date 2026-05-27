@@ -134,11 +134,12 @@ Regenerate the manifest whenever you change:
 - source or sink paths
 - runner definitions or execution args
 
-A simple CI check that catches drift:
+A simple CI check that catches drift. Strip `generated_at_ts_ms` before comparing — it changes on every `generate` call regardless of config changes:
 
 ```bash
-floe manifest generate -c orders.yml -o - > /tmp/fresh.json
-diff <(jq -S . manifests/orders.json) <(jq -S . /tmp/fresh.json)
+diff \
+  <(jq -S 'del(.generated_at_ts_ms)' manifests/orders.json) \
+  <(floe manifest generate -c orders.yml -o - | jq -S 'del(.generated_at_ts_ms)')
 ```
 
 If the diff is non-empty, the committed manifest is stale. Commit manifests in the same PR as config changes so they're always in sync.

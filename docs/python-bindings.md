@@ -53,17 +53,20 @@ outcome = floe.run("orders.yml")
 
 # Top-level summary
 summary = outcome.summary
-print(summary["results"]["status"])   # "Success" | "SuccessWithWarnings" | "Failure"
-print(summary["results"]["rows"])     # total rows scanned
-print(summary["results"]["accepted"]) # rows written to accepted sink
+print(summary["run"]["status"])              # "success" | "success_with_warnings" | "failed"
+print(summary["results"]["rows_total"])      # total rows scanned
+print(summary["results"]["accepted_total"])  # rows written to accepted sink
 
-# Per-entity breakdown
+# Per-entity status lives in summary["entities"], not entity_reports
+for entity in summary["entities"]:
+    print(entity["name"], entity["status"])  # "success" | "rejected" | "failed" | …
+
+# Per-entity detail reports (schema, file-level results, write metadata)
 for report in outcome.entity_reports:
-    name   = report["entity"]["name"]
-    status = report["entity"]["status"]
-    acc    = report["entity"]["accepted"]
-    rej    = report["entity"]["rejected"]
-    print(f"{name}: {acc} accepted, {rej} rejected ({status})")
+    name = report["entity"]["name"]
+    acc  = report["results"]["accepted_total"]
+    rej  = report["results"]["rejected_total"]
+    print(f"{name}: {acc} accepted, {rej} rejected")
 
 # Quick dict for pandas or downstream processing
 data = outcome.to_dict()
@@ -135,8 +138,9 @@ floe.run("orders.yml", profile_vars={
     "incoming_root": "s3://my-bucket/incoming",
 })
 
-# Both options work with validate() and load_config() too
+# validate() also accepts profile overrides
 floe.validate("orders.yml", profile_vars={"report_root": "/tmp"})
+# Note: load_config() is profile-unaware — it takes only config_path
 ```
 
 `profile_vars` and `profile_path` can be combined — inline vars take precedence over the file. See [docs/profiles.md](profiles.md) for the full profile format.

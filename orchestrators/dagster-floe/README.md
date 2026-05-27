@@ -81,7 +81,7 @@ When floe has a `lineage` block in its config or profile, it emits OpenLineage e
 
 This works automatically with no configuration: the connector reads the Dagster job name from the current run context and passes it through.
 
-To enable lineage, add a `lineage` block to your **profile** (not to the manifest — the manifest is static):
+To enable lineage, add a `lineage` block to your profile and pass it when **generating** the manifest. The manifest builder serializes the lineage config into the manifest JSON so `floe run --manifest` picks it up automatically at run time — no runtime profile injection needed.
 
 ```yaml
 # prod.yml (profile)
@@ -90,7 +90,11 @@ lineage:
   namespace: "my-data-platform"
 ```
 
-Pass the profile to `load_floe_assets` via the manifest's `runners.definitions`, or set it as a default env var. See [docs/lineage.md](../../docs/lineage.md) for the full lineage config reference.
+```bash
+floe manifest generate -c orders.yml -p prod.yml --output manifests/orders.json
+```
+
+See [docs/lineage.md](../../docs/lineage.md) for the full lineage config reference.
 
 ## Notes
 

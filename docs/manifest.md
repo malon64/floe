@@ -50,7 +50,7 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
   // The exact CLI command the orchestrator must call
   "execution": {
     "entrypoint": "floe",
-    "base_args": ["run", "-c", "{config_uri}", "--log-format", "json", "--quiet"],
+    "base_args": ["run", "--manifest", "{manifest_uri}", "--log-format", "json", "--quiet"],
     "per_entity_args": ["--entities", "{entity_name}"],
     "log_format": "json",
     "result_contract": {
@@ -117,12 +117,12 @@ config.yml ──[floe manifest generate]──► orders.json
                   --log-format json
                │
                ▼
-       Orchestrator parses JSON logs (NDJSON on stderr)
+       Orchestrator parses JSON logs (NDJSON on stdout)
        → finds "run_finished" event → extracts summary_uri
        → loads run summary → publishes asset metadata
 ```
 
-The `{config_uri}`, `{entity_name}`, and `{run_id}` placeholders in `execution.base_args` and `per_entity_args` are rendered at run time by the orchestrator connector, not by floe itself.
+The `{manifest_uri}`, `{entity_name}`, and `{run_id}` placeholders in `execution.base_args` and `per_entity_args` are rendered at run time by the orchestrator connector, not by floe itself.
 
 ---
 

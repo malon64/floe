@@ -457,8 +457,10 @@ fn main() -> FloeResult<()> {
                 let manifest_path = std::path::PathBuf::from(&manifest_path_str);
 
                 // Wire up lineage from manifest's embedded lineage block.
+                // Use read_manifest_text so remote URIs (s3://, gs://, abfs://) are
+                // downloaded before parsing; std::fs::read_to_string would fail silently.
                 let lineage_observer = {
-                    let json = std::fs::read_to_string(&manifest_path).ok();
+                    let json = floe_core::read_manifest_text(&manifest_path_str).ok();
                     json.and_then(|j| floe_core::config_from_manifest_json(&j).ok())
                         .and_then(|(cfg, _)| cfg.lineage)
                         .and_then(|lineage_cfg| {

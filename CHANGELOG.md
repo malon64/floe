@@ -2,6 +2,16 @@
 
 All notable changes to Floe are documented in this file.
 
+## Unreleased
+
+- **Remote manifest support for `floe run --manifest`** (fixes #342):
+  - `floe run --manifest` now accepts `s3://`, `gs://`, and `abfs://` URIs, downloading the manifest to a temporary directory using the same `resolve_config_location` infrastructure used by `floe run --config`.
+
+- **`dagster-floe`: remote manifest loading and `manifest_uri` decoupling** (fixes #342):
+  - `load_manifest` accepts `s3://`, `gs://`, and `abfs://` URIs via `fsspec` (a transitive Dagster dependency), so the Dagster code server can parse manifests stored in object storage at parse time.
+  - `build_definitions`, `build_definitions_from_manifest_paths`, `load_floe_assets`, and `build_floe_asset_defs` accept an optional `manifest_uri` keyword argument. When provided, this URI (not `manifest_path`) is substituted for `{manifest_uri}` in execution args for `kubernetes_job` and `databricks_job` runners, decoupling the Dagster code-server's local parse path from the URI the runner pod receives.
+  - Backward-compatible: `manifest_uri` defaults to `None`, preserving existing behavior.
+
 ## v0.4.2
 
 - **OpenLineage: source and sink datasets emitted separately** (`docs/lineage.md`, fixes #317):

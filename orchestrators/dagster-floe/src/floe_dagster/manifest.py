@@ -6,7 +6,8 @@ from importlib import resources
 import json
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+import posixpath
+from urllib.parse import unquote, urlparse, urlunparse
 
 from jsonschema import Draft202012Validator
 
@@ -230,8 +231,26 @@ class DagsterManifest:
         )
 
 
+def _is_remote_uri(path: str) -> bool:
+    return path.startswith(("s3://", "gs://", "abfs://"))
+
+
+def _read_remote_text(uri: str) -> str:
+    try:
+        import fsspec
+    except ImportError as exc:
+        raise ImportError(
+            "reading remote manifest URIs requires fsspec; "
+            "install it with: pip install fsspec"
+        ) from exc
+    with fsspec.open(uri, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 def load_manifest(path: str | Path) -> DagsterManifest:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    path_str = str(path)
+    text = _read_remote_text(path_str) if _is_remote_uri(path_str) else Path(path).read_text(encoding="utf-8")
+    payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError("manifest file must contain a JSON object")
     _validate_manifest_payload(payload)
@@ -247,6 +266,12 @@ def resolve_config_uri(manifest_path: str | Path, config_uri: str) -> str:
     config_path = Path(config_uri)
     if config_path.is_absolute():
         return str(config_path)
+
+    manifest_str = str(manifest_path)
+    if _is_remote_uri(manifest_str):
+        parsed = urlparse(manifest_str)
+        new_path = posixpath.normpath(posixpath.join(posixpath.dirname(parsed.path), config_uri))
+        return urlunparse(parsed._replace(path=new_path, params="", query="", fragment=""))
 
     base = Path(manifest_path).resolve().parent
     return str((base / config_path).resolve())

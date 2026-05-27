@@ -84,6 +84,15 @@ pub fn load_config(config_path: &Path) -> FloeResult<config::RootConfig> {
     config::parse_config(config_path)
 }
 
+/// Read manifest JSON from any supported URI (local path, `s3://`, `gs://`, `abfs://`).
+/// For remote URIs the file is downloaded to a temp directory that is cleaned up before
+/// this function returns; the caller receives the raw JSON text as a `String`.
+pub fn read_manifest_text(uri: &str) -> FloeResult<String> {
+    let location = config::resolve_config_location(uri)?;
+    let text = std::fs::read_to_string(&location.path)?;
+    Ok(text)
+}
+
 pub fn load_config_with_profile_vars(
     config_path: &Path,
     profile_vars: &std::collections::HashMap<String, String>,

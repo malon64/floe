@@ -28,10 +28,12 @@ The connector is driven entirely by environment variables. No code changes are n
 | --- | --- |
 | `FLOE_MANIFEST` | Primary: path to a `floe.manifest.v1` JSON — enables asset registration at parse time |
 | `FLOE_MANIFEST_DIR` | Multi-manifest mode: directory of `*.manifest.json` files; one DAG per file |
-| `FLOE_CONFIG` | Fallback: path to a raw Floe YAML config — DAG runs but no assets are registered |
+| `FLOE_CONFIG` | Fallback run config used when manifest loading fails — DAG still executes `floe run`, but no assets are registered |
 | `FLOE_CMD` | Override the `floe` binary path (default: `floe` on `$PATH`) |
 
-**Fallback mode:** If `FLOE_MANIFEST` is not set, the connector falls back to `FLOE_CONFIG`. The DAG still runs and calls `floe run`, but because there is no manifest to read at parse time, no assets are registered and no asset events are emitted. Use this for quick local testing when you haven't generated a manifest yet.
+**Manifest loading failure:** If `FLOE_MANIFEST` points to a path that cannot be loaded (file not found, invalid JSON, schema error), `build_dag_manifest_context_or_empty` catches the exception and returns an empty asset context — the DAG still runs `floe run` using `FLOE_CONFIG` as the config path, but no assets are registered or materialized.
+
+> **Note:** Setting only `FLOE_CONFIG` without a valid `FLOE_MANIFEST` does not guarantee "no assets". When `FLOE_MANIFEST` is unset, the example DAG defaults to the bundled example manifest (`example/manifest.airflow.json`), which registers its own assets. To run with no assets, either point `FLOE_MANIFEST` to a path that does not exist, or remove the default fallback from your DAG code.
 
 **Multi-manifest mode:** Each JSON file in `FLOE_MANIFEST_DIR` becomes a separate DAG. The DAG ID is derived from the manifest file name — for example `orders.manifest.json` → DAG `floe_orders`. Entity tasks within the DAG are generated from the manifest's `entities[]` list.
 

@@ -77,17 +77,21 @@ Checks appear in the Dagster UI under each asset, linked to the run that produce
 
 ## Lineage integration
 
-When floe has a `lineage` block in its config or profile, it emits OpenLineage events. The connector automatically injects `DAGSTER_JOB_NAME` into the floe subprocess environment — so the OpenLineage run event is attributed to the Dagster job name instead of a UUID.
+The connector automatically injects two environment variables into every floe subprocess:
 
-This works automatically with no configuration: the connector reads the Dagster job name from the current run context and passes it through.
+- `DAGSTER_RUN_ID` — the current Dagster run ID
+- `DAGSTER_JOB_NAME` — the Dagster job name
 
-To enable lineage, add a `lineage` block to your profile and pass it when **generating** the manifest. The manifest builder serializes the lineage config into the manifest JSON so `floe run --manifest` picks it up automatically at run time — no runtime profile injection needed.
+When lineage is enabled and both variables are present, floe attaches a **parent facet** to its OpenLineage run event. This facet declares that the Floe run is a child of the Dagster run, making the lineage graph show the full Dagster → Floe pipeline hierarchy.
+
+The Floe run event's own `job.name` is derived from `lineage.job_name` in the embedded manifest lineage config, or from the config file stem. To control it explicitly, add `job_name` to your lineage block when generating the manifest:
 
 ```yaml
 # prod.yml (profile)
 lineage:
   url: "http://marquez:5000"
   namespace: "my-data-platform"
+  job_name: "orders-pipeline"   # sets job.name on the Floe OpenLineage run event
 ```
 
 ```bash

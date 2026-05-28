@@ -9,6 +9,7 @@ use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 use iceberg_catalog_rest::{
     RestCatalogBuilder, REST_CATALOG_PROP_URI, REST_CATALOG_PROP_WAREHOUSE,
 };
+use iceberg_storage_opendal::OpenDalStorageFactory;
 
 use crate::config::CatalogTypeConfig;
 use crate::errors::RunError;
@@ -28,6 +29,7 @@ use super::{map_iceberg_err, IcebergWriteResult, PreparedIcebergWrite};
 pub(crate) async fn build_rest_catalog(
     rest_cfg: &RestIcebergCatalogConfig,
     file_io_props: HashMap<String, String>,
+    table_location: &str,
 ) -> FloeResult<iceberg_catalog_rest::RestCatalog> {
     let mut props: HashMap<String, String> = file_io_props;
 
@@ -63,7 +65,29 @@ pub(crate) async fn build_rest_catalog(
         props.insert("scope".to_string(), scope.to_string());
     }
 
-    let storage_factory: Arc<dyn StorageFactory> = Arc::new(LocalFsStorageFactory);
+    // Prefer the concrete table location for storage factory dispatch; fall back to the
+    // warehouse field for cases where the caller only has catalog-level config (e.g. seeding).
+    let effective_uri = if !table_location.is_empty() {
+        table_location
+    } else {
+        rest_cfg.warehouse.as_deref().unwrap_or("")
+    };
+    let storage_factory: Arc<dyn StorageFactory> =
+        if effective_uri.starts_with("s3://") || effective_uri.starts_with("s3a://") {
+            let scheme = effective_uri
+                .split("://")
+                .next()
+                .unwrap_or("s3")
+                .to_string();
+            Arc::new(OpenDalStorageFactory::S3 {
+                configured_scheme: scheme,
+                customized_credential_load: None,
+            })
+        } else if effective_uri.starts_with("gs://") {
+            Arc::new(OpenDalStorageFactory::Gcs)
+        } else {
+            Arc::new(LocalFsStorageFactory)
+        };
 
     RestCatalogBuilder::default()
         .with_storage_factory(storage_factory)
@@ -125,7 +149,7 @@ pub(crate) async fn write_via_rest_catalog(
     mode: config::WriteMode,
     small_file_threshold_bytes: u64,
 ) -> FloeResult<IcebergWriteResult> {
-    let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
+    let catalog = build_rest_catalog(rest_cfg, file_io_props, &table_root_uri).await?;
 
     let namespace_name = rest_cfg.namespace.clone();
     let namespace = NamespaceIdent::new(namespace_name);

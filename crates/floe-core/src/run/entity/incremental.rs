@@ -12,8 +12,8 @@ use crate::report::{
 use crate::run::RunContext;
 use crate::state::{
     claim_all_entity_inputs, claim_entity_inputs, promote_claimed_entity_state,
-    release_claimed_entity_state, renew_claimed_entity_state, ClaimedEntityState, EntityFileState,
-    CLAIM_TTL_SECONDS,
+    promote_full_refresh_claimed_entity_state, release_claimed_entity_state,
+    renew_claimed_entity_state, ClaimedEntityState, EntityFileState, CLAIM_TTL_SECONDS,
 };
 use crate::{config, warnings, FloeResult};
 
@@ -44,6 +44,7 @@ pub(super) fn prepare_incremental_context(
                     context.storage_resolver.clone(),
                     entity.name.clone(),
                     context.run_id.clone(),
+                    true,
                 )
             })
         } else {
@@ -132,6 +133,7 @@ pub(super) fn prepare_incremental_context(
                 context.storage_resolver.clone(),
                 entity.name.clone(),
                 context.run_id.clone(),
+                false,
             )
         }),
     })
@@ -184,6 +186,7 @@ pub(super) struct PendingEntityState {
     run_id: String,
     heartbeat: Option<ClaimHeartbeat>,
     finalized: bool,
+    is_full_refresh: bool,
 }
 
 impl PendingEntityState {
@@ -192,6 +195,7 @@ impl PendingEntityState {
         resolver: StorageResolver,
         entity_name: String,
         run_id: String,
+        is_full_refresh: bool,
     ) -> Self {
         let heartbeat = ClaimHeartbeat::start(
             resolver.clone(),
@@ -206,6 +210,7 @@ impl PendingEntityState {
             run_id,
             heartbeat: Some(heartbeat),
             finalized: false,
+            is_full_refresh,
         }
     }
 
@@ -216,13 +221,23 @@ impl PendingEntityState {
         _entity: &config::EntityConfig,
     ) -> FloeResult<()> {
         self.stop_heartbeat();
-        promote_claimed_entity_state(
-            &self.resolver,
-            cloud,
-            &self.entity_name,
-            &self.run_id,
-            &self.claimed,
-        )?;
+        if self.is_full_refresh {
+            promote_full_refresh_claimed_entity_state(
+                &self.resolver,
+                cloud,
+                &self.entity_name,
+                &self.run_id,
+                &self.claimed,
+            )?;
+        } else {
+            promote_claimed_entity_state(
+                &self.resolver,
+                cloud,
+                &self.entity_name,
+                &self.run_id,
+                &self.claimed,
+            )?;
+        }
         self.finalized = true;
         Ok(())
     }

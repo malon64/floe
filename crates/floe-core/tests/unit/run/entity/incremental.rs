@@ -807,3 +807,73 @@ fn full_refresh_false_unchanged_behaviour() {
         "full_refresh=false must skip committed files"
     );
 }
+
+#[test]
+fn full_refresh_preserves_state_on_failure() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let rejected_dir = root.path().join("out/rejected");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+
+    // First run: commit one valid file to state as the baseline.
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+    let first = run_config(&config_path, "fr-fail-baseline");
+    assert_eq!(first.summary.run.status, RunStatus::Success);
+    let baseline = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state must be committed after first run");
+    assert_eq!(baseline.files.len(), 1, "baseline must have one file");
+
+    // Second run: full-refresh with a CSV that causes abort (missing column + reject_file mismatch).
+    // Replace the CSV with one that lacks the required "name" column.
+    write_csv(&input_dir, "customers.csv", "id\n1\n");
+    let mismatch_block = "      mismatch:\n        missing_columns: \"reject_file\"\n";
+    let abort_config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            Some(&rejected_dir),
+            &report_dir,
+            "abort",
+            mismatch_block,
+            None,
+        ),
+    );
+    let second = run(
+        &abort_config_path,
+        RunOptions {
+            profile: None,
+            run_id: Some("fr-fail-run".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+            full_refresh: true,
+        },
+    )
+    .expect("aborted run returns Ok outcome");
+    assert_eq!(second.summary.run.status, RunStatus::Aborted);
+
+    // The original baseline must survive the failed full-refresh.
+    let after_fail = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state must persist after a failed full-refresh");
+    assert_eq!(
+        after_fail.files.len(),
+        1,
+        "original baseline must be preserved after a failed full-refresh"
+    );
+}

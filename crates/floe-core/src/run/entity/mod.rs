@@ -289,6 +289,7 @@ pub(super) fn run_entity(
         accepted_target: &accepted_target,
         temp_dir: temp_dir_path,
         write_mode,
+        full_refresh: context.full_refresh,
         perf_enabled,
         phase_timings: &mut phase_timings,
         pending_input_count,

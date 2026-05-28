@@ -264,6 +264,7 @@ pub fn claim_all_entity_inputs(
         let loaded = load_entity_state(resolver, cloud, entity)?;
 
         let mut fresh_state = EntityState::new(&entity.name);
+        fresh_state.files = loaded.state.files.clone();
         fresh_state.updated_at = Some(acquired_at.clone());
         for input_file in &input_files {
             fresh_state.claims.insert(
@@ -317,6 +318,38 @@ pub fn promote_claimed_entity_state(
             .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
             .map(|(source_uri, _)| source_uri.clone())
             .collect();
+        for source_uri in claimed_files {
+            if let Some(claim) = state.claims.remove(&source_uri) {
+                state.files.insert(
+                    source_uri,
+                    EntityFileState {
+                        processed_at: processed_at.clone(),
+                        size: claim.size,
+                        mtime: claim.mtime,
+                    },
+                );
+            }
+        }
+        state.updated_at = Some(processed_at);
+    })
+}
+
+pub fn promote_full_refresh_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
+        let processed_at = now_rfc3339();
+        let claimed_files: Vec<String> = state
+            .claims
+            .iter()
+            .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
+            .map(|(uri, _)| uri.clone())
+            .collect();
+        state.files.clear();
         for source_uri in claimed_files {
             if let Some(claim) = state.claims.remove(&source_uri) {
                 state.files.insert(

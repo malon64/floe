@@ -20,6 +20,7 @@ pub(super) struct AcceptedWritePhaseContext<'a> {
     pub(super) accepted_target: &'a Target,
     pub(super) temp_dir: Option<&'a Path>,
     pub(super) write_mode: config::WriteMode,
+    pub(super) full_refresh: bool,
     pub(super) perf_enabled: bool,
     pub(super) phase_timings: &'a mut EntityPhaseTimings,
     pub(super) pending_input_count: usize,
@@ -37,6 +38,7 @@ pub(super) fn run_accepted_write_phase(
         accepted_target,
         temp_dir,
         write_mode,
+        full_refresh,
         perf_enabled,
         phase_timings,
         pending_input_count,
@@ -47,7 +49,7 @@ pub(super) fn run_accepted_write_phase(
         crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
             entity, write_mode,
         );
-    if pending_input_count == 0 {
+    if pending_input_count == 0 && !(full_refresh && write_mode == config::WriteMode::Overwrite) {
         return Ok(io::format::AcceptedWriteOutput {
             files_written: Some(0),
             schema_evolution: default_schema_evolution,

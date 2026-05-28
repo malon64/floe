@@ -205,6 +205,7 @@ entities:
             run_id: Some("it-delta-partitioned".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -276,6 +277,7 @@ entities:
             run_id: Some("it-delta-unpartitioned".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -346,6 +348,7 @@ entities:
             run_id: Some("it-delta-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial run");
@@ -390,6 +393,7 @@ entities:
             run_id: Some("it-delta-schema-evolution-append".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("schema evolution append run");
@@ -495,6 +499,7 @@ entities:
             run_id: Some("it-delta-schema-evolution-overwrite-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial overwrite run");
@@ -506,6 +511,7 @@ entities:
             run_id: Some("it-delta-schema-evolution-overwrite-noop".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("overwrite no-op run");
@@ -570,6 +576,7 @@ entities:
             run_id: Some("it-delta-overwrite-empty-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial overwrite run");
@@ -584,6 +591,7 @@ entities:
             run_id: Some("it-delta-overwrite-empty-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("overwrite run with zero accepted rows");
@@ -653,6 +661,7 @@ entities:
             run_id: Some("it-delta-append-empty-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial append run");
@@ -667,6 +676,7 @@ entities:
             run_id: Some("it-delta-append-empty-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run with zero accepted rows");
@@ -735,6 +745,7 @@ entities:
             run_id: Some("it-delta-append-noop-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial append run");
@@ -749,6 +760,7 @@ entities:
             run_id: Some("it-delta-append-noop-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run with precheck-rejected file");
@@ -809,6 +821,7 @@ entities:
             run_id: Some("it-delta-strict-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial strict run");
@@ -851,6 +864,7 @@ entities:
             run_id: Some("it-delta-strict-extra-column".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("strict mode should reject added columns");
@@ -916,6 +930,7 @@ entities:
             run_id: Some("it-delta-merge-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge run");
@@ -934,6 +949,7 @@ entities:
             run_id: Some("it-delta-merge-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge upsert run");
@@ -1048,6 +1064,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd1 run");
@@ -1102,6 +1119,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd1 run with additive column");
@@ -1225,6 +1243,7 @@ entities:
             run_id: Some("it-delta-merge-dup-source".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd1 should reject duplicate merge-key rows before merge in warn mode");
@@ -1299,6 +1318,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -1317,6 +1337,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd2 upsert run");
@@ -1445,6 +1466,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -1499,6 +1521,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd2 run with additive column");
@@ -1641,6 +1664,7 @@ entities:
             run_id: Some("it-delta-merge-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge run");
@@ -1655,6 +1679,7 @@ entities:
             run_id: Some("it-delta-merge-schema-evolution-empty".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge run with zero accepted rows");
@@ -1728,6 +1753,7 @@ entities:
             run_id: Some("it-delta-merge-noop-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge run");
@@ -1742,6 +1768,7 @@ entities:
             run_id: Some("it-delta-merge-noop-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge run with precheck-rejected file");
@@ -1819,6 +1846,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-custom-cols-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run with custom system columns");
@@ -1837,6 +1865,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-custom-cols-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd2 run with custom system columns");
@@ -1911,6 +1940,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-compare-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -1929,6 +1959,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-compare-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("second merge_scd2 run");
@@ -2010,6 +2041,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-compare-normalized-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -2028,6 +2060,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-compare-normalized-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("second merge_scd2 run");
@@ -2091,6 +2124,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-nullable-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -2105,6 +2139,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-nullable-second".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("second merge_scd2 run with null in configured nullable column");
@@ -2196,6 +2231,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-city-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd2 run");
@@ -2239,6 +2275,7 @@ entities:
             run_id: Some("it-delta-merge-scd2-city-drift".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("merge_scd2 with target-only business columns should fail");
@@ -2295,6 +2332,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-nonadditive-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd1 run");
@@ -2340,6 +2378,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-nonadditive-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("merge_scd1 with type change should fail");
@@ -2393,6 +2432,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-merge-key-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge_scd1 run");
@@ -2438,6 +2478,7 @@ entities:
             run_id: Some("it-delta-merge-scd1-merge-key-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("merge_scd1 with additive merge key should fail");

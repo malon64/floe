@@ -161,6 +161,7 @@ def run(
     entities: list[str] | None = None,
     dry_run: bool = False,
     run_id: str | None = None,
+    full_refresh: bool = False,
     profile_vars: dict[str, str] | None = None,
     profile_path: str | None = None,
 ) -> RunOutcome:

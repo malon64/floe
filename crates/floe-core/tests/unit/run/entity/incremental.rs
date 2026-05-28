@@ -163,6 +163,7 @@ fn run_config(path: &Path, run_id: &str) -> floe_core::RunOutcome {
             run_id: Some(run_id.to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config")
@@ -342,6 +343,7 @@ fn incremental_file_mode_fails_on_mismatched_state_entity() {
             run_id: Some("incremental-entity-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("mismatched entity state should fail");
@@ -390,6 +392,7 @@ fn incremental_file_mode_fails_on_mismatched_state_schema() {
             run_id: Some("incremental-schema-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("mismatched schema state should fail");
@@ -543,6 +546,7 @@ fn incremental_file_mode_releases_claims_after_error_exit() {
             run_id: Some("incremental-report-write-error".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect_err("report write should fail");
@@ -550,4 +554,326 @@ fn incremental_file_mode_releases_claims_after_error_exit() {
     assert!(read_entity_state(&state_path(&input_dir))
         .expect("read state")
         .is_none());
+}
+
+// ── full_refresh tests ────────────────────────────────────────────────────────
+
+fn run_config_full_refresh(path: &Path, run_id: &str) -> floe_core::RunOutcome {
+    run(
+        path,
+        RunOptions {
+            profile: None,
+            run_id: Some(run_id.to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+            full_refresh: true,
+        },
+    )
+    .expect("run config with full_refresh")
+}
+
+#[test]
+fn full_refresh_processes_all_files_when_state_exists() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id;name\n1;alice\n");
+    write_csv(&input_dir, "b.csv", "id;name\n2;bob\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    // First run: commit both files to state.
+    let first = run_config(&config_path, "fr-first");
+    assert_eq!(first.summary.run.status, RunStatus::Success);
+    let state_after_first = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state exists");
+    assert_eq!(state_after_first.files.len(), 2);
+
+    // Full-refresh: both files must be processed (zero skipped).
+    let second = run_config_full_refresh(&config_path, "fr-second");
+    assert_eq!(second.summary.run.status, RunStatus::Success);
+    let report = &second.entity_outcomes[0].report;
+    assert_eq!(
+        report.results.files_skipped, 0,
+        "full_refresh must not skip any file"
+    );
+    assert_eq!(
+        report.results.files_total, 2,
+        "both files must be processed"
+    );
+    assert_eq!(report.results.rows_total, 2);
+}
+
+#[test]
+fn full_refresh_overwrites_sink_when_write_mode_is_append() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            Some("append"),
+        ),
+    );
+
+    let outcome = run_config_full_refresh(&config_path, "fr-append-overwrite");
+    assert_eq!(outcome.summary.run.status, RunStatus::Success);
+    // The effective write mode reported must be "overwrite" even though config says "append".
+    assert_eq!(
+        outcome.entity_outcomes[0]
+            .report
+            .accepted_output
+            .write_mode
+            .as_deref(),
+        Some("overwrite"),
+        "full_refresh must force overwrite on append-mode sinks"
+    );
+}
+
+#[test]
+fn full_refresh_commits_state_on_success() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id;name\n1;alice\n");
+    write_csv(&input_dir, "b.csv", "id;name\n2;bob\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    let outcome = run_config_full_refresh(&config_path, "fr-commit");
+    assert_eq!(outcome.summary.run.status, RunStatus::Success);
+
+    let state = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state must exist after full_refresh");
+    assert_eq!(
+        state.files.len(),
+        2,
+        "both files must be committed to state"
+    );
+    assert!(
+        state.claims.is_empty(),
+        "claims must be empty after successful commit"
+    );
+
+    // A subsequent normal run must skip both files (state is valid baseline).
+    let followup = run_config(&config_path, "fr-commit-followup");
+    assert_eq!(followup.summary.run.status, RunStatus::Success);
+    let report = &followup.entity_outcomes[0].report;
+    assert_eq!(
+        report.results.files_skipped, 2,
+        "next normal run must skip full_refresh output"
+    );
+}
+
+#[test]
+fn full_refresh_merge_mode_returns_config_error() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let rejected_dir = root.path().join("out/rejected");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    // Delta merge config with primary_key (required for merge modes to pass validate_config).
+    let config_content = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "delta"
+        path: "{accepted_dir}"
+      rejected:
+        format: "csv"
+        path: "{rejected_dir}"
+    policy:
+      severity: "reject"
+    schema:
+      primary_key: ["id"]
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        rejected_dir = rejected_dir.display(),
+    );
+    let config_path = write_config(root.path(), &config_content);
+
+    let err = run(
+        &config_path,
+        RunOptions {
+            profile: None,
+            run_id: Some("fr-merge-error".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+            full_refresh: true,
+        },
+    )
+    .expect_err("full_refresh with merge_scd1 must return an error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("customer"),
+        "error must name the entity; got: {msg}"
+    );
+    assert!(
+        msg.contains("merge_scd1"),
+        "error must name the write_mode; got: {msg}"
+    );
+    assert!(
+        msg.contains("full-refresh") || msg.contains("full_refresh"),
+        "error must mention full-refresh; got: {msg}"
+    );
+}
+
+#[test]
+fn full_refresh_false_unchanged_behaviour() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+
+    // First run processes the file.
+    let first = run_config(&config_path, "fr-false-first");
+    assert_eq!(first.summary.run.status, RunStatus::Success);
+    let first_report = &first.entity_outcomes[0].report;
+    assert_eq!(first_report.results.files_total, 1);
+    assert_eq!(first_report.results.files_skipped, 0);
+
+    // Second run (full_refresh=false) must skip the already-ingested file.
+    let second = run_config(&config_path, "fr-false-second");
+    assert_eq!(second.summary.run.status, RunStatus::Success);
+    let second_report = &second.entity_outcomes[0].report;
+    assert_eq!(second_report.results.files_total, 1);
+    assert_eq!(
+        second_report.results.files_skipped, 1,
+        "full_refresh=false must skip committed files"
+    );
+}
+
+#[test]
+fn full_refresh_preserves_state_on_failure() {
+    let root = tempfile::TempDir::new().expect("temp dir");
+    let input_dir = root.path().join("in");
+    let accepted_dir = root.path().join("out/accepted");
+    let rejected_dir = root.path().join("out/rejected");
+    let report_dir = root.path().join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+
+    // First run: commit one valid file to state as the baseline.
+    write_csv(&input_dir, "customers.csv", "id;name\n1;alice\n");
+    let config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            None,
+            &report_dir,
+            "warn",
+            "",
+            None,
+        ),
+    );
+    let first = run_config(&config_path, "fr-fail-baseline");
+    assert_eq!(first.summary.run.status, RunStatus::Success);
+    let baseline = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state must be committed after first run");
+    assert_eq!(baseline.files.len(), 1, "baseline must have one file");
+
+    // Second run: full-refresh with a CSV that causes abort (missing column + reject_file mismatch).
+    // Replace the CSV with one that lacks the required "name" column.
+    write_csv(&input_dir, "customers.csv", "id\n1\n");
+    let mismatch_block = "      mismatch:\n        missing_columns: \"reject_file\"\n";
+    let abort_config_path = write_config(
+        root.path(),
+        &config_yaml(
+            &input_dir,
+            &accepted_dir,
+            Some(&rejected_dir),
+            &report_dir,
+            "abort",
+            mismatch_block,
+            None,
+        ),
+    );
+    let second = run(
+        &abort_config_path,
+        RunOptions {
+            profile: None,
+            run_id: Some("fr-fail-run".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+            full_refresh: true,
+        },
+    )
+    .expect("aborted run returns Ok outcome");
+    assert_eq!(second.summary.run.status, RunStatus::Aborted);
+
+    // The original baseline must survive the failed full-refresh.
+    let after_fail = read_entity_state(&state_path(&input_dir))
+        .expect("read state")
+        .expect("state must persist after a failed full-refresh");
+    assert_eq!(
+        after_fail.files.len(),
+        1,
+        "original baseline must be preserved after a failed full-refresh"
+    );
 }

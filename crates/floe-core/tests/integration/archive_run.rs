@@ -105,6 +105,7 @@ fn archive_moves_only_processed_input_not_local_siblings() {
             run_id: Some("archive-sibling-it".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -163,6 +164,7 @@ fn archive_repeated_runs_do_not_overwrite_same_source_filename() {
             run_id: Some("archive-run-1".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("first run");
@@ -175,6 +177,7 @@ fn archive_repeated_runs_do_not_overwrite_same_source_filename() {
             run_id: Some("archive-run-2".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("second run");
@@ -227,6 +230,7 @@ fn legacy_archive_config_still_archives_inputs() {
             run_id: Some("archive-legacy-compat".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");

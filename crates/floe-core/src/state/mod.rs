@@ -241,6 +241,68 @@ pub fn claim_entity_inputs(
     ))))
 }
 
+/// Full-refresh variant of `claim_entity_inputs`.
+///
+/// Loads existing state to get the current CAS version, then writes a blank
+/// `EntityState` containing fresh claims for ALL `input_files` — discarding
+/// the historical `files` and `claims` maps. On successful commit the state
+/// file will contain only the files processed in this run.
+///
+/// Returns `None` when `input_files` is empty (nothing to claim).
+pub fn claim_all_entity_inputs(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity: &EntityConfig,
+    run_id: &str,
+    input_files: Vec<crate::io::format::InputFile>,
+) -> FloeResult<Option<ClaimedEntityState>> {
+    let acquired_at = now_rfc3339();
+    let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
+
+    for _ in 0..STATE_CAS_RETRIES {
+        // Read only to obtain the current CAS version; content is discarded.
+        let loaded = load_entity_state(resolver, cloud, entity)?;
+
+        let mut fresh_state = EntityState::new(&entity.name);
+        fresh_state.files = loaded.state.files.clone();
+        fresh_state.updated_at = Some(acquired_at.clone());
+        for input_file in &input_files {
+            fresh_state.claims.insert(
+                input_file.source_uri.clone(),
+                EntityFileClaim {
+                    run_id: run_id.to_string(),
+                    acquired_at: acquired_at.clone(),
+                    expires_at: expires_at.clone(),
+                    size: input_file.source_size,
+                    mtime: input_file.source_mtime.clone(),
+                },
+            );
+        }
+
+        let fresh_loaded = LoadedEntityState {
+            target: loaded.target,
+            state: fresh_state,
+            version: loaded.version,
+            existed: loaded.existed,
+        };
+        match persist_loaded_state(cloud, resolver, &fresh_loaded)? {
+            Some(version) => {
+                return Ok(Some(ClaimedEntityState {
+                    target: fresh_loaded.target,
+                    state: fresh_loaded.state,
+                    version,
+                }));
+            }
+            None => continue,
+        }
+    }
+
+    Err(Box::new(ConfigError(format!(
+        "entity.name={} full-refresh state write conflicted after {STATE_CAS_RETRIES} retries",
+        entity.name
+    ))))
+}
+
 pub fn promote_claimed_entity_state(
     resolver: &StorageResolver,
     cloud: &mut CloudClient,
@@ -256,6 +318,38 @@ pub fn promote_claimed_entity_state(
             .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
             .map(|(source_uri, _)| source_uri.clone())
             .collect();
+        for source_uri in claimed_files {
+            if let Some(claim) = state.claims.remove(&source_uri) {
+                state.files.insert(
+                    source_uri,
+                    EntityFileState {
+                        processed_at: processed_at.clone(),
+                        size: claim.size,
+                        mtime: claim.mtime,
+                    },
+                );
+            }
+        }
+        state.updated_at = Some(processed_at);
+    })
+}
+
+pub fn promote_full_refresh_claimed_entity_state(
+    resolver: &StorageResolver,
+    cloud: &mut CloudClient,
+    entity_name: &str,
+    run_id: &str,
+    claimed: &ClaimedEntityState,
+) -> FloeResult<()> {
+    mutate_claimed_state(resolver, cloud, entity_name, claimed, |state, our_uris| {
+        let processed_at = now_rfc3339();
+        let claimed_files: Vec<String> = state
+            .claims
+            .iter()
+            .filter(|(uri, claim)| claim.run_id == run_id && our_uris.contains(*uri))
+            .map(|(uri, _)| uri.clone())
+            .collect();
+        state.files.clear();
         for source_uri in claimed_files {
             if let Some(claim) = state.claims.remove(&source_uri) {
                 state.files.insert(

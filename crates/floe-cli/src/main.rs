@@ -171,6 +171,12 @@ enum Command {
         #[arg(long, help = "Resolve and print inputs/outputs without executing")]
         dry_run: bool,
         #[arg(
+            long,
+            short = 'F',
+            help = "Bypass incremental state and reprocess all input files. Forces overwrite on append-mode sinks. Incompatible with merge_scd1/merge_scd2."
+        )]
+        full_refresh: bool,
+        #[arg(
             short = 'p',
             long,
             help = "Optional path to a Floe environment profile YAML file"
@@ -443,6 +449,7 @@ fn main() -> FloeResult<()> {
             verbose,
             log_format,
             dry_run,
+            full_refresh,
             profile,
         } => {
             let started_at = floe_core::report::now_rfc3339();
@@ -492,6 +499,7 @@ fn main() -> FloeResult<()> {
                     run_id: Some(computed_run_id.clone()),
                     entities,
                     dry_run,
+                    full_refresh,
                     profile: None,
                 };
 
@@ -583,6 +591,7 @@ fn main() -> FloeResult<()> {
                 run_id: Some(computed_run_id.clone()),
                 entities,
                 dry_run,
+                full_refresh,
                 profile: profile_config,
             };
 

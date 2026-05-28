@@ -69,6 +69,7 @@ entities:
             run_id: Some("it-iceberg-gcs-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
+            full_refresh: false,
         },
     )
     .expect("dry run config");
@@ -126,6 +127,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
             run_id: Some("it-iceberg-gcs-append1".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run 1");
@@ -147,6 +149,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
             run_id: Some("it-iceberg-gcs-append2".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run 2");
@@ -179,6 +182,7 @@ fn manual_gcs_iceberg_append_and_overwrite_write_layout_and_cleanup() {
             run_id: Some("it-iceberg-gcs-overwrite".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("overwrite run");

@@ -88,6 +88,7 @@ entities:
             run_id: Some("it-iceberg-glue-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
+            full_refresh: false,
         },
     )
     .expect("dry run config");
@@ -151,6 +152,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
             run_id: Some("it-iceberg-glue-append1".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run 1");
@@ -193,6 +195,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
             run_id: Some("it-iceberg-glue-append2".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("append run 2");
@@ -227,6 +230,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
             run_id: Some("it-iceberg-glue-overwrite".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("overwrite run");

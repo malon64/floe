@@ -175,6 +175,20 @@ fn run_from_context(
     let observer = default_observer();
     let perf_enabled = perf::phase_timing_enabled();
     let selected_entities = select_entities(&context, &options);
+    if options.full_refresh {
+        for entity in &selected_entities {
+            if matches!(
+                entity.sink.write_mode,
+                config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2
+            ) {
+                return Err(Box::new(ConfigError(format!(
+                    "entity '{}': --full-refresh is not supported with write_mode '{}'",
+                    entity.name,
+                    entity.sink.write_mode.as_str()
+                ))));
+            }
+        }
+    }
     let resolution_mode = if options.dry_run {
         io::storage::inputs::ResolveInputsMode::ListOnly
     } else {

@@ -67,6 +67,7 @@ entities:
             run_id: Some("it-dry".to_string()),
             entities: Vec::new(),
             dry_run: true,
+            full_refresh: false,
         },
     )
     .expect("dry run config");
@@ -128,6 +129,7 @@ entities:
             run_id: Some("it-dry-missing".to_string()),
             entities: Vec::new(),
             dry_run: true,
+            full_refresh: false,
         },
     )
     .expect_err("dry run should fail");

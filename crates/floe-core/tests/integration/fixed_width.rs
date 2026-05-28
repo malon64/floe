@@ -64,6 +64,7 @@ entities:
             run_id: Some("fixed-width-parse".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -139,6 +140,7 @@ entities:
             run_id: Some("fixed-width-cast".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -200,6 +202,7 @@ entities:
             run_id: Some("fixed-width-unicode".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");

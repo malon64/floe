@@ -66,6 +66,7 @@ entities:
             run_id: Some("it-run".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -165,6 +166,7 @@ entities:
             run_id: Some("it-run-parquet-metrics".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");

@@ -65,6 +65,7 @@ entities:
             run_id: Some("unit-delta-merge-dup".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge_scd1 should reject duplicate merge-key rows before merge in warn mode");
@@ -130,6 +131,7 @@ entities:
             run_id: Some("unit-delta-merge-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge run");
@@ -148,6 +150,7 @@ entities:
             run_id: Some("unit-delta-merge-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge upsert run");
@@ -218,6 +221,7 @@ entities:
             run_id: Some("unit-delta-merge-schema-evolution-init".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("initial merge run");
@@ -272,6 +276,7 @@ entities:
             run_id: Some("unit-delta-merge-schema-evolution-upsert".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("merge upsert with new column");

@@ -4,6 +4,16 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+## v0.4.4
+
+- **REST catalog: correct storage factory for S3 and GCS** (fixes #348 #349):
+  - `build_rest_catalog()` previously always used `LocalFsStorageFactory` regardless of warehouse scheme, causing Parquet data file reads/writes to fail with OS-level errors on any cloud-backed REST catalog (Polaris, Snowflake Open Catalog, Nessie with S3).
+  - The factory is now selected based on the concrete table location URI (`s3://`, `s3a://` → `OpenDalStorageFactory::S3`; `gs://` → `OpenDalStorageFactory::Gcs`; everything else → `LocalFsStorageFactory`).
+  - When the warehouse field is a catalog name rather than a storage URI (e.g. Polaris `"lakehouse"`), the table location from `warehouse_location` / `table_root_uri` is used as the primary dispatch key, with `warehouse` as fallback.
+  - Both write and uniqueness-seed (Append dedup) paths are fixed.
+
+- **`floe` 0.4.4**: version bump for this release.
+
 ## v0.4.3
 
 - **Remote manifest support for `floe run --manifest`** (`docs/cli.md`, fixes #342):

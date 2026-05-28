@@ -32,6 +32,7 @@ fn run_config(path: &Path) -> floe_core::RunOutcome {
             run_id: Some("test-run".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config")

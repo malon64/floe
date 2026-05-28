@@ -87,6 +87,7 @@ entities:
             run_id: Some("it-json-strict".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -161,6 +162,7 @@ entities:
             run_id: Some("it-json-coerce".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");
@@ -242,6 +244,7 @@ entities:
             run_id: Some("it-json-mismatch".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");

@@ -16,6 +16,7 @@ pub struct RunContext {
     pub run_id: String,
     pub started_at: String,
     pub run_timer: Instant,
+    pub full_refresh: bool,
 }
 
 impl RunContext {
@@ -82,6 +83,7 @@ impl RunContext {
             run_id,
             started_at,
             run_timer: Instant::now(),
+            full_refresh: options.full_refresh,
         })
     }
 
@@ -151,6 +153,7 @@ impl RunContext {
             run_id,
             started_at,
             run_timer: Instant::now(),
+            full_refresh: options.full_refresh,
         })
     }
 }

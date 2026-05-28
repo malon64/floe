@@ -54,6 +54,7 @@ pub struct RunOptions {
     pub run_id: Option<String>,
     pub entities: Vec<String>,
     pub dry_run: bool,
+    pub full_refresh: bool,
     pub profile: Option<ProfileConfig>,
 }
 

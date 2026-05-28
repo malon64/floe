@@ -57,6 +57,7 @@ entities:
             run_id: Some("path-norm-it".to_string()),
             entities: Vec::new(),
             dry_run: false,
+            full_refresh: false,
         },
     )
     .expect("run config");

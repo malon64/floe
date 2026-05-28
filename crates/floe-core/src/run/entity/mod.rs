@@ -87,7 +87,13 @@ pub(super) fn run_entity(
     let entity_start = perf_enabled.then(Instant::now);
     let mut phase_timings = EntityPhaseTimings::default();
     let input = &entity.source;
-    let write_mode = entity.sink.write_mode;
+    let write_mode = if context.full_refresh
+        && entity.sink.write_mode == crate::config::WriteMode::Append
+    {
+        crate::config::WriteMode::Overwrite
+    } else {
+        entity.sink.write_mode
+    };
     let input_adapter = runtime.input_adapter(input.format.as_str())?;
     let resolved_targets = plan.resolved_targets;
     let formatter_name = context

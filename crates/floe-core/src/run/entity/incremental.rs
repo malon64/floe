@@ -11,8 +11,9 @@ use crate::report::{
 };
 use crate::run::RunContext;
 use crate::state::{
-    claim_entity_inputs, promote_claimed_entity_state, release_claimed_entity_state,
-    renew_claimed_entity_state, ClaimedEntityState, EntityFileState, CLAIM_TTL_SECONDS,
+    claim_all_entity_inputs, claim_entity_inputs, promote_claimed_entity_state,
+    release_claimed_entity_state, renew_claimed_entity_state, ClaimedEntityState, EntityFileState,
+    CLAIM_TTL_SECONDS,
 };
 use crate::{config, warnings, FloeResult};
 
@@ -28,6 +29,33 @@ pub(super) fn prepare_incremental_context(
     entity: &config::EntityConfig,
     input_files: Vec<InputFile>,
 ) -> FloeResult<IncrementalContext> {
+    if context.full_refresh {
+        let pending_state = if entity.incremental_mode == IncrementalMode::File {
+            claim_all_entity_inputs(
+                &context.storage_resolver,
+                cloud,
+                entity,
+                &context.run_id,
+                input_files.clone(),
+            )?
+            .map(|claimed| {
+                PendingEntityState::new(
+                    claimed,
+                    context.storage_resolver.clone(),
+                    entity.name.clone(),
+                    context.run_id.clone(),
+                )
+            })
+        } else {
+            None
+        };
+        return Ok(IncrementalContext {
+            pending_inputs: input_files,
+            skipped_reports: Vec::new(),
+            pending_state,
+        });
+    }
+
     if entity.incremental_mode != IncrementalMode::File {
         return Ok(IncrementalContext {
             pending_inputs: input_files,

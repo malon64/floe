@@ -627,9 +627,14 @@ fn seed_iceberg_from_catalog(
                 .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
             seed_from_batches(tracker, batches, rename_back)
         }
-        IcebergCatalogConfig::Rest(rest_cfg) => {
-            seed_iceberg_from_rest(tracker, rest_cfg, file_io_props, scan_cols, rename_back)
-        }
+        IcebergCatalogConfig::Rest(rest_cfg) => seed_iceberg_from_rest(
+            tracker,
+            rest_cfg,
+            file_io_props,
+            &warehouse_location,
+            scan_cols,
+            rename_back,
+        ),
     }
 }
 
@@ -637,6 +642,7 @@ fn seed_iceberg_from_rest(
     tracker: &mut check::UniqueTracker,
     rest_cfg: &RestIcebergCatalogConfig,
     file_io_props: HashMap<String, String>,
+    warehouse_location: &str,
     scan_cols: &[String],
     rename_back: &HashMap<String, String>,
 ) -> FloeResult<()> {
@@ -653,7 +659,7 @@ fn seed_iceberg_from_rest(
 
     let batches = runtime
         .block_on(async {
-            let catalog = build_rest_catalog(rest_cfg, file_io_props).await?;
+            let catalog = build_rest_catalog(rest_cfg, file_io_props, warehouse_location).await?;
             let namespace = NamespaceIdent::new(rest_cfg.namespace.clone());
 
             if !catalog

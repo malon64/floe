@@ -70,14 +70,14 @@ pub fn validate(
 }
 
 #[pyfunction]
-#[pyo3(signature = (config_path, entities=None, dry_run=false, full_refresh=false, run_id=None, profile_vars=None, profile_path=None))]
+#[pyo3(signature = (config_path, entities=None, dry_run=false, run_id=None, full_refresh=false, profile_vars=None, profile_path=None))]
 pub fn run(
     py: Python<'_>,
     config_path: &str,
     entities: Option<Vec<String>>,
     dry_run: bool,
-    full_refresh: bool,
     run_id: Option<String>,
+    full_refresh: bool,
     profile_vars: Option<HashMap<String, String>>,
     profile_path: Option<String>,
 ) -> PyResult<PyRunOutcome> {

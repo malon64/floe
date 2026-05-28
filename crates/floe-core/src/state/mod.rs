@@ -256,10 +256,6 @@ pub fn claim_all_entity_inputs(
     run_id: &str,
     input_files: Vec<crate::io::format::InputFile>,
 ) -> FloeResult<Option<ClaimedEntityState>> {
-    if input_files.is_empty() {
-        return Ok(None);
-    }
-
     let acquired_at = now_rfc3339();
     let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
 

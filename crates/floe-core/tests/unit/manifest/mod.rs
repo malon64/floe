@@ -1,5 +1,6 @@
 use floe_core::{
     build_common_manifest_json, load_config, parse_profile_from_str, resolve_config_location,
+    ManifestOptions,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -26,8 +27,14 @@ fn manifest_uses_local_uri_for_local_config() {
     .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
 
-    let payload = build_common_manifest_json(&config_location, &config, &[], None)
-        .expect("build common manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("build common manifest");
     let value: Value = serde_json::from_str(&payload).expect("manifest is valid json");
 
     assert_eq!(value["schema"], "floe.manifest.v1");
@@ -45,9 +52,22 @@ fn manifest_id_is_stable_for_same_config() {
     .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
 
-    let first = build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
-    let second =
-        build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
+    let first = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let second = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
 
     let first_value: Value = serde_json::from_str(&first).expect("valid json");
     let second_value: Value = serde_json::from_str(&second).expect("valid json");
@@ -96,8 +116,14 @@ entities:
     let config_location = resolve_config_location(config_path.to_str().expect("config path utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload = build_common_manifest_json(&config_location, &config, &[], None)
-        .expect("build common manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("build common manifest");
     let value: Value = serde_json::from_str(&payload).expect("manifest json");
 
     let cfg_base = std::fs::canonicalize(&cfg_dir).expect("canonicalize cfg dir");
@@ -122,8 +148,14 @@ fn manifest_without_profile_has_local_runner() {
     let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload =
-        build_common_manifest_json(&config_location, &config, &[], None).expect("manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     assert_eq!(value["runners"]["default"], "local");
@@ -149,8 +181,14 @@ execution:
     let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
-        .expect("manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     assert_eq!(value["runners"]["default"], "local");
@@ -176,8 +214,14 @@ execution:
     let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
-        .expect("manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     assert_eq!(value["runners"]["default"], "default");
@@ -223,8 +267,14 @@ execution:
     let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
-        .expect("manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     let runner = &value["runners"]["definitions"]["default"];
@@ -284,8 +334,14 @@ execution:
     let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
         .expect("resolve config location");
     let config = load_config(&config_location.path).expect("load config");
-    let payload = build_common_manifest_json(&config_location, &config, &[], Some(&profile))
-        .expect("manifest");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     let runner = &value["runners"]["definitions"]["default"];
@@ -303,4 +359,132 @@ execution:
         runner["auth"]["service_principal_oauth_ref"],
         "env://DATABRICKS_TOKEN"
     );
+}
+
+#[test]
+fn manifest_deterministic_mode_produces_stable_output() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        deterministic: true,
+        ..ManifestOptions::default()
+    };
+
+    let first =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let second =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+
+    assert_eq!(
+        first, second,
+        "deterministic manifests must be byte-identical"
+    );
+}
+
+#[test]
+fn manifest_deterministic_mode_sets_timestamp_to_zero() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        deterministic: true,
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["generated_at_ts_ms"], 0);
+}
+
+#[test]
+fn manifest_config_checksum_is_populated() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let checksum = value["config_checksum"]
+        .as_str()
+        .expect("config_checksum should be present");
+    assert!(
+        checksum.starts_with("sha256:"),
+        "config_checksum should start with 'sha256:'"
+    );
+}
+
+#[test]
+fn manifest_revision_is_present_and_stable() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let first = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let second = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+
+    let first_value: Value = serde_json::from_str(&first).expect("valid json");
+    let second_value: Value = serde_json::from_str(&second).expect("valid json");
+
+    let first_rev = first_value["manifest_revision"]
+        .as_str()
+        .expect("manifest_revision should be present");
+    let second_rev = second_value["manifest_revision"]
+        .as_str()
+        .expect("manifest_revision should be present");
+
+    assert!(
+        first_rev.starts_with("sha256:"),
+        "revision should be a sha256 hash"
+    );
+    assert_eq!(
+        first_rev, second_rev,
+        "manifest_revision must be stable across calls"
+    );
+}
+
+#[test]
+fn manifest_name_is_stored_when_provided() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        manifest_name: Some("sales.prod".to_string()),
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["manifest_name"], "sales.prod");
 }

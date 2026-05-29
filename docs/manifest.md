@@ -36,6 +36,37 @@ floe manifest generate -c orders.yml --entities orders,returns --output manifest
 
 ---
 
+## Deterministic generation
+
+For production deployments where manifests are committed to git and diffed in CI, use `--deterministic`:
+
+```bash
+floe manifest generate \
+  -c sales.yml \
+  -p profiles/prod.yml \
+  --deterministic \
+  --manifest-name sales.prod \
+  --output manifests/sales.prod.json
+```
+
+In deterministic mode:
+
+- `generated_at_ts_ms` is set to `0` — the same inputs always produce byte-identical output.
+- `config_checksum` and `profile_checksum` (SHA-256) trace the exact source files used.
+- `manifest_revision` (SHA-256 of canonical content) provides a stable content fingerprint.
+- Map fields (`exit_codes`, `env`, `definitions`, `tags`) use stable alphabetical key ordering.
+
+To verify a committed manifest has not drifted from the source config:
+
+```bash
+floe manifest generate -c sales.yml -p profiles/prod.yml --deterministic -o /tmp/check.json
+diff manifests/sales.prod.json /tmp/check.json
+```
+
+An empty diff means the manifest is up to date.
+
+---
+
 ## What's inside
 
 A manifest is a self-contained JSON document. Here's an annotated excerpt:
@@ -43,8 +74,13 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
 ```jsonc
 {
   "schema": "floe.manifest.v1",          // version sentinel — never changes for v1
-  "manifest_id": "orders-2024",          // stable ID for tracking
+  "manifest_name": "sales.prod",         // optional stable logical name (--manifest-name)
+  "manifest_id": "mfv1-a1b2c3d4...",    // FNV-1a hash of config URI + content
+  "manifest_revision": "sha256:...",     // SHA-256 of canonical manifest content
   "config_uri": "./orders.yml",          // where the source YAML lives
+  "config_checksum": "sha256:...",       // SHA-256 of the config file
+  "profile_uri": "local:///prod.yml",   // profile used at generation time (if any)
+  "profile_checksum": "sha256:...",      // SHA-256 of the profile file (if any)
   "report_base_uri": "./report",         // where run reports are written
 
   // The exact CLI command the orchestrator must call
@@ -134,7 +170,14 @@ Regenerate the manifest whenever you change:
 - source or sink paths
 - runner definitions or execution args
 
-A simple CI check that catches drift. Strip `generated_at_ts_ms` before comparing — it changes on every `generate` call regardless of config changes:
+With `--deterministic`, drift detection is a clean diff:
+
+```bash
+floe manifest generate -c orders.yml --deterministic -o /tmp/fresh.json
+diff manifests/orders.json /tmp/fresh.json
+```
+
+If you are not using `--deterministic`, strip the volatile timestamp before comparing:
 
 ```bash
 diff \

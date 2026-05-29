@@ -111,9 +111,16 @@ pub fn iceberg_store_config(
         Target::S3 { storage, uri, .. } => {
             let mut file_io_props = HashMap::new();
             if let Some(definition) = resolver.definition(storage) {
-                if let Some(region) = definition.region {
+                if let Some(region) = &definition.region {
                     file_io_props.insert(S3_REGION.to_string(), region.clone());
-                    file_io_props.insert(CLIENT_REGION.to_string(), region);
+                    file_io_props.insert(CLIENT_REGION.to_string(), region.clone());
+                }
+                if let Some(endpoint) = &definition.endpoint {
+                    file_io_props.insert("s3.endpoint".to_string(), endpoint.clone());
+                }
+                if let Some(path_style) = definition.path_style_access {
+                    file_io_props
+                        .insert("s3.path-style-access".to_string(), path_style.to_string());
                 }
             }
             Ok(IcebergStoreConfig {

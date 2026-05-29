@@ -366,6 +366,8 @@ pub struct StorageDefinition {
     pub account: Option<String>,
     pub container: Option<String>,
     pub prefix: Option<String>,
+    pub endpoint: Option<String>,
+    pub path_style_access: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

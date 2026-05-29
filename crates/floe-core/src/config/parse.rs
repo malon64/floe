@@ -695,6 +695,8 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
             "account",
             "container",
             "prefix",
+            "endpoint",
+            "path_style_access",
         ],
     )?;
     Ok(StorageDefinition {
@@ -705,6 +707,8 @@ fn parse_storage_definition(value: &Yaml) -> FloeResult<StorageDefinition> {
         account: opt_string(hash, "account", "storages.definitions")?,
         container: opt_string(hash, "container", "storages.definitions")?,
         prefix: opt_string(hash, "prefix", "storages.definitions")?,
+        endpoint: opt_string(hash, "endpoint", "storages.definitions")?,
+        path_style_access: opt_bool(hash, "path_style_access", "storages.definitions")?,
     })
 }
 

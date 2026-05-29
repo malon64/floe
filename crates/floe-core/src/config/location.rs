@@ -63,6 +63,8 @@ fn download_remote_config(uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
             account: Some(location.account),
             container: Some(location.container),
             prefix: None,
+            endpoint: None,
+            path_style_access: None,
         };
         let client = storage::adls::AdlsClient::new(&definition)?;
         return client.download_to_temp(uri, temp_dir);

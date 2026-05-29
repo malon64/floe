@@ -38,6 +38,8 @@ fn report_base_resolves_under_prefix() {
         account: None,
         container: None,
         prefix: Some("lakehouse".to_string()),
+        endpoint: None,
+        path_style_access: None,
     };
     let report = ReportConfig {
         path: "report".to_string(),
@@ -62,6 +64,8 @@ fn report_uri_builds_with_run_layout() {
         account: None,
         container: None,
         prefix: Some("lakehouse/report".to_string()),
+        endpoint: None,
+        path_style_access: None,
     };
     let report = ReportConfig {
         path: "reports".to_string(),
@@ -92,6 +96,8 @@ fn report_uri_normalizes_prefix_and_path() {
         account: Some("acct".to_string()),
         container: Some("container".to_string()),
         prefix: Some("/lakehouse/".to_string()),
+        endpoint: None,
+        path_style_access: None,
     };
     let report = ReportConfig {
         path: "/report/".to_string(),
@@ -124,6 +130,8 @@ fn local_report_paths_and_uris_are_normalized() {
                 account: None,
                 container: None,
                 prefix: None,
+                endpoint: None,
+                path_style_access: None,
             }],
         }),
         catalogs: None,

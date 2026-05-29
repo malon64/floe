@@ -215,7 +215,7 @@ impl StorageResolver {
         raw_path: &str,
     ) -> FloeResult<ResolvedPath> {
         let name = storage_name.unwrap_or(self.default_name.as_str());
-        if !self.has_config && name != "local" {
+        if !self.has_config && name != "local" && !self.definitions.contains_key(name) {
             return Err(Box::new(ConfigError(format!(
                 "entity.name={} {field} references unknown storage {} (no storages block)",
                 entity_name, name
@@ -306,7 +306,7 @@ impl StorageResolver {
         raw_path: &str,
     ) -> FloeResult<ResolvedPath> {
         let name = storage_name.unwrap_or(self.default_name.as_str());
-        if !self.has_config && name != "local" {
+        if !self.has_config && name != "local" && !self.definitions.contains_key(name) {
             return Err(Box::new(ConfigError(format!(
                 "report.storage references unknown storage {} (no storages block)",
                 name
@@ -421,14 +421,17 @@ impl StorageResolver {
 
     /// Register a synthetic `StorageDefinition` into this resolver.
     /// Used in manifest mode when the report URI has no matching definition in the config.
+    /// Does NOT flip `has_config`; entity resolution keeps its implicit-local fallback.
     pub fn register_definition(&mut self, definition: StorageDefinition) {
         self.definitions.insert(definition.name.clone(), definition);
-        self.has_config = true;
     }
 
     pub fn definition(&self, name: &str) -> Option<StorageDefinition> {
         if self.has_config {
             self.definitions.get(name).cloned()
+        } else if let Some(def) = self.definitions.get(name) {
+            // Synthetic definition registered by register_definition (e.g. report target).
+            Some(def.clone())
         } else if name == "local" {
             Some(StorageDefinition {
                 name: "local".to_string(),

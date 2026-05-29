@@ -248,6 +248,10 @@ def run_kubernetes_job(
         job=last_job,
         pod_ctx=pod_ctx,
     )
+    if "report_base" in run_finished:
+        payload["report_base"] = run_finished["report_base"]
+    if "entity_report_uris" in run_finished:
+        payload["entity_report_uris"] = run_finished["entity_report_uris"]
     if entities and len(entities) == 1:
         payload["entity"] = entities[0]
     return payload

@@ -96,7 +96,7 @@ impl RunContext {
         report_base_uri: &str,
         options: &RunOptions,
     ) -> FloeResult<Self> {
-        let storage_resolver = config::StorageResolver::new(&config, config_base)?;
+        let mut storage_resolver = config::StorageResolver::new(&config, config_base)?;
         let catalog_resolver = config::CatalogResolver::new(&config)?;
         let config_dir =
             crate::io::storage::paths::normalize_local_path(storage_resolver.config_dir());
@@ -108,7 +108,7 @@ impl RunContext {
             crate::io::storage::paths::normalize_local_path(manifest_path)
         };
 
-        // The manifest embeds report_base_uri; resolve it to a target if it looks local.
+        // The manifest embeds report_base_uri; resolve it to a Target.
         let (report_target, report_base_path) =
             if !report_base_uri.is_empty() && report_base_uri != "report" {
                 let local_path = if let Some(stripped) = report_base_uri.strip_prefix("local://") {
@@ -122,15 +122,18 @@ impl RunContext {
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| report_base_uri.to_string());
-                // Only attempt to create a Target for local paths; skip for remote URIs.
-                let report_target = local_path.as_ref().and_then(|path| {
+                let report_target = if let Some(path) = local_path.as_ref() {
                     let resolved = config::ResolvedPath {
                         storage: "local".to_string(),
                         uri: report_base_uri.to_string(),
                         local_path: Some(path.clone()),
                     };
                     Target::from_resolved(&resolved).ok()
-                });
+                } else if config::is_remote_uri(report_base_uri) {
+                    build_remote_report_target(report_base_uri, &mut storage_resolver)
+                } else {
+                    None
+                };
                 (report_target, Some(base_path))
             } else {
                 (None, None)
@@ -156,6 +159,82 @@ impl RunContext {
             full_refresh: options.full_refresh,
         })
     }
+}
+
+fn build_remote_report_target(uri: &str, resolver: &mut config::StorageResolver) -> Option<Target> {
+    let storage_name = if let Some(name) = resolver.find_definition_name_for_uri(uri) {
+        name
+    } else if let Some((def, name)) = synthetic_storage_for_uri(uri) {
+        resolver.register_definition(def);
+        name
+    } else {
+        return None;
+    };
+    let resolved = config::ResolvedPath {
+        storage: storage_name,
+        uri: uri.to_string(),
+        local_path: None,
+    };
+    Target::from_resolved(&resolved).ok()
+}
+
+fn synthetic_storage_for_uri(uri: &str) -> Option<(config::StorageDefinition, String)> {
+    use crate::io::storage::{adls, gcs, s3};
+    if uri.starts_with("s3://") {
+        let loc = s3::parse_s3_uri(uri).ok()?;
+        let name = "__report_s3__".to_string();
+        return Some((
+            config::StorageDefinition {
+                name: name.clone(),
+                fs_type: "s3".to_string(),
+                bucket: Some(loc.bucket),
+                region: None,
+                endpoint: None,
+                path_style_access: None,
+                account: None,
+                container: None,
+                prefix: None,
+            },
+            name,
+        ));
+    }
+    if uri.starts_with("gs://") {
+        let loc = gcs::parse_gcs_uri(uri).ok()?;
+        let name = "__report_gcs__".to_string();
+        return Some((
+            config::StorageDefinition {
+                name: name.clone(),
+                fs_type: "gcs".to_string(),
+                bucket: Some(loc.bucket),
+                region: None,
+                endpoint: None,
+                path_style_access: None,
+                account: None,
+                container: None,
+                prefix: None,
+            },
+            name,
+        ));
+    }
+    if uri.starts_with("abfs://") {
+        let loc = adls::parse_adls_uri(uri).ok()?;
+        let name = "__report_adls__".to_string();
+        return Some((
+            config::StorageDefinition {
+                name: name.clone(),
+                fs_type: "adls".to_string(),
+                bucket: None,
+                region: None,
+                endpoint: None,
+                path_style_access: None,
+                account: Some(loc.account),
+                container: Some(loc.container),
+                prefix: None,
+            },
+            name,
+        ));
+    }
+    None
 }
 
 #[cfg(test)]

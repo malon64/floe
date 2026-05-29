@@ -236,11 +236,15 @@ def _make_entity_multi_asset(
         entity_report_json: dict[str, Any] | None = None
         entity_report_uri: str | None = None
 
+        # Prefer entity_report_uris from the event (richer contract); fall back to
+        # loading the run summary and extracting entity_report_file from it.
+        entity_report_uri = finished.entity_report_uris.get(entity_name)
         if summary_uri:
             try:
                 summary_json = _load_summary_json(summary_uri, config_uri)
                 entity_stats = _extract_entity_stats(summary_json, entity_name)
-                entity_report_uri = _as_optional_str(entity_stats.get("entity_report_file"))
+                if not entity_report_uri:
+                    entity_report_uri = _as_optional_str(entity_stats.get("entity_report_file"))
                 if entity_report_uri:
                     entity_report_json = _load_entity_report_json(entity_report_uri, config_uri)
             except Exception as exc:  # noqa: BLE001

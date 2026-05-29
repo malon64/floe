@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 
@@ -11,6 +11,8 @@ class FloeRunFinished:
     status: str
     exit_code: int
     summary_uri: str | None
+    report_base: str | None = None
+    entity_report_uris: dict[str, str] = field(default_factory=dict)
 
 
 def parse_ndjson_events(stdout: str) -> list[dict[str, Any]]:
@@ -49,4 +51,6 @@ def parse_run_finished(
         status=str(event.get("status")),
         exit_code=int(event.get("exit_code")),
         summary_uri=event.get(summary_uri_field),
+        report_base=event.get("report_base"),
+        entity_report_uris=event.get("entity_report_uris") or {},
     )

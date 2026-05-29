@@ -390,6 +390,42 @@ impl StorageResolver {
         }
     }
 
+    /// Scan definitions for the first one whose scheme and bucket/account match `uri`.
+    /// Used in manifest mode to resolve a bare report URI back to a named definition.
+    pub fn find_definition_name_for_uri(&self, uri: &str) -> Option<String> {
+        for (name, def) in &self.definitions {
+            if uri.starts_with("s3://") && def.fs_type == "s3" {
+                if let Some(b) = &def.bucket {
+                    if uri.starts_with(&format!("s3://{b}/")) || uri == format!("s3://{b}") {
+                        return Some(name.clone());
+                    }
+                }
+            }
+            if uri.starts_with("gs://") && def.fs_type == "gcs" {
+                if let Some(b) = &def.bucket {
+                    if uri.starts_with(&format!("gs://{b}/")) || uri == format!("gs://{b}") {
+                        return Some(name.clone());
+                    }
+                }
+            }
+            if uri.starts_with("abfs://") && def.fs_type == "adls" {
+                if let (Some(c), Some(a)) = (&def.container, &def.account) {
+                    if uri.starts_with(&format!("abfs://{c}@{a}")) {
+                        return Some(name.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Register a synthetic `StorageDefinition` into this resolver.
+    /// Used in manifest mode when the report URI has no matching definition in the config.
+    pub fn register_definition(&mut self, definition: StorageDefinition) {
+        self.definitions.insert(definition.name.clone(), definition);
+        self.has_config = true;
+    }
+
     pub fn definition(&self, name: &str) -> Option<StorageDefinition> {
         if self.has_config {
             self.definitions.get(name).cloned()

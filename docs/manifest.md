@@ -226,18 +226,17 @@ When `resolved=true`, `path` is set to the full resolved `uri` (e.g. `s3://data-
 floe manifest generate \
   -c domains/sales/sales_poc.yml \
   -p domains/sales/profiles/prod-k8s.yml \
-  --manifest-uri s3://my-code-bucket/floe/sales/sales.manifest.json \
   --default-domain sales \
   --manifest-path-mode resolved-uri \
   --deterministic \
   --manifest-name sales.prod \
-  --output domains/sales/manifests/sales.manifest.json
+  --output s3://my-code-bucket/floe/sales/sales.manifest.json
 ```
 
 This produces a manifest where:
 
 - `config_uri` / `profile_uri` reflect the local paths (or remote URIs if you pass `-c s3://...`)
-- `execution.base_args` contains the literal deployed manifest URI
+- `execution.base_args` contains `s3://my-code-bucket/floe/sales/sales.manifest.json` — baked in automatically because `--output` is a remote URI
 - All entities are namespaced under `sales`
 - All source/sink `path` fields contain fully resolved URIs
 - The output is deterministic and byte-identical across CI runs

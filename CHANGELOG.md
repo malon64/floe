@@ -4,6 +4,39 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+## v0.4.5
+
+- **Iceberg: propagate S3 endpoint and path-style-access into FileIO** (fixes #352, PR #353):
+  - For S3-compatible storage (SeaweedFS, MinIO), Iceberg/OpenDAL requires an explicit `endpoint` and `path_style_access` in addition to region. Without these, OpenDAL picks up the wrong `AWS_ENDPOINT_URL` and fails at Parquet file close.
+  - Added optional `endpoint` and `path_style_access` fields to `StorageDefinition`; `iceberg_store_config()` now forwards them as `s3.endpoint` and `s3.path-style-access` when present.
+  - The metadata `S3Client` is also wired: `build_client()` passes `endpoint_url` and `force_path_style` from `StorageDefinition`, so listing and uniqueness-seed calls to MinIO/SeaweedFS use the correct addressing style.
+
+- **Manifest: write remote summary and enrich `run_finished` event** (fixes #354, PR #356):
+  - In manifest mode with a remote `report_base_uri`, `RunContext::from_config()` was skipping `Target` construction and the run summary was never uploaded; `run_finished.summary_uri` was always `null`.
+  - `StorageResolver` gains `find_definition_name_for_uri` / `register_definition` so a synthetic storage definition is created for remote report URIs even when the bucket is not listed in the config `storages` block.
+  - `RunFinished` is extended with `report_base` and `entity_report_uris` (both `skip_serializing_if`-guarded, so existing parsers see identical JSON when no report is configured).
+  - `dagster-floe`: `FloeRunFinished` + `parse_run_finished` + `assets.py` consume `entity_report_uris` directly when available.
+  - `airflow-floe`: `operators.py` and `kubernetes_runner.py` pass the new fields through to the XCom payload.
+
+- **Manifest: deterministic generation, source checksums, and content revision** (fixes #355, PR #357):
+  - New `--deterministic` flag: sets `generated_at_ts_ms=0` so the same inputs produce byte-identical output — clean `diff` in CI without stripping the timestamp.
+  - New `--manifest-name` flag: stores a stable logical name (e.g. `sales.prod`) in the manifest JSON.
+  - `config_checksum` (SHA-256) is computed on every generation; `profile_checksum` is added when a profile is supplied.
+  - `manifest_revision`: SHA-256 of canonical manifest content (excluding `generated_at_ts_ms`) provides a stable content fingerprint.
+  - `manifest_id` now incorporates `config_checksum` so the ID changes when source config content changes.
+  - All `HashMap` fields in manifest structs (`exit_codes`, `env`, `definitions`, `tags`, `env_parameters`) replaced with `BTreeMap` for stable alphabetical key ordering in serialised JSON.
+  - `dagster-floe` and `airflow-floe` manifest dataclasses parse and surface the four new optional fields (`manifest_name`, `manifest_revision`, `profile_uri`, `profile_checksum`).
+  - JSON Schema updated to declare the new fields, preventing `additionalProperties: false` rejections in the Dagster manifest validator.
+
+- **`floe manifest generate` — deployment URI overrides** (fixes #358, PR #359):
+  - `-c` and `-p` now accept remote URIs (`s3://`, `gs://`, `abfs://`), downloading transparently and recording the URI as `config_uri` / `profile_uri` in the manifest.
+  - `--output` accepts remote URIs; when a remote URI is given the manifest is uploaded and that URI is automatically baked into `execution.base_args` (replacing the `{manifest_uri}` placeholder), eliminating post-generation JSON patching.
+  - `--default-domain <domain>` sets `domain`, `group_name`, and `asset_key` prefix for entities that do not specify a domain.
+  - `--manifest-path-mode resolved-uri` sets each entity's `source.path` and sink `path` fields to the fully resolved URI (stripping `local://` for local paths), making the manifest a standalone replay contract without a local config directory.
+  - Unknown `--manifest-path-mode` values now produce an immediate CLI error instead of silently defaulting.
+
+- **`floe` 0.4.5, `dagster-floe` 0.1.8, `airflow-floe` 0.1.5**: version bumps for this release.
+
 ## v0.4.4
 
 - **REST catalog: correct storage factory for S3 and GCS** (fixes #348 #349):

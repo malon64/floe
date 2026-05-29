@@ -35,7 +35,7 @@ All notable changes to Floe are documented in this file.
   - `--manifest-path-mode resolved-uri` sets each entity's `source.path` and sink `path` fields to the fully resolved URI (stripping `local://` for local paths), making the manifest a standalone replay contract without a local config directory.
   - Unknown `--manifest-path-mode` values now produce an immediate CLI error instead of silently defaulting.
 
-- **`floe` 0.4.5**: version bump for this release.
+- **`floe` 0.4.5, `dagster-floe` 0.1.8, `airflow-floe` 0.1.5**: version bumps for this release.
 
 ## v0.4.4
 

@@ -4,6 +4,17 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+## v0.4.5
+
+- **`floe manifest generate` — deployment URI overrides** (fixes #358):
+  - `-c` and `-p` now accept remote URIs (`s3://`, `gs://`, `abfs://`), downloading transparently and recording the URI as `config_uri` / `profile_uri` in the manifest.
+  - `--output` accepts remote URIs; when a remote URI is given the manifest is uploaded and that URI is automatically baked into `execution.base_args` (replacing the `{manifest_uri}` placeholder), eliminating post-generation JSON patching.
+  - `--default-domain <domain>` sets `domain`, `group_name`, and `asset_key` prefix for entities that do not specify a domain.
+  - `--manifest-path-mode resolved-uri` sets each entity's `source.path` and sink `path` fields to the fully resolved URI (stripping `local://` for local paths), making the manifest a standalone replay contract without a local config directory.
+  - Unknown `--manifest-path-mode` values now produce an immediate CLI error instead of silently defaulting.
+
+- **`floe` 0.4.5**: version bump for this release.
+
 ## v0.4.4
 
 - **REST catalog: correct storage factory for S3 and GCS** (fixes #348 #349):

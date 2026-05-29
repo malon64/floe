@@ -108,7 +108,7 @@ fn manual_s3_iceberg_append_and_overwrite_write_layout_and_cleanup() {
 
     let table_rel = "customer_iceberg";
     let table_prefix = join_key(&prefix, table_rel);
-    let mut s3 = S3Client::new(bucket.clone(), Some(&region)).expect("s3 client");
+    let mut s3 = S3Client::new(bucket.clone(), Some(&region), None, None).expect("s3 client");
     cleanup_s3_prefix(&mut s3, &table_prefix);
 
     write_csv(&input_dir, "data.csv", "id,name\n1,alice\n2,bob\n");

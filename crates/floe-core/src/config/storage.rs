@@ -238,6 +238,8 @@ impl StorageResolver {
                 account: None,
                 container: None,
                 prefix: None,
+                endpoint: None,
+                path_style_access: None,
             }
         };
 
@@ -327,6 +329,8 @@ impl StorageResolver {
                 account: None,
                 container: None,
                 prefix: None,
+                endpoint: None,
+                path_style_access: None,
             }
         };
 
@@ -398,6 +402,8 @@ impl StorageResolver {
                 account: None,
                 container: None,
                 prefix: None,
+                endpoint: None,
+                path_style_access: None,
             })
         } else {
             None

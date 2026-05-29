@@ -54,6 +54,8 @@ fn remote_s3_base_resolves_relative_paths() -> FloeResult<()> {
         account: None,
         container: None,
         prefix: None,
+        endpoint: None,
+        path_style_access: None,
     };
     let config = base_root(definition);
     let base =
@@ -74,6 +76,8 @@ fn remote_gcs_base_resolves_relative_paths() -> FloeResult<()> {
         account: None,
         container: None,
         prefix: None,
+        endpoint: None,
+        path_style_access: None,
     };
     let config = base_root(definition);
     let base =
@@ -94,6 +98,8 @@ fn remote_adls_base_resolves_relative_paths() -> FloeResult<()> {
         account: Some("acct".to_string()),
         container: Some("cont".to_string()),
         prefix: None,
+        endpoint: None,
+        path_style_access: None,
     };
     let config = base_root(definition);
     let base = ConfigBase::remote_from_uri(
@@ -119,6 +125,8 @@ fn remote_base_respects_explicit_prefix() -> FloeResult<()> {
         account: None,
         container: None,
         prefix: Some("lakehouse".to_string()),
+        endpoint: None,
+        path_style_access: None,
     };
     let config = base_root(definition);
     let base =

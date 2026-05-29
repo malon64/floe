@@ -18,6 +18,8 @@ fn config_with_default_local() -> RootConfig {
                 account: None,
                 container: None,
                 prefix: None,
+                endpoint: None,
+                path_style_access: None,
             }],
         }),
         catalogs: None,

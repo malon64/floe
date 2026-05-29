@@ -19,23 +19,35 @@ pub struct S3Client {
 }
 
 impl S3Client {
-    pub fn new(bucket: String, region: Option<&str>) -> FloeResult<Self> {
+    pub fn new(
+        bucket: String,
+        region: Option<&str>,
+        endpoint: Option<&str>,
+        path_style_access: Option<bool>,
+    ) -> FloeResult<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|err| Box::new(StorageError(format!("failed to build aws runtime: {err}"))))?;
+        let endpoint = endpoint.map(ToOwned::to_owned);
         let config = runtime.block_on(async {
             let region_provider = match region {
                 Some(region) => RegionProviderChain::first_try(Region::new(region.to_string()))
                     .or_default_provider(),
                 None => RegionProviderChain::default_provider(),
             };
-            aws_config::defaults(aws_config::BehaviorVersion::latest())
-                .region(region_provider)
-                .load()
-                .await
+            let mut builder =
+                aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
+            if let Some(ep) = endpoint {
+                builder = builder.endpoint_url(ep);
+            }
+            builder.load().await
         });
-        let client = Client::new(&config);
+        let mut s3_builder = aws_sdk_s3::config::Builder::from(&config);
+        if path_style_access.unwrap_or(false) {
+            s3_builder = s3_builder.force_path_style(true);
+        }
+        let client = Client::from_conf(s3_builder.build());
         Ok(Self {
             bucket,
             client,

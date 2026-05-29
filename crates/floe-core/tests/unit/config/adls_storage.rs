@@ -29,6 +29,8 @@ fn adls_uri_with_prefix_is_built() -> FloeResult<()> {
             account: Some("acct".to_string()),
             container: Some("cont".to_string()),
             prefix: Some("prefix".to_string()),
+            endpoint: None,
+            path_style_access: None,
         }],
     });
 
@@ -54,6 +56,8 @@ fn adls_uri_without_prefix_is_built() -> FloeResult<()> {
             account: Some("acct".to_string()),
             container: Some("cont".to_string()),
             prefix: None,
+            endpoint: None,
+            path_style_access: None,
         }],
     });
 

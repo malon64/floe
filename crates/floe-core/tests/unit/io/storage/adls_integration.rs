@@ -21,6 +21,8 @@ fn adls_list_optional() -> FloeResult<()> {
         account: Some(account),
         container: Some(container),
         prefix: None,
+        endpoint: None,
+        path_style_access: None,
     };
     let client = AdlsClient::new(&definition)?;
     let refs = client.list("")?;

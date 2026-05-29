@@ -15,6 +15,8 @@ fn base_root() -> config::RootConfig {
                     account: None,
                     container: None,
                     prefix: Some("accepted".to_string()),
+                    endpoint: None,
+                    path_style_access: None,
                 },
                 config::StorageDefinition {
                     name: "s3_wh".to_string(),
@@ -24,6 +26,8 @@ fn base_root() -> config::RootConfig {
                     account: None,
                     container: None,
                     prefix: Some("warehouse".to_string()),
+                    endpoint: None,
+                    path_style_access: None,
                 },
             ],
         }),
@@ -260,6 +264,8 @@ fn unity_root() -> config::RootConfig {
                 account: None,
                 container: None,
                 prefix: Some("accepted".to_string()),
+                endpoint: None,
+                path_style_access: None,
             }],
         }),
         catalogs: Some(config::CatalogsConfig {
@@ -430,6 +436,8 @@ fn validate_config_rejects_local_storage_for_unity_catalog() {
             account: None,
             container: None,
             prefix: None,
+            endpoint: None,
+            path_style_access: None,
         }],
     });
     let mut entity = delta_entity();

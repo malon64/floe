@@ -197,6 +197,10 @@ class DagsterManifest:
     storages: dict[str, Any] | None = None
     catalogs: dict[str, Any] | None = None
     lineage: dict[str, Any] | None = None
+    manifest_name: str | None = None
+    manifest_revision: str | None = None
+    profile_uri: str | None = None
+    profile_checksum: str | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "DagsterManifest":
@@ -228,6 +232,10 @@ class DagsterManifest:
             storages=storages if isinstance(storages, dict) else None,
             catalogs=catalogs if isinstance(catalogs, dict) else None,
             lineage=lineage if isinstance(lineage, dict) else None,
+            manifest_name=_optional_str(data, "manifest_name"),
+            manifest_revision=_optional_str(data, "manifest_revision"),
+            profile_uri=_optional_str(data, "profile_uri"),
+            profile_checksum=_optional_str(data, "profile_checksum"),
         )
 
 

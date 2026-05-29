@@ -76,7 +76,8 @@ pub(super) fn build_iceberg_write_context(
                         latest_s3_metadata_location(client, base_key)?
                     }
                     None => {
-                        let mut client = io::storage::s3::S3Client::new(bucket.clone(), None)?;
+                        let mut client =
+                            io::storage::s3::S3Client::new(bucket.clone(), None, None, None)?;
                         latest_s3_metadata_location(&mut client, base_key)?
                     }
                 }

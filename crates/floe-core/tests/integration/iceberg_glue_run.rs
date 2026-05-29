@@ -125,7 +125,7 @@ fn manual_glue_iceberg_append_and_overwrite_updates_glue_table_and_s3_layout() {
     let report_dir = root.join("report");
     fs::create_dir_all(&input_dir).expect("create input dir");
 
-    let mut s3 = S3Client::new(bucket.clone(), Some(&region)).expect("s3 client");
+    let mut s3 = S3Client::new(bucket.clone(), Some(&region), None, None).expect("s3 client");
     cleanup_s3_prefix(&mut s3, &prefix);
     let glue_client = glue_client(&region);
     cleanup_glue_table(&glue_client, &database, &table_name);

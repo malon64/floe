@@ -129,7 +129,12 @@ fn build_client(definition: &config::StorageDefinition) -> FloeResult<Box<dyn St
         "s3" => {
             let bucket =
                 validation::require_field(definition, definition.bucket.as_ref(), "bucket", "s3")?;
-            Box::new(s3::S3Client::new(bucket, definition.region.as_deref())?)
+            Box::new(s3::S3Client::new(
+                bucket,
+                definition.region.as_deref(),
+                definition.endpoint.as_deref(),
+                definition.path_style_access,
+            )?)
         }
         "adls" => Box::new(adls::AdlsClient::new(definition)?),
         "gcs" => {

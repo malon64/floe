@@ -241,12 +241,12 @@ fn build_common_manifest(
             .and_then(|v| serde_json::to_value(v).ok());
 
         let source_path = if options.path_mode == PathMode::ResolvedUri && source.resolved {
-            source.uri.clone()
+            resolved_uri_to_path(&source.uri)
         } else {
             entity.source.path.clone()
         };
         let accepted_path = if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
-            accepted.uri.clone()
+            resolved_uri_to_path(&accepted.uri)
         } else {
             entity.sink.accepted.path.clone()
         };
@@ -306,7 +306,7 @@ fn build_common_manifest(
                     let rej = entity.sink.rejected.as_ref();
                     let rej_raw_path = rej.map(|t| t.path.clone()).unwrap_or_default();
                     let rej_path = if options.path_mode == PathMode::ResolvedUri && value.resolved {
-                        value.uri.clone()
+                        resolved_uri_to_path(&value.uri)
                     } else {
                         rej_raw_path
                     };
@@ -341,7 +341,7 @@ fn build_common_manifest(
                         .map(|target| target.path.clone())
                         .unwrap_or_default();
                     let arc_path = if options.path_mode == PathMode::ResolvedUri && value.resolved {
-                        value.uri.clone()
+                        resolved_uri_to_path(&value.uri)
                     } else {
                         arc_raw_path
                     };
@@ -442,6 +442,18 @@ fn resolve_or_raw(
             uri: raw_path.to_string(),
             resolved: false,
         },
+    }
+}
+
+/// Convert a resolved URI to the path value used in manifest source/sink entries.
+/// Remote URIs (s3://, gs://, abfs://) are kept as-is.
+/// Local URIs (local:///abs/path) have the scheme stripped so the StorageResolver
+/// receives a plain filesystem path rather than an unrecognised `local://` prefix.
+fn resolved_uri_to_path(uri: &str) -> String {
+    if let Some(path) = uri.strip_prefix("local://") {
+        path.to_string()
+    } else {
+        uri.to_string()
     }
 }
 

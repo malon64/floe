@@ -621,8 +621,11 @@ entities:
         entity["source"]["resolved"].as_bool().unwrap_or(false),
         "source should be resolved for a local path"
     );
+    // Local URIs have the local:// scheme stripped so the StorageResolver receives
+    // a plain filesystem path rather than an unrecognised local:// prefix.
+    let expected_path = source_uri.strip_prefix("local://").unwrap_or(source_uri);
     assert_eq!(
-        source_path, source_uri,
-        "path should equal uri when path_mode=resolved-uri and resolved=true"
+        source_path, expected_path,
+        "path should equal the filesystem path (local:// prefix stripped) when path_mode=resolved-uri"
     );
 }

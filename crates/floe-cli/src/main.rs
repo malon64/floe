@@ -882,8 +882,12 @@ fn main() -> FloeResult<()> {
                 };
 
                 let path_mode = match manifest_path_mode.as_str() {
+                    "default" => floe_core::PathMode::Default,
                     "resolved-uri" => floe_core::PathMode::ResolvedUri,
-                    _ => floe_core::PathMode::Default,
+                    other => exit_with_error(format!(
+                        "unknown --manifest-path-mode value '{}'; expected 'default' or 'resolved-uri'",
+                        other
+                    ).into()),
                 };
 
                 let manifest_options = floe_core::ManifestOptions {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -78,6 +79,10 @@ pub enum RunEvent {
         warnings: u64,
         errors: u64,
         summary_uri: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        report_base: Option<String>,
+        #[serde(skip_serializing_if = "HashMap::is_empty")]
+        entity_report_uris: HashMap<String, String>,
         ts_ms: u128,
     },
 }

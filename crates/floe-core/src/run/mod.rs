@@ -286,9 +286,9 @@ fn run_from_context(
         }
     }
     let summary = build_run_summary(&context, &entity_outcomes);
-    if let Some(report_target) = &context.report_target {
+    let written_summary_uri = if let Some(report_target) = &context.report_target {
         let summary_write_start = perf_enabled.then(Instant::now);
-        write_summary_report(
+        let uri = write_summary_report(
             report_target,
             &context.run_id,
             &summary,
@@ -308,7 +308,22 @@ fn run_from_context(
                 }),
             );
         }
-    }
+        Some(uri)
+    } else {
+        None
+    };
+    let entity_report_uris: std::collections::HashMap<String, String> = entity_outcomes
+        .iter()
+        .filter_map(|outcome| {
+            let uri = context.report_target.as_ref().map(|t| {
+                t.join_relative(&report::ReportWriter::report_relative_path(
+                    &context.run_id,
+                    &outcome.report.entity.name,
+                ))
+            })?;
+            Some((outcome.report.entity.name.clone(), uri))
+        })
+        .collect();
     observer.on_event(RunEvent::RunFinished {
         run_id: context.run_id.clone(),
         status: run_status_str(summary.run.status).to_string(),
@@ -320,11 +335,9 @@ fn run_from_context(
         rejected: summary.results.rejected_total,
         warnings: summary.results.warnings_total,
         errors: summary.results.errors_total,
-        summary_uri: context.report_target.as_ref().map(|target| {
-            target.join_relative(&report::ReportWriter::summary_relative_path(
-                &context.run_id,
-            ))
-        }),
+        summary_uri: written_summary_uri,
+        report_base: context.report_base_path.clone(),
+        entity_report_uris,
         ts_ms: event_time_ms(),
     });
 

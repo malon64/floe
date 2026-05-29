@@ -515,6 +515,49 @@ class RunKubernetesJobTests(unittest.TestCase):
 
         self.assertNotIn("entity", payload)
 
+    def test_new_run_finished_fields_passed_through_to_payload(self) -> None:
+        logs = _run_finished_line(
+            report_base="s3://bucket/reports",
+            entity_report_uris={"orders": "s3://bucket/reports/run_1/entities/orders.report.json"},
+        )
+        jobs_api = _make_mock_jobs_api(
+            poll_responses=[_make_job_status(succeeded=1)]
+        )
+        core_api = _make_mock_core_api(logs=logs)
+
+        with patch("time.sleep"):
+            payload = run_kubernetes_job(
+                ["floe", "run", "-c", "/cfg.yml"],
+                "/cfg.yml",
+                ["orders"],
+                runner=self._runner(),
+                jobs_api=jobs_api,
+                core_api=core_api,
+            )
+
+        self.assertEqual(payload["report_base"], "s3://bucket/reports")
+        self.assertIn("orders", payload["entity_report_uris"])
+
+    def test_new_fields_absent_when_not_in_event(self) -> None:
+        logs = _run_finished_line()  # fixture has no report_base / entity_report_uris
+        jobs_api = _make_mock_jobs_api(
+            poll_responses=[_make_job_status(succeeded=1)]
+        )
+        core_api = _make_mock_core_api(logs=logs)
+
+        with patch("time.sleep"):
+            payload = run_kubernetes_job(
+                ["floe", "run", "-c", "/cfg.yml"],
+                "/cfg.yml",
+                ["orders"],
+                runner=self._runner(),
+                jobs_api=jobs_api,
+                core_api=core_api,
+            )
+
+        self.assertNotIn("report_base", payload)
+        self.assertNotIn("entity_report_uris", payload)
+
     def test_job_submitted_to_correct_namespace(self) -> None:
         runner = self._runner()
         jobs_api = _make_mock_jobs_api(

@@ -121,6 +121,8 @@ pub fn emit_failed_run_events_to(
         warnings: 0,
         errors: 1,
         summary_uri: None,
+        report_base: None,
+        entity_report_uris: std::collections::HashMap::new(),
         ts_ms: now_ms(),
     });
 }

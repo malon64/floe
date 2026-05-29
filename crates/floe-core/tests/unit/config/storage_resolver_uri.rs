@@ -107,12 +107,9 @@ fn find_adls_definition_by_uri() {
 #[test]
 fn adls_account_prefix_does_not_match() {
     // "acct" must not match a URI containing "acct2" as the account.
-    let resolver =
-        resolver_with_definitions(vec![adls_def("adls_store", "cont", "acct")]);
+    let resolver = resolver_with_definitions(vec![adls_def("adls_store", "cont", "acct")]);
     assert_eq!(
-        resolver.find_definition_name_for_uri(
-            "abfs://cont@acct2.dfs.core.windows.net/reports/"
-        ),
+        resolver.find_definition_name_for_uri("abfs://cont@acct2.dfs.core.windows.net/reports/"),
         None
     );
 }

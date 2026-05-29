@@ -25,7 +25,7 @@ pub use add_entity::{add_entity_to_config, AddEntityOptions, AddEntityOutcome};
 pub use checks as check;
 pub use config::{resolve_config_location, ConfigLocation};
 pub use errors::ConfigError;
-pub use manifest::{build_common_manifest_json, config_from_manifest_json};
+pub use manifest::{build_common_manifest_json, config_from_manifest_json, ManifestOptions};
 pub use profile::{
     detect_malformed_placeholder, detect_unresolved_placeholders, parse_profile,
     parse_profile_from_str, validate_merged_vars, validate_profile, ProfileConfig,

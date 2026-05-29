@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
 pub struct CommonManifest {
@@ -7,9 +7,18 @@ pub struct CommonManifest {
     pub generated_at_ts_ms: u64,
     pub floe_version: &'static str,
     pub spec_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_name: Option<String>,
     pub manifest_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_revision: Option<String>,
     pub config_uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub config_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_checksum: Option<String>,
     pub report_base_uri: String,
     pub domains: Vec<ManifestDomain>,
     pub execution: ManifestExecution,
@@ -46,19 +55,19 @@ pub struct ManifestExecution {
 pub struct ManifestResultContract {
     pub run_finished_event: bool,
     pub summary_uri_field: &'static str,
-    pub exit_codes: HashMap<&'static str, &'static str>,
+    pub exit_codes: BTreeMap<&'static str, &'static str>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ManifestExecutionDefaults {
-    pub env: HashMap<String, String>,
+    pub env: BTreeMap<String, String>,
     pub workdir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ManifestRunners {
     pub default: &'static str,
-    pub definitions: HashMap<&'static str, ManifestRunnerDefinition>,
+    pub definitions: BTreeMap<&'static str, ManifestRunnerDefinition>,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,14 +91,14 @@ pub struct ManifestRunnerDefinition {
     pub namespace: Option<String>,
     pub service_account: Option<String>,
     pub resources: Option<ManifestRunnerResources>,
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<BTreeMap<String, String>>,
     pub workspace_url: Option<String>,
     pub existing_cluster_id: Option<String>,
     pub config_uri: Option<String>,
     pub python_file_uri: Option<String>,
     pub job_name: Option<String>,
     pub auth: Option<ManifestRunnerAuth>,
-    pub env_parameters: Option<HashMap<String, String>>,
+    pub env_parameters: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,7 +121,7 @@ pub struct ManifestEntity {
     pub source_format: String,
     pub accepted_sink_uri: String,
     pub rejected_sink_uri: Option<String>,
-    pub tags: Option<HashMap<String, String>>,
+    pub tags: Option<BTreeMap<String, String>>,
     pub source: ManifestSource,
     pub sinks: ManifestSinks,
     pub runner: Option<String>,

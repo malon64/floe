@@ -247,6 +247,10 @@ class AirflowManifest:
     execution: ManifestExecution
     runners: ManifestRunners
     entities: list[ManifestEntity]
+    manifest_name: str | None = None
+    manifest_revision: str | None = None
+    profile_uri: str | None = None
+    profile_checksum: str | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "AirflowManifest":
@@ -273,6 +277,10 @@ class AirflowManifest:
             execution=ManifestExecution.from_dict(_required_object(data, "execution")),
             runners=ManifestRunners.from_dict(_required_object(data, "runners")),
             entities=entities,
+            manifest_name=_optional_str(data, "manifest_name"),
+            manifest_revision=_optional_str(data, "manifest_revision"),
+            profile_uri=_optional_str(data, "profile_uri"),
+            profile_checksum=_optional_str(data, "profile_checksum"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -280,8 +288,12 @@ class AirflowManifest:
             "schema": self.schema,
             "generated_at_ts_ms": self.generated_at_ts_ms,
             "floe_version": self.floe_version,
+            **({"manifest_name": self.manifest_name} if self.manifest_name is not None else {}),
+            **({"manifest_revision": self.manifest_revision} if self.manifest_revision is not None else {}),
             "config_uri": self.config_uri,
             "config_checksum": self.config_checksum,
+            **({"profile_uri": self.profile_uri} if self.profile_uri is not None else {}),
+            **({"profile_checksum": self.profile_checksum} if self.profile_checksum is not None else {}),
             "execution": {
                 "entrypoint": self.execution.entrypoint,
                 "base_args": self.execution.base_args,

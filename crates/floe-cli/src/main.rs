@@ -277,6 +277,18 @@ enum ManifestCommand {
             help = "Optional path to a Floe environment profile YAML file"
         )]
         profile: Option<String>,
+        #[arg(
+            long,
+            help = "Produce a fully deterministic manifest (sets generated_at_ts_ms=0); \
+                    same config + profile + Floe version always produce identical output"
+        )]
+        deterministic: bool,
+        #[arg(
+            long,
+            help = "Stable logical name for this manifest, e.g. 'sales.prod'. \
+                    Stored as manifest_name in the JSON output."
+        )]
+        manifest_name: Option<String>,
     },
 }
 
@@ -732,6 +744,8 @@ fn main() -> FloeResult<()> {
                 output,
                 entities,
                 profile,
+                deterministic,
+                manifest_name,
             } => {
                 let config_location = match resolve_config_location(&config) {
                     Ok(location) => location,
@@ -804,11 +818,24 @@ fn main() -> FloeResult<()> {
                         .as_ref()
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
+                let profile_uri = profile.as_ref().map(|p| {
+                    std::fs::canonicalize(p)
+                        .map(|abs| format!("local://{}", abs.display()))
+                        .unwrap_or_else(|_| format!("local://{p}"))
+                });
+                let profile_path = profile.as_ref().map(std::path::PathBuf::from);
+                let manifest_options = floe_core::ManifestOptions {
+                    deterministic,
+                    manifest_name,
+                    profile_uri,
+                    profile_path,
+                };
                 let manifest_json = build_common_manifest_json(
                     &config_location,
                     &config,
                     &entities,
                     profile_config.as_ref(),
+                    &manifest_options,
                 )?;
                 manifest_output::write_manifest(&output, &manifest_json)?;
                 if output != "-" {

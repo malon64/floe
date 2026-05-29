@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use sha2::{Digest, Sha256};
 
 use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
@@ -10,6 +12,25 @@ use crate::manifest::model::{
 };
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
+
+/// Options that control manifest generation behaviour.
+#[derive(Debug, Default)]
+pub struct ManifestOptions {
+    /// When true, `generated_at_ts_ms` is set to `0` so that the same inputs
+    /// always produce byte-identical output. Use this for committed deployment
+    /// artifacts that are diffed in CI.
+    pub deterministic: bool,
+    /// Optional stable logical name for this manifest (e.g. `"sales.prod"`).
+    /// Stored as `manifest_name` in the output JSON.
+    pub manifest_name: Option<String>,
+    /// Display URI of the profile file (e.g. `local:///path/to/prod.yml`).
+    /// Stored as `profile_uri` in the output JSON.
+    pub profile_uri: Option<String>,
+    /// Local filesystem path to the profile file used during generation.
+    /// When supplied, a SHA-256 checksum of the file is computed and stored
+    /// as `profile_checksum`.
+    pub profile_path: Option<std::path::PathBuf>,
+}
 
 #[derive(Debug)]
 struct ResolvedOrRaw {
@@ -23,16 +44,40 @@ pub fn build_common_manifest_json(
     config: &RootConfig,
     selected_entities: &[String],
     profile: Option<&ProfileConfig>,
+    options: &ManifestOptions,
 ) -> FloeResult<String> {
     let resolver = StorageResolver::new(config, config_location.base.clone())?;
-    let manifest = build_common_manifest(
+    let mut manifest = build_common_manifest(
         config_location,
         config,
         selected_entities,
         &resolver,
         profile,
+        options,
     );
+
+    // Compute manifest_revision: SHA-256 of the canonical content, which
+    // excludes volatile fields (generated_at_ts_ms, manifest_revision itself).
+    let revision = compute_manifest_revision(&manifest)?;
+    manifest.manifest_revision = Some(revision);
+
     Ok(serde_json::to_string_pretty(&manifest)?)
+}
+
+/// Compute a stable content hash over the manifest, excluding fields that
+/// change on every generation (timestamp) or are themselves the hash output.
+fn compute_manifest_revision(manifest: &CommonManifest) -> FloeResult<String> {
+    let mut value: serde_json::Value = serde_json::to_value(manifest)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("generated_at_ts_ms");
+        obj.remove("manifest_revision");
+    }
+    let canonical = serde_json::to_string(&value)?;
+    Ok(sha256_hex(canonical.as_bytes()))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
 fn build_common_manifest(
@@ -41,6 +86,7 @@ fn build_common_manifest(
     selected_entities: &[String],
     resolver: &StorageResolver,
     profile: Option<&ProfileConfig>,
+    options: &ManifestOptions,
 ) -> CommonManifest {
     let mut entities: Vec<_> = if selected_entities.is_empty() {
         config.entities.iter().collect()
@@ -114,7 +160,7 @@ fn build_common_manifest(
             )
         };
 
-        let mut tags = HashMap::new();
+        let mut tags = BTreeMap::new();
         if let Some(metadata) = &entity.metadata {
             if let Some(owner) = &metadata.owner {
                 tags.insert("owner".to_string(), owner.clone());
@@ -266,7 +312,21 @@ fn build_common_manifest(
     }
 
     let config_uri = canonical_config_uri(&config_location.display);
-    let config_checksum = None;
+    let config_checksum = std::fs::read(&config_location.path)
+        .ok()
+        .map(|b| sha256_hex(&b));
+
+    let profile_checksum = options
+        .profile_path
+        .as_ref()
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|b| sha256_hex(&b));
+
+    let generated_at_ts_ms = if options.deterministic {
+        0
+    } else {
+        now_ts_ms()
+    };
 
     // Serialize profile sections as opaque JSON values so they can be re-applied at run time.
     let storages = profile
@@ -281,12 +341,16 @@ fn build_common_manifest(
 
     CommonManifest {
         schema: "floe.manifest.v1",
-        generated_at_ts_ms: now_ts_ms(),
+        generated_at_ts_ms,
         floe_version: env!("CARGO_PKG_VERSION"),
         spec_version: config.version.clone(),
-        manifest_id: build_manifest_id(&config_uri, config_checksum),
+        manifest_name: options.manifest_name.clone(),
+        manifest_id: build_manifest_id(&config_uri, config_checksum.as_deref()),
+        manifest_revision: None,
         config_uri,
-        config_checksum: config_checksum.map(ToString::to_string),
+        config_checksum,
+        profile_uri: options.profile_uri.clone(),
+        profile_checksum,
         report_base_uri: report_base.uri,
         domains: config
             .domains
@@ -398,7 +462,7 @@ fn map_source_options(options: Option<&SourceOptions>) -> Option<serde_json::Val
 }
 
 fn default_execution_contract() -> ManifestExecution {
-    let mut exit_codes = HashMap::new();
+    let mut exit_codes = BTreeMap::new();
     exit_codes.insert("0", "success_or_rejected");
     exit_codes.insert("1", "technical_failure");
     exit_codes.insert("2", "aborted");
@@ -421,7 +485,7 @@ fn default_execution_contract() -> ManifestExecution {
             exit_codes,
         },
         defaults: ManifestExecutionDefaults {
-            env: HashMap::new(),
+            env: BTreeMap::new(),
             workdir: None,
         },
     }
@@ -437,7 +501,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
             let profile_runner = profile
                 .and_then(|p| p.execution.as_ref())
                 .map(|e| &e.runner);
-            let mut definitions = HashMap::new();
+            let mut definitions = BTreeMap::new();
             definitions.insert(
                 "default",
                 ManifestRunnerDefinition {
@@ -469,7 +533,11 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                             memory_mb: res.memory_mb,
                         })
                     }),
-                    env: profile_runner.and_then(|r| r.env.clone()),
+                    env: profile_runner.and_then(|r| {
+                        r.env
+                            .as_ref()
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    }),
                     workspace_url: None,
                     existing_cluster_id: None,
                     config_uri: None,
@@ -488,7 +556,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
             let profile_runner = profile
                 .and_then(|p| p.execution.as_ref())
                 .map(|e| &e.runner);
-            let mut definitions = HashMap::new();
+            let mut definitions = BTreeMap::new();
             definitions.insert(
                 "default",
                 ManifestRunnerDefinition {
@@ -516,7 +584,11 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
                             service_principal_oauth_ref: auth.service_principal_oauth_ref.clone(),
                         })
                     }),
-                    env_parameters: profile_runner.and_then(|r| r.env_parameters.clone()),
+                    env_parameters: profile_runner.and_then(|r| {
+                        r.env_parameters
+                            .as_ref()
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    }),
                 },
             );
             ManifestRunners {
@@ -526,7 +598,7 @@ fn runners_contract(profile: Option<&ProfileConfig>) -> ManifestRunners {
         }
         // "local" or absent → local_process (backward-compatible default)
         _ => {
-            let mut definitions = HashMap::new();
+            let mut definitions = BTreeMap::new();
             definitions.insert(
                 "local",
                 ManifestRunnerDefinition {

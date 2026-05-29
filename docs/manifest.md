@@ -134,7 +134,7 @@ The full JSON Schema for the manifest format is at [`orchestrators/schemas/floe.
 
 ## The orchestrator flow
 
-```
+```text
 config.yml ──[floe manifest generate]──► orders.json
                                               │
                ┌──────────────────────────────┘
@@ -159,6 +159,87 @@ config.yml ──[floe manifest generate]──► orders.json
 ```
 
 The `{manifest_uri}`, `{entity_name}`, and `{run_id}` placeholders in `execution.base_args` and `per_entity_args` are rendered at run time by the orchestrator connector, not by floe itself.
+
+---
+
+## Deployment URI overrides
+
+For production deployments where the manifest is uploaded to object storage and consumed by remote runners, you need the manifest to point at its deployed locations rather than the local generation paths.
+
+### Remote config and profile
+
+`-c` and `-p` accept remote URIs directly — the same scheme support as `floe run`:
+
+```bash
+floe manifest generate \
+  -c s3://my-code-bucket/floe/sales/sales_poc.yml \
+  -p s3://my-code-bucket/floe/profiles/prod-k8s.yml \
+  --output manifests/sales.manifest.json
+```
+
+The file is downloaded to a temp directory for generation. The manifest records the URI as `config_uri` and `profile_uri`, so the contract already points at the deployed source.
+
+### `--output` accepts remote URIs — writes and embeds in one step
+
+`--output` accepts the same remote URI schemes as `-c` and `-p`. When you write the manifest to a remote URI, that URI is also automatically baked into `execution.base_args` (replacing the `{manifest_uri}` placeholder), producing a fully self-contained contract:
+
+```bash
+floe manifest generate \
+  -c sales.yml \
+  --output s3://my-code-bucket/floe/sales/sales.manifest.json
+```
+
+The manifest is uploaded to S3 and its `base_args` already contain `s3://my-code-bucket/floe/sales/sales.manifest.json` — no orchestrator-side placeholder rendering needed.
+
+Writing locally still leaves `{manifest_uri}` in `base_args` for the orchestrator connector to render at run time (the existing default behaviour).
+
+### `--default-domain` — namespace entities without an explicit domain
+
+If your config is a domain/data-product contract but individual entities don't repeat `domain: sales` on every entry, set a generation-time default:
+
+```bash
+floe manifest generate \
+  -c sales.yml \
+  --default-domain sales \
+  --output manifests/sales.manifest.json
+```
+
+Entities that already have `domain:` keep their own value. Entities that don't will get `domain`, `group_name`, and the `asset_key` prefix set to the default domain.
+
+### `--manifest-path-mode resolved-uri` — self-contained paths for remote replay
+
+By default, `source.path` and `sink.path` in each entity reflect the original relative paths from the config. For remote manifest replay — where there is no local config directory to resolve against — you can bake in the fully resolved URIs instead:
+
+```bash
+floe manifest generate \
+  -c sales.yml \
+  -p profiles/prod.yml \
+  --manifest-path-mode resolved-uri \
+  --output manifests/sales.manifest.json
+```
+
+When `resolved=true`, `path` is set to the full resolved `uri` (e.g. `s3://data-bucket/bronze/sales/customers`). This makes the manifest a standalone runtime contract without needing the original config base directory.
+
+### Full production workflow
+
+```bash
+floe manifest generate \
+  -c domains/sales/sales_poc.yml \
+  -p domains/sales/profiles/prod-k8s.yml \
+  --default-domain sales \
+  --manifest-path-mode resolved-uri \
+  --deterministic \
+  --manifest-name sales.prod \
+  --output s3://my-code-bucket/floe/sales/sales.manifest.json
+```
+
+This produces a manifest where:
+
+- `config_uri` / `profile_uri` reflect the local paths (or remote URIs if you pass `-c s3://...`)
+- `execution.base_args` contains `s3://my-code-bucket/floe/sales/sales.manifest.json` — baked in automatically because `--output` is a remote URI
+- All entities are namespaced under `sales`
+- All source/sink `path` fields contain fully resolved URIs
+- The output is deterministic and byte-identical across CI runs
 
 ---
 

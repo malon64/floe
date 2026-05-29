@@ -44,8 +44,8 @@ pub struct ManifestDomain {
 #[derive(Debug, Serialize)]
 pub struct ManifestExecution {
     pub entrypoint: &'static str,
-    pub base_args: Vec<&'static str>,
-    pub per_entity_args: Vec<&'static str>,
+    pub base_args: Vec<String>,
+    pub per_entity_args: Vec<String>,
     pub log_format: &'static str,
     pub result_contract: ManifestResultContract,
     pub defaults: ManifestExecutionDefaults,

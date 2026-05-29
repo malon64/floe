@@ -1,6 +1,6 @@
 use floe_core::{
     build_common_manifest_json, load_config, parse_profile_from_str, resolve_config_location,
-    ManifestOptions,
+    ManifestOptions, PathMode,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -487,4 +487,145 @@ fn manifest_name_is_stored_when_provided() {
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     assert_eq!(value["manifest_name"], "sales.prod");
+}
+
+#[test]
+fn manifest_manifest_uri_renders_placeholder() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        manifest_uri: Some("s3://my-bucket/manifests/example.json".to_string()),
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let base_args = value["execution"]["base_args"]
+        .as_array()
+        .expect("base_args should be array");
+    let args_strs: Vec<&str> = base_args
+        .iter()
+        .map(|v| v.as_str().expect("string"))
+        .collect();
+
+    assert!(
+        args_strs.contains(&"s3://my-bucket/manifests/example.json"),
+        "manifest URI should be rendered into base_args"
+    );
+    assert!(
+        !args_strs.contains(&"{manifest_uri}"),
+        "placeholder should be replaced"
+    );
+}
+
+#[test]
+fn manifest_default_domain_applied_when_entity_has_none() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "./in/orders.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./out/accepted/orders"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        default_domain: Some("sales".to_string()),
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let entity = &value["entities"][0];
+    assert_eq!(entity["domain"], "sales");
+    assert_eq!(entity["group_name"], "sales");
+    assert_eq!(
+        entity["asset_key"],
+        serde_json::json!(["sales", "orders"]),
+        "asset_key should be prefixed with default domain"
+    );
+}
+
+#[test]
+fn manifest_path_mode_resolved_uri_sets_path_from_uri() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let in_dir = cfg_dir.join("in");
+    std::fs::create_dir_all(&in_dir).expect("in dir");
+    std::fs::write(in_dir.join("data.csv"), "id\n1\n").expect("write csv");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "data"
+    source:
+      format: "csv"
+      path: "./in/data.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "./out/accepted/data"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        path_mode: PathMode::ResolvedUri,
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let entity = &value["entities"][0];
+    let source_path = entity["source"]["path"].as_str().expect("source.path");
+    let source_uri = entity["source"]["uri"].as_str().expect("source.uri");
+
+    assert!(
+        entity["source"]["resolved"].as_bool().unwrap_or(false),
+        "source should be resolved for a local path"
+    );
+    // Local URIs have the local:// scheme stripped so the StorageResolver receives
+    // a plain filesystem path rather than an unrecognised local:// prefix.
+    let expected_path = source_uri.strip_prefix("local://").unwrap_or(source_uri);
+    assert_eq!(
+        source_path, expected_path,
+        "path should equal the filesystem path (local:// prefix stripped) when path_mode=resolved-uri"
+    );
 }

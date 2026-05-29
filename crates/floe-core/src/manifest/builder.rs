@@ -13,6 +13,18 @@ use crate::manifest::model::{
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
 
+/// Controls how the `path` field is populated in source and sink entries.
+#[derive(Debug, Default, PartialEq)]
+pub enum PathMode {
+    /// Keep the original relative path from the config file (default).
+    #[default]
+    Default,
+    /// When a path has been resolved to a full URI, set `path = uri`.
+    /// This makes the manifest self-contained for remote replay without
+    /// needing the original config base directory.
+    ResolvedUri,
+}
+
 /// Options that control manifest generation behaviour.
 #[derive(Debug, Default)]
 pub struct ManifestOptions {
@@ -30,6 +42,15 @@ pub struct ManifestOptions {
     /// When supplied, a SHA-256 checksum of the file is computed and stored
     /// as `profile_checksum`.
     pub profile_path: Option<std::path::PathBuf>,
+    /// When set, replaces the `{manifest_uri}` placeholder in
+    /// `execution.base_args` with this URI. Use this to bake the deployed
+    /// manifest location into a self-contained deployment contract.
+    pub manifest_uri: Option<String>,
+    /// Default domain applied to entities that have no explicit `domain`
+    /// field. Drives `domain`, `group_name`, and `asset_key` generation.
+    pub default_domain: Option<String>,
+    /// Controls how the `path` field is set in source and sink entries.
+    pub path_mode: PathMode,
 }
 
 #[derive(Debug)]
@@ -151,12 +172,18 @@ fn build_common_manifest(
             )
         });
 
-        let (asset_key, group_name) = if let Some(domain) = &entity.domain {
-            (vec![domain.clone(), entity.name.clone()], domain.clone())
+        let effective_domain = entity.domain.as_ref().or(options.default_domain.as_ref());
+        let (asset_key, group_name, entity_domain) = if let Some(domain) = effective_domain {
+            (
+                vec![domain.clone(), entity.name.clone()],
+                domain.clone(),
+                Some(domain.clone()),
+            )
         } else {
             (
                 vec!["default".to_string(), entity.name.clone()],
                 "default".to_string(),
+                None,
             )
         };
 
@@ -213,9 +240,20 @@ fn build_common_manifest(
             .as_ref()
             .and_then(|v| serde_json::to_value(v).ok());
 
+        let source_path = if options.path_mode == PathMode::ResolvedUri && source.resolved {
+            resolved_uri_to_path(&source.uri)
+        } else {
+            entity.source.path.clone()
+        };
+        let accepted_path = if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
+            resolved_uri_to_path(&accepted.uri)
+        } else {
+            entity.sink.accepted.path.clone()
+        };
+
         manifest_entities.push(ManifestEntity {
             name: entity.name.clone(),
-            domain: entity.domain.clone(),
+            domain: entity_domain,
             group_name,
             asset_key,
             source_format: entity.source.format.clone(),
@@ -226,7 +264,7 @@ fn build_common_manifest(
                 format: entity.source.format.clone(),
                 storage: source.storage,
                 uri: source.uri,
-                path: entity.source.path.clone(),
+                path: source_path,
                 resolved: source.resolved,
                 cast_mode: entity.source.cast_mode.clone(),
                 options: map_source_options(entity.source.options.as_ref()),
@@ -236,7 +274,7 @@ fn build_common_manifest(
                     format: entity.sink.accepted.format.clone(),
                     storage: accepted.storage,
                     uri: accepted.uri,
-                    path: entity.sink.accepted.path.clone(),
+                    path: accepted_path,
                     resolved: accepted.resolved,
                     options: entity
                         .sink
@@ -266,13 +304,19 @@ fn build_common_manifest(
                 },
                 rejected: rejected.map(|value| {
                     let rej = entity.sink.rejected.as_ref();
+                    let rej_raw_path = rej.map(|t| t.path.clone()).unwrap_or_default();
+                    let rej_path = if options.path_mode == PathMode::ResolvedUri && value.resolved {
+                        resolved_uri_to_path(&value.uri)
+                    } else {
+                        rej_raw_path
+                    };
                     ManifestSinkTarget {
                         format: rej
                             .map(|t| t.format.clone())
                             .unwrap_or_else(|| "csv".to_string()),
                         storage: value.storage,
                         uri: value.uri,
-                        path: rej.map(|t| t.path.clone()).unwrap_or_default(),
+                        path: rej_path,
                         resolved: value.resolved,
                         options: rej
                             .and_then(|t| t.options.as_ref())
@@ -289,16 +333,24 @@ fn build_common_manifest(
                             .and_then(|v| serde_json::to_value(v).ok()),
                     }
                 }),
-                archive: archive.map(|value| ManifestArchiveTarget {
-                    storage: value.storage,
-                    uri: value.uri,
-                    path: entity
+                archive: archive.map(|value| {
+                    let arc_raw_path = entity
                         .sink
                         .archive
                         .as_ref()
                         .map(|target| target.path.clone())
-                        .unwrap_or_default(),
-                    resolved: value.resolved,
+                        .unwrap_or_default();
+                    let arc_path = if options.path_mode == PathMode::ResolvedUri && value.resolved {
+                        resolved_uri_to_path(&value.uri)
+                    } else {
+                        arc_raw_path
+                    };
+                    ManifestArchiveTarget {
+                        storage: value.storage,
+                        uri: value.uri,
+                        path: arc_path,
+                        resolved: value.resolved,
+                    }
                 }),
             },
             runner: None,
@@ -363,7 +415,7 @@ fn build_common_manifest(
                     .unwrap_or_else(|| domain.incoming_dir.clone()),
             })
             .collect(),
-        execution: default_execution_contract(),
+        execution: default_execution_contract(options),
         runners: runners_contract(profile),
         entities: manifest_entities,
         storages,
@@ -390,6 +442,18 @@ fn resolve_or_raw(
             uri: raw_path.to_string(),
             resolved: false,
         },
+    }
+}
+
+/// Convert a resolved URI to the path value used in manifest source/sink entries.
+/// Remote URIs (s3://, gs://, abfs://) are kept as-is.
+/// Local URIs (local:///abs/path) have the scheme stripped so the StorageResolver
+/// receives a plain filesystem path rather than an unrecognised `local://` prefix.
+fn resolved_uri_to_path(uri: &str) -> String {
+    if let Some(path) = uri.strip_prefix("local://") {
+        path.to_string()
+    } else {
+        uri.to_string()
     }
 }
 
@@ -461,23 +525,39 @@ fn map_source_options(options: Option<&SourceOptions>) -> Option<serde_json::Val
     Some(serde_json::Value::Object(map))
 }
 
-fn default_execution_contract() -> ManifestExecution {
+fn default_execution_contract(options: &ManifestOptions) -> ManifestExecution {
     let mut exit_codes = BTreeMap::new();
     exit_codes.insert("0", "success_or_rejected");
     exit_codes.insert("1", "technical_failure");
     exit_codes.insert("2", "aborted");
 
+    const PLACEHOLDER: &str = "{manifest_uri}";
+    let base_args = [
+        "run",
+        "--manifest",
+        PLACEHOLDER,
+        "--log-format",
+        "json",
+        "--quiet",
+    ]
+    .iter()
+    .map(|&a| {
+        if a == PLACEHOLDER {
+            options
+                .manifest_uri
+                .as_deref()
+                .unwrap_or(PLACEHOLDER)
+                .to_string()
+        } else {
+            a.to_string()
+        }
+    })
+    .collect();
+
     ManifestExecution {
         entrypoint: "floe",
-        base_args: vec![
-            "run",
-            "--manifest",
-            "{manifest_uri}",
-            "--log-format",
-            "json",
-            "--quiet",
-        ],
-        per_entity_args: vec!["--entities", "{entity_name}"],
+        base_args,
+        per_entity_args: vec!["--entities".to_string(), "{entity_name}".to_string()],
         log_format: "json",
         result_contract: ManifestResultContract {
             run_finished_event: true,

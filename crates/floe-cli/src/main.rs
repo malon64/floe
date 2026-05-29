@@ -263,7 +263,14 @@ enum ManifestCommand {
     Generate {
         #[arg(short, long, help = "Path or URI to the Floe config file")]
         config: String,
-        #[arg(short, long, help = "Output path for manifest JSON, or '-' for stdout")]
+        #[arg(
+            short,
+            long,
+            help = "Output path or URI for manifest JSON, or '-' for stdout. \
+                    Accepts local paths or remote URIs (s3://, gs://, abfs://). \
+                    When a remote URI is given it is also baked into execution.base_args \
+                    as the manifest URI that orchestrators use at run time."
+        )]
         output: String,
         #[arg(
             long,
@@ -289,6 +296,21 @@ enum ManifestCommand {
                     Stored as manifest_name in the JSON output."
         )]
         manifest_name: Option<String>,
+        #[arg(
+            long,
+            help = "Default domain applied to entities that have no explicit domain field. \
+                    Sets domain, group_name, and asset_key prefix for those entities."
+        )]
+        default_domain: Option<String>,
+        #[arg(
+            long,
+            default_value = "default",
+            help = "Path field mode in source/sink entries. \
+                    'default': keep the original config path. \
+                    'resolved-uri': set path=uri when resolved=true, making the manifest \
+                    self-contained for remote replay."
+        )]
+        manifest_path_mode: String,
     },
 }
 
@@ -318,9 +340,12 @@ fn main() -> FloeResult<()> {
             entities,
             profile,
         } => {
-            let parsed_profile = if let Some(ref profile_path) = profile {
-                let path = std::path::Path::new(profile_path);
-                let parsed = match parse_profile(path) {
+            let parsed_profile = if let Some(ref profile_input) = profile {
+                let profile_location = match resolve_config_location(profile_input) {
+                    Ok(loc) => loc,
+                    Err(err) => exit_with_error(err),
+                };
+                let parsed = match parse_profile(&profile_location.path) {
                     Ok(p) => p,
                     Err(err) => exit_with_error(err),
                 };
@@ -569,9 +594,18 @@ fn main() -> FloeResult<()> {
                 }
             };
 
-            let profile_config = if let Some(ref profile_path) = profile {
-                let path = std::path::Path::new(profile_path);
-                let parsed = match parse_profile(path) {
+            let profile_config = if let Some(ref profile_input) = profile {
+                let profile_location = match resolve_config_location(profile_input) {
+                    Ok(loc) => loc,
+                    Err(err) => {
+                        logging::emit_failed_run_events(&computed_run_id, err.as_ref());
+                        let mut err_out = std::io::stderr().lock();
+                        let _ = writeln!(err_out, "Error: {err}");
+                        let _ = err_out.flush();
+                        std::process::exit(1);
+                    }
+                };
+                let parsed = match parse_profile(&profile_location.path) {
                     Ok(p) => p,
                     Err(err) => {
                         logging::emit_failed_run_events(&computed_run_id, err.as_ref());
@@ -746,6 +780,8 @@ fn main() -> FloeResult<()> {
                 profile,
                 deterministic,
                 manifest_name,
+                default_domain,
+                manifest_path_mode,
             } => {
                 let config_location = match resolve_config_location(&config) {
                     Ok(location) => location,
@@ -757,9 +793,18 @@ fn main() -> FloeResult<()> {
                     }
                 };
 
-                let profile_config = if let Some(ref profile_path) = profile {
-                    let path = std::path::Path::new(profile_path);
-                    let parsed = match parse_profile(path) {
+                // Load profile via resolve_config_location so remote URIs (s3://, gs://, abfs://)
+                // are supported in addition to local paths.
+                let profile_location =
+                    profile
+                        .as_deref()
+                        .map(|p| match resolve_config_location(p) {
+                            Ok(loc) => loc,
+                            Err(err) => exit_with_error(err),
+                        });
+
+                let profile_config = if let Some(ref loc) = profile_location {
+                    let parsed = match parse_profile(&loc.path) {
                         Ok(p) => p,
                         Err(err) => exit_with_error(err),
                     };
@@ -818,17 +863,41 @@ fn main() -> FloeResult<()> {
                         .as_ref()
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
-                let profile_uri = profile.as_ref().map(|p| {
-                    std::fs::canonicalize(p)
-                        .map(|abs| format!("local://{}", abs.display()))
-                        .unwrap_or_else(|_| format!("local://{p}"))
+
+                let profile_uri = profile_location.as_ref().map(|loc| {
+                    if loc.display.contains("://") {
+                        loc.display.clone()
+                    } else {
+                        format!("local://{}", loc.display)
+                    }
                 });
-                let profile_path = profile.as_ref().map(std::path::PathBuf::from);
+                let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
+
+                // When --output is a remote URI it is also the manifest's deployed location,
+                // so bake it into execution.base_args automatically.
+                let manifest_uri = if output.contains("://") {
+                    Some(output.clone())
+                } else {
+                    None
+                };
+
+                let path_mode = match manifest_path_mode.as_str() {
+                    "default" => floe_core::PathMode::Default,
+                    "resolved-uri" => floe_core::PathMode::ResolvedUri,
+                    other => exit_with_error(format!(
+                        "unknown --manifest-path-mode value '{}'; expected 'default' or 'resolved-uri'",
+                        other
+                    ).into()),
+                };
+
                 let manifest_options = floe_core::ManifestOptions {
                     deterministic,
                     manifest_name,
                     profile_uri,
                     profile_path,
+                    manifest_uri,
+                    default_domain,
+                    path_mode,
                 };
                 let manifest_json = build_common_manifest_json(
                     &config_location,
@@ -1014,9 +1083,12 @@ fn exit_with_error(err: Box<dyn std::error::Error + Send + Sync>) -> ! {
 }
 
 fn load_state_profile(profile: Option<String>) -> Option<floe_core::ProfileConfig> {
-    let profile_path = profile?;
-    let path = std::path::Path::new(&profile_path);
-    let parsed = match parse_profile(path) {
+    let profile_input = profile?;
+    let profile_location = match resolve_config_location(&profile_input) {
+        Ok(loc) => loc,
+        Err(err) => exit_with_error(err),
+    };
+    let parsed = match parse_profile(&profile_location.path) {
         Ok(p) => p,
         Err(err) => exit_with_error(err),
     };

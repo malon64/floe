@@ -9,7 +9,9 @@ pub(crate) mod yaml_decode;
 
 pub use catalog::{CatalogResolver, ResolvedDeltaCatalogTarget, ResolvedIcebergCatalogTarget};
 pub(crate) use location::is_remote_uri;
-pub use location::{resolve_config_location, ConfigLocation};
+pub use location::{
+    resolve_config_location, upload_to_remote_uri, write_bytes_to_remote_uri, ConfigLocation,
+};
 pub use storage::{resolve_local_path, ConfigBase, ResolvedPath, StorageResolver};
 pub use types::*;
 

@@ -12,7 +12,15 @@ pub fn write_manifest(output_path: &str, payload: &str) -> FloeResult<()> {
         return Ok(());
     }
 
+    if is_remote_uri(output_path) {
+        return floe_core::write_bytes_to_remote_uri(payload.as_bytes(), output_path);
+    }
+
     write_atomic(Path::new(output_path), payload.as_bytes())
+}
+
+fn is_remote_uri(value: &str) -> bool {
+    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> FloeResult<()> {

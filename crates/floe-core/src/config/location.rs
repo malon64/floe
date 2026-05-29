@@ -72,6 +72,44 @@ fn download_remote_config(uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
     Err(format!("unsupported config uri: {}", uri).into())
 }
 
+/// Write `bytes` to a remote URI by staging them in a temp file then uploading.
+pub fn write_bytes_to_remote_uri(bytes: &[u8], uri: &str) -> FloeResult<()> {
+    let temp_dir = TempDir::new()?;
+    let local_path = temp_dir.path().join("upload");
+    std::fs::write(&local_path, bytes)?;
+    upload_to_remote_uri(&local_path, uri)
+}
+
+pub fn upload_to_remote_uri(local_path: &Path, uri: &str) -> FloeResult<()> {
+    if uri.starts_with("s3://") {
+        let location = storage::s3::parse_s3_uri(uri)?;
+        let client = storage::s3::S3Client::new(location.bucket, None, None, None)?;
+        return client.upload_from_path(local_path, uri);
+    }
+    if uri.starts_with("gs://") {
+        let location = storage::gcs::parse_gcs_uri(uri)?;
+        let client = storage::gcs::GcsClient::new(location.bucket)?;
+        return client.upload_from_path(local_path, uri);
+    }
+    if uri.starts_with("abfs://") {
+        let location = storage::adls::parse_adls_uri(uri)?;
+        let definition = StorageDefinition {
+            name: "manifest".to_string(),
+            fs_type: "adls".to_string(),
+            bucket: None,
+            region: None,
+            account: Some(location.account),
+            container: Some(location.container),
+            prefix: None,
+            endpoint: None,
+            path_style_access: None,
+        };
+        let client = storage::adls::AdlsClient::new(&definition)?;
+        return client.upload_from_path(local_path, uri);
+    }
+    Err(format!("unsupported manifest output uri: {uri}").into())
+}
+
 pub(crate) fn is_remote_uri(value: &str) -> bool {
     value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
 }

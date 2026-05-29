@@ -263,7 +263,14 @@ enum ManifestCommand {
     Generate {
         #[arg(short, long, help = "Path or URI to the Floe config file")]
         config: String,
-        #[arg(short, long, help = "Output path for manifest JSON, or '-' for stdout")]
+        #[arg(
+            short,
+            long,
+            help = "Output path or URI for manifest JSON, or '-' for stdout. \
+                    Accepts local paths or remote URIs (s3://, gs://, abfs://). \
+                    When a remote URI is given it is also baked into execution.base_args \
+                    as the manifest URI that orchestrators use at run time."
+        )]
         output: String,
         #[arg(
             long,
@@ -289,12 +296,6 @@ enum ManifestCommand {
                     Stored as manifest_name in the JSON output."
         )]
         manifest_name: Option<String>,
-        #[arg(
-            long,
-            help = "Embed the deployed manifest URI into execution.base_args, replacing \
-                    the {manifest_uri} placeholder. E.g. 's3://my-bucket/manifests/sales.json'."
-        )]
-        manifest_uri: Option<String>,
         #[arg(
             long,
             help = "Default domain applied to entities that have no explicit domain field. \
@@ -779,7 +780,6 @@ fn main() -> FloeResult<()> {
                 profile,
                 deterministic,
                 manifest_name,
-                manifest_uri,
                 default_domain,
                 manifest_path_mode,
             } => {
@@ -872,6 +872,14 @@ fn main() -> FloeResult<()> {
                     }
                 });
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
+
+                // When --output is a remote URI it is also the manifest's deployed location,
+                // so bake it into execution.base_args automatically.
+                let manifest_uri = if output.contains("://") {
+                    Some(output.clone())
+                } else {
+                    None
+                };
 
                 let path_mode = match manifest_path_mode.as_str() {
                     "resolved-uri" => floe_core::PathMode::ResolvedUri,

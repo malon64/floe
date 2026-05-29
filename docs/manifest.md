@@ -179,18 +179,19 @@ floe manifest generate \
 
 The file is downloaded to a temp directory for generation. The manifest records the URI as `config_uri` and `profile_uri`, so the contract already points at the deployed source.
 
-### `--manifest-uri` — embed the deployed manifest URI
+### `--output` accepts remote URIs — writes and embeds in one step
 
-By default `execution.base_args` contains the placeholder `{manifest_uri}`, which the orchestrator connector renders at run time. If you want the manifest to be fully self-contained with no rendering step:
+`--output` accepts the same remote URI schemes as `-c` and `-p`. When you write the manifest to a remote URI, that URI is also automatically baked into `execution.base_args` (replacing the `{manifest_uri}` placeholder), producing a fully self-contained contract:
 
 ```bash
 floe manifest generate \
   -c sales.yml \
-  --manifest-uri s3://my-code-bucket/floe/sales/sales.manifest.json \
-  --output manifests/sales.manifest.json
+  --output s3://my-code-bucket/floe/sales/sales.manifest.json
 ```
 
-The `{manifest_uri}` placeholder in `base_args` is replaced with the literal URI you provide.
+The manifest is uploaded to S3 and its `base_args` already contain `s3://my-code-bucket/floe/sales/sales.manifest.json` — no orchestrator-side placeholder rendering needed.
+
+Writing locally still leaves `{manifest_uri}` in `base_args` for the orchestrator connector to render at run time (the existing default behaviour).
 
 ### `--default-domain` — namespace entities without an explicit domain
 

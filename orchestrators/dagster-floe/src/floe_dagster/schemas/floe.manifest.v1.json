@@ -47,6 +47,30 @@
         "null"
       ]
     },
+    "manifest_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "manifest_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "profile_uri": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "profile_checksum": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "report_base_uri": {
       "type": "string",
       "minLength": 1

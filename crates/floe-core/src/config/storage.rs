@@ -410,7 +410,7 @@ impl StorageResolver {
             }
             if uri.starts_with("abfs://") && def.fs_type == "adls" {
                 if let (Some(c), Some(a)) = (&def.container, &def.account) {
-                    if uri.starts_with(&format!("abfs://{c}@{a}")) {
+                    if uri.starts_with(&format!("abfs://{c}@{a}.dfs.core.windows.net")) {
                         return Some(name.clone());
                     }
                 }

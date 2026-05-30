@@ -34,6 +34,9 @@ kubernetes = [
 ]
 remote = [
   "fsspec",
+  "s3fs",
+  "gcsfs",
+  "adlfs",
 ]
 dev = [
   "pytest>=7",

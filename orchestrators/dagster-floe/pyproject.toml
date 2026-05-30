@@ -1,6 +1,6 @@
 [project]
 name = "dagster-floe"
-version = "0.1.8"
+version = "0.1.9"
 description = "Dagster connector for Floe CLI (config-driven ingestion)"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -31,6 +31,12 @@ Documentation = "https://github.com/malon64/floe/tree/main/orchestrators/dagster
 [project.optional-dependencies]
 kubernetes = [
   "kubernetes>=28",
+]
+remote = [
+  "fsspec",
+  "s3fs",
+  "gcsfs",
+  "adlfs",
 ]
 dev = [
   "pytest>=7",

@@ -315,36 +315,48 @@ def _make_entity_multi_asset(
 
 
 def _load_summary_json(summary_uri: str, config_uri: str) -> dict[str, Any]:
-    return _load_local_json_document(summary_uri, config_uri, label="summary")
+    return _load_json_document(summary_uri, config_uri, label="summary")
 
 
 def _load_entity_report_json(entity_report_uri: str, config_uri: str) -> dict[str, Any]:
-    return _load_local_json_document(entity_report_uri, config_uri, label="entity report")
+    return _load_json_document(entity_report_uri, config_uri, label="entity report")
 
 
-def _load_local_json_document(ref: str, config_uri: str, *, label: str) -> dict[str, Any]:
-    path = _resolve_local_json_path(ref, config_uri)
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _load_json_document(ref: str, config_uri: str, *, label: str) -> dict[str, Any]:
+    data = json.loads(_read_json_text(ref, config_uri))
     if not isinstance(data, dict):
         raise ValueError(f"{label} JSON must be an object")
     return data
 
 
-def _resolve_local_json_path(ref: str, config_uri: str) -> Path:
+def _read_json_text(ref: str, config_uri: str) -> str:
     if ref.startswith("local://"):
-        raw_path = unquote(ref[len("local://") :])
+        raw_path = unquote(ref[len("local://"):])
         path = Path(raw_path)
-    elif ref.startswith("file://"):
+        if not path.is_absolute() and "://" not in config_uri:
+            path = (Path(config_uri).resolve().parent / path).resolve()
+        return path.read_text(encoding="utf-8")
+    if ref.startswith("file://"):
         parsed = urlparse(ref)
-        path = Path(unquote(parsed.path))
-    elif "://" in ref:
-        raise ValueError(f"unsupported non-local JSON URI: {ref}")
-    else:
-        path = Path(ref)
-
+        return Path(unquote(parsed.path)).read_text(encoding="utf-8")
+    if "://" in ref:
+        return _fsspec_read_text(ref)
+    path = Path(ref)
     if not path.is_absolute() and "://" not in config_uri:
         path = (Path(config_uri).resolve().parent / path).resolve()
-    return path
+    return path.read_text(encoding="utf-8")
+
+
+def _fsspec_read_text(uri: str) -> str:
+    try:
+        import fsspec
+    except ImportError as exc:
+        raise ImportError(
+            "reading remote report URIs requires fsspec; "
+            "install it with: pip install fsspec"
+        ) from exc
+    with fsspec.open(uri, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def _extract_entity_stats(summary_json: dict[str, Any], entity_name: str) -> dict[str, Any]:

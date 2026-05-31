@@ -19,7 +19,7 @@ from dagster import (
 from .k8s_status import STATUS_SUCCEEDED
 
 from .asset_checks import build_asset_check_results, build_asset_check_specs
-from .events import last_run_finished, parse_ndjson_events, parse_run_finished
+from .events import last_run_finished, parse_json_event_lines, parse_run_finished, render_log_event
 from .manifest import (
     DagsterManifest,
     ManifestExecution,
@@ -208,18 +208,21 @@ def _make_entity_multi_asset(
             dagster_job_name=dagster_job_name,
         )
 
-        if result.stderr.strip():
-            for line in result.stderr.splitlines():
-                context.log.info(line)
-
         try:
-            events = parse_ndjson_events(result.stdout)
+            events = parse_json_event_lines(result.stdout)
+            _log_floe_output(context, result.stdout, events)
+            if result.stderr.strip():
+                _log_floe_stderr(context, result.stderr)
             finished_event = last_run_finished(events)
             finished = parse_run_finished(
                 finished_event,
                 summary_uri_field=execution.result_contract.summary_uri_field,
             )
-        except ValueError:
+        except ValueError as exc:
+            _log_floe_output(context, result.stdout, [])
+            if result.stderr.strip():
+                _log_floe_stderr(context, result.stderr)
+            context.log.warning(f"failed to parse Floe run events: {exc}")
             synthetic_status = result.status or ("success" if result.exit_code == 0 else "failed")
             synthetic_exit_code = result.exit_code
             from .events import FloeRunFinished
@@ -312,6 +315,36 @@ def _make_entity_multi_asset(
             yield Output(value=None, output_name="rejected", metadata=rejected_metadata)
 
     return _multi_asset
+
+
+def _log_floe_stderr(context: Any, stderr: str) -> None:
+    for line in stderr.splitlines():
+        stripped = line.strip()
+        if stripped:
+            context.log.info(f"floe stderr | {stripped}")
+
+
+def _log_floe_output(context: Any, stdout: str, events: list[dict[str, Any]]) -> None:
+    rendered_by_raw = {
+        json.dumps(event, sort_keys=True, separators=(",", ":")): render_log_event(event)
+        for event in events
+    }
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        rendered = None
+        if stripped.startswith("{"):
+            try:
+                event = json.loads(stripped)
+            except json.JSONDecodeError:
+                event = None
+            if isinstance(event, dict):
+                rendered = rendered_by_raw.get(
+                    json.dumps(event, sort_keys=True, separators=(",", ":")),
+                    render_log_event(event),
+                )
+        context.log.info(rendered or f"floe stdout | {stripped}")
 
 
 def _load_summary_json(summary_uri: str, config_uri: str) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from floe_dagster.events import (
     parse_json_event_lines,
     parse_ndjson_events,
     parse_run_finished,
+    render_log_event,
 )
 
 
@@ -49,6 +50,45 @@ def test_json_event_line_parsing_ignores_human_summary_lines():
     assert len(events) == 2
     assert finished.run_id == "run-1"
     assert finished.summary_uri == "s3://bucket/report/run.summary.json"
+
+
+def test_render_log_event_formats_file_and_summary_details():
+    line = render_log_event(
+        {
+            "event": "file_finished",
+            "run_id": "run-1",
+            "entity": "customers",
+            "input": "s3://bucket/bronze/customers.csv",
+            "status": "success",
+            "rows": 3,
+            "accepted": 3,
+            "rejected": 0,
+            "elapsed_ms": 42,
+        }
+    )
+
+    assert line == (
+        "floe file finished run_id=run-1 entity=customers "
+        "input=s3://bucket/bronze/customers.csv status=success "
+        "rows=3 accepted=3 rejected=0 elapsed_ms=42"
+    )
+
+    line = render_log_event(
+        {
+            "event": "run_finished",
+            "run_id": "run-1",
+            "status": "success",
+            "exit_code": 0,
+            "files": 1,
+            "rows": 3,
+            "accepted": 3,
+            "rejected": 0,
+            "summary_uri": "s3://bucket/report/run.summary.json",
+        }
+    )
+
+    assert "floe run finished run_id=run-1 status=success exit_code=0" in line
+    assert "summary_uri=s3://bucket/report/run.summary.json" in line
 
 
 def test_parse_run_finished_extracts_new_fields():

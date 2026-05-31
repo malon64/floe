@@ -245,6 +245,10 @@ def test_asset_emits_native_dagster_asset_checks_from_floe_reports(tmp_path: Pat
                     "summary_uri": f"local://{summary_path}",
                 }
             ),
+            "run id: run-123",
+            "Totals: files=2 rows=10 accepted=8 rejected=2",
+            "Overall: rejected (exit_code=0)",
+            f"Run summary: {summary_path}",
         ]
     )
 

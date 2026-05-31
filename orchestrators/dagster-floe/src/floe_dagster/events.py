@@ -31,6 +31,28 @@ def parse_ndjson_events(stdout: str) -> list[dict[str, Any]]:
     return events
 
 
+def parse_json_event_lines(stdout: str) -> list[dict[str, Any]]:
+    """Parse JSON object event lines from a mixed backend log stream.
+
+    Kubernetes and Databricks backends can return the complete container stdout.
+    Older Floe images may append human summary lines after the NDJSON events, so
+    Dagster integrations should extract JSON object lines instead of treating the
+    whole stream as strict NDJSON.
+    """
+    events: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or not stripped.startswith("{"):
+            continue
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            events.append(value)
+    return events
+
+
 def last_run_finished(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     last: dict[str, Any] | None = None
     for event in events:

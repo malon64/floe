@@ -19,7 +19,7 @@ from dagster import (
 from .k8s_status import STATUS_SUCCEEDED
 
 from .asset_checks import build_asset_check_results, build_asset_check_specs
-from .events import last_run_finished, parse_ndjson_events, parse_run_finished
+from .events import last_run_finished, parse_json_event_lines, parse_run_finished
 from .manifest import (
     DagsterManifest,
     ManifestExecution,
@@ -211,15 +211,20 @@ def _make_entity_multi_asset(
         if result.stderr.strip():
             for line in result.stderr.splitlines():
                 context.log.info(line)
+        if result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.strip():
+                    context.log.info(line)
 
         try:
-            events = parse_ndjson_events(result.stdout)
+            events = parse_json_event_lines(result.stdout)
             finished_event = last_run_finished(events)
             finished = parse_run_finished(
                 finished_event,
                 summary_uri_field=execution.result_contract.summary_uri_field,
             )
-        except ValueError:
+        except ValueError as exc:
+            context.log.warning(f"failed to parse Floe run events: {exc}")
             synthetic_status = result.status or ("success" if result.exit_code == 0 else "failed")
             synthetic_exit_code = result.exit_code
             from .events import FloeRunFinished

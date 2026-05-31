@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from floe_dagster.events import last_run_finished, parse_ndjson_events, parse_run_finished
+from floe_dagster.events import (
+    last_run_finished,
+    parse_json_event_lines,
+    parse_ndjson_events,
+    parse_run_finished,
+)
 
 
 def test_ndjson_parsing_finds_run_finished():
@@ -22,6 +27,28 @@ def test_parse_run_finished_supports_custom_summary_field():
     }
     finished = parse_run_finished(event, summary_uri_field="custom_summary")
     assert finished.summary_uri == "local:///tmp/run.summary.json"
+
+
+def test_json_event_line_parsing_ignores_human_summary_lines():
+    stdout = "\n".join(
+        [
+            '{"event":"run_started","run_id":"run-1"}',
+            (
+                '{"event":"run_finished","run_id":"run-1","status":"success",'
+                '"exit_code":0,"summary_uri":"s3://bucket/report/run.summary.json"}'
+            ),
+            "run id: run-1",
+            "Totals: files=1 rows=3 accepted=3 rejected=0",
+            "Overall: success (exit_code=0)",
+        ]
+    )
+
+    events = parse_json_event_lines(stdout)
+    finished = parse_run_finished(last_run_finished(events))
+
+    assert len(events) == 2
+    assert finished.run_id == "run-1"
+    assert finished.summary_uri == "s3://bucket/report/run.summary.json"
 
 
 def test_parse_run_finished_extracts_new_fields():
@@ -52,4 +79,3 @@ def test_parse_run_finished_defaults_new_fields_when_absent():
     finished = parse_run_finished(event)
     assert finished.report_base is None
     assert finished.entity_report_uris == {}
-

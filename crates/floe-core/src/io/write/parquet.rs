@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use polars::prelude::{DataFrame, ParquetCompression, ParquetWriter};
+use polars::polars_utils::plpath::PlPathRef;
+use polars::prelude::{
+    DataFrame, IntoLazy, ParquetCompression, ParquetWriteOptions, SinkOptions as PolarsSinkOptions,
+    SinkTarget,
+};
 
 use crate::checks::normalize::rename_output_columns;
 use crate::errors::{IoError, StorageError};
@@ -46,11 +50,32 @@ pub fn write_parquet_to_path(
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let file = std::fs::File::create(output_path)?;
-    let mut writer = ParquetWriter::new(file);
+    let write_options = build_parquet_write_options(options)?;
+    let sink_options = PolarsSinkOptions {
+        mkdir: false,
+        ..PolarsSinkOptions::default()
+    };
+    let target = SinkTarget::Path(PlPathRef::from_local_path(output_path).into_owned());
+    // The outer chunking loop in `ParquetSinkFormat::write` discards each
+    // chunk after the write, so taking the DataFrame here is safe. Using
+    // `std::mem::take` lets us hand ownership to `LazyFrame` without an
+    // extra clone of the Arrow buffers.
+    let frame = std::mem::take(df);
+    frame
+        .lazy()
+        .sink_parquet(target, write_options, None, sink_options)
+        .and_then(|lf| lf.with_new_streaming(true).collect())
+        .map_err(|err| Box::new(IoError(format!("parquet write failed: {err}"))))?;
+    Ok(())
+}
+
+fn build_parquet_write_options(
+    options: Option<&config::SinkOptions>,
+) -> FloeResult<ParquetWriteOptions> {
+    let mut write_options = ParquetWriteOptions::default();
     if let Some(options) = options {
         if let Some(compression) = &options.compression {
-            writer = writer.with_compression(parse_parquet_compression(compression)?);
+            write_options.compression = parse_parquet_compression(compression)?;
         }
         if let Some(row_group_size) = options.row_group_size {
             let row_group_size = usize::try_from(row_group_size).map_err(|_| {
@@ -58,13 +83,10 @@ pub fn write_parquet_to_path(
                     "parquet row_group_size is too large: {row_group_size}"
                 )))
             })?;
-            writer = writer.with_row_group_size(Some(row_group_size));
+            write_options.row_group_size = Some(row_group_size);
         }
     }
-    writer
-        .finish(df)
-        .map_err(|err| Box::new(IoError(format!("parquet write failed: {err}"))))?;
-    Ok(())
+    Ok(write_options)
 }
 
 impl SinkFormat for ParquetSinkFormat {

@@ -1,17 +1,21 @@
 use std::path::Path;
 use std::time::Instant;
 
-use polars::prelude::{DataFrame, Series};
+use polars::prelude::DataFrame;
 
-use crate::errors::RunError;
 use crate::{config, io, FloeResult};
 
 use super::super::output::{write_accepted_output, AcceptedOutputContext};
+use super::accepted_buffer::{concat_frames, empty_accepted_frame};
 use super::EntityPhaseTimings;
 use crate::run::events::{event_time_ms, RunEvent, RunObserver};
 use crate::run::RunContext;
 use io::storage::Target;
 
+/// Phase C for `merge_scd1` / `merge_scd2`. Merge modes need the full
+/// per-entity dataset to make upsert/close decisions and therefore keep the
+/// legacy accumulate-then-write path. Non-merge modes are handled inside the
+/// validate-split phase via `AcceptedBuffer`.
 pub(super) struct AcceptedWritePhaseContext<'a> {
     pub(super) run_context: &'a RunContext,
     pub(super) observer: &'a dyn RunObserver,
@@ -68,7 +72,7 @@ pub(super) fn run_accepted_write_phase(
         empty_accepted_frame(entity)?
     } else {
         let concat_start = perf_enabled.then(Instant::now);
-        let accepted_df = concat_accepted_frames(accepted_accum)?;
+        let accepted_df = concat_frames(accepted_accum)?;
         if let Some(start) = concat_start {
             phase_timings.concat_accepted_ms += start.elapsed().as_millis() as u64;
         }
@@ -110,49 +114,4 @@ pub(super) fn run_accepted_write_phase(
         });
     }
     Ok(accepted_output)
-}
-
-fn concat_accepted_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame> {
-    if frames.is_empty() {
-        return Err(Box::new(RunError("missing accepted dataframe".to_string())));
-    }
-    // Pairwise concatenation bounds repeated growth of a single frame compared to
-    // strictly left-associative stacking while preserving row order.
-    while frames.len() > 1 {
-        let mut next = Vec::with_capacity(frames.len().div_ceil(2));
-        let mut iter = frames.into_iter();
-        while let Some(mut left) = iter.next() {
-            if let Some(right) = iter.next() {
-                left.vstack_mut(&right).map_err(|err| {
-                    Box::new(RunError(format!("failed to concat accepted rows: {err}")))
-                })?;
-            }
-            next.push(left);
-        }
-        frames = next;
-    }
-    frames
-        .pop()
-        .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())).into())
-}
-
-fn empty_accepted_frame(entity: &config::EntityConfig) -> FloeResult<DataFrame> {
-    let normalize_strategy = crate::checks::normalize::resolve_normalize_strategy(entity)?;
-    let columns = crate::checks::normalize::resolve_output_columns(
-        &entity.schema.columns,
-        normalize_strategy.as_deref(),
-    );
-    let series = columns
-        .into_iter()
-        .map(|column| {
-            let dtype = config::parse_data_type(&column.column_type)?;
-            Ok(Series::full_null(column.name.into(), 0, &dtype).into())
-        })
-        .collect::<FloeResult<Vec<_>>>()?;
-    DataFrame::new(series).map_err(|err| {
-        Box::new(RunError(format!(
-            "failed to build empty accepted dataframe: {err}"
-        )))
-        .into()
-    })
 }

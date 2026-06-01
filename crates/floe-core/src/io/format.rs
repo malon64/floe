@@ -119,6 +119,182 @@ pub struct AcceptedWriteOutput {
     pub perf: Option<AcceptedWritePerfBreakdown>,
 }
 
+/// Per-write sinks cap their reported `part_files` list at this many entries
+/// (see `parquet.rs`). The reducer applies the same cap across flushes so
+/// the run report does not grow to N × 50 entries for high-fanout entities.
+pub const MAX_REPORTED_PART_FILES: usize = 50;
+
+impl AcceptedWriteOutput {
+    /// Fold a later flush's output into this one. The receiver represents the
+    /// running total across N completed flushes; `next` is the output of the
+    /// (N+1)th flush.
+    ///
+    /// Field semantics across flushes:
+    /// - `parts_written` (always known, the count of successful sink writes)
+    ///   sums.
+    /// - `files_written` and the `Option<u64>` metric fields
+    ///   (`total_bytes_written`, `small_files_count`, perf entries) sum
+    ///   when *both* sides are `Some`; if either side is `None` the merged
+    ///   result is `None`. "Unknown poisons" matches the per-flush
+    ///   semantics: when any single flush could not determine its file
+    ///   count (for example a remote Delta commit whose post-commit log
+    ///   could not be read), reporting a partial sum would silently
+    ///   under-count the total. The run report instead surfaces the value
+    ///   as unknown.
+    /// - `part_files` concatenates and is capped at `MAX_REPORTED_PART_FILES`
+    ///   so the reducer preserves the same cap the individual sink writers
+    ///   apply per-flush.
+    /// - `table_version` / `snapshot_id` take the latest (Delta commit /
+    ///   Iceberg snapshot move forward with every commit; the final state
+    ///   is what readers see).
+    /// - `table_root_uri`, `catalog`, `schema_evolution` take the first
+    ///   non-default value seen — table location and catalog registration
+    ///   are established by the first write; schema evolution only fires on
+    ///   the first (Overwrite) write because subsequent flushes are Append.
+    /// - `avg_file_size_mb` is recomputed from `total_bytes_written` divided
+    ///   by `files_written` when available (so it matches the per-flush
+    ///   semantics: for Parquet/Iceberg `files == parts`, but for Delta one
+    ///   commit can write multiple `add` files and `parts != files`).
+    ///   Falls back to `parts_written` when `files_written` is unknown.
+    /// - `perf` accumulates by summing each `Option<u64>` field.
+    /// - `merge` is unreachable in the buffered path (merge modes use the
+    ///   legacy accumulate-then-write code path); the running value is
+    ///   preserved if anything ever does pass one.
+    pub fn merge_in(&mut self, next: AcceptedWriteOutput) {
+        let AcceptedWriteOutput {
+            files_written,
+            parts_written,
+            part_files,
+            table_version,
+            snapshot_id,
+            table_root_uri,
+            catalog,
+            metrics,
+            merge,
+            schema_evolution,
+            perf,
+        } = next;
+
+        // `parts_written == 0` on the receiver means no prior flush has been
+        // merged. In that case `Option<u64>` fields on `self` start at `None`
+        // not because a flush returned unknown but because nothing has been
+        // recorded yet — distinguishing "vacuous" from "poisoned" matters
+        // because adopting the next flush's value verbatim on the first merge
+        // is correct, while applying poison-on-unknown semantics from `None`
+        // would always poison the very first merge.
+        let first_merge = self.parts_written == 0;
+
+        self.files_written = merge_option_u64(self.files_written, files_written, first_merge);
+        self.parts_written += parts_written;
+        let remaining = MAX_REPORTED_PART_FILES.saturating_sub(self.part_files.len());
+        if remaining > 0 {
+            self.part_files
+                .extend(part_files.into_iter().take(remaining));
+        }
+
+        if table_version.is_some() {
+            self.table_version = table_version;
+        }
+        if snapshot_id.is_some() {
+            self.snapshot_id = snapshot_id;
+        }
+
+        if self.table_root_uri.is_none() {
+            self.table_root_uri = table_root_uri;
+        }
+        if self.catalog.is_none() {
+            self.catalog = catalog;
+        }
+        if !self.schema_evolution.enabled
+            && !self.schema_evolution.applied
+            && self.schema_evolution.added_columns.is_empty()
+            && !self.schema_evolution.incompatible_changes_detected
+            && self.schema_evolution.mode.is_empty()
+        {
+            self.schema_evolution = schema_evolution;
+        }
+
+        self.metrics.total_bytes_written = merge_option_u64(
+            self.metrics.total_bytes_written,
+            metrics.total_bytes_written,
+            first_merge,
+        );
+        self.metrics.small_files_count = merge_option_u64(
+            self.metrics.small_files_count,
+            metrics.small_files_count,
+            first_merge,
+        );
+        self.metrics.avg_file_size_mb = recompute_avg_file_size_mb(
+            self.metrics.total_bytes_written,
+            self.files_written,
+            self.parts_written,
+        );
+
+        if self.merge.is_none() {
+            self.merge = merge;
+        }
+
+        match (self.perf.take(), perf) {
+            (Some(a), Some(b)) => self.perf = Some(sum_perf_breakdown(a, b)),
+            (Some(a), None) => self.perf = Some(a),
+            (None, Some(b)) => self.perf = Some(b),
+            (None, None) => self.perf = None,
+        }
+    }
+}
+
+/// Sum two `Option<u64>` values with poison-on-unknown semantics: if either
+/// side is `None`, the result is `None`. Reporting a partial sum as if it
+/// were the total would silently under-count for any aggregation across
+/// flushes where one flush could not determine the underlying count
+/// (e.g. remote Delta commit-log read failures).
+fn sum_option_u64(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a + b),
+        _ => None,
+    }
+}
+
+/// Progressive `Option<u64>` merge used by `merge_in`. On the first merge
+/// (when the accumulator has no flush recorded yet) the next flush's value is
+/// taken verbatim; on subsequent merges `sum_option_u64`'s poison-on-unknown
+/// semantics apply.
+fn merge_option_u64(acc: Option<u64>, next: Option<u64>, first_merge: bool) -> Option<u64> {
+    if first_merge {
+        next
+    } else {
+        sum_option_u64(acc, next)
+    }
+}
+
+fn recompute_avg_file_size_mb(
+    total_bytes: Option<u64>,
+    files_written: Option<u64>,
+    parts_written: u64,
+) -> Option<f64> {
+    let bytes = total_bytes?;
+    let denominator = files_written.unwrap_or(parts_written);
+    if denominator == 0 {
+        return None;
+    }
+    let mb = (bytes as f64) / (denominator as f64) / (1024.0 * 1024.0);
+    Some(mb)
+}
+
+fn sum_perf_breakdown(
+    a: AcceptedWritePerfBreakdown,
+    b: AcceptedWritePerfBreakdown,
+) -> AcceptedWritePerfBreakdown {
+    AcceptedWritePerfBreakdown {
+        conversion_ms: sum_option_u64(a.conversion_ms, b.conversion_ms),
+        source_df_build_ms: sum_option_u64(a.source_df_build_ms, b.source_df_build_ms),
+        merge_exec_ms: sum_option_u64(a.merge_exec_ms, b.merge_exec_ms),
+        data_write_ms: sum_option_u64(a.data_write_ms, b.data_write_ms),
+        commit_ms: sum_option_u64(a.commit_ms, b.commit_ms),
+        metrics_read_ms: sum_option_u64(a.metrics_read_ms, b.metrics_read_ms),
+    }
+}
+
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 

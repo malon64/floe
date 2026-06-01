@@ -297,6 +297,41 @@ where the selected cloud provider or IAM policy requires it for object access.
     - `max_size_per_file`: positive integer bytes (default: 256MB)
       - Parquet: split accepted parquet into parts at write time.
       - Delta: mapped to the Delta writer target file size.
+      - Also bounds in-process accepted-row memory: Floe flushes the
+        accepted buffer to the sink whenever the accumulated estimated
+        in-memory size meets this threshold (or at end of entity). The
+        first flush uses the configured `write_mode`; subsequent flushes
+        within the same run are forced to `append`. A file's archive
+        call (when `sink.archive` is enabled) always runs before its
+        rows are added to the buffer, so a file's accepted data only
+        ever reaches the sink after that file's archive has succeeded.
+      - **Partial-output trade-off (applies to all non-merge sinks)**:
+        because flushes commit synchronously while Phase B is still
+        iterating inputs, a failure on a *later* file (read /
+        validation / rejected-write / archive) can leave the *earlier*
+        files' accepted rows already committed to the sink — and in
+        `overwrite` mode the first flush may already have replaced the
+        previous dataset. The run report and incremental state are not
+        committed in that case, so the same inputs are re-processed on
+        the next run.
+      - For **Parquet** that committed prefix is non-transactional part
+        files in the accepted directory; downstream consumers reading
+        the directory directly may see the torn state.
+      - For **Delta** and **Iceberg** each individual flush is
+        transactional (Delta commit / Iceberg snapshot), so no
+        single flush exposes a half-written file — but a failure on a
+        later file does *not* roll back the earlier flush's commit.
+        Readers can still observe a committed prefix of the batch
+        between the failure and the next run, and the re-run will
+        process the same inputs again (cross-run unique constraints
+        or merge modes are what protect against duplication, not the
+        sink's per-commit atomicity).
+      - This is an explicit design choice — keeping memory bounded
+        means accepting non-atomic batches. Merge modes (`merge_scd1`
+        / `merge_scd2`) keep the previous accumulate-then-write
+        behaviour and ignore this memory ceiling because they require
+        the full per-entity dataset, so they do not exhibit the
+        cross-file partial-batch exposure.
   - `partition_by` (optional, `sink.accepted.format: delta`)
     - Identity partition columns (array of schema column names).
     - `floe validate` checks the columns exist in `schema.columns`.

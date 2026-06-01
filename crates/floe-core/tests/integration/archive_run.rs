@@ -210,6 +210,99 @@ fn archive_repeated_runs_do_not_overwrite_same_source_filename() {
 }
 
 #[test]
+fn archive_completes_before_buffered_accepted_flush_for_each_file() {
+    // Multi-file + tiny `max_size_per_file` forces the soft-buffer to flush
+    // on every file. The buffer's flush now runs AFTER `archive_input` for
+    // the same file, so every file present in the accepted sink must also
+    // be present in the archive directory (i.e. archive completed first).
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted/customer");
+    let archive_dir = root.join("archive");
+    let report_dir = root.join("report");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+    write_csv(&input_dir, "a.csv", "id,name\n1,alice\n2,bob\n");
+    write_csv(&input_dir, "b.csv", "id,name\n3,carol\n4,dave\n");
+    write_csv(&input_dir, "c.csv", "id,name\n5,erin\n6,frank\n");
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    incremental_mode: "archive"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+      options:
+        separator: ","
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+        options:
+          max_size_per_file: 1
+      archive:
+        path: "{archive_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+        archive_dir = archive_dir.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    let outcome = run(
+        &config_path,
+        RunOptions {
+            profile: None,
+            run_id: Some("archive-multiflush".to_string()),
+            entities: Vec::new(),
+            dry_run: false,
+            full_refresh: false,
+        },
+    )
+    .expect("run config");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.results.accepted_total, 6);
+    assert_eq!(report.files.len(), 3);
+    for file_report in &report.files {
+        assert!(
+            file_report.output.archived_path.is_some(),
+            "archived_path must be set for each successfully processed file"
+        );
+    }
+
+    let archived_files = list_files(&archive_entity_dir(&archive_dir, "customer"));
+    assert_eq!(
+        archived_files.len(),
+        3,
+        "every source file must be archived"
+    );
+    assert!(report.accepted_output.parts_written >= 3);
+
+    for original in ["a.csv", "b.csv", "c.csv"] {
+        assert!(
+            !input_dir.join(original).exists(),
+            "source {original} must have been moved out of input_dir"
+        );
+    }
+}
+
+#[test]
 fn legacy_archive_config_still_archives_inputs() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

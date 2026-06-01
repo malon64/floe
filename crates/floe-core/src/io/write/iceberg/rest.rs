@@ -146,32 +146,32 @@ fn expand_env_refs(value: &str, catalog_name: &str) -> FloeResult<String> {
         return Ok(value.to_string());
     }
 
-    let mut expanded = String::with_capacity(value.len());
-    let mut rest = value;
-    while let Some(start) = rest.find("${") {
-        expanded.push_str(&rest[..start]);
-        let after_start = &rest[start + 2..];
-        let Some(end) = after_start.find('}') else {
-            return Err(Box::new(RunError(format!(
-                "rest iceberg catalog {catalog_name} credential has unclosed env placeholder"
-            ))));
-        };
-        let name = &after_start[..end];
-        if name.is_empty() || name.contains('{') || name.contains('}') {
-            return Err(Box::new(RunError(format!(
-                "rest iceberg catalog {catalog_name} credential has invalid env placeholder"
-            ))));
-        }
-        let env_value = std::env::var(name).map_err(|_| {
-            Box::new(RunError(format!(
-                "rest iceberg catalog {catalog_name} credential references env var {name} which is not set"
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?;
-        expanded.push_str(&env_value);
-        rest = &after_start[end + 1..];
+    let mut parts = Vec::new();
+    for part in value.split(':') {
+        parts.push(expand_env_ref_part(part, catalog_name)?);
     }
-    expanded.push_str(rest);
-    Ok(expanded)
+    Ok(parts.join(":"))
+}
+
+fn expand_env_ref_part(part: &str, catalog_name: &str) -> FloeResult<String> {
+    let Some(inner) = part.strip_prefix("${") else {
+        return Ok(part.to_string());
+    };
+    let Some(name) = inner.strip_suffix('}') else {
+        return Err(Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential has unclosed env placeholder"
+        ))));
+    };
+    if name.is_empty() || name.contains('{') || name.contains('}') {
+        return Err(Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential has invalid env placeholder"
+        ))));
+    }
+    std::env::var(name).map_err(|_| {
+        Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential references env var {name} which is not set"
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
 }
 
 pub(crate) async fn write_via_rest_catalog(
@@ -406,6 +406,14 @@ mod tests {
 
         assert_eq!(expanded, "token:pat-token");
         std::env::remove_var("FLOE_TEST_REST_TOKEN");
+    }
+
+    #[test]
+    fn preserves_literal_credential_text_that_contains_env_ref_syntax() {
+        let expanded =
+            expand_env_refs("token:abc${def}ghi", "nessie").expect("preserve literal credential");
+
+        assert_eq!(expanded, "token:abc${def}ghi");
     }
 
     #[test]

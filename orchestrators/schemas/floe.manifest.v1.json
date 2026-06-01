@@ -201,6 +201,33 @@
               ]
             }
           }
+        },
+        "orchestration": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "max_concurrent_entities": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "strategy": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "sequential",
+                "parallel",
+                null
+              ]
+            }
+          }
         }
       }
     },

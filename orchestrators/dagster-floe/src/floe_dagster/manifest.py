@@ -53,6 +53,19 @@ class ManifestEntity:
 
 
 @dataclass(frozen=True)
+class ManifestOrchestration:
+    max_concurrent_entities: int | None
+    strategy: str | None
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ManifestOrchestration":
+        return ManifestOrchestration(
+            max_concurrent_entities=_optional_int(data, "max_concurrent_entities"),
+            strategy=_optional_str(data, "strategy"),
+        )
+
+
+@dataclass(frozen=True)
 class ManifestExecutionResultContract:
     run_finished_event: bool
     summary_uri_field: str
@@ -91,12 +104,19 @@ class ManifestExecution:
     log_format: str
     result_contract: ManifestExecutionResultContract
     defaults: ManifestExecutionDefaults
+    orchestration: ManifestOrchestration | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ManifestExecution":
         log_format = _required_str(data, "log_format")
         if log_format != "json":
             raise ValueError("execution.log_format must be 'json' for dagster-floe")
+        orchestration_raw = data.get("orchestration")
+        orchestration = (
+            ManifestOrchestration.from_dict(orchestration_raw)
+            if isinstance(orchestration_raw, dict)
+            else None
+        )
         return ManifestExecution(
             entrypoint=_required_str(data, "entrypoint"),
             base_args=_required_string_list(data, "base_args"),
@@ -106,6 +126,7 @@ class ManifestExecution:
                 _required_object(data, "result_contract")
             ),
             defaults=ManifestExecutionDefaults.from_dict(_required_object(data, "defaults")),
+            orchestration=orchestration,
         )
 
 

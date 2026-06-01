@@ -8,9 +8,9 @@ use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
 use crate::profile::types::{
-    ProfileConfig, ProfileExecution, ProfileMetadata, ProfileRunner, ProfileRunnerAuth,
-    ProfileRunnerResources, ProfileRunnerSecret, ProfileValidation, PROFILE_API_VERSION,
-    PROFILE_KIND,
+    ProfileConfig, ProfileExecution, ProfileMetadata, ProfileOrchestration, ProfileRunner,
+    ProfileRunnerAuth, ProfileRunnerResources, ProfileRunnerSecret, ProfileValidation,
+    PROFILE_API_VERSION, PROFILE_KIND,
 };
 use crate::{ConfigError, FloeResult};
 
@@ -162,7 +162,7 @@ fn parse_metadata(value: &Yaml) -> FloeResult<ProfileMetadata> {
 
 fn parse_execution(value: &Yaml) -> FloeResult<ProfileExecution> {
     let hash = yaml_hash(value, "profile.execution")?;
-    validate_known_keys(hash, "profile.execution", &["runner"])?;
+    validate_known_keys(hash, "profile.execution", &["runner", "orchestration"])?;
 
     let runner_yaml = hash_get(hash, "runner").ok_or_else(|| {
         Box::new(ConfigError(
@@ -171,7 +171,51 @@ fn parse_execution(value: &Yaml) -> FloeResult<ProfileExecution> {
     })?;
     let runner = parse_runner(runner_yaml)?;
 
-    Ok(ProfileExecution { runner })
+    let orchestration = match hash_get(hash, "orchestration") {
+        Some(value) => Some(parse_orchestration(value)?),
+        None => None,
+    };
+
+    Ok(ProfileExecution {
+        runner,
+        orchestration,
+    })
+}
+
+fn parse_orchestration(value: &Yaml) -> FloeResult<ProfileOrchestration> {
+    let hash = yaml_hash(value, "profile.execution.orchestration")?;
+    validate_known_keys(
+        hash,
+        "profile.execution.orchestration",
+        &["max_concurrent_entities", "strategy"],
+    )?;
+
+    let max_concurrent_entities = get_optional_u64(
+        hash,
+        "max_concurrent_entities",
+        "profile.execution.orchestration",
+    )?;
+
+    if let Some(0) = max_concurrent_entities {
+        return Err(Box::new(ConfigError(
+            "profile.execution.orchestration.max_concurrent_entities: must be >= 1".to_string(),
+        )));
+    }
+
+    let strategy = get_optional_string(hash, "strategy", "profile.execution.orchestration")?;
+
+    if let Some(ref s) = strategy {
+        if s != "sequential" && s != "parallel" {
+            return Err(Box::new(ConfigError(format!(
+                "profile.execution.orchestration.strategy: expected \"sequential\" or \"parallel\", got \"{s}\""
+            ))));
+        }
+    }
+
+    Ok(ProfileOrchestration {
+        max_concurrent_entities,
+        strategy,
+    })
 }
 
 fn parse_runner(value: &Yaml) -> FloeResult<ProfileRunner> {

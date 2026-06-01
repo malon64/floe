@@ -27,6 +27,14 @@ pub struct ProfileMetadata {
 #[derive(Debug, Clone)]
 pub struct ProfileExecution {
     pub runner: ProfileRunner,
+    pub orchestration: Option<ProfileOrchestration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileOrchestration {
+    pub max_concurrent_entities: Option<u64>,
+    /// "sequential" | "parallel"
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Clone)]

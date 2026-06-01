@@ -204,3 +204,127 @@ def test_build_definitions_accepts_manifest_uri_kwarg() -> None:
         entities=["employees"],
     )
     assert defs is not None
+
+
+# ---------------------------------------------------------------------------
+# Orchestration policy → Dagster job concurrency config
+# ---------------------------------------------------------------------------
+
+def _make_manifest_with_orchestration(tmp_path, orchestration_block: str | None) -> Path:
+    """Write a minimal manifest fixture with an optional orchestration block."""
+    orch_section = ""
+    if orchestration_block is not None:
+        orch_section = f",\n    {orchestration_block}"
+    payload = """{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 0,
+  "floe_version": "0.4.5",
+  "spec_version": "0.1",
+  "manifest_id": "mfv1-orch-test",
+  "config_uri": "./config.yml",
+  "report_base_uri": "./report",
+  "domains": [],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": ["run", "--manifest", "{manifest_uri}", "--log-format", "json", "--quiet"],
+    "per_entity_args": ["--entities", "{entity_name}"],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {"0": "success_or_rejected", "1": "technical_failure"}
+    },
+    "defaults": {"env": {}, "workdir": null}""" + orch_section + """
+  },
+  "runners": {
+    "default": "local",
+    "definitions": {
+      "local": {"type": "local_process", "image": null, "namespace": null,
+                "service_account": null, "resources": null, "env": null}
+    }
+  },
+  "entities": [
+    {
+      "name": "orders",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": ["sales", "orders"],
+      "source_format": "csv",
+      "accepted_sink_uri": "./out/accepted/orders",
+      "runner": null,
+      "policy_severity": "warn",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "source": {"format": "csv", "storage": "local", "uri": "./in/orders.csv",
+                 "path": "./in/orders.csv", "resolved": false},
+      "sinks": {
+        "accepted": {"format": "parquet", "storage": "local", "uri": "./out/accepted/orders",
+                     "path": "./out/accepted/orders", "resolved": false}
+      },
+      "schema": {"columns": [{"name": "id", "column_type": "string"}],
+                 "primary_key": [], "unique_keys": []}
+    }
+  ]
+}"""
+    path = tmp_path / "orch_test.manifest.json"
+    path.write_text(payload, encoding="utf-8")
+    return path
+
+
+def test_definitions_job_no_config_when_no_orchestration(tmp_path) -> None:
+    manifest_path = _make_manifest_with_orchestration(tmp_path, None)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    # No RunConfig should have been injected
+    assert job.run_config_schema is not None  # schema exists (Dagster always has it)
+    # Verify no multiprocess config was baked in by checking the default config is empty
+    assert job.config_mapping is None
+
+
+def test_definitions_job_config_strategy_sequential(tmp_path) -> None:
+    orchestration = '"orchestration": {"strategy": "sequential"}'
+    manifest_path = _make_manifest_with_orchestration(tmp_path, orchestration)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    # Job must carry a baked-in run_config with max_concurrent=1
+    assert job.run_config is not None
+    assert (
+        job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] == 1
+    )
+
+
+def test_definitions_job_config_max_concurrent_explicit(tmp_path) -> None:
+    orchestration = '"orchestration": {"max_concurrent_entities": 3}'
+    manifest_path = _make_manifest_with_orchestration(tmp_path, orchestration)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    assert job.run_config is not None
+    assert (
+        job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] == 3
+    )
+
+
+def test_definitions_job_config_strategy_parallel_no_constraint(tmp_path) -> None:
+    orchestration = '"orchestration": {"strategy": "parallel"}'
+    manifest_path = _make_manifest_with_orchestration(tmp_path, orchestration)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    # strategy=parallel means no concurrency limit
+    assert job.run_config is None or "multiprocess" not in str(job.run_config)
+
+
+def test_definitions_job_config_sequential_overrides_max_concurrent(tmp_path) -> None:
+    # strategy=sequential must enforce max_concurrent=1 even when
+    # max_concurrent_entities is set to a higher value
+    orchestration = '"orchestration": {"strategy": "sequential", "max_concurrent_entities": 3}'
+    manifest_path = _make_manifest_with_orchestration(tmp_path, orchestration)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    assert (
+        job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] == 1
+    ), "sequential strategy must cap concurrency at 1 regardless of max_concurrent_entities"

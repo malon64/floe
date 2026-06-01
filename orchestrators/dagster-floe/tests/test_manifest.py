@@ -221,3 +221,70 @@ def test_load_manifest_remote_uri_uses_fsspec(monkeypatch) -> None:
 
     result = load_manifest("s3://bucket/test/manifest.json")
     assert result.manifest_id
+
+
+# ---------------------------------------------------------------------------
+# ManifestOrchestration parsing
+# ---------------------------------------------------------------------------
+
+from floe_dagster.manifest import ManifestOrchestration
+
+
+def _base_execution_dict(**kwargs):
+    base = {
+        "entrypoint": "floe",
+        "base_args": ["run", "--manifest", "{manifest_uri}", "--log-format", "json"],
+        "per_entity_args": ["--entities", "{entity_name}"],
+        "log_format": "json",
+        "result_contract": {
+            "run_finished_event": True,
+            "summary_uri_field": "summary_uri",
+            "exit_codes": {"0": "success_or_rejected"},
+        },
+        "defaults": {"env": {}, "workdir": None},
+    }
+    base.update(kwargs)
+    return base
+
+
+def test_manifest_orchestration_absent_when_not_in_execution():
+    from floe_dagster.manifest import ManifestExecution
+    data = _base_execution_dict()
+    execution = ManifestExecution.from_dict(data)
+    assert execution.orchestration is None
+
+
+def test_manifest_orchestration_parsed_strategy_sequential():
+    from floe_dagster.manifest import ManifestExecution
+    data = _base_execution_dict(orchestration={"strategy": "sequential"})
+    execution = ManifestExecution.from_dict(data)
+    assert execution.orchestration is not None
+    assert execution.orchestration.strategy == "sequential"
+    assert execution.orchestration.max_concurrent_entities is None
+
+
+def test_manifest_orchestration_parsed_max_concurrent():
+    from floe_dagster.manifest import ManifestExecution
+    data = _base_execution_dict(orchestration={"max_concurrent_entities": 2})
+    execution = ManifestExecution.from_dict(data)
+    assert execution.orchestration is not None
+    assert execution.orchestration.max_concurrent_entities == 2
+    assert execution.orchestration.strategy is None
+
+
+def test_manifest_orchestration_parsed_both_fields():
+    from floe_dagster.manifest import ManifestExecution
+    data = _base_execution_dict(
+        orchestration={"max_concurrent_entities": 1, "strategy": "sequential"}
+    )
+    execution = ManifestExecution.from_dict(data)
+    assert execution.orchestration is not None
+    assert execution.orchestration.max_concurrent_entities == 1
+    assert execution.orchestration.strategy == "sequential"
+
+
+def test_manifest_orchestration_null_value_treated_as_absent():
+    from floe_dagster.manifest import ManifestExecution
+    data = _base_execution_dict(orchestration=None)
+    execution = ManifestExecution.from_dict(data)
+    assert execution.orchestration is None

@@ -315,3 +315,16 @@ def test_definitions_job_config_strategy_parallel_no_constraint(tmp_path) -> Non
     assert job is not None
     # strategy=parallel means no concurrency limit
     assert job.run_config is None or "multiprocess" not in str(job.run_config)
+
+
+def test_definitions_job_config_sequential_overrides_max_concurrent(tmp_path) -> None:
+    # strategy=sequential must enforce max_concurrent=1 even when
+    # max_concurrent_entities is set to a higher value
+    orchestration = '"orchestration": {"strategy": "sequential", "max_concurrent_entities": 3}'
+    manifest_path = _make_manifest_with_orchestration(tmp_path, orchestration)
+    defs = build_definitions(manifest_path=str(manifest_path), runner=_NoopRunner())
+    job = defs.get_job_def("floe_mfv1_orch_test_job")
+    assert job is not None
+    assert (
+        job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] == 1
+    ), "sequential strategy must cap concurrency at 1 regardless of max_concurrent_entities"

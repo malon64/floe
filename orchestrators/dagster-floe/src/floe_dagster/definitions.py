@@ -137,10 +137,11 @@ def build_definitions_from_manifest_paths(
 def _resolve_max_concurrent(orchestration: Any) -> int | None:
     if orchestration is None:
         return None
-    if orchestration.max_concurrent_entities is not None:
-        return orchestration.max_concurrent_entities
+    # sequential always means one-at-a-time, regardless of max_concurrent_entities
     if orchestration.strategy == "sequential":
         return 1
+    if orchestration.max_concurrent_entities is not None:
+        return orchestration.max_concurrent_entities
     return None
 
 

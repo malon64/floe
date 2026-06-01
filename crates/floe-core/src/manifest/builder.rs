@@ -6,9 +6,9 @@ use sha2::{Digest, Sha256};
 use crate::config::{ConfigLocation, RootConfig, SourceOptions, StorageResolver};
 use crate::manifest::model::{
     CommonManifest, ManifestArchiveTarget, ManifestColumnDef, ManifestDomain, ManifestEntity,
-    ManifestEntitySchema, ManifestExecution, ManifestExecutionDefaults, ManifestResultContract,
-    ManifestRunnerAuth, ManifestRunnerDefinition, ManifestRunnerResources, ManifestRunnerSecret,
-    ManifestRunners, ManifestSinkTarget, ManifestSinks, ManifestSource,
+    ManifestEntitySchema, ManifestExecution, ManifestExecutionDefaults, ManifestOrchestration,
+    ManifestResultContract, ManifestRunnerAuth, ManifestRunnerDefinition, ManifestRunnerResources,
+    ManifestRunnerSecret, ManifestRunners, ManifestSinkTarget, ManifestSinks, ManifestSource,
 };
 use crate::profile::ProfileConfig;
 use crate::FloeResult;
@@ -415,7 +415,7 @@ fn build_common_manifest(
                     .unwrap_or_else(|| domain.incoming_dir.clone()),
             })
             .collect(),
-        execution: default_execution_contract(options),
+        execution: default_execution_contract(options, profile),
         runners: runners_contract(profile),
         entities: manifest_entities,
         storages,
@@ -525,7 +525,10 @@ fn map_source_options(options: Option<&SourceOptions>) -> Option<serde_json::Val
     Some(serde_json::Value::Object(map))
 }
 
-fn default_execution_contract(options: &ManifestOptions) -> ManifestExecution {
+fn default_execution_contract(
+    options: &ManifestOptions,
+    profile: Option<&ProfileConfig>,
+) -> ManifestExecution {
     let mut exit_codes = BTreeMap::new();
     exit_codes.insert("0", "success_or_rejected");
     exit_codes.insert("1", "technical_failure");
@@ -554,6 +557,14 @@ fn default_execution_contract(options: &ManifestOptions) -> ManifestExecution {
     })
     .collect();
 
+    let orchestration = profile
+        .and_then(|p| p.execution.as_ref())
+        .and_then(|e| e.orchestration.as_ref())
+        .map(|o| ManifestOrchestration {
+            max_concurrent_entities: o.max_concurrent_entities,
+            strategy: o.strategy.clone(),
+        });
+
     ManifestExecution {
         entrypoint: "floe",
         base_args,
@@ -568,6 +579,7 @@ fn default_execution_contract(options: &ManifestOptions) -> ManifestExecution {
             env: BTreeMap::new(),
             workdir: None,
         },
+        orchestration,
     }
 }
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from dagster import AssetSelection, Definitions, define_asset_job
 
@@ -116,14 +116,32 @@ def build_definitions_from_manifest_paths(
             selection = AssetSelection.assets(
                 *[entity.asset_key for entity in manifest_entities]
             ).required_multi_asset_neighbors()
-            jobs.append(
-                define_asset_job(
-                    name=manifest_job_name,
-                    selection=selection,
-                )
-            )
+            job_kwargs: dict[str, Any] = {
+                "name": manifest_job_name,
+                "selection": selection,
+            }
+            max_concurrent = _resolve_max_concurrent(manifest.execution.orchestration)
+            if max_concurrent is not None:
+                job_kwargs["config"] = {
+                    "execution": {
+                        "config": {
+                            "multiprocess": {"max_concurrent": max_concurrent}
+                        }
+                    }
+                }
+            jobs.append(define_asset_job(**job_kwargs))
 
     return Definitions(assets=assets_defs, jobs=jobs)
+
+
+def _resolve_max_concurrent(orchestration: Any) -> int | None:
+    if orchestration is None:
+        return None
+    if orchestration.max_concurrent_entities is not None:
+        return orchestration.max_concurrent_entities
+    if orchestration.strategy == "sequential":
+        return 1
+    return None
 
 
 def _default_job_name(manifest_path: str, manifest_id: str) -> str:

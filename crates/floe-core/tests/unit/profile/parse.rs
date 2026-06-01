@@ -396,3 +396,123 @@ execution:
         "expected runner type error, got: {err}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Orchestration policy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_profile_orchestration_strategy_sequential() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: kubernetes_job
+  orchestration:
+    strategy: sequential
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse profile");
+    let exec = profile.execution.as_ref().expect("execution");
+    let orch = exec.orchestration.as_ref().expect("orchestration");
+    assert_eq!(orch.strategy.as_deref(), Some("sequential"));
+    assert!(orch.max_concurrent_entities.is_none());
+}
+
+#[test]
+fn parse_profile_orchestration_max_concurrent_entities() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: kubernetes_job
+  orchestration:
+    max_concurrent_entities: 3
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse profile");
+    let exec = profile.execution.as_ref().expect("execution");
+    let orch = exec.orchestration.as_ref().expect("orchestration");
+    assert_eq!(orch.max_concurrent_entities, Some(3));
+    assert!(orch.strategy.is_none());
+}
+
+#[test]
+fn parse_profile_orchestration_both_fields() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+  orchestration:
+    max_concurrent_entities: 1
+    strategy: sequential
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse profile");
+    let exec = profile.execution.as_ref().expect("execution");
+    let orch = exec.orchestration.as_ref().expect("orchestration");
+    assert_eq!(orch.max_concurrent_entities, Some(1));
+    assert_eq!(orch.strategy.as_deref(), Some("sequential"));
+}
+
+#[test]
+fn parse_profile_orchestration_strategy_parallel() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+  orchestration:
+    strategy: parallel
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse profile");
+    let exec = profile.execution.as_ref().expect("execution");
+    let orch = exec.orchestration.as_ref().expect("orchestration");
+    assert_eq!(orch.strategy.as_deref(), Some("parallel"));
+}
+
+#[test]
+fn parse_profile_orchestration_invalid_strategy_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+  orchestration:
+    strategy: round_robin
+"#;
+    let err = parse_profile_from_str(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("sequential") || err.to_string().contains("parallel"),
+        "expected strategy validation error, got: {err}"
+    );
+}
+
+#[test]
+fn parse_profile_without_orchestration_has_none() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+"#;
+    let profile = parse_profile_from_str(yaml).expect("parse profile");
+    let exec = profile.execution.as_ref().expect("execution");
+    assert!(exec.orchestration.is_none());
+}

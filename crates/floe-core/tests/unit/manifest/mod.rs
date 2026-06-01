@@ -572,6 +572,168 @@ entities:
 }
 
 #[test]
+fn manifest_orchestration_absent_when_no_profile() {
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert!(
+        value["execution"]["orchestration"].is_null(),
+        "orchestration should be absent when no profile is provided"
+    );
+}
+
+#[test]
+fn manifest_orchestration_absent_when_profile_has_none() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert!(
+        value["execution"]["orchestration"].is_null(),
+        "orchestration should be absent when profile has no orchestration"
+    );
+}
+
+#[test]
+fn manifest_orchestration_strategy_sequential_from_profile() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: kubernetes_job
+  orchestration:
+    strategy: sequential
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(
+        value["execution"]["orchestration"]["strategy"],
+        "sequential"
+    );
+    assert!(value["execution"]["orchestration"]["max_concurrent_entities"].is_null());
+}
+
+#[test]
+fn manifest_orchestration_max_concurrent_from_profile() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: kubernetes_job
+  orchestration:
+    max_concurrent_entities: 2
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(
+        value["execution"]["orchestration"]["max_concurrent_entities"],
+        2
+    );
+}
+
+#[test]
+fn manifest_orchestration_both_fields_from_profile() {
+    let profile_yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+  orchestration:
+    max_concurrent_entities: 1
+    strategy: sequential
+"#;
+    let profile = parse_profile_from_str(profile_yaml).expect("parse profile");
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        Some(&profile),
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let orch = &value["execution"]["orchestration"];
+    assert_eq!(orch["max_concurrent_entities"], 1);
+    assert_eq!(orch["strategy"], "sequential");
+}
+
+#[test]
 fn manifest_path_mode_resolved_uri_sets_path_from_uri() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

@@ -49,6 +49,16 @@ pub struct ManifestExecution {
     pub log_format: &'static str,
     pub result_contract: ManifestResultContract,
     pub defaults: ManifestExecutionDefaults,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestration: Option<ManifestOrchestration>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManifestOrchestration {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_entities: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

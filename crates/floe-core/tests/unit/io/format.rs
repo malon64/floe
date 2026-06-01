@@ -59,8 +59,104 @@ fn merge_in_sums_counters_and_concats_part_files() {
         ]
     );
     assert_eq!(acc.metrics.total_bytes_written, Some(8 * 1024 * 1024));
-    let expected = (8.0 * 1024.0 * 1024.0) / 5.0 / (1024.0 * 1024.0);
+    // Average uses files_written (3) as denominator, not parts_written (5).
+    let expected = (8.0 * 1024.0 * 1024.0) / 3.0 / (1024.0 * 1024.0);
     assert!((acc.metrics.avg_file_size_mb.unwrap() - expected).abs() < 1e-9);
+}
+
+#[test]
+fn merge_in_avg_file_size_uses_files_written_for_delta_like_outputs() {
+    // Delta: one commit (one "part" in our accounting) may write multiple
+    // data files. With `parts_written` as the denominator the average is
+    // wildly off; the reducer must use `files_written` when available.
+    let mut acc = AcceptedWriteOutput {
+        files_written: Some(4),
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(64 * 1024 * 1024),
+            avg_file_size_mb: Some(16.0),
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: Some(4),
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(64 * 1024 * 1024),
+            avg_file_size_mb: Some(16.0),
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, Some(8));
+    assert_eq!(acc.parts_written, 2);
+    assert_eq!(acc.metrics.total_bytes_written, Some(128 * 1024 * 1024));
+    // 128 MiB / 8 files = 16 MiB. With parts_written=2 the buggy formula
+    // would give 64 MiB.
+    let avg = acc.metrics.avg_file_size_mb.expect("avg present");
+    assert!((avg - 16.0).abs() < 1e-9, "got {avg}");
+}
+
+#[test]
+fn merge_in_avg_file_size_falls_back_to_parts_when_files_unknown() {
+    let mut acc = AcceptedWriteOutput {
+        files_written: None,
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(8 * 1024 * 1024),
+            avg_file_size_mb: Some(8.0),
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: None,
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(8 * 1024 * 1024),
+            avg_file_size_mb: Some(8.0),
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, None);
+    assert_eq!(acc.parts_written, 2);
+    let avg = acc.metrics.avg_file_size_mb.expect("avg present");
+    assert!((avg - 8.0).abs() < 1e-9, "got {avg}");
+}
+
+#[test]
+fn merge_in_caps_part_files_at_50_across_flushes() {
+    let mut acc = AcceptedWriteOutput {
+        part_files: (0..40).map(|i| format!("part-{i:05}.parquet")).collect(),
+        parts_written: 40,
+        ..AcceptedWriteOutput::default()
+    };
+    let next = AcceptedWriteOutput {
+        part_files: (0..40).map(|i| format!("part-uuid-{i}.parquet")).collect(),
+        parts_written: 40,
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(next);
+    assert_eq!(acc.parts_written, 80);
+    assert_eq!(acc.part_files.len(), 50);
+    // First 40 (existing) preserved verbatim, then 10 from `next`.
+    assert_eq!(acc.part_files[0], "part-00000.parquet");
+    assert_eq!(acc.part_files[39], "part-00039.parquet");
+    assert_eq!(acc.part_files[40], "part-uuid-0.parquet");
+    assert_eq!(acc.part_files[49], "part-uuid-9.parquet");
+
+    // Further flushes do not grow the list.
+    let later = AcceptedWriteOutput {
+        part_files: vec!["part-late.parquet".to_string()],
+        parts_written: 1,
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(later);
+    assert_eq!(acc.parts_written, 81);
+    assert_eq!(acc.part_files.len(), 50);
+    assert_eq!(acc.part_files[49], "part-uuid-9.parquet");
 }
 
 #[test]

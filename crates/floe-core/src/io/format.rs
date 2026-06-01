@@ -119,6 +119,11 @@ pub struct AcceptedWriteOutput {
     pub perf: Option<AcceptedWritePerfBreakdown>,
 }
 
+/// Per-write sinks cap their reported `part_files` list at this many entries
+/// (see `parquet.rs`). The reducer applies the same cap across flushes so
+/// the run report does not grow to N × 50 entries for high-fanout entities.
+pub const MAX_REPORTED_PART_FILES: usize = 50;
+
 impl AcceptedWriteOutput {
     /// Fold a later flush's output into this one. The receiver represents the
     /// running total across N completed flushes; `next` is the output of the
@@ -126,8 +131,9 @@ impl AcceptedWriteOutput {
     ///
     /// Field semantics across flushes:
     /// - counters (`files_written`, `parts_written`, `metrics.*`) sum.
-    /// - `part_files` concatenates (the existing 50-entry truncation at write
-    ///   time is preserved per-flush).
+    /// - `part_files` concatenates and is capped at `MAX_REPORTED_PART_FILES`
+    ///   so the reducer preserves the same cap the individual sink writers
+    ///   apply per-flush.
     /// - `table_version` / `snapshot_id` take the latest (Delta commit /
     ///   Iceberg snapshot move forward with every commit; the final state
     ///   is what readers see).
@@ -135,6 +141,11 @@ impl AcceptedWriteOutput {
     ///   non-default value seen — table location and catalog registration
     ///   are established by the first write; schema evolution only fires on
     ///   the first (Overwrite) write because subsequent flushes are Append.
+    /// - `avg_file_size_mb` is recomputed from `total_bytes_written` divided
+    ///   by `files_written` when available (so it matches the per-flush
+    ///   semantics: for Parquet/Iceberg `files == parts`, but for Delta one
+    ///   commit can write multiple `add` files and `parts != files`).
+    ///   Falls back to `parts_written` when `files_written` is unknown.
     /// - `perf` accumulates by summing each `Option<u64>` field.
     /// - `merge` is unreachable in the buffered path (merge modes use the
     ///   legacy accumulate-then-write code path); the running value is
@@ -161,7 +172,11 @@ impl AcceptedWriteOutput {
             (None, None) => None,
         };
         self.parts_written += parts_written;
-        self.part_files.extend(part_files);
+        let remaining = MAX_REPORTED_PART_FILES.saturating_sub(self.part_files.len());
+        if remaining > 0 {
+            self.part_files
+                .extend(part_files.into_iter().take(remaining));
+        }
 
         if table_version.is_some() {
             self.table_version = table_version;
@@ -191,8 +206,11 @@ impl AcceptedWriteOutput {
         );
         self.metrics.small_files_count =
             sum_option_u64(self.metrics.small_files_count, metrics.small_files_count);
-        self.metrics.avg_file_size_mb =
-            recompute_avg_file_size_mb(self.metrics.total_bytes_written, self.parts_written);
+        self.metrics.avg_file_size_mb = recompute_avg_file_size_mb(
+            self.metrics.total_bytes_written,
+            self.files_written,
+            self.parts_written,
+        );
 
         if self.merge.is_none() {
             self.merge = merge;
@@ -216,12 +234,17 @@ fn sum_option_u64(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     }
 }
 
-fn recompute_avg_file_size_mb(total_bytes: Option<u64>, parts: u64) -> Option<f64> {
+fn recompute_avg_file_size_mb(
+    total_bytes: Option<u64>,
+    files_written: Option<u64>,
+    parts_written: u64,
+) -> Option<f64> {
     let bytes = total_bytes?;
-    if parts == 0 {
+    let denominator = files_written.unwrap_or(parts_written);
+    if denominator == 0 {
         return None;
     }
-    let mb = (bytes as f64) / (parts as f64) / (1024.0 * 1024.0);
+    let mb = (bytes as f64) / (denominator as f64) / (1024.0 * 1024.0);
     Some(mb)
 }
 

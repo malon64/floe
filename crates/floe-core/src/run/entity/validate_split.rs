@@ -589,17 +589,13 @@ pub(super) fn run_validate_split_phase(
                 split_elapsed_ms.saturating_sub(write_rejected_ms_this_file);
         }
 
-        if let Some(accepted_df) = accepted_df_opt {
-            accepted_accum_rows += accepted_df.height() as u64;
-            accepted_accum_frames += 1;
-            match accepted_buffer.as_mut() {
-                Some(buffer) => {
-                    buffer.add(accepted_df, runtime.storage(), phase_timings)?;
-                }
-                None => merge_accum.push(accepted_df),
-            }
-        }
-
+        // Archive the source file BEFORE its accepted DF enters the buffer.
+        // With soft-buffered writes a `buffer.add` can cross the flush
+        // threshold and commit the accepted sink synchronously, so the
+        // archive call must succeed first; otherwise an archive failure for
+        // this file would leave its accepted rows already persisted (and in
+        // `overwrite` mode the first flush may already have replaced the
+        // previous dataset) with no incremental-state commit.
         if archive_target.is_some() {
             let archive_start = perf_enabled.then(Instant::now);
             archived_path = io::storage::ops::archive_input(
@@ -612,6 +608,17 @@ pub(super) fn run_validate_split_phase(
             )?;
             if let Some(start) = archive_start {
                 phase_timings.archive_ms += start.elapsed().as_millis() as u64;
+            }
+        }
+
+        if let Some(accepted_df) = accepted_df_opt {
+            accepted_accum_rows += accepted_df.height() as u64;
+            accepted_accum_frames += 1;
+            match accepted_buffer.as_mut() {
+                Some(buffer) => {
+                    buffer.add(accepted_df, runtime.storage(), phase_timings)?;
+                }
+                None => merge_accum.push(accepted_df),
             }
         }
 

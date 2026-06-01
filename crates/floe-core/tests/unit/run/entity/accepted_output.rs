@@ -172,17 +172,10 @@ entities:
         }
     }
     part_files.sort();
-    assert_eq!(
-        part_files,
-        vec![
-            "part-00000.parquet".to_string(),
-            "part-00001.parquet".to_string(),
-            "part-00002.parquet".to_string(),
-            "part-00003.parquet".to_string(),
-            "part-00004.parquet".to_string(),
-            "part-00005.parquet".to_string()
-        ]
-    );
+    assert_eq!(part_files.len(), 6);
+    assert!(part_files
+        .iter()
+        .all(|file| parts::is_part_filename(file, "parquet")));
 
     let mut total_rows = 0usize;
     for file_name in part_files {
@@ -245,7 +238,17 @@ entities:
             .parts_written,
         6
     );
-    assert!(accepted_dir.join("part-00005.parquet").exists());
+    let mut first_part_files = Vec::new();
+    for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
+        let entry = entry.expect("read accepted entry");
+        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("parquet") {
+            first_part_files.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    assert_eq!(first_part_files.len(), 6);
+    assert!(first_part_files
+        .iter()
+        .all(|file| parts::is_part_filename(file, "parquet")));
 
     write_csv(&input_dir, "a.csv", "id;name\n10;zara\n");
     fs::remove_file(input_dir.join("b.csv")).expect("remove second input");
@@ -258,7 +261,6 @@ entities:
             .parts_written,
         1
     );
-    assert!(!accepted_dir.join("part-00001.parquet").exists());
 
     let mut part_files = Vec::new();
     for entry in fs::read_dir(&accepted_dir).expect("read accepted dir") {
@@ -269,6 +271,18 @@ entities:
     }
     part_files.sort();
     assert_eq!(part_files, vec!["part-00000.parquet".to_string()]);
+    let still_present_from_first: Vec<&String> = first_part_files
+        .iter()
+        .filter(|file| accepted_dir.join(file).exists())
+        .collect();
+    assert!(
+        still_present_from_first.len() <= 1
+            && still_present_from_first
+                .first()
+                .map(|file| file.as_str() == "part-00000.parquet")
+                .unwrap_or(true),
+        "second-run Overwrite must clear all previous parts except a possible part-00000 reuse"
+    );
 
     let output_path = accepted_dir.join("part-00000.parquet");
     let file = std::fs::File::open(&output_path).expect("open accepted parquet");

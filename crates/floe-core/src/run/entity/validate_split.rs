@@ -16,9 +16,12 @@ use super::super::output::{
     append_rejection_columns, validate_rejected_target, write_error_report_output,
     write_rejected_output, write_rejected_raw_output, RejectedOutputContext,
 };
+use super::accepted_buffer::{AcceptedBuffer, AcceptedBufferConfig};
 use super::precheck::PrecheckedInput;
 use super::process::append_sink_options_warning;
 use super::EntityPhaseTimings;
+use crate::io::format::AcceptedWriteOutput;
+use crate::io::write::sink_format::SinkFormat;
 use io::format::{InputAdapter, ReadInput};
 use io::storage::Target;
 
@@ -27,6 +30,14 @@ pub(super) struct ValidateSplitPhaseOutcome {
     pub(super) abort_run: bool,
     pub(super) accepted_accum_rows: u64,
     pub(super) accepted_accum_frames: u64,
+    /// For non-merge modes: the merged write output produced by the
+    /// `AcceptedBuffer`'s flush sequence. `None` for merge modes — the caller
+    /// then runs the legacy accumulate-then-write Phase C against
+    /// `merge_accum`.
+    pub(super) accepted_write_output: Option<AcceptedWriteOutput>,
+    /// For merge modes only: per-entity accumulated accepted frames that
+    /// Phase C consumes via the legacy path.
+    pub(super) merge_accum: Vec<DataFrame>,
 }
 
 pub(super) struct ValidateSplitPhaseContext<'a> {
@@ -57,8 +68,13 @@ pub(super) struct ValidateSplitPhaseContext<'a> {
     pub(super) file_timings_ms: &'a mut Vec<Option<u64>>,
     pub(super) totals: &'a mut report::ResultsTotals,
     pub(super) unique_tracker: &'a mut check::UniqueTracker,
-    pub(super) accepted_accum: &'a mut Vec<DataFrame>,
     pub(super) initial_abort_run: bool,
+    pub(super) accepted_target: &'a Target,
+    pub(super) accepted_format: &'static dyn SinkFormat,
+    pub(super) storage_resolver: &'a config::StorageResolver,
+    pub(super) catalog_resolver: &'a config::CatalogResolver,
+    pub(super) pending_input_count: usize,
+    pub(super) full_refresh: bool,
 }
 
 pub(super) fn run_validate_split_phase(
@@ -92,9 +108,38 @@ pub(super) fn run_validate_split_phase(
         file_timings_ms,
         totals,
         unique_tracker,
-        accepted_accum,
         initial_abort_run,
+        accepted_target,
+        accepted_format,
+        storage_resolver,
+        catalog_resolver,
+        pending_input_count,
+        full_refresh,
     } = context;
+
+    let use_buffered_accepted = !matches!(
+        write_mode,
+        config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2
+    );
+    let mut accepted_buffer = if use_buffered_accepted {
+        Some(AcceptedBuffer::new(AcceptedBufferConfig {
+            target: accepted_target,
+            format: accepted_format,
+            entity,
+            resolver: storage_resolver,
+            catalogs: catalog_resolver,
+            temp_dir,
+            base_write_mode: write_mode,
+            pending_input_count,
+            full_refresh,
+            observer,
+            run_context,
+            perf_enabled,
+        }))
+    } else {
+        None
+    };
+    let mut merge_accum: Vec<DataFrame> = Vec::new();
 
     let mut abort_run = initial_abort_run;
     let mut rejected_overwrite_used = false;
@@ -547,7 +592,12 @@ pub(super) fn run_validate_split_phase(
         if let Some(accepted_df) = accepted_df_opt {
             accepted_accum_rows += accepted_df.height() as u64;
             accepted_accum_frames += 1;
-            accepted_accum.push(accepted_df);
+            match accepted_buffer.as_mut() {
+                Some(buffer) => {
+                    buffer.add(accepted_df, runtime.storage(), phase_timings)?;
+                }
+                None => merge_accum.push(accepted_df),
+            }
         }
 
         if archive_target.is_some() {
@@ -654,10 +704,17 @@ pub(super) fn run_validate_split_phase(
         }
     }
 
+    let accepted_write_output = match accepted_buffer {
+        Some(buffer) => Some(buffer.finish(runtime.storage(), phase_timings)?),
+        None => None,
+    };
+
     Ok(ValidateSplitPhaseOutcome {
         abort_run,
         accepted_accum_rows,
         accepted_accum_frames,
+        accepted_write_output,
+        merge_accum,
     })
 }
 

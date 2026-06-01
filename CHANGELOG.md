@@ -4,6 +4,14 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+- **Soft-buffered accepted writes — cap per-entity memory at `max_size_per_file`** (addresses #332):
+  - Floe previously held every accepted `DataFrame` from every input file in `accepted_accum: Vec<DataFrame>` until the entire entity was processed, then concatenated and wrote once. Peak RAM scaled as `O(n_files × rows_per_file)`, capping practical batch size.
+  - A new `AcceptedBuffer` flushes to the configured sink whenever the running estimated in-memory size meets `sink.accepted.options.max_size_per_file` (default 256 MB) and once at the end of the entity. Peak accepted-side memory is bounded by one configured output-file budget regardless of input fanout.
+  - The first flush uses the entity's configured `write_mode` (`overwrite` or `append`); subsequent flushes within the same run are forced to `append`, mirroring the existing `rejected_overwrite_used` pattern. This preserves the existing first-flush-clears-then-appends behaviour for `overwrite` mode.
+  - Catalog registration, schema evolution, and table-root reporting come from the first flush; Delta `table_version` and Iceberg `snapshot_id` track the latest commit; counters (`parts_written`, `total_bytes_written`, `small_files_count`) sum across flushes via a new `AcceptedWriteOutput::merge_in` reducer.
+  - Merge modes (`merge_scd1`, `merge_scd2`) keep the previous accumulate-then-write path unchanged — they require the full per-entity dataset to compute upsert/close decisions.
+  - **Behavioural note**: for non-transactional Parquet sinks, a mid-run failure may leave previously-flushed part files in the accepted directory. Delta and Iceberg sinks remain transactional per commit. Documented under `sink.accepted.options.max_size_per_file` in `docs/config.md`.
+
 ## v0.4.5
 
 - **Iceberg: propagate S3 endpoint and path-style-access into FileIO** (fixes #352, PR #353):

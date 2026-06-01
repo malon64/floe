@@ -119,6 +119,126 @@ pub struct AcceptedWriteOutput {
     pub perf: Option<AcceptedWritePerfBreakdown>,
 }
 
+impl AcceptedWriteOutput {
+    /// Fold a later flush's output into this one. The receiver represents the
+    /// running total across N completed flushes; `next` is the output of the
+    /// (N+1)th flush.
+    ///
+    /// Field semantics across flushes:
+    /// - counters (`files_written`, `parts_written`, `metrics.*`) sum.
+    /// - `part_files` concatenates (the existing 50-entry truncation at write
+    ///   time is preserved per-flush).
+    /// - `table_version` / `snapshot_id` take the latest (Delta commit /
+    ///   Iceberg snapshot move forward with every commit; the final state
+    ///   is what readers see).
+    /// - `table_root_uri`, `catalog`, `schema_evolution` take the first
+    ///   non-default value seen — table location and catalog registration
+    ///   are established by the first write; schema evolution only fires on
+    ///   the first (Overwrite) write because subsequent flushes are Append.
+    /// - `perf` accumulates by summing each `Option<u64>` field.
+    /// - `merge` is unreachable in the buffered path (merge modes use the
+    ///   legacy accumulate-then-write code path); the running value is
+    ///   preserved if anything ever does pass one.
+    pub fn merge_in(&mut self, next: AcceptedWriteOutput) {
+        let AcceptedWriteOutput {
+            files_written,
+            parts_written,
+            part_files,
+            table_version,
+            snapshot_id,
+            table_root_uri,
+            catalog,
+            metrics,
+            merge,
+            schema_evolution,
+            perf,
+        } = next;
+
+        self.files_written = match (self.files_written, files_written) {
+            (Some(a), Some(b)) => Some(a + b),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+        self.parts_written += parts_written;
+        self.part_files.extend(part_files);
+
+        if table_version.is_some() {
+            self.table_version = table_version;
+        }
+        if snapshot_id.is_some() {
+            self.snapshot_id = snapshot_id;
+        }
+
+        if self.table_root_uri.is_none() {
+            self.table_root_uri = table_root_uri;
+        }
+        if self.catalog.is_none() {
+            self.catalog = catalog;
+        }
+        if !self.schema_evolution.enabled
+            && !self.schema_evolution.applied
+            && self.schema_evolution.added_columns.is_empty()
+            && !self.schema_evolution.incompatible_changes_detected
+            && self.schema_evolution.mode.is_empty()
+        {
+            self.schema_evolution = schema_evolution;
+        }
+
+        self.metrics.total_bytes_written = sum_option_u64(
+            self.metrics.total_bytes_written,
+            metrics.total_bytes_written,
+        );
+        self.metrics.small_files_count =
+            sum_option_u64(self.metrics.small_files_count, metrics.small_files_count);
+        self.metrics.avg_file_size_mb =
+            recompute_avg_file_size_mb(self.metrics.total_bytes_written, self.parts_written);
+
+        if self.merge.is_none() {
+            self.merge = merge;
+        }
+
+        match (self.perf.take(), perf) {
+            (Some(a), Some(b)) => self.perf = Some(sum_perf_breakdown(a, b)),
+            (Some(a), None) => self.perf = Some(a),
+            (None, Some(b)) => self.perf = Some(b),
+            (None, None) => self.perf = None,
+        }
+    }
+}
+
+fn sum_option_u64(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a + b),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+fn recompute_avg_file_size_mb(total_bytes: Option<u64>, parts: u64) -> Option<f64> {
+    let bytes = total_bytes?;
+    if parts == 0 {
+        return None;
+    }
+    let mb = (bytes as f64) / (parts as f64) / (1024.0 * 1024.0);
+    Some(mb)
+}
+
+fn sum_perf_breakdown(
+    a: AcceptedWritePerfBreakdown,
+    b: AcceptedWritePerfBreakdown,
+) -> AcceptedWritePerfBreakdown {
+    AcceptedWritePerfBreakdown {
+        conversion_ms: sum_option_u64(a.conversion_ms, b.conversion_ms),
+        source_df_build_ms: sum_option_u64(a.source_df_build_ms, b.source_df_build_ms),
+        merge_exec_ms: sum_option_u64(a.merge_exec_ms, b.merge_exec_ms),
+        data_write_ms: sum_option_u64(a.data_write_ms, b.data_write_ms),
+        commit_ms: sum_option_u64(a.commit_ms, b.commit_ms),
+        metrics_read_ms: sum_option_u64(a.metrics_read_ms, b.metrics_read_ms),
+    }
+}
+
 pub trait InputAdapter: Send + Sync {
     fn format(&self) -> &'static str;
 

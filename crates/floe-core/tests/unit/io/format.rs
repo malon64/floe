@@ -1,4 +1,7 @@
-use floe_core::io::format::input_adapter;
+use floe_core::io::format::{
+    input_adapter, AcceptedSchemaEvolution, AcceptedWriteMetrics, AcceptedWriteOutput,
+    AcceptedWritePerfBreakdown, CatalogRegistration,
+};
 
 #[test]
 fn input_registry_returns_csv_adapter() {
@@ -16,4 +19,171 @@ fn input_registry_returns_fixed_adapter() {
 fn input_registry_returns_tsv_adapter() {
     let adapter = input_adapter("tsv").expect("adapter");
     assert_eq!(adapter.format(), "tsv");
+}
+
+fn output_with_parts(
+    files: u64,
+    parts: u64,
+    part_files: Vec<String>,
+    bytes: u64,
+) -> AcceptedWriteOutput {
+    AcceptedWriteOutput {
+        files_written: Some(files),
+        parts_written: parts,
+        part_files,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(bytes),
+            avg_file_size_mb: if parts == 0 {
+                None
+            } else {
+                Some((bytes as f64) / (parts as f64) / (1024.0 * 1024.0))
+            },
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    }
+}
+
+#[test]
+fn merge_in_sums_counters_and_concats_part_files() {
+    let mut acc = output_with_parts(2, 2, vec!["part-00000.parquet".into()], 2 * 1024 * 1024);
+    let next = output_with_parts(1, 3, vec!["part-uuid-1.parquet".into()], 6 * 1024 * 1024);
+    acc.merge_in(next);
+    assert_eq!(acc.files_written, Some(3));
+    assert_eq!(acc.parts_written, 5);
+    assert_eq!(
+        acc.part_files,
+        vec![
+            "part-00000.parquet".to_string(),
+            "part-uuid-1.parquet".to_string()
+        ]
+    );
+    assert_eq!(acc.metrics.total_bytes_written, Some(8 * 1024 * 1024));
+    let expected = (8.0 * 1024.0 * 1024.0) / 5.0 / (1024.0 * 1024.0);
+    assert!((acc.metrics.avg_file_size_mb.unwrap() - expected).abs() < 1e-9);
+}
+
+#[test]
+fn merge_in_takes_latest_table_version_and_snapshot_id() {
+    let mut acc = AcceptedWriteOutput {
+        table_version: Some(1),
+        snapshot_id: Some(101),
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(AcceptedWriteOutput {
+        table_version: Some(2),
+        snapshot_id: Some(102),
+        ..AcceptedWriteOutput::default()
+    });
+    acc.merge_in(AcceptedWriteOutput {
+        table_version: Some(3),
+        snapshot_id: Some(103),
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.table_version, Some(3));
+    assert_eq!(acc.snapshot_id, Some(103));
+}
+
+#[test]
+fn merge_in_takes_first_table_root_uri_and_catalog_and_schema_evolution() {
+    let first_catalog = CatalogRegistration::UnityDelta {
+        catalog_name: "main".into(),
+        schema: "sales".into(),
+        table: "orders".into(),
+    };
+    let mut acc = AcceptedWriteOutput {
+        table_root_uri: Some("file:///lake/orders".into()),
+        catalog: Some(first_catalog),
+        schema_evolution: AcceptedSchemaEvolution {
+            enabled: true,
+            mode: "add_columns".into(),
+            applied: true,
+            added_columns: vec!["extra".into()],
+            incompatible_changes_detected: false,
+        },
+        ..AcceptedWriteOutput::default()
+    };
+    let second_catalog = CatalogRegistration::UnityDelta {
+        catalog_name: "other".into(),
+        schema: "ops".into(),
+        table: "orders".into(),
+    };
+    acc.merge_in(AcceptedWriteOutput {
+        table_root_uri: Some("file:///other".into()),
+        catalog: Some(second_catalog),
+        schema_evolution: AcceptedSchemaEvolution {
+            enabled: true,
+            mode: "add_columns".into(),
+            applied: false,
+            added_columns: Vec::new(),
+            incompatible_changes_detected: false,
+        },
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.table_root_uri.as_deref(), Some("file:///lake/orders"));
+    match acc.catalog {
+        Some(CatalogRegistration::UnityDelta { catalog_name, .. }) => {
+            assert_eq!(catalog_name, "main");
+        }
+        other => panic!("expected UnityDelta(main), got {other:?}"),
+    }
+    assert!(acc.schema_evolution.applied);
+    assert_eq!(
+        acc.schema_evolution.added_columns,
+        vec!["extra".to_string()]
+    );
+}
+
+#[test]
+fn merge_in_sums_perf_breakdown_when_both_present() {
+    let mut acc = AcceptedWriteOutput {
+        perf: Some(AcceptedWritePerfBreakdown {
+            conversion_ms: Some(10),
+            source_df_build_ms: None,
+            merge_exec_ms: None,
+            data_write_ms: Some(40),
+            commit_ms: Some(5),
+            metrics_read_ms: None,
+        }),
+        ..AcceptedWriteOutput::default()
+    };
+    acc.merge_in(AcceptedWriteOutput {
+        perf: Some(AcceptedWritePerfBreakdown {
+            conversion_ms: Some(7),
+            source_df_build_ms: Some(3),
+            merge_exec_ms: None,
+            data_write_ms: Some(20),
+            commit_ms: None,
+            metrics_read_ms: Some(2),
+        }),
+        ..AcceptedWriteOutput::default()
+    });
+    let perf = acc.perf.expect("perf");
+    assert_eq!(perf.conversion_ms, Some(17));
+    assert_eq!(perf.source_df_build_ms, Some(3));
+    assert_eq!(perf.data_write_ms, Some(60));
+    assert_eq!(perf.commit_ms, Some(5));
+    assert_eq!(perf.metrics_read_ms, Some(2));
+}
+
+#[test]
+fn merge_in_preserves_partial_bytes_when_next_is_unknown() {
+    let mut acc = output_with_parts(1, 1, vec!["part-00000.parquet".into()], 1024);
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: Some(1),
+        parts_written: 1,
+        part_files: vec!["part-uuid.parquet".into()],
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: None,
+            avg_file_size_mb: None,
+            small_files_count: None,
+        },
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, Some(2));
+    assert_eq!(acc.parts_written, 2);
+    assert_eq!(acc.metrics.total_bytes_written, Some(1024));
+    let expected = 1024.0 / 2.0 / (1024.0 * 1024.0);
+    assert!((acc.metrics.avg_file_size_mb.unwrap() - expected).abs() < 1e-12);
+    assert_eq!(acc.metrics.small_files_count, Some(0));
 }

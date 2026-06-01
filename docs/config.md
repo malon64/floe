@@ -297,6 +297,16 @@ where the selected cloud provider or IAM policy requires it for object access.
     - `max_size_per_file`: positive integer bytes (default: 256MB)
       - Parquet: split accepted parquet into parts at write time.
       - Delta: mapped to the Delta writer target file size.
+      - Also bounds in-process accepted-row memory: Floe flushes the
+        accepted buffer to the sink whenever the accumulated estimated
+        in-memory size meets this threshold (or at end of entity). The
+        first flush uses the configured `write_mode`; subsequent flushes
+        within the same run are forced to `append`. For Parquet sinks this
+        means a mid-run failure may leave previously-flushed part files
+        in the accepted directory — Delta and Iceberg sinks remain
+        transactional. Merge modes (`merge_scd1` / `merge_scd2`) keep the
+        previous accumulate-then-write behaviour and ignore this memory
+        ceiling because they require the full per-entity dataset.
   - `partition_by` (optional, `sink.accepted.format: delta`)
     - Identity partition columns (array of schema column names).
     - `floe validate` checks the columns exist in `schema.columns`.

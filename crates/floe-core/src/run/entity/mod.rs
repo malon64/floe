@@ -22,6 +22,7 @@ use crate::checks::normalize::{
 };
 use io::storage::Target;
 
+mod accepted_buffer;
 mod accepted_write;
 mod incremental;
 mod pii;
@@ -227,7 +228,6 @@ pub(super) fn run_entity(
     let mut abort_run = precheck.abort_run;
     let prechecked_inputs = precheck.prechecked;
 
-    let mut accepted_accum = Vec::new();
     let temp_dir_path = temp_dir.as_ref().map(|dir| dir.path());
     let mut unique_tracker = check::UniqueTracker::with_constraints(unique_constraints);
     io::unique_seed::seed_unique_tracker_for_append(
@@ -241,7 +241,9 @@ pub(super) fn run_entity(
         &context.catalog_resolver,
         entity,
     )?;
-    // Phase B: row-level validation + entity-level accumulation.
+    let accepted_format = runtime.sink_format(entity.sink.accepted.format.as_str())?;
+    // Phase B: row-level validation + per-flush accepted writes (non-merge)
+    // or per-entity accumulation (merge).
     let phase_b = run_validate_split_phase(ValidateSplitPhaseContext {
         run_context: context,
         runtime,
@@ -270,8 +272,13 @@ pub(super) fn run_entity(
         file_timings_ms: &mut file_timings_ms,
         totals: &mut totals,
         unique_tracker: &mut unique_tracker,
-        accepted_accum: &mut accepted_accum,
         initial_abort_run: abort_run,
+        accepted_target: &accepted_target,
+        accepted_format,
+        storage_resolver: &context.storage_resolver,
+        catalog_resolver: &context.catalog_resolver,
+        pending_input_count,
+        full_refresh: context.full_refresh,
     })?;
     abort_run = phase_b.abort_run;
     let accepted_accum_rows = phase_b.accepted_accum_rows;
@@ -281,20 +288,23 @@ pub(super) fn run_entity(
     totals.files_total = file_reports.len() as u64;
 
     let accepted_target_uri = accepted_target.target_uri().to_string();
-    let aw = run_accepted_write_phase(AcceptedWritePhaseContext {
-        run_context: context,
-        observer,
-        runtime,
-        entity,
-        accepted_target: &accepted_target,
-        temp_dir: temp_dir_path,
-        write_mode,
-        full_refresh: context.full_refresh,
-        perf_enabled,
-        phase_timings: &mut phase_timings,
-        pending_input_count,
-        accepted_accum,
-    })?;
+    let aw = match phase_b.accepted_write_output {
+        Some(output) => output,
+        None => run_accepted_write_phase(AcceptedWritePhaseContext {
+            run_context: context,
+            observer,
+            runtime,
+            entity,
+            accepted_target: &accepted_target,
+            temp_dir: temp_dir_path,
+            write_mode,
+            full_refresh: context.full_refresh,
+            perf_enabled,
+            phase_timings: &mut phase_timings,
+            pending_input_count,
+            accepted_accum: phase_b.merge_accum,
+        })?,
+    };
     if aw.parts_written > 0 {
         for file_report in &mut file_reports {
             file_report.output.accepted_path = Some(accepted_target_uri.clone());

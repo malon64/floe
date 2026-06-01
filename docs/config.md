@@ -100,7 +100,7 @@ entities:
         - `warehouse_prefix` (optional): prefix for deterministic table locations
       - **`rest`** — Iceberg REST catalog (Unity Catalog Iceberg endpoint, Polaris, Nessie, Snowflake Open Catalog, etc.):
         - `uri` (required): REST catalog base URI
-        - `credential` (optional): `token:<pat>` or `client_credentials:<id>:<secret>`
+        - `credential` (optional): `token:<pat>` or `client_credentials:<id>:<secret>`; `${ENV_VAR}` placeholders are resolved from the OS environment at run time, so manifest runs can keep REST catalog secrets out of the manifest artifact
         - `warehouse` (optional): warehouse/prefix hint forwarded to the REST catalog
         - `oauth2_server_uri` (optional): override OAuth2 server URL for client-credentials flow
         - `scope` (optional): OAuth2 scope

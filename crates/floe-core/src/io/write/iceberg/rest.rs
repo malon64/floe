@@ -45,6 +45,7 @@ pub(crate) async fn build_rest_catalog(
     }
 
     if let Some(credential) = rest_cfg.credential.as_deref() {
+        let credential = expand_env_refs(credential, &rest_cfg.catalog_name)?;
         if let Some(token_value) = credential.strip_prefix("token:") {
             // Bearer PAT (Unity Catalog / Nessie)
             props.insert("token".to_string(), token_value.to_string());
@@ -137,6 +138,97 @@ impl RestIcebergCatalogConfig {
                 "RestIcebergCatalogConfig::from_type_config called on non-REST catalog".to_string(),
             ))),
         }
+    }
+}
+
+fn expand_env_refs(value: &str, catalog_name: &str) -> FloeResult<String> {
+    if !value.contains("${") {
+        return Ok(value.to_string());
+    }
+
+    let mut expanded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        expanded.push_str(&rest[..start]);
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find('}') else {
+            return Err(Box::new(RunError(format!(
+                "rest iceberg catalog {catalog_name} credential has unclosed env placeholder: {value:?}"
+            ))));
+        };
+        let name = &after_start[..end];
+        if name.is_empty() || name.contains('{') || name.contains('}') {
+            return Err(Box::new(RunError(format!(
+                "rest iceberg catalog {catalog_name} credential has invalid env placeholder: {value:?}"
+            ))));
+        }
+        let env_value = std::env::var(name).map_err(|_| {
+            Box::new(RunError(format!(
+                "rest iceberg catalog {catalog_name} credential references env var {name} which is not set"
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        expanded.push_str(&env_value);
+        rest = &after_start[end + 1..];
+    }
+    expanded.push_str(rest);
+    Ok(expanded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_env_refs;
+
+    #[test]
+    fn expands_partial_env_refs_in_client_credentials() {
+        std::env::set_var("FLOE_TEST_REST_CLIENT_ID", "client-id");
+        std::env::set_var("FLOE_TEST_REST_CLIENT_SECRET", "client-secret");
+
+        let expanded = expand_env_refs(
+            "client_credentials:${FLOE_TEST_REST_CLIENT_ID}:${FLOE_TEST_REST_CLIENT_SECRET}",
+            "polaris",
+        )
+        .expect("expand credential");
+
+        assert_eq!(expanded, "client_credentials:client-id:client-secret");
+        std::env::remove_var("FLOE_TEST_REST_CLIENT_ID");
+        std::env::remove_var("FLOE_TEST_REST_CLIENT_SECRET");
+    }
+
+    #[test]
+    fn expands_exact_env_ref_in_token_credential() {
+        std::env::set_var("FLOE_TEST_REST_TOKEN", "pat-token");
+
+        let expanded =
+            expand_env_refs("token:${FLOE_TEST_REST_TOKEN}", "nessie").expect("expand token");
+
+        assert_eq!(expanded, "token:pat-token");
+        std::env::remove_var("FLOE_TEST_REST_TOKEN");
+    }
+
+    #[test]
+    fn errors_when_env_ref_is_missing() {
+        std::env::remove_var("FLOE_TEST_REST_MISSING");
+
+        let err = expand_env_refs(
+            "client_credentials:${FLOE_TEST_REST_MISSING}:secret",
+            "polaris",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "rest iceberg catalog polaris credential references env var FLOE_TEST_REST_MISSING which is not set"
+        );
+    }
+
+    #[test]
+    fn errors_on_malformed_env_ref() {
+        let err = expand_env_refs("client_credentials:${UNCLOSED", "polaris").unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "rest iceberg catalog polaris credential has unclosed env placeholder: \"client_credentials:${UNCLOSED\""
+        );
     }
 }
 

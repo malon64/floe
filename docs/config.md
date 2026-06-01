@@ -301,12 +301,27 @@ where the selected cloud provider or IAM policy requires it for object access.
         accepted buffer to the sink whenever the accumulated estimated
         in-memory size meets this threshold (or at end of entity). The
         first flush uses the configured `write_mode`; subsequent flushes
-        within the same run are forced to `append`. For Parquet sinks this
-        means a mid-run failure may leave previously-flushed part files
-        in the accepted directory — Delta and Iceberg sinks remain
-        transactional. Merge modes (`merge_scd1` / `merge_scd2`) keep the
-        previous accumulate-then-write behaviour and ignore this memory
-        ceiling because they require the full per-entity dataset.
+        within the same run are forced to `append`. A file's archive
+        call (when `sink.archive` is enabled) always runs before its
+        rows are added to the buffer, so a file's accepted data only
+        ever reaches the sink after that file's archive has succeeded.
+      - **Partial-output trade-off (Parquet only)**: because flushes
+        commit synchronously while Phase B is still iterating inputs,
+        a failure on a *later* file (read / validation / rejected-write
+        / archive) can leave the *earlier* files' accepted rows already
+        on disk — and in `overwrite` mode the first flush may already
+        have replaced the previous dataset. The run report and
+        incremental state are not committed in that case, so the same
+        inputs are re-processed on the next run; downstream consumers
+        reading the accepted directory directly may temporarily see the
+        partial state. This is an explicit design choice — keeping
+        memory bounded means accepting non-atomic batches for
+        non-transactional sinks. Delta and Iceberg sinks remain
+        transactional per commit, so each flushed batch is atomic and
+        no torn state is ever visible there. Merge modes (`merge_scd1`
+        / `merge_scd2`) keep the previous accumulate-then-write
+        behaviour and ignore this memory ceiling because they require
+        the full per-entity dataset.
   - `partition_by` (optional, `sink.accepted.format: delta`)
     - Identity partition columns (array of schema column names).
     - `floe validate` checks the columns exist in `schema.columns`.

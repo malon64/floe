@@ -196,6 +196,12 @@ fn parse_orchestration(value: &Yaml) -> FloeResult<ProfileOrchestration> {
         "profile.execution.orchestration",
     )?;
 
+    if let Some(0) = max_concurrent_entities {
+        return Err(Box::new(ConfigError(
+            "profile.execution.orchestration.max_concurrent_entities: must be >= 1".to_string(),
+        )));
+    }
+
     let strategy = get_optional_string(hash, "strategy", "profile.execution.orchestration")?;
 
     if let Some(ref s) = strategy {

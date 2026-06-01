@@ -502,6 +502,26 @@ execution:
 }
 
 #[test]
+fn parse_profile_orchestration_zero_max_concurrent_fails() {
+    let yaml = r#"
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: prod
+execution:
+  runner:
+    type: local
+  orchestration:
+    max_concurrent_entities: 0
+"#;
+    let err = parse_profile_from_str(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("max_concurrent_entities"),
+        "expected max_concurrent_entities validation error, got: {err}"
+    );
+}
+
+#[test]
 fn parse_profile_without_orchestration_has_none() {
     let yaml = r#"
 apiVersion: floe/v1

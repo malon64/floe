@@ -4,6 +4,12 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+- **Stream Parquet writes through the Polars `new_streaming` engine** (completes #332):
+  - The accepted Parquet writer in `io/write/parquet.rs::write_parquet_to_path` now calls `LazyFrame::sink_parquet(...).with_new_streaming(true).collect()` instead of the eager `ParquetWriter::new(file).finish(&mut df)`. The outer per-chunk loop in `ParquetSinkFormat::write` (which slices the input DataFrame to keep each call ≤ `sink.accepted.options.max_size_per_file`) is unchanged, so the existing `part-NNNNN.parquet` / `part-<uuid>.parquet` naming, the `PartNameAllocator`, `small_files_count`, and the run-report shape are all preserved.
+  - Within each chunk's write, the streaming engine emits one row group at a time and drops it before the next, replacing the previous "buffer the chunk plus full Arrow encoding state" footprint with "one row group + encoding buffer". Marginal versus the per-entity cap delivered earlier in this release, but real, especially on wide schemas or large `row_group_size` values.
+  - Polars' `new_streaming` cargo feature is enabled on `floe-core`'s existing `polars = "0.52.0"` dependency. No version bump, no `df-interchange` churn, no Cargo.lock noise. Reader paths (`io/read/parquet.rs::ParquetInputAdapter::read_inputs`, `io/write/parquet.rs::seed_from_parquet_path`) already use `LazyFrame::scan_parquet` plans and pick up the new engine implicitly through Polars' default-collect dispatch — no code change there.
+  - New integration test `streaming_parquet_writes_preserve_row_counts_and_size_bound` in `tests/integration/local_run.rs` forces ≥ 2 chunked writes through `sink_parquet` (5000 rows × `max_size_per_file: 4096`) and verifies the round-trip row count plus the per-part size bound.
+
 - **Soft-buffered accepted writes — cap per-entity memory at `max_size_per_file`** (addresses #332):
   - Floe previously held every accepted `DataFrame` from every input file in `accepted_accum: Vec<DataFrame>` until the entire entity was processed, then concatenated and wrote once. Peak RAM scaled as `O(n_files × rows_per_file)`, capping practical batch size.
   - A new `AcceptedBuffer` flushes to the configured sink whenever the running estimated in-memory size meets `sink.accepted.options.max_size_per_file` (default 256 MB) and once at the end of the entity. Peak accepted-side memory is bounded by one configured output-file budget regardless of input fanout.

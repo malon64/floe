@@ -130,7 +130,17 @@ impl AcceptedWriteOutput {
     /// (N+1)th flush.
     ///
     /// Field semantics across flushes:
-    /// - counters (`files_written`, `parts_written`, `metrics.*`) sum.
+    /// - `parts_written` (always known, the count of successful sink writes)
+    ///   sums.
+    /// - `files_written` and the `Option<u64>` metric fields
+    ///   (`total_bytes_written`, `small_files_count`, perf entries) sum
+    ///   when *both* sides are `Some`; if either side is `None` the merged
+    ///   result is `None`. "Unknown poisons" matches the per-flush
+    ///   semantics: when any single flush could not determine its file
+    ///   count (for example a remote Delta commit whose post-commit log
+    ///   could not be read), reporting a partial sum would silently
+    ///   under-count the total. The run report instead surfaces the value
+    ///   as unknown.
     /// - `part_files` concatenates and is capped at `MAX_REPORTED_PART_FILES`
     ///   so the reducer preserves the same cap the individual sink writers
     ///   apply per-flush.
@@ -165,12 +175,16 @@ impl AcceptedWriteOutput {
             perf,
         } = next;
 
-        self.files_written = match (self.files_written, files_written) {
-            (Some(a), Some(b)) => Some(a + b),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
+        // `parts_written == 0` on the receiver means no prior flush has been
+        // merged. In that case `Option<u64>` fields on `self` start at `None`
+        // not because a flush returned unknown but because nothing has been
+        // recorded yet — distinguishing "vacuous" from "poisoned" matters
+        // because adopting the next flush's value verbatim on the first merge
+        // is correct, while applying poison-on-unknown semantics from `None`
+        // would always poison the very first merge.
+        let first_merge = self.parts_written == 0;
+
+        self.files_written = merge_option_u64(self.files_written, files_written, first_merge);
         self.parts_written += parts_written;
         let remaining = MAX_REPORTED_PART_FILES.saturating_sub(self.part_files.len());
         if remaining > 0 {
@@ -200,12 +214,16 @@ impl AcceptedWriteOutput {
             self.schema_evolution = schema_evolution;
         }
 
-        self.metrics.total_bytes_written = sum_option_u64(
+        self.metrics.total_bytes_written = merge_option_u64(
             self.metrics.total_bytes_written,
             metrics.total_bytes_written,
+            first_merge,
         );
-        self.metrics.small_files_count =
-            sum_option_u64(self.metrics.small_files_count, metrics.small_files_count);
+        self.metrics.small_files_count = merge_option_u64(
+            self.metrics.small_files_count,
+            metrics.small_files_count,
+            first_merge,
+        );
         self.metrics.avg_file_size_mb = recompute_avg_file_size_mb(
             self.metrics.total_bytes_written,
             self.files_written,
@@ -225,12 +243,27 @@ impl AcceptedWriteOutput {
     }
 }
 
+/// Sum two `Option<u64>` values with poison-on-unknown semantics: if either
+/// side is `None`, the result is `None`. Reporting a partial sum as if it
+/// were the total would silently under-count for any aggregation across
+/// flushes where one flush could not determine the underlying count
+/// (e.g. remote Delta commit-log read failures).
 fn sum_option_u64(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a + b),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
+        _ => None,
+    }
+}
+
+/// Progressive `Option<u64>` merge used by `merge_in`. On the first merge
+/// (when the accumulator has no flush recorded yet) the next flush's value is
+/// taken verbatim; on subsequent merges `sum_option_u64`'s poison-on-unknown
+/// semantics apply.
+fn merge_option_u64(acc: Option<u64>, next: Option<u64>, first_merge: bool) -> Option<u64> {
+    if first_merge {
+        next
+    } else {
+        sum_option_u64(acc, next)
     }
 }
 

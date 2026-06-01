@@ -232,6 +232,9 @@ fn merge_in_takes_first_table_root_uri_and_catalog_and_schema_evolution() {
 
 #[test]
 fn merge_in_sums_perf_breakdown_when_both_present() {
+    // Each perf field follows the same poison-on-unknown rule as the other
+    // Option<u64> metrics: a sum is reported only when both sides are
+    // Some; any None makes the merged field None.
     let mut acc = AcceptedWriteOutput {
         perf: Some(AcceptedWritePerfBreakdown {
             conversion_ms: Some(10),
@@ -256,14 +259,20 @@ fn merge_in_sums_perf_breakdown_when_both_present() {
     });
     let perf = acc.perf.expect("perf");
     assert_eq!(perf.conversion_ms, Some(17));
-    assert_eq!(perf.source_df_build_ms, Some(3));
+    // Mixed Some/None on either side → poisoned to None.
+    assert_eq!(perf.source_df_build_ms, None);
+    assert_eq!(perf.merge_exec_ms, None);
     assert_eq!(perf.data_write_ms, Some(60));
-    assert_eq!(perf.commit_ms, Some(5));
-    assert_eq!(perf.metrics_read_ms, Some(2));
+    assert_eq!(perf.commit_ms, None);
+    assert_eq!(perf.metrics_read_ms, None);
 }
 
 #[test]
-fn merge_in_preserves_partial_bytes_when_next_is_unknown() {
+fn merge_in_poisons_unknown_metric_totals() {
+    // A single unknown flush must poison the merged totals — otherwise a
+    // successful run that lost one flush's metrics (e.g. remote Delta
+    // commit-log read failure) would silently under-count files and bytes
+    // in the run report.
     let mut acc = output_with_parts(1, 1, vec!["part-00000.parquet".into()], 1024);
     acc.merge_in(AcceptedWriteOutput {
         files_written: Some(1),
@@ -278,8 +287,71 @@ fn merge_in_preserves_partial_bytes_when_next_is_unknown() {
     });
     assert_eq!(acc.files_written, Some(2));
     assert_eq!(acc.parts_written, 2);
-    assert_eq!(acc.metrics.total_bytes_written, Some(1024));
-    let expected = 1024.0 / 2.0 / (1024.0 * 1024.0);
-    assert!((acc.metrics.avg_file_size_mb.unwrap() - expected).abs() < 1e-12);
-    assert_eq!(acc.metrics.small_files_count, Some(0));
+    // total_bytes_written must be None because the second flush's bytes are
+    // unknown — adding only the first flush's 1024 would be misleading.
+    assert_eq!(acc.metrics.total_bytes_written, None);
+    // avg therefore unknown.
+    assert_eq!(acc.metrics.avg_file_size_mb, None);
+    // small_files_count poisoned the same way.
+    assert_eq!(acc.metrics.small_files_count, None);
+}
+
+#[test]
+fn merge_in_poisons_files_written_when_any_flush_is_unknown() {
+    let mut acc = AcceptedWriteOutput {
+        files_written: Some(10),
+        parts_written: 1,
+        ..AcceptedWriteOutput::default()
+    };
+    // Simulate a Delta commit whose post-commit log read failed.
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: None,
+        parts_written: 1,
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, None, "any unknown poisons the total");
+    assert_eq!(acc.parts_written, 2);
+
+    // The poison persists across further flushes — once unknown, always unknown.
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: Some(5),
+        parts_written: 1,
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, None);
+    assert_eq!(acc.parts_written, 3);
+}
+
+#[test]
+fn merge_in_poisoned_files_written_falls_back_to_parts_for_avg() {
+    let mut acc = AcceptedWriteOutput {
+        files_written: Some(2),
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(8 * 1024 * 1024),
+            avg_file_size_mb: Some(4.0),
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    };
+    // Second flush has bytes known but files_written unknown — poisons
+    // files_written; avg should therefore fall back to using parts_written
+    // (which remains known).
+    acc.merge_in(AcceptedWriteOutput {
+        files_written: None,
+        parts_written: 1,
+        metrics: AcceptedWriteMetrics {
+            total_bytes_written: Some(8 * 1024 * 1024),
+            avg_file_size_mb: None,
+            small_files_count: Some(0),
+        },
+        ..AcceptedWriteOutput::default()
+    });
+    assert_eq!(acc.files_written, None);
+    assert_eq!(acc.parts_written, 2);
+    assert_eq!(acc.metrics.total_bytes_written, Some(16 * 1024 * 1024));
+    // With files_written poisoned, avg falls back to parts_written (2).
+    let expected = (16.0 * 1024.0 * 1024.0) / 2.0 / (1024.0 * 1024.0);
+    let avg = acc.metrics.avg_file_size_mb.expect("avg present");
+    assert!((avg - expected).abs() < 1e-9, "got {avg}");
 }

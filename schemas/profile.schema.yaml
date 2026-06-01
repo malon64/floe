@@ -80,6 +80,33 @@ $defs:
     properties:
       runner:
         $ref: "#/$defs/profile_runner"
+      orchestration:
+        $ref: "#/$defs/profile_orchestration"
+
+  profile_orchestration:
+    type: object
+    additionalProperties: false
+    description: >
+      Controls how Floe schedules entity runs within a single execution.
+      Both fields are optional; omit the block entirely to use the default
+      (unbounded parallel) behaviour.
+    properties:
+      strategy:
+        type: string
+        enum:
+          - sequential
+          - parallel
+        description: >
+          Execution order of entities.
+            - "sequential": entities run one after another in sorted order.
+            - "parallel": entities run concurrently (default when omitted).
+      max_concurrent_entities:
+        type: integer
+        minimum: 1
+        description: >
+          Maximum number of entities that may run at the same time.
+          Must be >= 1.  When combined with strategy "sequential" this
+          value is effectively 1.
 
   profile_runner:
     type: object

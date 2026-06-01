@@ -153,13 +153,13 @@ fn expand_env_refs(value: &str, catalog_name: &str) -> FloeResult<String> {
         let after_start = &rest[start + 2..];
         let Some(end) = after_start.find('}') else {
             return Err(Box::new(RunError(format!(
-                "rest iceberg catalog {catalog_name} credential has unclosed env placeholder: {value:?}"
+                "rest iceberg catalog {catalog_name} credential has unclosed env placeholder"
             ))));
         };
         let name = &after_start[..end];
         if name.is_empty() || name.contains('{') || name.contains('}') {
             return Err(Box::new(RunError(format!(
-                "rest iceberg catalog {catalog_name} credential has invalid env placeholder: {value:?}"
+                "rest iceberg catalog {catalog_name} credential has invalid env placeholder"
             ))));
         }
         let env_value = std::env::var(name).map_err(|_| {
@@ -426,11 +426,19 @@ mod tests {
 
     #[test]
     fn errors_on_malformed_env_ref() {
-        let err = expand_env_refs("client_credentials:${UNCLOSED", "polaris").unwrap_err();
+        std::env::set_var("ID", "client-id");
+
+        let err = expand_env_refs(
+            "client_credentials:${ID}:literal-secret:${UNCLOSED",
+            "polaris",
+        )
+        .unwrap_err();
 
         assert_eq!(
             err.to_string(),
-            "rest iceberg catalog polaris credential has unclosed env placeholder: \"client_credentials:${UNCLOSED\""
+            "rest iceberg catalog polaris credential has unclosed env placeholder"
         );
+        assert!(!err.to_string().contains("literal-secret"));
+        std::env::remove_var("ID");
     }
 }

@@ -2,32 +2,35 @@
 
 All notable changes to Floe are documented in this file.
 
-## Unreleased
-
 ## v0.4.6
 
-- **Stream Parquet writes through the Polars `new_streaming` engine** (completes #332):
-  - The accepted Parquet writer in `io/write/parquet.rs::write_parquet_to_path` now calls `LazyFrame::sink_parquet(...).with_new_streaming(true).collect()` instead of the eager `ParquetWriter::new(file).finish(&mut df)`. The outer per-chunk loop in `ParquetSinkFormat::write` (which slices the input DataFrame to keep each call ≤ `sink.accepted.options.max_size_per_file`) is unchanged, so the existing `part-NNNNN.parquet` / `part-<uuid>.parquet` naming, the `PartNameAllocator`, `small_files_count`, and the run-report shape are all preserved.
-  - Within each chunk's write, the streaming engine emits one row group at a time and drops it before the next, replacing the previous "buffer the chunk plus full Arrow encoding state" footprint with "one row group + encoding buffer". Marginal versus the per-entity cap delivered earlier in this release, but real, especially on wide schemas or large `row_group_size` values.
-  - Polars' `new_streaming` cargo feature is enabled on `floe-core`'s existing `polars = "0.52.0"` dependency. No version bump, no `df-interchange` churn, no Cargo.lock noise. Reader paths (`io/read/parquet.rs::ParquetInputAdapter::read_inputs`, `io/write/parquet.rs::seed_from_parquet_path`) already use `LazyFrame::scan_parquet` plans and pick up the new engine implicitly through Polars' default-collect dispatch — no code change there.
-  - New integration test `streaming_parquet_writes_preserve_row_counts_and_size_bound` in `tests/integration/local_run.rs` forces ≥ 2 chunked writes through `sink_parquet` (5000 rows × `max_size_per_file: 4096`) and verifies the round-trip row count plus the per-part size bound.
+- **`dagster-floe`: load remote report URIs via fsspec** (fixes #361, PR #362):
+  - `summary_uri` and `entity_report_uri` values pointing at `s3://`, `gs://`, or `abfs://` were raising a `ValueError` that was silently swallowed, causing asset checks to fall back to summary-only mode. They are now fetched correctly via `fsspec`.
+  - New `remote` optional extra (`dagster-floe[remote]`) installs `s3fs`, `gcsfs`, and `adlfs` so all three cloud providers are covered out of the box.
 
-- **Soft-buffered accepted writes — cap per-entity memory at `max_size_per_file`** (addresses #332):
-  - Floe previously held every accepted `DataFrame` from every input file in `accepted_accum: Vec<DataFrame>` until the entire entity was processed, then concatenated and wrote once. Peak RAM scaled as `O(n_files × rows_per_file)`, capping practical batch size.
-  - A new `AcceptedBuffer` flushes to the configured sink whenever the running estimated in-memory size meets `sink.accepted.options.max_size_per_file` (default 256 MB) and once at the end of the entity. Peak accepted-side memory is bounded by one configured output-file budget regardless of input fanout.
-  - The first flush uses the entity's configured `write_mode` (`overwrite` or `append`); subsequent flushes within the same run are forced to `append`, mirroring the existing `rejected_overwrite_used` pattern. This preserves the existing first-flush-clears-then-appends behaviour for `overwrite` mode.
-  - Catalog registration, schema evolution, and table-root reporting come from the first flush; Delta `table_version` and Iceberg `snapshot_id` track the latest commit; counters (`parts_written`, `total_bytes_written`, `small_files_count`) sum across flushes via a new `AcceptedWriteOutput::merge_in` reducer.
-  - Merge modes (`merge_scd1`, `merge_scd2`) keep the previous accumulate-then-write path unchanged — they require the full per-entity dataset to compute upsert/close decisions.
-  - **Behavioural note (applies to all non-merge sinks)**: because flushes commit synchronously while the file loop is still iterating, a failure on a *later* file in the same batch (read / validation / rejected-write / archive) can leave *earlier* files' accepted rows already committed — and in `overwrite` mode the first flush may already have replaced the previous dataset. The run report and incremental state are not committed in that case, so the same inputs are re-processed on the next run. For Parquet that committed prefix is non-transactional part files in the accepted directory. For Delta and Iceberg each individual flush is transactional, but a later-file failure does not roll back an earlier flush's commit, so readers can still observe a committed prefix between the failure and the next run; cross-run protection comes from `unique_keys` or merge modes, not from the sink's per-commit atomicity. Each file's archive call always runs before its rows enter the buffer. Documented under `sink.accepted.options.max_size_per_file` in `docs/config.md`.
+- **`dagster-floe`: tolerate mixed stdout and surface floe events in Dagster logs** (PR #363):
+  - The log parser now handles non-JSON lines interleaved with NDJSON floe events, so plain-text output from wrappers or logging middleware no longer breaks event parsing.
+  - Floe run events (`run_started`, `entity_finished`, `run_finished`) are surfaced as structured Dagster log entries with appropriate log levels.
+
+- **Soft-buffered accepted writes — cap per-entity memory at `max_size_per_file`** (PR #366):
+  - Previously all accepted rows for an entity were accumulated in memory across every input file and written in a single pass at the end. Peak RAM scaled with input fanout.
+  - Accepted rows are now flushed to the sink incrementally whenever the in-memory accumulation reaches `sink.accepted.options.max_size_per_file` (default 256 MB). Peak memory is bounded regardless of how many input files the entity processes.
+  - `merge_scd1` / `merge_scd2` modes are unaffected — they still accumulate the full dataset before writing.
+  - **⚠️ Parquet durability**: Parquet is not transactional. If a failure occurs during or after a flush, partially-written part files are left on disk. There is no rollback mechanism — incomplete files must be cleaned up manually. Delta and Iceberg flushes are individually atomic, but a failure on a later input file does not roll back commits from earlier flushes in the same run. Re-runs are safe because the run report and incremental state are only committed once the full entity succeeds.
+
+- **Stream Parquet writes via the Polars `new_streaming` engine** (PR #369):
+  - Accepted Parquet writes now emit one row group at a time rather than buffering the full chunk plus Arrow encoding state. This reduces per-write peak memory, most noticeably on wide schemas or large `row_group_size` values.
+  - No config changes required. Output file naming, part counts, and the run report shape are unchanged.
+  - **⚠️ Parquet durability**: consistent with the point above — Parquet files are not written atomically. A failure mid-stream leaves an incomplete file on disk with no rollback.
 
 - **Profile `execution.orchestration` → manifest → Dagster job concurrency** (PR #367):
   - New `orchestration` block in the profile's `execution` section (`strategy`, `max_concurrent_entities`). The manifest builder emits it as `execution.orchestration`; `dagster-floe` wires `max_concurrent` into the Dagster `multiprocess` executor config, driving entity-level parallelism end-to-end without per-job boilerplate.
   - `max_concurrent_entities: 0` is rejected at parse time with an immediate config error.
-  - JSON Schema for the profile updated to declare the new block (`additionalProperties: false` was previously rejecting it).
+  - Profile JSON Schema updated to declare the new block (previously rejected by `additionalProperties: false`).
 
 - **REST Iceberg: resolve environment-variable credentials** (PR #370):
-  - REST catalog configs that use `${ENV_VAR}` placeholders for credentials are now resolved against the process environment before the HTTP client is constructed, fixing authentication failures when credentials are injected via environment variables rather than baked into the config file.
-  - Malformed credential placeholder errors are redacted in log output to avoid leaking partial secrets.
+  - REST catalog configs that use `${ENV_VAR}` placeholders for credentials are now resolved against the process environment before the HTTP client is constructed, fixing authentication failures when credentials are injected at runtime rather than baked into the config file.
+  - Malformed placeholder errors are redacted in log output to avoid leaking partial secrets.
 
 - **`floe` 0.4.6, `dagster-floe` 0.2.1**: version bumps for this release.
 

@@ -37,6 +37,7 @@ mod conn;
 mod merge;
 
 pub use self::conn::close_cached_connections;
+pub(crate) use self::conn::is_motherduck_connection;
 use self::conn::{
     quote_ident, quoted_table, resolve_schema_and_table, resolve_target, DuckDbTarget,
 };

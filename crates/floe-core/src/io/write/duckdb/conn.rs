@@ -20,6 +20,10 @@ use crate::FloeResult;
 /// MotherDuck connection strings are identified by the `md:` scheme prefix.
 const MOTHERDUCK_SCHEME: &str = "md:";
 
+/// Environment variable DuckDB reads for the ambient MotherDuck token when no
+/// explicit `sink.accepted.duckdb.token` is configured.
+const MOTHERDUCK_TOKEN_ENV: &str = "motherduck_token";
+
 /// A resolved DuckDB write target: either a local database file or a MotherDuck
 /// (managed remote) database.
 #[derive(Debug, Clone)]
@@ -96,7 +100,17 @@ pub(crate) fn resolve_target(
             // reuse a connection authenticated with the first token. Mix a
             // non-reversible fingerprint of the resolved token into the key so the
             // raw secret never lives in the cache key (or anywhere it could leak).
-            let cache_key = motherduck_cache_key(connection, token.as_deref());
+            //
+            // When no explicit token is configured DuckDB falls back to the ambient
+            // `motherduck_token` environment variable, so fold that into the
+            // fingerprint too: changing the ambient credential between runs must
+            // yield a distinct cache entry rather than silently reusing the first
+            // connection's authentication.
+            let fingerprint_token = match token.as_deref() {
+                Some(token) => Some(token.to_string()),
+                None => std::env::var(MOTHERDUCK_TOKEN_ENV).ok(),
+            };
+            let cache_key = motherduck_cache_key(connection, fingerprint_token.as_deref());
             return Ok(DuckDbTarget::MotherDuck {
                 connection: connection.to_string(),
                 token,
@@ -492,6 +506,29 @@ mod tests {
         let none = resolve_target(&local_target(), &cfg_with_token("md:db", None), "e")
             .expect("resolve none");
         assert_ne!(a.cache_key(), none.cache_key());
+    }
+
+    #[test]
+    fn motherduck_cache_key_reflects_ambient_token() {
+        // With no explicit token, the fingerprint must fold in the ambient
+        // `motherduck_token` env var so changing the ambient credential yields a
+        // distinct cache entry instead of silently reusing the first connection.
+        std::env::set_var(MOTHERDUCK_TOKEN_ENV, "ambient-a");
+        let a = resolve_target(&local_target(), &cfg_with_token("md:db", None), "e")
+            .expect("resolve a");
+        std::env::set_var(MOTHERDUCK_TOKEN_ENV, "ambient-b");
+        let b = resolve_target(&local_target(), &cfg_with_token("md:db", None), "e")
+            .expect("resolve b");
+        std::env::remove_var(MOTHERDUCK_TOKEN_ENV);
+        assert_ne!(
+            a.cache_key(),
+            b.cache_key(),
+            "changing the ambient motherduck_token must change the cache key"
+        );
+        assert!(
+            !a.cache_key().contains("ambient-a") && !b.cache_key().contains("ambient-b"),
+            "cache key must not embed the raw ambient token"
+        );
     }
 
     #[test]

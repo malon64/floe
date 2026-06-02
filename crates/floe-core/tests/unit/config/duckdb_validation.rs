@@ -213,3 +213,35 @@ entities:
         validate(&path, ValidateOptions::default()).expect_err("merge mode requires primary_key");
     assert!(err.to_string().contains("requires schema.primary_key"));
 }
+
+#[test]
+fn duckdb_block_on_non_duckdb_format_rejected() {
+    // A `duckdb:` block under a non-DuckDB sink must be rejected at parse time so a
+    // misplaced block can't be silently ignored.
+    let yaml = r#"
+version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "in/customers.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "out/customers.parquet"
+        duckdb:
+          table: customers
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let path = write_temp_config(yaml);
+    let err = validate(&path, ValidateOptions::default())
+        .expect_err("duckdb block on parquet sink should be rejected");
+    assert!(err
+        .to_string()
+        .contains("is only valid when format is \"duckdb\""));
+}

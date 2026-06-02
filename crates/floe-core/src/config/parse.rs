@@ -526,9 +526,19 @@ fn parse_sink_target(
     } else {
         None
     };
+    let format = get_string(hash, "format", ctx)?;
     let duckdb = if allow_options {
         match hash_get(hash, "duckdb") {
-            Some(value) => Some(parse_sink_duckdb_options(value, &format!("{ctx}.duckdb"))?),
+            Some(value) => {
+                // A `duckdb:` block only applies to a DuckDB sink. Reject it for any
+                // other format so a misplaced block can't be silently ignored.
+                if format != "duckdb" {
+                    return Err(Box::new(ConfigError(format!(
+                        "{ctx}.duckdb is only valid when format is \"duckdb\" (found format={format:?})"
+                    ))));
+                }
+                Some(parse_sink_duckdb_options(value, &format!("{ctx}.duckdb"))?)
+            }
             None => None,
         }
     } else {
@@ -545,14 +555,16 @@ fn parse_sink_target(
     } else {
         None
     };
-    let format = get_string(hash, "format", ctx)?;
     // A MotherDuck DuckDB sink is addressed by `duckdb.connection`, not a filesystem path,
-    // so `path` is optional in that case. Every other sink requires `path`.
-    let is_motherduck = duckdb
-        .as_ref()
-        .and_then(|cfg| cfg.connection.as_deref())
-        .is_some();
-    let path = if is_motherduck {
+    // so `path` is optional in that case. Every other sink (and a local-file DuckDB sink)
+    // requires `path`. Gate this on the DuckDB format explicitly rather than the mere
+    // presence of a `duckdb.connection` block.
+    let is_motherduck_duckdb = format == "duckdb"
+        && duckdb
+            .as_ref()
+            .and_then(|cfg| cfg.connection.as_deref())
+            .is_some();
+    let path = if is_motherduck_duckdb {
         opt_string(hash, "path", ctx)?.unwrap_or_default()
     } else {
         get_string(hash, "path", ctx)?

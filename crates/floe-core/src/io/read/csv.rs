@@ -161,7 +161,7 @@ fn read_csv_input_with_columns(
 ) -> FloeResult<ReadInput> {
     let path = &input_file.local_path;
     let typed_projection = if collect_raw {
-        projected_columns(&input_columns, columns)
+        projected_columns(&input_columns, columns, normalize_strategy)
     } else {
         None
     };
@@ -269,14 +269,25 @@ fn read_csv_lazy(
 fn projected_columns(
     input_columns: &[String],
     declared_columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
 ) -> Option<Vec<String>> {
+    // `declared_columns` carry the *normalized* (runtime) names, while
+    // `input_columns` are the *raw* header names from the file. Compare the
+    // normalized form of each raw header against the declared set so that a
+    // column renamed by `normalize_columns` (e.g. "Customer ID" -> customer_id)
+    // is still recognized as declared and kept. The returned list uses the raw
+    // header names because the projection runs before column normalization.
     let declared = declared_columns
         .iter()
         .map(|column| column.name.as_str())
         .collect::<std::collections::HashSet<_>>();
+    let normalize = |name: &str| match normalize_strategy {
+        Some(strategy) => crate::checks::normalize::normalize_name(name, strategy),
+        None => name.to_string(),
+    };
     let projected = input_columns
         .iter()
-        .filter(|name| declared.contains(name.as_str()))
+        .filter(|name| declared.contains(normalize(name).as_str()))
         .cloned()
         .collect::<Vec<_>>();
     if projected.is_empty() || projected.len() == input_columns.len() {

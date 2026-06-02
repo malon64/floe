@@ -369,6 +369,21 @@ pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec
     Ok(primary_key.clone())
 }
 
+/// Resolve the merge key mapped through the output-column naming
+/// (`schema.normalize_columns`), so the key matches the *renamed* DataFrame
+/// columns the sink actually writes — mirroring how ignore/compare columns are
+/// mapped. A primary key `"Customer ID"` stored as `customer_id` therefore yields
+/// `customer_id`, not the raw schema name. Columns without a schema entry pass
+/// through unchanged.
+pub(crate) fn resolve_merge_key_output(entity: &config::EntityConfig) -> FloeResult<Vec<String>> {
+    let merge_key = resolve_merge_key(entity)?;
+    let schema_to_output = schema_to_output_column_name_map(entity)?;
+    Ok(merge_key
+        .into_iter()
+        .map(|key| schema_to_output.get(key.trim()).cloned().unwrap_or(key))
+        .collect())
+}
+
 pub(crate) fn resolve_merge_column_mappings(
     entity: &config::EntityConfig,
 ) -> FloeResult<(HashSet<String>, Option<Vec<String>>)> {

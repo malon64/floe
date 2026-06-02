@@ -84,7 +84,9 @@ pub(crate) fn execute_scd1(
     table_exists: bool,
 ) -> FloeResult<AcceptedMergeMetrics> {
     let started = Instant::now();
-    let merge_key = shared::resolve_merge_key(entity)?;
+    // Map the primary key through the output-column naming so it matches the
+    // already-renamed DataFrame columns (see resolve_merge_key_output).
+    let merge_key = shared::resolve_merge_key_output(entity)?;
 
     if !table_exists {
         create_table_from_source(conn, schema, table, source_table)?;
@@ -171,7 +173,9 @@ pub(crate) fn execute_scd2(
     table_exists: bool,
 ) -> FloeResult<AcceptedMergeMetrics> {
     let started = Instant::now();
-    let merge_key = shared::resolve_merge_key(entity)?;
+    // Map the primary key through the output-column naming so it matches the
+    // already-renamed DataFrame columns (see resolve_merge_key_output).
+    let merge_key = shared::resolve_merge_key_output(entity)?;
     let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
     let (ignore_columns, compare_columns_opt) = shared::resolve_merge_column_mappings(entity)?;
     let compare_columns = compare_columns_opt.unwrap_or_else(|| {

@@ -284,6 +284,85 @@ entities:
 }
 
 #[test]
+fn duckdb_scd1_upsert_with_normalized_primary_key() {
+    // Regression: when `schema.normalize_columns` renames the primary key, the
+    // accepted DataFrame is already renamed (e.g. "Customer ID" -> customer_id), so
+    // the MERGE predicate must compare against the *output* column name. Otherwise a
+    // second merge_scd1 run references s."Customer ID" and fails instead of upserting.
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let input_dir = root.join("in");
+    let db_path = root.join("out/warehouse.duckdb");
+
+    fs::create_dir_all(&input_dir).expect("create input dir");
+
+    let yaml = format!(
+        r#"version: "0.1"
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "{input_dir}"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "duckdb"
+        path: "{db_path}"
+        duckdb:
+          table: customer
+    policy:
+      severity: "warn"
+    schema:
+      normalize_columns:
+        enabled: true
+        strategy: "snake_case"
+      primary_key: ["Customer ID"]
+      columns:
+        - name: "Customer ID"
+          type: "string"
+        - name: "name"
+          type: "string"
+"#,
+        input_dir = input_dir.display(),
+        db_path = db_path.display(),
+    );
+    let config_path = write_config(root, &yaml);
+
+    write_csv(
+        &input_dir,
+        "batch1.csv",
+        "Customer ID;name\n1;alice\n2;bob\n",
+    );
+    run_once(&config_path, "it-duckdb-scd1-norm-init");
+
+    fs::remove_file(input_dir.join("batch1.csv")).expect("remove batch1");
+    write_csv(
+        &input_dir,
+        "batch2.csv",
+        "Customer ID;name\n1;alice-updated\n3;carol\n",
+    );
+    let outcome = run_once(&config_path, "it-duckdb-scd1-norm-upsert");
+
+    let report = &outcome.entity_outcomes[0].report;
+    assert_eq!(report.accepted_output.updated_count, Some(1));
+    assert_eq!(report.accepted_output.inserted_count, Some(1));
+    assert_eq!(report.accepted_output.target_rows_before, Some(2));
+    assert_eq!(report.accepted_output.target_rows_after, Some(3));
+
+    let conn = open_readback(&db_path);
+    assert_eq!(count_rows(&conn, "main.customer"), 3);
+    // The stored key column carries the normalized (output) name.
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM main.customer WHERE customer_id = '1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read updated name");
+    assert_eq!(name, "alice-updated");
+}
+
+#[test]
 fn duckdb_scd2_history() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

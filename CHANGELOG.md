@@ -16,7 +16,7 @@ All notable changes to Floe are documented in this file.
   - Previously all accepted rows for an entity were accumulated in memory across every input file and written in a single pass at the end. Peak RAM scaled with input fanout.
   - Accepted rows are now flushed to the sink incrementally whenever the in-memory accumulation reaches `sink.accepted.options.max_size_per_file` (default 256 MB). Peak memory is bounded regardless of how many input files the entity processes.
   - `merge_scd1` / `merge_scd2` modes are unaffected — they still accumulate the full dataset before writing.
-  - See [Parquet sink limitations](docs/sinks/parquet.md#limitations) for durability caveats specific to Parquet output.
+  - **Durability note**: flushes commit while the batch is still running — if a later input file fails, rows from earlier files are already committed and will be re-written on the next run. In `append` mode this produces duplicate output rows; use `schema.unique_keys`, `merge_scd1`, or `merge_scd2` to guard against this. See [Parquet sink limitations](docs/sinks/parquet.md#limitations) for details (the same partial-commit exposure applies to Delta and Iceberg accepted sinks, though their individual flushes are transactional).
 
 - **Stream Parquet writes via the Polars `new_streaming` engine** (PR #369):
   - Accepted Parquet writes now emit one row group at a time rather than buffering the full chunk plus Arrow encoding state. This reduces per-write peak memory, most noticeably on wide schemas or large `row_group_size` values.

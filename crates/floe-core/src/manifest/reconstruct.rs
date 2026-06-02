@@ -240,6 +240,7 @@ fn sink_target_from_manifest(
         merge,
         iceberg,
         delta,
+        duckdb: None,
         partition_by: m.partition_by.clone(),
         partition_spec: None,
         write_mode,

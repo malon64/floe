@@ -661,6 +661,7 @@ fn build_entity(
                 partition_by: None,
                 partition_spec: None,
                 delta: None,
+                duckdb: None,
             },
             rejected: None,
             archive: None,

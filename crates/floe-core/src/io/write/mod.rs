@@ -2,6 +2,7 @@ pub mod accepted;
 pub mod arrow_convert;
 pub mod csv;
 pub mod delta;
+pub mod duckdb;
 pub mod iceberg;
 pub mod metrics;
 pub mod parquet;

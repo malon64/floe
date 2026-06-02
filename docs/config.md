@@ -282,9 +282,10 @@ where the selected cloud provider or IAM policy requires it for object access.
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
   - Applies to both accepted and rejected outputs.
 - `accepted` (required)
-  - `format`: `parquet`, `delta`, or `iceberg`.
+  - `format`: `parquet`, `delta`, `iceberg`, or `duckdb`.
     - `delta`: Delta Lake transactional sink; optional Unity Catalog registration via `sink.accepted.delta`.
     - `iceberg`: local/S3/GCS filesystem-catalog sink, with optional AWS Glue or REST catalog registration; append/overwrite supported; no schema evolution.
+    - `duckdb`: local `.duckdb` file or MotherDuck (`md:`) database; `overwrite`/`append`/`merge_scd1`/`merge_scd2` via native `MERGE INTO`. Configured via `sink.accepted.duckdb`. See [DuckDB sink](sinks/duckdb.md).
 - `path`: output directory for accepted records.
   - Supports `{{var}}` templating (see "Templating & domains").
   - `storage` (optional)
@@ -384,6 +385,19 @@ where the selected cloud provider or IAM policy requires it for object access.
       - Unity schema identifier. Defaults to `entity.domain` (normalized), then the catalog-level `schema`.
     - `table` (optional)
       - Unity table name. Defaults to `entity.name` (normalized).
+  - `duckdb` (optional, required when `sink.accepted.format: duckdb`)
+    - `table` (required)
+      - Target table name. May be schema-qualified (`"schema.table"`).
+    - `schema` (optional)
+      - Target schema; defaults to `main`.
+    - `connection` (optional)
+      - MotherDuck connection string (`md:<database>`). When set, the target is MotherDuck and
+        `path`/`storage` must be omitted. A non-`md:` connection string is rejected.
+      - When omitted, the target is the local `.duckdb` file at `sink.accepted.path`
+        (object-store paths are rejected — use MotherDuck instead).
+    - `token` (optional, MotherDuck only)
+      - Literal value or a single `${ENV_VAR}` reference, resolved at connect time. Never logged.
+    - See [DuckDB sink](sinks/duckdb.md) for full semantics.
   - Accepted output reports may include file sizing metrics (`files_written`,
     `total_bytes_written`, `avg_file_size_mb`, `small_files_count`) when collected by the writer.
     - Parquet: populated from written parquet files.

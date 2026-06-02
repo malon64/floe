@@ -6,7 +6,7 @@ use yaml_rust2::Yaml;
 
 use crate::config::apply_templates_with_vars;
 use crate::config::storage::resolve_local_path;
-use crate::config::types::DeltaSinkTargetConfig;
+use crate::config::types::{DeltaSinkTargetConfig, DuckDbSinkTargetConfig};
 use crate::config::yaml_decode::{
     hash_get, load_yaml, validate_known_keys, yaml_array, yaml_hash, yaml_string,
 };
@@ -473,6 +473,7 @@ fn parse_sink_target(
             "merge",
             "iceberg",
             "delta",
+            "duckdb",
             "partition_by",
             "partition_spec",
         ]);
@@ -525,6 +526,14 @@ fn parse_sink_target(
     } else {
         None
     };
+    let duckdb = if allow_options {
+        match hash_get(hash, "duckdb") {
+            Some(value) => Some(parse_sink_duckdb_options(value, &format!("{ctx}.duckdb"))?),
+            None => None,
+        }
+    } else {
+        None
+    };
     let partition_spec = if allow_options {
         match hash_get(hash, "partition_spec") {
             Some(value) => Some(parse_iceberg_partition_spec(
@@ -536,14 +545,27 @@ fn parse_sink_target(
     } else {
         None
     };
+    let format = get_string(hash, "format", ctx)?;
+    // A MotherDuck DuckDB sink is addressed by `duckdb.connection`, not a filesystem path,
+    // so `path` is optional in that case. Every other sink requires `path`.
+    let is_motherduck = duckdb
+        .as_ref()
+        .and_then(|cfg| cfg.connection.as_deref())
+        .is_some();
+    let path = if is_motherduck {
+        opt_string(hash, "path", ctx)?.unwrap_or_default()
+    } else {
+        get_string(hash, "path", ctx)?
+    };
     Ok(SinkTarget {
-        format: get_string(hash, "format", ctx)?,
-        path: get_string(hash, "path", ctx)?,
+        format,
+        path,
         storage: storage.or(filesystem),
         options,
         merge,
         iceberg,
         delta,
+        duckdb,
         partition_by,
         partition_spec,
         write_mode,
@@ -655,6 +677,17 @@ fn parse_sink_delta_options(value: &Yaml, ctx: &str) -> FloeResult<DeltaSinkTarg
         catalog: opt_string(hash, "catalog", ctx)?,
         schema: opt_string(hash, "schema", ctx)?,
         table: opt_string(hash, "table", ctx)?,
+    })
+}
+
+fn parse_sink_duckdb_options(value: &Yaml, ctx: &str) -> FloeResult<DuckDbSinkTargetConfig> {
+    let hash = yaml_hash(value, ctx)?;
+    validate_known_keys(hash, ctx, &["table", "schema", "connection", "token"])?;
+    Ok(DuckDbSinkTargetConfig {
+        table: get_string(hash, "table", ctx)?,
+        schema: opt_string(hash, "schema", ctx)?,
+        connection: opt_string(hash, "connection", ctx)?,
+        token: opt_string(hash, "token", ctx)?,
     })
 }
 

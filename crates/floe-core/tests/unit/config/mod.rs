@@ -3,6 +3,7 @@ pub mod adls_storage;
 pub mod adls_validation;
 pub mod catalogs;
 pub mod config_validation;
+pub mod duckdb_validation;
 pub mod gcs_storage;
 pub mod gcs_validation;
 pub mod lineage_validation;

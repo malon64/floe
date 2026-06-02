@@ -44,6 +44,7 @@ pub trait SinkFormat: Send + Sync {
 // ── Static registry ──────────────────────────────────────────────────────────
 
 use super::delta::DELTA_SINK_FORMAT;
+use super::duckdb::DUCKDB_SINK_FORMAT;
 use super::iceberg::ICEBERG_SINK_FORMAT;
 use super::parquet::PARQUET_SINK_FORMAT;
 
@@ -51,6 +52,7 @@ pub(crate) static SINK_FORMATS: &[&dyn SinkFormat] = &[
     &DELTA_SINK_FORMAT,
     &PARQUET_SINK_FORMAT,
     &ICEBERG_SINK_FORMAT,
+    &DUCKDB_SINK_FORMAT,
 ];
 
 pub(crate) fn sink_format(name: &str) -> FloeResult<&'static dyn SinkFormat> {

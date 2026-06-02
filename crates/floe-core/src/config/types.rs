@@ -297,6 +297,7 @@ pub struct SinkTarget {
     pub merge: Option<MergeOptionsConfig>,
     pub iceberg: Option<IcebergSinkTargetConfig>,
     pub delta: Option<DeltaSinkTargetConfig>,
+    pub duckdb: Option<DuckDbSinkTargetConfig>,
     pub partition_by: Option<Vec<String>>,
     pub partition_spec: Option<Vec<IcebergPartitionFieldConfig>>,
     pub write_mode: WriteMode,
@@ -349,6 +350,27 @@ pub struct DeltaSinkTargetConfig {
     pub schema: Option<String>,
     /// Override the table name (defaults to the entity name).
     pub table: Option<String>,
+}
+
+/// DuckDB accepted-sink configuration.
+///
+/// A DuckDB sink targets either a **local database file** (via `SinkTarget.path`) or a
+/// **MotherDuck** database (via `connection: "md:<db>"`). The two are mutually exclusive.
+/// DuckDB cannot read-write a database file over object storage, so remote writes must use
+/// MotherDuck; object-store paths are rejected during validation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuckDbSinkTargetConfig {
+    /// Target table name. May be schema-qualified (`"main.customers"`); otherwise `schema`
+    /// (or the default `"main"`) is used.
+    pub table: String,
+    /// DuckDB schema for the table (default: `"main"`). Ignored if `table` is already qualified.
+    pub schema: Option<String>,
+    /// MotherDuck connection string (e.g. `"md:analytics"`). When set, the sink writes to
+    /// MotherDuck instead of a local file and `SinkTarget.path` is ignored.
+    pub connection: Option<String>,
+    /// MotherDuck access token. Supports `${ENV}` substitution. Required for MotherDuck unless
+    /// the `motherduck_token` environment variable is set in the process.
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

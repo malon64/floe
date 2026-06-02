@@ -301,6 +301,12 @@ fn build_common_manifest(
                         .delta
                         .as_ref()
                         .and_then(|v| serde_json::to_value(v).ok()),
+                    duckdb: entity
+                        .sink
+                        .accepted
+                        .duckdb
+                        .as_ref()
+                        .and_then(|v| serde_json::to_value(v).ok()),
                 },
                 rejected: rejected.map(|value| {
                     let rej = entity.sink.rejected.as_ref();
@@ -330,6 +336,9 @@ fn build_common_manifest(
                             .and_then(|v| serde_json::to_value(v).ok()),
                         delta: rej
                             .and_then(|t| t.delta.as_ref())
+                            .and_then(|v| serde_json::to_value(v).ok()),
+                        duckdb: rej
+                            .and_then(|t| t.duckdb.as_ref())
                             .and_then(|v| serde_json::to_value(v).ok()),
                     }
                 }),

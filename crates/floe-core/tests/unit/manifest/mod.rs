@@ -1,6 +1,6 @@
 use floe_core::{
-    build_common_manifest_json, load_config, parse_profile_from_str, resolve_config_location,
-    ManifestOptions, PathMode,
+    build_common_manifest_json, config_from_manifest_json, load_config, parse_profile_from_str,
+    resolve_config_location, ManifestOptions, PathMode,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -731,6 +731,71 @@ execution:
     let orch = &value["execution"]["orchestration"];
     assert_eq!(orch["max_concurrent_entities"], 1);
     assert_eq!(orch["strategy"], "sequential");
+}
+
+#[test]
+fn manifest_round_trip_preserves_duckdb_sink_block() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customers"
+    source:
+      format: "csv"
+      path: "./in/customers.csv"
+    sink:
+      write_mode: "merge_scd1"
+      accepted:
+        format: "duckdb"
+        path: "./out/warehouse.duckdb"
+        duckdb:
+          table: "customers"
+          schema: "main"
+    policy:
+      severity: "warn"
+    schema:
+      primary_key: ["id"]
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("build manifest");
+
+    // The duckdb block must be serialized into the manifest...
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    let accepted = &value["entities"][0]["sinks"]["accepted"];
+    assert_eq!(accepted["format"], "duckdb");
+    assert_eq!(accepted["duckdb"]["table"], "customers");
+    assert_eq!(accepted["duckdb"]["schema"], "main");
+
+    // ...and survive reconstruction so manifest replay can address the table.
+    let (reconstructed, _base) =
+        config_from_manifest_json(&payload).expect("reconstruct config from manifest");
+    let duckdb = reconstructed.entities[0]
+        .sink
+        .accepted
+        .duckdb
+        .as_ref()
+        .expect("duckdb block should survive manifest round-trip");
+    assert_eq!(duckdb.table, "customers");
+    assert_eq!(duckdb.schema.as_deref(), Some("main"));
 }
 
 #[test]

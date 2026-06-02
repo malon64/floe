@@ -91,10 +91,16 @@ pub(crate) fn resolve_target(
                 Some(raw) => Some(expand_env_token(raw, entity_name)?),
                 None => None,
             };
+            // The cache key must distinguish the same `md:` database opened with
+            // *different* credentials, otherwise a later entity/run would silently
+            // reuse a connection authenticated with the first token. Mix a
+            // non-reversible fingerprint of the resolved token into the key so the
+            // raw secret never lives in the cache key (or anywhere it could leak).
+            let cache_key = motherduck_cache_key(connection, token.as_deref());
             return Ok(DuckDbTarget::MotherDuck {
                 connection: connection.to_string(),
                 token,
-                cache_key: connection.to_string(),
+                cache_key,
             });
         }
         return Err(Box::new(ConfigError(format!(
@@ -118,6 +124,27 @@ pub(crate) fn resolve_target(
             ))))
         }
     }
+}
+
+/// Build the cache key for a MotherDuck target: the `md:` connection string
+/// plus a non-reversible fingerprint of the resolved token (or its absence).
+///
+/// Two configs pointing at the same database with different tokens must NOT share
+/// a cached connection — the second would run under the first's credentials. We
+/// hash the token rather than embedding it so the secret never appears in the
+/// cache key. The hash is for differentiation only (not security), so the
+/// standard non-cryptographic hasher is sufficient.
+fn motherduck_cache_key(connection: &str, token: Option<&str>) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    match token {
+        Some(token) => {
+            1u8.hash(&mut hasher);
+            token.hash(&mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    format!("{connection}#{:016x}", hasher.finish())
 }
 
 /// Build a *stable* cache key for a local file so that the single-writer
@@ -416,5 +443,68 @@ mod tests {
     fn token_expansion_errors_on_missing_env() {
         std::env::remove_var("FLOE_TEST_DUCKDB_MISSING");
         assert!(expand_env_token("${FLOE_TEST_DUCKDB_MISSING}", "e").is_err());
+    }
+
+    fn cfg_with_token(connection: &str, token: Option<&str>) -> DuckDbSinkTargetConfig {
+        DuckDbSinkTargetConfig {
+            table: "t".to_string(),
+            schema: None,
+            connection: Some(connection.to_string()),
+            token: token.map(str::to_string),
+        }
+    }
+
+    fn local_target() -> Target {
+        Target::Local {
+            storage: "local".to_string(),
+            uri: "file:///tmp/ignored.duckdb".to_string(),
+            base_path: "/tmp/ignored.duckdb".to_string(),
+        }
+    }
+
+    #[test]
+    fn motherduck_cache_key_differs_by_token() {
+        // Same database, different credentials must not share a cached connection.
+        let a = resolve_target(
+            &local_target(),
+            &cfg_with_token("md:db", Some("tok-a")),
+            "e",
+        )
+        .expect("resolve a");
+        let b = resolve_target(
+            &local_target(),
+            &cfg_with_token("md:db", Some("tok-b")),
+            "e",
+        )
+        .expect("resolve b");
+        assert_ne!(a.cache_key(), b.cache_key());
+
+        // Same database + same token must share a key (connection reuse).
+        let a2 = resolve_target(
+            &local_target(),
+            &cfg_with_token("md:db", Some("tok-a")),
+            "e",
+        )
+        .expect("resolve a2");
+        assert_eq!(a.cache_key(), a2.cache_key());
+
+        // A tokenless target is distinct from a tokened one.
+        let none = resolve_target(&local_target(), &cfg_with_token("md:db", None), "e")
+            .expect("resolve none");
+        assert_ne!(a.cache_key(), none.cache_key());
+    }
+
+    #[test]
+    fn motherduck_cache_key_never_contains_raw_token() {
+        let target = resolve_target(
+            &local_target(),
+            &cfg_with_token("md:db", Some("super-secret-token")),
+            "e",
+        )
+        .expect("resolve");
+        assert!(
+            !target.cache_key().contains("super-secret-token"),
+            "cache key must not embed the raw token"
+        );
     }
 }

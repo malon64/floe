@@ -61,6 +61,7 @@ pub struct ManifestSinkTargetForRun {
     pub merge: Option<serde_json::Value>,
     pub iceberg: Option<serde_json::Value>,
     pub delta: Option<serde_json::Value>,
+    pub duckdb: Option<serde_json::Value>,
     pub write_mode: Option<String>,
 }
 
@@ -227,6 +228,10 @@ fn sink_target_from_manifest(
         .delta
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let duckdb = m
+        .duckdb
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
 
     SinkTarget {
         format: m.format.clone(),
@@ -240,7 +245,7 @@ fn sink_target_from_manifest(
         merge,
         iceberg,
         delta,
-        duckdb: None,
+        duckdb,
         partition_by: m.partition_by.clone(),
         partition_spec: None,
         write_mode,

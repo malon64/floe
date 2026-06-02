@@ -15,7 +15,11 @@ All notable changes to Floe are documented in this file.
   - MotherDuck token auth via `${ENV}` substitution, passed through the connection configuration
     (never as SQL) and never logged.
   - Hardened connection handling: a process-wide single-writer connection cache keyed by canonical
-    database id serializes writes and reuses one handle across flushes and entities.
+    database id serializes writes and reuses one handle across flushes and entities. The MotherDuck
+    cache key includes a non-reversible token fingerprint so distinct credentials never share a
+    cached connection.
+  - The `duckdb` sink block is carried through generated manifests, so manifest replay can address
+    the target table / MotherDuck database.
   - `overwrite` replaces only the target table, leaving other tables in the same database intact.
   - Object-store `.duckdb` file paths (S3/GCS/ADLS) are rejected at validation with a pointer to
     MotherDuck (DuckDB cannot read-write database files over object storage).

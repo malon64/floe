@@ -215,6 +215,8 @@ pub struct ManifestSinkTarget {
     pub iceberg: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duckdb: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]

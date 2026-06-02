@@ -16,12 +16,11 @@ All notable changes to Floe are documented in this file.
   - Previously all accepted rows for an entity were accumulated in memory across every input file and written in a single pass at the end. Peak RAM scaled with input fanout.
   - Accepted rows are now flushed to the sink incrementally whenever the in-memory accumulation reaches `sink.accepted.options.max_size_per_file` (default 256 MB). Peak memory is bounded regardless of how many input files the entity processes.
   - `merge_scd1` / `merge_scd2` modes are unaffected — they still accumulate the full dataset before writing.
-  - **⚠️ Parquet durability**: Parquet is not transactional. If a failure occurs during or after a flush, partially-written part files are left on disk. There is no rollback mechanism — incomplete files must be cleaned up manually. Delta and Iceberg flushes are individually atomic, but a failure on a later input file does not roll back commits from earlier flushes in the same run. Re-runs are safe because the run report and incremental state are only committed once the full entity succeeds.
+  - See [Parquet sink limitations](docs/sinks/parquet.md#limitations) for durability caveats specific to Parquet output.
 
 - **Stream Parquet writes via the Polars `new_streaming` engine** (PR #369):
   - Accepted Parquet writes now emit one row group at a time rather than buffering the full chunk plus Arrow encoding state. This reduces per-write peak memory, most noticeably on wide schemas or large `row_group_size` values.
   - No config changes required. Output file naming, part counts, and the run report shape are unchanged.
-  - **⚠️ Parquet durability**: consistent with the point above — Parquet files are not written atomically. A failure mid-stream leaves an incomplete file on disk with no rollback.
 
 - **Profile `execution.orchestration` → manifest → Dagster job concurrency** (PR #367):
   - New `orchestration` block in the profile's `execution` section (`strategy`, `max_concurrent_entities`). The manifest builder emits it as `execution.orchestration`; `dagster-floe` wires `max_concurrent` into the Dagster `multiprocess` executor config, driving entity-level parallelism end-to-end without per-job boilerplate.

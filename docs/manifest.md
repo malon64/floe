@@ -22,11 +22,17 @@ Pipe to stdout for use in CI scripts:
 floe manifest generate -c orders.yml -o - | jq '.entities[].name'
 ```
 
-If your config uses profile variables (cloud paths, credentials), pass the profile at generation time to bake them in:
+If your config uses profile variables for non-secret deployment values such as cloud paths, pass the profile at generation time to bake them in:
 
 ```bash
 floe manifest generate -c orders.yml -p prod.yml --output manifests/orders.json
 ```
+
+For REST Iceberg catalog secrets, prefer env-backed credentials such as
+`client_credentials:${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}`. Manifest
+runs resolve those `${...}` references from the runner process environment at
+catalog initialization, so Kubernetes or another orchestrator can inject secrets
+without storing raw credentials in the manifest.
 
 Only need a subset of entities? Use `--entities`:
 

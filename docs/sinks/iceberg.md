@@ -2,8 +2,8 @@
 
 Floe writes Iceberg tables for `sink.accepted.format: iceberg` using filesystem
 catalog layout semantics (table root with `metadata/` and `data/`) on local
-storage, S3, and GCS. Floe also supports AWS Glue catalog registration for
-S3-backed Iceberg tables.
+storage, S3, and GCS. Floe also supports AWS Glue and Iceberg REST catalog
+registration.
 
 ## Storage catalog model
 
@@ -79,6 +79,28 @@ entities:
         - name: "customer_id"
           type: "string"
 ```
+
+## REST catalog credentials
+
+REST catalog definitions accept bearer tokens and OAuth2 client credentials:
+
+```yaml
+catalogs:
+  default: "polaris"
+  definitions:
+    - name: "polaris"
+      type: "rest"
+      uri: "http://polaris:8181/api/catalog"
+      credential: "client_credentials:${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}"
+      warehouse: "lakehouse"
+      oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
+      scope: "PRINCIPAL_ROLE:ALL"
+```
+
+`${ENV_VAR}` placeholders in `credential` are resolved from the OS environment at
+run time, including during `floe run --manifest`. This lets runner environments
+inject REST catalog secrets without baking raw client IDs or secrets into the
+manifest.
 
 ## Partition spec config
 

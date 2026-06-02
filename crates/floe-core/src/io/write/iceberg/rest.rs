@@ -45,6 +45,7 @@ pub(crate) async fn build_rest_catalog(
     }
 
     if let Some(credential) = rest_cfg.credential.as_deref() {
+        let credential = expand_env_refs(credential, &rest_cfg.catalog_name)?;
         if let Some(token_value) = credential.strip_prefix("token:") {
             // Bearer PAT (Unity Catalog / Nessie)
             props.insert("token".to_string(), token_value.to_string());
@@ -138,6 +139,39 @@ impl RestIcebergCatalogConfig {
             ))),
         }
     }
+}
+
+fn expand_env_refs(value: &str, catalog_name: &str) -> FloeResult<String> {
+    if !value.contains("${") {
+        return Ok(value.to_string());
+    }
+
+    let mut parts = Vec::new();
+    for part in value.split(':') {
+        parts.push(expand_env_ref_part(part, catalog_name)?);
+    }
+    Ok(parts.join(":"))
+}
+
+fn expand_env_ref_part(part: &str, catalog_name: &str) -> FloeResult<String> {
+    let Some(inner) = part.strip_prefix("${") else {
+        return Ok(part.to_string());
+    };
+    let Some(name) = inner.strip_suffix('}') else {
+        return Err(Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential has unclosed env placeholder"
+        ))));
+    };
+    if name.is_empty() || name.contains('{') || name.contains('}') {
+        return Err(Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential has invalid env placeholder"
+        ))));
+    }
+    std::env::var(name).map_err(|_| {
+        Box::new(RunError(format!(
+            "rest iceberg catalog {catalog_name} credential references env var {name} which is not set"
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
 }
 
 pub(crate) async fn write_via_rest_catalog(
@@ -341,4 +375,78 @@ async fn create_rest_table(
         .create_table(namespace, creation)
         .await
         .map_err(map_iceberg_err("rest catalog create_table failed"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_env_refs;
+
+    #[test]
+    fn expands_partial_env_refs_in_client_credentials() {
+        std::env::set_var("FLOE_TEST_REST_CLIENT_ID", "client-id");
+        std::env::set_var("FLOE_TEST_REST_CLIENT_SECRET", "client-secret");
+
+        let expanded = expand_env_refs(
+            "client_credentials:${FLOE_TEST_REST_CLIENT_ID}:${FLOE_TEST_REST_CLIENT_SECRET}",
+            "polaris",
+        )
+        .expect("expand credential");
+
+        assert_eq!(expanded, "client_credentials:client-id:client-secret");
+        std::env::remove_var("FLOE_TEST_REST_CLIENT_ID");
+        std::env::remove_var("FLOE_TEST_REST_CLIENT_SECRET");
+    }
+
+    #[test]
+    fn expands_exact_env_ref_in_token_credential() {
+        std::env::set_var("FLOE_TEST_REST_TOKEN", "pat-token");
+
+        let expanded =
+            expand_env_refs("token:${FLOE_TEST_REST_TOKEN}", "nessie").expect("expand token");
+
+        assert_eq!(expanded, "token:pat-token");
+        std::env::remove_var("FLOE_TEST_REST_TOKEN");
+    }
+
+    #[test]
+    fn preserves_literal_credential_text_that_contains_env_ref_syntax() {
+        let expanded =
+            expand_env_refs("token:abc${def}ghi", "nessie").expect("preserve literal credential");
+
+        assert_eq!(expanded, "token:abc${def}ghi");
+    }
+
+    #[test]
+    fn errors_when_env_ref_is_missing() {
+        std::env::remove_var("FLOE_TEST_REST_MISSING");
+
+        let err = expand_env_refs(
+            "client_credentials:${FLOE_TEST_REST_MISSING}:secret",
+            "polaris",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "rest iceberg catalog polaris credential references env var FLOE_TEST_REST_MISSING which is not set"
+        );
+    }
+
+    #[test]
+    fn errors_on_malformed_env_ref() {
+        std::env::set_var("ID", "client-id");
+
+        let err = expand_env_refs(
+            "client_credentials:${ID}:literal-secret:${UNCLOSED",
+            "polaris",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "rest iceberg catalog polaris credential has unclosed env placeholder"
+        );
+        assert!(!err.to_string().contains("literal-secret"));
+        std::env::remove_var("ID");
+    }
 }

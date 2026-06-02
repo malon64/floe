@@ -666,7 +666,18 @@ fn validate_duckdb_sink(
     }
 
     match cfg.connection.as_deref().map(str::trim) {
-        Some(connection) if !connection.is_empty() => {
+        // A present-but-blank connection is ambiguous: it isn't a MotherDuck target,
+        // but its mere presence may already have made `path` optional during parsing
+        // (and a non-`md:` connection fails at runtime). Reject it explicitly rather
+        // than silently falling through to the local-file branch.
+        Some("") => {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.duckdb.connection must not be blank; omit it for a \
+                 local-file target or set a MotherDuck connection string (md:<database>)",
+                entity.name
+            ))));
+        }
+        Some(connection) => {
             if !connection.starts_with("md:") {
                 return Err(Box::new(ConfigError(format!(
                     "entity.name={} sink.accepted.duckdb.connection={connection:?} is unsupported; \
@@ -1730,5 +1741,108 @@ impl StorageRegistry {
         })?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod duckdb_tests {
+    use super::*;
+    use crate::config::{
+        DuckDbSinkTargetConfig, PolicyConfig, SchemaConfig, SinkConfig, SinkTarget, SourceConfig,
+        WriteMode,
+    };
+
+    /// Build a single-entity RootConfig with a local-file DuckDB accepted sink
+    /// whose `connection` is set to `connection` (used to exercise the validation
+    /// branches that the YAML parser would otherwise normalize away).
+    fn duckdb_root(connection: Option<&str>) -> RootConfig {
+        let entity = EntityConfig {
+            name: "customers".to_string(),
+            metadata: None,
+            domain: None,
+            incremental_mode: IncrementalMode::None,
+            state: None,
+            source: SourceConfig {
+                format: "csv".to_string(),
+                path: "in/customers.csv".to_string(),
+                storage: None,
+                options: None,
+                cast_mode: None,
+            },
+            sink: SinkConfig {
+                write_mode: WriteMode::Overwrite,
+                accepted: SinkTarget {
+                    format: "duckdb".to_string(),
+                    path: "out/warehouse.duckdb".to_string(),
+                    storage: None,
+                    options: None,
+                    merge: None,
+                    iceberg: None,
+                    delta: None,
+                    duckdb: Some(DuckDbSinkTargetConfig {
+                        table: "customers".to_string(),
+                        schema: None,
+                        connection: connection.map(str::to_string),
+                        token: None,
+                    }),
+                    partition_by: None,
+                    partition_spec: None,
+                    write_mode: WriteMode::Overwrite,
+                },
+                rejected: None,
+                archive: None,
+            },
+            policy: PolicyConfig {
+                severity: PolicySeverity::Warn,
+            },
+            schema: SchemaConfig {
+                normalize_columns: None,
+                mismatch: None,
+                schema_evolution: None,
+                primary_key: None,
+                unique_keys: None,
+                columns: vec![crate::config::ColumnConfig {
+                    name: "id".to_string(),
+                    source: None,
+                    column_type: "string".to_string(),
+                    nullable: None,
+                    unique: None,
+                    width: None,
+                    trim: None,
+                }],
+            },
+            pii: None,
+        }; // EntityConfig
+        RootConfig {
+            version: "0.1".to_string(),
+            metadata: None,
+            storages: None,
+            catalogs: None,
+            env: None,
+            domains: Vec::new(),
+            report: None,
+            lineage: None,
+            entities: vec![entity],
+        }
+    }
+
+    #[test]
+    fn blank_duckdb_connection_rejected() {
+        // The YAML parser normalizes blanks to None, but the manifest-reconstruct
+        // path deserializes directly into the config types, so validation must still
+        // reject a present-but-blank connection rather than silently treating it as a
+        // local-file target (which then fails at runtime).
+        let err = validate_config(&duckdb_root(Some("   ")))
+            .expect_err("blank duckdb connection should be rejected");
+        assert!(
+            err.to_string().contains("must not be blank"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn omitted_duckdb_connection_is_local_file() {
+        // No connection => local-file target, which validates fine.
+        validate_config(&duckdb_root(None)).expect("local-file duckdb target should validate");
     }
 }

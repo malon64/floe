@@ -799,6 +799,71 @@ entities:
 }
 
 #[test]
+fn manifest_motherduck_sink_records_connection_uri() {
+    // A MotherDuck DuckDB sink has no filesystem path; the manifest must record the
+    // `md:<database>` connection string as the accepted sink URI/path so orchestrators
+    // reading the manifest see the real target instead of "" or the config directory.
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+entities:
+  - name: "customers"
+    source:
+      format: "csv"
+      path: "./in/customers.csv"
+    sink:
+      accepted:
+        format: "duckdb"
+        duckdb:
+          connection: "md:analytics"
+          table: "customers"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("build manifest");
+
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    let entity = &value["entities"][0];
+    let accepted = &entity["sinks"]["accepted"];
+    assert_eq!(accepted["uri"], "md:analytics");
+    assert_eq!(accepted["path"], "md:analytics");
+    assert_eq!(accepted["storage"], "motherduck");
+    assert_eq!(entity["accepted_sink_uri"], "md:analytics");
+
+    // Round-trips back into a config that still addresses MotherDuck.
+    let (reconstructed, _base) =
+        config_from_manifest_json(&payload).expect("reconstruct config from manifest");
+    let duckdb = reconstructed.entities[0]
+        .sink
+        .accepted
+        .duckdb
+        .as_ref()
+        .expect("duckdb block should survive round-trip");
+    assert_eq!(duckdb.connection.as_deref(), Some("md:analytics"));
+}
+
+#[test]
 fn manifest_path_mode_resolved_uri_sets_path_from_uri() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

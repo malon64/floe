@@ -146,13 +146,25 @@ fn build_common_manifest(
             entity.source.storage.as_deref(),
             &entity.source.path,
         );
-        let accepted = resolve_or_raw(
-            resolver,
-            &entity.name,
-            "sink.accepted.path",
-            entity.sink.accepted.storage.as_deref(),
-            &entity.sink.accepted.path,
-        );
+        // A MotherDuck DuckDB sink has no filesystem path: resolving the empty
+        // `sink.accepted.path` would either error (remote config -> uri="") or record
+        // the config directory (local config) instead of the `md:<database>` target.
+        // Record the connection string as the accepted URI so orchestrators reading
+        // the manifest see the real sink location, mirroring run resolution.
+        let accepted = match motherduck_connection(&entity.sink.accepted) {
+            Some(connection) => ResolvedOrRaw {
+                storage: "motherduck".to_string(),
+                uri: connection,
+                resolved: true,
+            },
+            None => resolve_or_raw(
+                resolver,
+                &entity.name,
+                "sink.accepted.path",
+                entity.sink.accepted.storage.as_deref(),
+                &entity.sink.accepted.path,
+            ),
+        };
         let rejected = entity.sink.rejected.as_ref().map(|target| {
             resolve_or_raw(
                 resolver,
@@ -245,7 +257,11 @@ fn build_common_manifest(
         } else {
             entity.source.path.clone()
         };
-        let accepted_path = if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
+        let accepted_path = if let Some(connection) = motherduck_connection(&entity.sink.accepted) {
+            // The MotherDuck connection string is the meaningful target identity in
+            // both path modes (there is no filesystem path to fall back on).
+            connection
+        } else if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
             resolved_uri_to_path(&accepted.uri)
         } else {
             entity.sink.accepted.path.clone()
@@ -451,6 +467,21 @@ fn resolve_or_raw(
             uri: raw_path.to_string(),
             resolved: false,
         },
+    }
+}
+
+/// If the accepted sink is a MotherDuck DuckDB target, return its (trimmed)
+/// `md:<database>` connection string. Returns `None` for every other sink, so the
+/// normal filesystem path-resolution flow applies.
+fn motherduck_connection(accepted: &crate::config::SinkTarget) -> Option<String> {
+    if accepted.format != "duckdb" {
+        return None;
+    }
+    let connection = accepted.duckdb.as_ref()?.connection.as_deref()?.trim();
+    if crate::io::write::duckdb::is_motherduck_connection(connection) {
+        Some(connection.to_string())
+    } else {
+        None
     }
 }
 

@@ -695,11 +695,17 @@ fn parse_sink_delta_options(value: &Yaml, ctx: &str) -> FloeResult<DeltaSinkTarg
 fn parse_sink_duckdb_options(value: &Yaml, ctx: &str) -> FloeResult<DuckDbSinkTargetConfig> {
     let hash = yaml_hash(value, ctx)?;
     validate_known_keys(hash, ctx, &["table", "schema", "connection", "token"])?;
+    // Normalize blank/whitespace-only `connection` and `token` to `None` so the
+    // "is this a MotherDuck target?" check is consistent everywhere (path-optional
+    // parsing, validation, and run/manifest resolution). A bare `connection: ""`
+    // must behave exactly like an omitted connection — a local-file target — rather
+    // than making `path` optional yet failing later at runtime.
+    let blank_to_none = |value: Option<String>| value.filter(|s| !s.trim().is_empty());
     Ok(DuckDbSinkTargetConfig {
         table: get_string(hash, "table", ctx)?,
         schema: opt_string(hash, "schema", ctx)?,
-        connection: opt_string(hash, "connection", ctx)?,
-        token: opt_string(hash, "token", ctx)?,
+        connection: blank_to_none(opt_string(hash, "connection", ctx)?),
+        token: blank_to_none(opt_string(hash, "token", ctx)?),
     })
 }
 

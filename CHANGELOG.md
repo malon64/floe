@@ -4,6 +4,8 @@ All notable changes to Floe are documented in this file.
 
 ## Unreleased
 
+## v0.4.6
+
 - **Stream Parquet writes through the Polars `new_streaming` engine** (completes #332):
   - The accepted Parquet writer in `io/write/parquet.rs::write_parquet_to_path` now calls `LazyFrame::sink_parquet(...).with_new_streaming(true).collect()` instead of the eager `ParquetWriter::new(file).finish(&mut df)`. The outer per-chunk loop in `ParquetSinkFormat::write` (which slices the input DataFrame to keep each call ≤ `sink.accepted.options.max_size_per_file`) is unchanged, so the existing `part-NNNNN.parquet` / `part-<uuid>.parquet` naming, the `PartNameAllocator`, `small_files_count`, and the run-report shape are all preserved.
   - Within each chunk's write, the streaming engine emits one row group at a time and drops it before the next, replacing the previous "buffer the chunk plus full Arrow encoding state" footprint with "one row group + encoding buffer". Marginal versus the per-entity cap delivered earlier in this release, but real, especially on wide schemas or large `row_group_size` values.
@@ -17,6 +19,17 @@ All notable changes to Floe are documented in this file.
   - Catalog registration, schema evolution, and table-root reporting come from the first flush; Delta `table_version` and Iceberg `snapshot_id` track the latest commit; counters (`parts_written`, `total_bytes_written`, `small_files_count`) sum across flushes via a new `AcceptedWriteOutput::merge_in` reducer.
   - Merge modes (`merge_scd1`, `merge_scd2`) keep the previous accumulate-then-write path unchanged — they require the full per-entity dataset to compute upsert/close decisions.
   - **Behavioural note (applies to all non-merge sinks)**: because flushes commit synchronously while the file loop is still iterating, a failure on a *later* file in the same batch (read / validation / rejected-write / archive) can leave *earlier* files' accepted rows already committed — and in `overwrite` mode the first flush may already have replaced the previous dataset. The run report and incremental state are not committed in that case, so the same inputs are re-processed on the next run. For Parquet that committed prefix is non-transactional part files in the accepted directory. For Delta and Iceberg each individual flush is transactional, but a later-file failure does not roll back an earlier flush's commit, so readers can still observe a committed prefix between the failure and the next run; cross-run protection comes from `unique_keys` or merge modes, not from the sink's per-commit atomicity. Each file's archive call always runs before its rows enter the buffer. Documented under `sink.accepted.options.max_size_per_file` in `docs/config.md`.
+
+- **Profile `execution.orchestration` → manifest → Dagster job concurrency** (PR #367):
+  - New `orchestration` block in the profile's `execution` section (`strategy`, `max_concurrent_entities`). The manifest builder emits it as `execution.orchestration`; `dagster-floe` wires `max_concurrent` into the Dagster `multiprocess` executor config, driving entity-level parallelism end-to-end without per-job boilerplate.
+  - `max_concurrent_entities: 0` is rejected at parse time with an immediate config error.
+  - JSON Schema for the profile updated to declare the new block (`additionalProperties: false` was previously rejecting it).
+
+- **REST Iceberg: resolve environment-variable credentials** (PR #370):
+  - REST catalog configs that use `${ENV_VAR}` placeholders for credentials are now resolved against the process environment before the HTTP client is constructed, fixing authentication failures when credentials are injected via environment variables rather than baked into the config file.
+  - Malformed credential placeholder errors are redacted in log output to avoid leaking partial secrets.
+
+- **`floe` 0.4.6, `dagster-floe` 0.2.1**: version bumps for this release.
 
 ## v0.4.5
 

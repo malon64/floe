@@ -32,6 +32,16 @@ fn make_batch(ids: &[&str], names: &[&str]) -> RecordBatch {
     RecordBatch::try_new(schema, vec![ids, names]).expect("record batch")
 }
 
+fn make_customer_id_with_extra(customer_ids: &[&str], extras: &[&str]) -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("Customer ID", DataType::Utf8, false),
+        Field::new("extra_col", DataType::Utf8, false),
+    ]));
+    let ids = Arc::new(StringArray::from(customer_ids.to_vec()));
+    let extras = Arc::new(StringArray::from(extras.to_vec()));
+    RecordBatch::try_new(schema, vec![ids, extras]).expect("record batch")
+}
+
 fn make_payments_batch(ids: &[&str], amounts: &[&str]) -> RecordBatch {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
@@ -175,4 +185,69 @@ entities:
     assert_eq!(file.status, FileStatus::Rejected);
     assert_eq!(file.accepted_count, 1);
     assert_eq!(file.rejected_count, 1);
+}
+
+#[test]
+fn orc_normalize_columns_survives_projection() {
+    // Regression: projected_columns used to compare raw headers ("Customer ID")
+    // against already-normalised declared names ("customer_id"), so the column
+    // was silently dropped before it could reach the schema/sink.
+    let root = temp_dir("floe-orc-normalize");
+    let input_dir = root.join("in");
+    let accepted_dir = root.join("out/accepted");
+    let report_dir = root.join("report");
+    fs::create_dir_all(&input_dir).expect("create input dir");
+
+    // Two columns: one declared (raw "Customer ID"), one undeclared – the extra
+    // column is what causes projection to fire in the first place.
+    let batch = make_customer_id_with_extra(&["alice", "bob"], &["x", "y"]);
+    write_orc(&input_dir, "input.orc", batch);
+
+    let yaml = format!(
+        r#"version: "0.1"
+report:
+  path: "{report_dir}"
+entities:
+  - name: "customer"
+    source:
+      format: "orc"
+      path: "{input_dir}"
+    sink:
+      accepted:
+        format: "parquet"
+        path: "{accepted_dir}"
+    policy:
+      severity: "warn"
+    schema:
+      normalize_columns:
+        enabled: true
+        strategy: snake_case
+      mismatch:
+        extra_columns: "ignore"
+      columns:
+        - name: "Customer ID"
+          type: "string"
+"#,
+        report_dir = report_dir.display(),
+        input_dir = input_dir.display(),
+        accepted_dir = accepted_dir.display(),
+    );
+    let config_path = write_config(&root, &yaml);
+
+    let outcome = run_config(&config_path);
+    let file = &outcome.entity_outcomes[0].report.files[0];
+    assert_eq!(file.status, FileStatus::Success);
+
+    let output_path = accepted_dir.join("part-00000.parquet");
+    let fh = std::fs::File::open(&output_path).expect("open accepted parquet");
+    let df = ParquetReader::new(fh)
+        .finish()
+        .expect("read accepted parquet");
+    assert_eq!(df.height(), 2);
+    // After snake_case normalisation "Customer ID" → "customer_id"
+    assert!(
+        df.column("customer_id").is_ok(),
+        "expected customer_id column in output, got: {:?}",
+        df.get_column_names()
+    );
 }

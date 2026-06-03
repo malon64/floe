@@ -81,7 +81,7 @@ fn manifest_generate_common_to_file() {
         .iter()
         .map(|entity| entity["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(names, vec!["customer", "orders"]);
+    assert_eq!(names, vec!["customer", "customer_warehouse", "orders"]);
 
     let first_asset_key = entities[0]["asset_key"].as_array().unwrap();
     assert!(!first_asset_key.is_empty());

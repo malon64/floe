@@ -32,7 +32,7 @@ All notable changes to Floe are documented in this file.
   - Fix: `normalize_name` is now applied to each raw header before the set-membership test,
     matching the pattern already used in the Avro reader.
 
-- **`floe` 0.4.7, `dagster-floe` 0.2.2, `airflow-floe` 0.1.6**: version bumps for this release.
+- **`floe` 0.4.7**: version bump for this release.
 
 ## v0.4.6
 

@@ -285,9 +285,20 @@ fn projected_columns(
         Some(strategy) => crate::checks::normalize::normalize_name(name, strategy),
         None => name.to_string(),
     };
+    // Keep each raw header whose normalized name is declared, but only the first
+    // raw header per normalized name. Two distinct raw headers can collapse to
+    // the same declared output name (e.g. "Customer ID" and "customer_id" both
+    // normalize to customer_id). Keeping both would produce duplicate columns
+    // once normalization renames them — the later normalize step would then fail
+    // on the duplicate or feed the wrong value — so the collision is dropped from
+    // the projection, i.e. treated like an extra column.
+    let mut seen = std::collections::HashSet::new();
     let projected = input_columns
         .iter()
-        .filter(|name| declared.contains(normalize(name).as_str()))
+        .filter(|name| {
+            let normalized = normalize(name);
+            declared.contains(normalized.as_str()) && seen.insert(normalized)
+        })
         .cloned()
         .collect::<Vec<_>>();
     if projected.is_empty() || projected.len() == input_columns.len() {
@@ -304,5 +315,45 @@ fn csv_chunk_size_for_path(path: &Path) -> Option<usize> {
         Some(50_000)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn col(name: &str) -> config::ColumnConfig {
+        config::ColumnConfig {
+            name: name.to_string(),
+            source: None,
+            column_type: "string".to_string(),
+            nullable: None,
+            unique: None,
+            width: None,
+            trim: None,
+        }
+    }
+
+    #[test]
+    fn projected_columns_drops_colliding_normalized_headers() {
+        // "Customer ID" and "customer_id" both normalize to customer_id. Only the
+        // first raw header may be projected; keeping both would create duplicate
+        // columns after normalization. "extra" is undeclared and dropped too.
+        let input = vec![
+            "Customer ID".to_string(),
+            "customer_id".to_string(),
+            "extra".to_string(),
+        ];
+        let declared = vec![col("customer_id")];
+        let projected =
+            projected_columns(&input, &declared, Some("snake_case")).expect("projection expected");
+        assert_eq!(projected, vec!["Customer ID".to_string()]);
+    }
+
+    #[test]
+    fn projected_columns_none_when_all_declared_and_unique() {
+        let input = vec!["customer_id".to_string(), "name".to_string()];
+        let declared = vec![col("customer_id"), col("name")];
+        assert!(projected_columns(&input, &declared, Some("snake_case")).is_none());
     }
 }

@@ -954,6 +954,48 @@ entities:
         value["entities"][0]["sinks"]["accepted"]["duckdb"]["token"], "${MOTHERDUCK_TOKEN}",
         "non-secret ${{ENV}} placeholder must be preserved for replay"
     );
+
+    // A mixed/malformed token that merely contains `${` (rejected by
+    // expand_env_token at connect time) carries literal secret material and must
+    // be redacted, not preserved.
+    let mixed_yaml = r#"version: "0.1"
+entities:
+  - name: "customers"
+    source:
+      format: "csv"
+      path: "./in/customers.csv"
+    sink:
+      accepted:
+        format: "duckdb"
+        duckdb:
+          connection: "md:analytics"
+          table: "customers"
+          token: "tok-secret-${MOTHERDUCK_TOKEN}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let mixed_path = cfg_dir.join("mixed.yml");
+    std::fs::write(&mixed_path, mixed_yaml).expect("write config");
+    let location =
+        resolve_config_location(mixed_path.to_str().expect("utf8")).expect("resolve location");
+    let config = load_config(&location.path).expect("load config");
+    let payload =
+        build_common_manifest_json(&location, &config, &[], None, &ManifestOptions::default())
+            .expect("build manifest");
+    assert!(
+        !payload.contains("tok-secret-"),
+        "mixed/malformed token leaked into manifest JSON"
+    );
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    let duckdb = &value["entities"][0]["sinks"]["accepted"]["duckdb"];
+    assert!(
+        duckdb.get("token").map(|t| t.is_null()).unwrap_or(true),
+        "mixed/malformed token must be redacted, got {duckdb:?}"
+    );
 }
 
 #[test]

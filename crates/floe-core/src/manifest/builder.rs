@@ -477,10 +477,21 @@ fn redact_duckdb_for_manifest(
     let cfg = duckdb?;
     let mut sanitized = cfg.clone();
     sanitized.token = match sanitized.token {
-        Some(token) if token.contains("${") => Some(token),
+        Some(token) if is_exact_env_placeholder(&token) => Some(token),
         _ => None,
     };
     serde_json::to_value(&sanitized).ok()
+}
+
+/// True only for a token that is exactly one `${VAR}` env reference — the sole
+/// non-secret form `expand_env_token` accepts. Anything else (a literal, or a
+/// mixed/malformed value like `tok-${ENV}`) carries potential secret material
+/// and must be redacted rather than written to the manifest.
+fn is_exact_env_placeholder(token: &str) -> bool {
+    let Some(inner) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
+        return false;
+    };
+    !inner.is_empty() && !inner.contains('{') && !inner.contains('}')
 }
 
 fn motherduck_connection(accepted: &crate::config::SinkTarget) -> Option<String> {

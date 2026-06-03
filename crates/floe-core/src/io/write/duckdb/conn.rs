@@ -174,11 +174,22 @@ fn motherduck_cache_key(connection: &str, token: Option<&str>) -> String {
 /// file — a single-writer violation whose writes are then invisible to readers of
 /// the first connection.
 ///
-/// To make the key stable we create the parent directory (which the connection
-/// open needs anyway) and canonicalize *the parent* on every run, re-attaching
-/// the file name. Once the file exists, canonicalizing the full path yields the
-/// same string because the file component itself is not a symlink.
+/// We therefore prefer canonicalizing the *full* path whenever the file already
+/// exists: that resolves any symlink on the file component too, so a symlinked
+/// `.duckdb` and the real path it points at collapse to one key (preserving the
+/// single-writer invariant when two entities address the same database by
+/// different names). Only when the file does not exist yet do we fall back to
+/// canonicalizing *the parent* (creating it first) and re-attaching the file
+/// name, which keeps the key stable from the very first run.
 fn canonical_cache_key(path: &Path) -> String {
+    // File already exists: canonicalize the full path so a symlinked `.duckdb`
+    // resolves to its real target. Two paths to the same database must share a
+    // key, or the cache opens a second writer / hits DuckDB's file lock.
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical.display().to_string();
+    }
+    // File does not exist yet: canonicalize the parent and re-attach the file
+    // name so the key is stable before the file is created.
     if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name()) {
         let parent = if parent.as_os_str().is_empty() {
             Path::new(".")
@@ -193,11 +204,7 @@ fn canonical_cache_key(path: &Path) -> String {
             return canonical_parent.join(file_name).display().to_string();
         }
     }
-    // Fall back to a best-effort canonicalization of the whole path, then the raw
-    // path, if the parent could not be resolved.
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical.display().to_string();
-    }
+    // Last resort: the raw path.
     path.display().to_string()
 }
 
@@ -542,6 +549,26 @@ mod tests {
         assert!(
             !target.cache_key().contains("super-secret-token"),
             "cache key must not embed the raw token"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_cache_key_collapses_symlink_to_real_path() {
+        // A symlinked .duckdb and the real file it points at address the same
+        // database, so they must produce the same cache key — otherwise the
+        // connection cache opens a second writer and breaks single-writer.
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let real = dir.path().join("real.duckdb");
+        std::fs::write(&real, b"").expect("create real file");
+        let link = dir.path().join("link.duckdb");
+        std::os::unix::fs::symlink(&real, &link).expect("create symlink");
+
+        let via_real = canonical_cache_key(&real);
+        let via_link = canonical_cache_key(&link);
+        assert_eq!(
+            via_real, via_link,
+            "symlinked .duckdb must collapse to the real path's cache key"
         );
     }
 }

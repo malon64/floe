@@ -545,14 +545,19 @@ fn validate_sink(
         entity.sink.accepted.storage.as_deref(),
     )?;
     storages.validate_reference(entity, "sink.accepted.storage", &accepted_storage)?;
-    if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-        let fmt = sink_format(entity.sink.accepted.format.as_str())?;
-        if !fmt.supported_storages().contains(&storage_type) {
-            let supported = fmt.supported_storages().join(", ");
-            return Err(Box::new(ConfigError(format!(
-                "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
-                entity.name, entity.sink.accepted.format, storage_type, supported
-            ))));
+    validate_duckdb_sink(entity, storages, &accepted_storage)?;
+    // MotherDuck DuckDB targets carry no filesystem storage (they live over the
+    // network), so the generic storage-capability check does not apply to them.
+    if !is_duckdb_motherduck(entity) {
+        if let Some(storage_type) = storages.definition_type(&accepted_storage) {
+            let fmt = sink_format(entity.sink.accepted.format.as_str())?;
+            if !fmt.supported_storages().contains(&storage_type) {
+                let supported = fmt.supported_storages().join(", ");
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
+                    entity.name, entity.sink.accepted.format, storage_type, supported
+                ))));
+            }
         }
     }
     validate_iceberg_catalog_binding(entity, storages, catalogs, &accepted_storage)?;
@@ -618,6 +623,94 @@ fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     }
 
     validate_merge_options(entity, write_mode)
+}
+
+/// True if this entity's accepted sink is a MotherDuck DuckDB target (a DuckDB
+/// sink whose `duckdb.connection` is an `md:` connection string).
+fn is_duckdb_motherduck(entity: &EntityConfig) -> bool {
+    if entity.sink.accepted.format.as_str() != "duckdb" {
+        return false;
+    }
+    entity
+        .sink
+        .accepted
+        .duckdb
+        .as_ref()
+        .and_then(|cfg| cfg.connection.as_deref())
+        .map(|connection| connection.trim_start().starts_with("md:"))
+        .unwrap_or(false)
+}
+
+/// DuckDB-specific config validation: the `duckdb` block is required, the target
+/// table must be named, MotherDuck and a filesystem storage are mutually
+/// exclusive, and object-store file paths are rejected with a MotherDuck hint.
+fn validate_duckdb_sink(
+    entity: &EntityConfig,
+    storages: &StorageRegistry,
+    accepted_storage: &str,
+) -> FloeResult<()> {
+    if entity.sink.accepted.format.as_str() != "duckdb" {
+        return Ok(());
+    }
+    let cfg = entity.sink.accepted.duckdb.as_ref().ok_or_else(|| {
+        Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.format=duckdb requires a sink.accepted.duckdb block",
+            entity.name
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+    if cfg.table.trim().is_empty() {
+        return Err(Box::new(ConfigError(format!(
+            "entity.name={} sink.accepted.duckdb.table must not be empty",
+            entity.name
+        ))));
+    }
+
+    match cfg.connection.as_deref().map(str::trim) {
+        // A present-but-blank connection is ambiguous: it isn't a MotherDuck target,
+        // but its mere presence may already have made `path` optional during parsing
+        // (and a non-`md:` connection fails at runtime). Reject it explicitly rather
+        // than silently falling through to the local-file branch.
+        Some("") => {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.duckdb.connection must not be blank; omit it for a \
+                 local-file target or set a MotherDuck connection string (md:<database>)",
+                entity.name
+            ))));
+        }
+        Some(connection) => {
+            if !connection.starts_with("md:") {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.duckdb.connection={connection:?} is unsupported; \
+                     only MotherDuck connection strings (md:<database>) are accepted for remote DuckDB writes",
+                    entity.name
+                ))));
+            }
+            // MotherDuck lives over the network and must not bind a filesystem storage.
+            if entity.sink.accepted.storage.is_some() {
+                return Err(Box::new(ConfigError(format!(
+                    "entity.name={} sink.accepted.storage must be unset for a MotherDuck DuckDB target \
+                     (duckdb.connection={connection:?})",
+                    entity.name
+                ))));
+            }
+        }
+        _ => {
+            // Local file target: DuckDB cannot read-write a database file over object
+            // storage, so reject non-local storage with a pointer to MotherDuck.
+            if let Some(storage_type) = storages.definition_type(accepted_storage) {
+                if storage_type != "local" {
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} sink.accepted.format=duckdb cannot write a database file to {storage_type} \
+                         object storage; DuckDB only supports read-write on local files. Use a MotherDuck target \
+                         (sink.accepted.duckdb.connection: md:<database>) for remote writes",
+                        entity.name
+                    ))));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_merge_options(
@@ -1648,5 +1741,108 @@ impl StorageRegistry {
         })?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod duckdb_tests {
+    use super::*;
+    use crate::config::{
+        DuckDbSinkTargetConfig, PolicyConfig, SchemaConfig, SinkConfig, SinkTarget, SourceConfig,
+        WriteMode,
+    };
+
+    /// Build a single-entity RootConfig with a local-file DuckDB accepted sink
+    /// whose `connection` is set to `connection` (used to exercise the validation
+    /// branches that the YAML parser would otherwise normalize away).
+    fn duckdb_root(connection: Option<&str>) -> RootConfig {
+        let entity = EntityConfig {
+            name: "customers".to_string(),
+            metadata: None,
+            domain: None,
+            incremental_mode: IncrementalMode::None,
+            state: None,
+            source: SourceConfig {
+                format: "csv".to_string(),
+                path: "in/customers.csv".to_string(),
+                storage: None,
+                options: None,
+                cast_mode: None,
+            },
+            sink: SinkConfig {
+                write_mode: WriteMode::Overwrite,
+                accepted: SinkTarget {
+                    format: "duckdb".to_string(),
+                    path: "out/warehouse.duckdb".to_string(),
+                    storage: None,
+                    options: None,
+                    merge: None,
+                    iceberg: None,
+                    delta: None,
+                    duckdb: Some(DuckDbSinkTargetConfig {
+                        table: "customers".to_string(),
+                        schema: None,
+                        connection: connection.map(str::to_string),
+                        token: None,
+                    }),
+                    partition_by: None,
+                    partition_spec: None,
+                    write_mode: WriteMode::Overwrite,
+                },
+                rejected: None,
+                archive: None,
+            },
+            policy: PolicyConfig {
+                severity: PolicySeverity::Warn,
+            },
+            schema: SchemaConfig {
+                normalize_columns: None,
+                mismatch: None,
+                schema_evolution: None,
+                primary_key: None,
+                unique_keys: None,
+                columns: vec![crate::config::ColumnConfig {
+                    name: "id".to_string(),
+                    source: None,
+                    column_type: "string".to_string(),
+                    nullable: None,
+                    unique: None,
+                    width: None,
+                    trim: None,
+                }],
+            },
+            pii: None,
+        }; // EntityConfig
+        RootConfig {
+            version: "0.1".to_string(),
+            metadata: None,
+            storages: None,
+            catalogs: None,
+            env: None,
+            domains: Vec::new(),
+            report: None,
+            lineage: None,
+            entities: vec![entity],
+        }
+    }
+
+    #[test]
+    fn blank_duckdb_connection_rejected() {
+        // The YAML parser normalizes blanks to None, but the manifest-reconstruct
+        // path deserializes directly into the config types, so validation must still
+        // reject a present-but-blank connection rather than silently treating it as a
+        // local-file target (which then fails at runtime).
+        let err = validate_config(&duckdb_root(Some("   ")))
+            .expect_err("blank duckdb connection should be rejected");
+        assert!(
+            err.to_string().contains("must not be blank"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn omitted_duckdb_connection_is_local_file() {
+        // No connection => local-file target, which validates fine.
+        validate_config(&duckdb_root(None)).expect("local-file duckdb target should validate");
     }
 }

@@ -33,6 +33,7 @@ fn sample_entity() -> config::EntityConfig {
                 partition_by: None,
                 partition_spec: None,
                 delta: None,
+                duckdb: None,
             },
             rejected: Some(config::SinkTarget {
                 format: "csv".to_string(),
@@ -45,6 +46,7 @@ fn sample_entity() -> config::EntityConfig {
                 partition_by: None,
                 partition_spec: None,
                 delta: None,
+                duckdb: None,
             }),
             archive: None,
         },

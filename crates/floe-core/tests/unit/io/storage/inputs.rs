@@ -227,6 +227,7 @@ fn mock_entity(name: &str) -> config::EntityConfig {
                 partition_by: None,
                 partition_spec: None,
                 delta: None,
+                duckdb: None,
             },
             rejected: None,
             archive: None,

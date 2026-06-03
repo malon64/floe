@@ -4,6 +4,27 @@ All notable changes to Floe are documented in this file.
 
 ## v0.4.6
 
+- **DuckDB accepted sink** (closes #248):
+  - New `sink.accepted.format: duckdb` writes accepted output into a DuckDB database — a local
+    `.duckdb` file or a remote [MotherDuck](https://motherduck.com) (`md:<database>`) database.
+  - Full write-mode parity with Delta: `overwrite`, `append`, `merge_scd1`, and `merge_scd2` via
+    DuckDB's native `MERGE INTO` (bundled DuckDB 1.5.0). Merge metrics are reported from
+    `RETURNING merge_action`.
+  - Arrow-native ingestion (no intermediate file); the bundled `duckdb` crate pins Arrow 57 to
+    match floe-core.
+  - MotherDuck token auth via `${ENV}` substitution, passed through the connection configuration
+    (never as SQL) and never logged.
+  - Hardened connection handling: a process-wide single-writer connection cache keyed by canonical
+    database id serializes writes and reuses one handle across flushes and entities. The MotherDuck
+    cache key includes a non-reversible token fingerprint so distinct credentials never share a
+    cached connection.
+  - The `duckdb` sink block is carried through generated manifests, so manifest replay can address
+    the target table / MotherDuck database.
+  - `overwrite` replaces only the target table, leaving other tables in the same database intact.
+  - Object-store `.duckdb` file paths (S3/GCS/ADLS) are rejected at validation with a pointer to
+    MotherDuck (DuckDB cannot read-write database files over object storage).
+  - See [DuckDB sink](docs/sinks/duckdb.md).
+
 - **`dagster-floe`: load remote report URIs via fsspec** (fixes #361, PR #362):
   - `summary_uri` and `entity_report_uri` values pointing at `s3://`, `gs://`, or `abfs://` were raising a `ValueError` that was silently swallowed, causing asset checks to fall back to summary-only mode. They are now fetched correctly via `fsspec`.
   - New `remote` optional extra (`dagster-floe[remote]`) installs `s3fs`, `gcsfs`, and `adlfs` so all three cloud providers are covered out of the box.

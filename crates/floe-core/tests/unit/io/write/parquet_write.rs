@@ -16,6 +16,7 @@ fn sink_target(max_size_per_file: Option<u64>) -> config::SinkTarget {
         partition_by: None,
         partition_spec: None,
         delta: None,
+        duckdb: None,
         write_mode: config::WriteMode::Overwrite,
     }
 }

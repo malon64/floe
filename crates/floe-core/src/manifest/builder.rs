@@ -146,13 +146,25 @@ fn build_common_manifest(
             entity.source.storage.as_deref(),
             &entity.source.path,
         );
-        let accepted = resolve_or_raw(
-            resolver,
-            &entity.name,
-            "sink.accepted.path",
-            entity.sink.accepted.storage.as_deref(),
-            &entity.sink.accepted.path,
-        );
+        // A MotherDuck DuckDB sink has no filesystem path: resolving the empty
+        // `sink.accepted.path` would either error (remote config -> uri="") or record
+        // the config directory (local config) instead of the `md:<database>` target.
+        // Record the connection string as the accepted URI so orchestrators reading
+        // the manifest see the real sink location, mirroring run resolution.
+        let accepted = match motherduck_connection(&entity.sink.accepted) {
+            Some(connection) => ResolvedOrRaw {
+                storage: "motherduck".to_string(),
+                uri: connection,
+                resolved: true,
+            },
+            None => resolve_or_raw(
+                resolver,
+                &entity.name,
+                "sink.accepted.path",
+                entity.sink.accepted.storage.as_deref(),
+                &entity.sink.accepted.path,
+            ),
+        };
         let rejected = entity.sink.rejected.as_ref().map(|target| {
             resolve_or_raw(
                 resolver,
@@ -245,7 +257,11 @@ fn build_common_manifest(
         } else {
             entity.source.path.clone()
         };
-        let accepted_path = if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
+        let accepted_path = if let Some(connection) = motherduck_connection(&entity.sink.accepted) {
+            // The MotherDuck connection string is the meaningful target identity in
+            // both path modes (there is no filesystem path to fall back on).
+            connection
+        } else if options.path_mode == PathMode::ResolvedUri && accepted.resolved {
             resolved_uri_to_path(&accepted.uri)
         } else {
             entity.sink.accepted.path.clone()
@@ -301,6 +317,7 @@ fn build_common_manifest(
                         .delta
                         .as_ref()
                         .and_then(|v| serde_json::to_value(v).ok()),
+                    duckdb: redact_duckdb_for_manifest(entity.sink.accepted.duckdb.as_ref()),
                 },
                 rejected: rejected.map(|value| {
                     let rej = entity.sink.rejected.as_ref();
@@ -331,6 +348,7 @@ fn build_common_manifest(
                         delta: rej
                             .and_then(|t| t.delta.as_ref())
                             .and_then(|v| serde_json::to_value(v).ok()),
+                        duckdb: redact_duckdb_for_manifest(rej.and_then(|t| t.duckdb.as_ref())),
                     }
                 }),
                 archive: archive.map(|value| {
@@ -442,6 +460,49 @@ fn resolve_or_raw(
             uri: raw_path.to_string(),
             resolved: false,
         },
+    }
+}
+
+/// If the accepted sink is a MotherDuck DuckDB target, return its (trimmed)
+/// `md:<database>` connection string. Returns `None` for every other sink, so the
+/// normal filesystem path-resolution flow applies.
+/// Serialize a DuckDB sink config for the manifest with the MotherDuck token
+/// redacted. Manifests are orchestration/replay artifacts that may be persisted
+/// and shared, so a literal secret token must never be written. A `${ENV}`
+/// reference is non-secret and is preserved verbatim (replay re-expands it at
+/// connect time); any other (literal) token is dropped.
+fn redact_duckdb_for_manifest(
+    duckdb: Option<&crate::config::DuckDbSinkTargetConfig>,
+) -> Option<serde_json::Value> {
+    let cfg = duckdb?;
+    let mut sanitized = cfg.clone();
+    sanitized.token = match sanitized.token {
+        Some(token) if is_exact_env_placeholder(&token) => Some(token),
+        _ => None,
+    };
+    serde_json::to_value(&sanitized).ok()
+}
+
+/// True only for a token that is exactly one `${VAR}` env reference — the sole
+/// non-secret form `expand_env_token` accepts. Anything else (a literal, or a
+/// mixed/malformed value like `tok-${ENV}`) carries potential secret material
+/// and must be redacted rather than written to the manifest.
+fn is_exact_env_placeholder(token: &str) -> bool {
+    let Some(inner) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
+        return false;
+    };
+    !inner.is_empty() && !inner.contains('{') && !inner.contains('}')
+}
+
+fn motherduck_connection(accepted: &crate::config::SinkTarget) -> Option<String> {
+    if accepted.format != "duckdb" {
+        return None;
+    }
+    let connection = accepted.duckdb.as_ref()?.connection.as_deref()?.trim();
+    if crate::io::write::duckdb::is_motherduck_connection(connection) {
+        Some(connection.to_string())
+    } else {
+        None
     }
 }
 

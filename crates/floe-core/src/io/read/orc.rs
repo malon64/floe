@@ -8,6 +8,7 @@ use orc_rust::arrow_reader::ArrowReaderBuilder;
 use orc_rust::projection::ProjectionMask;
 use polars::prelude::DataFrame;
 
+use crate::checks::normalize::normalize_name;
 use crate::errors::IoError;
 use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
@@ -128,7 +129,7 @@ impl InputAdapter for OrcInputAdapter {
         for input_file in files {
             let path = &input_file.local_path;
             let input_columns = read_orc_schema_names(path)?;
-            let projection = projected_columns(&input_columns, columns);
+            let projection = projected_columns(&input_columns, columns, normalize_strategy);
             let df = read_orc_df(path, projection.as_deref())?;
             let typed_schema = format::build_typed_schema(
                 projection.as_deref().unwrap_or(input_columns.as_slice()),
@@ -152,6 +153,7 @@ impl InputAdapter for OrcInputAdapter {
 fn projected_columns(
     input_columns: &[String],
     declared_columns: &[config::ColumnConfig],
+    normalize_strategy: Option<&str>,
 ) -> Option<Vec<String>> {
     let declared = declared_columns
         .iter()
@@ -159,7 +161,13 @@ fn projected_columns(
         .collect::<std::collections::HashSet<_>>();
     let projected = input_columns
         .iter()
-        .filter(|name| declared.contains(name.as_str()))
+        .filter(|name| {
+            let normalized = match normalize_strategy {
+                Some(strategy) => normalize_name(name, strategy),
+                None => name.to_string(),
+            };
+            declared.contains(normalized.as_str())
+        })
         .cloned()
         .collect::<Vec<_>>();
     if projected.is_empty() || projected.len() == input_columns.len() {

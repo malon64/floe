@@ -27,8 +27,7 @@ mod context;
 mod data_files;
 mod glue;
 pub(crate) mod metadata;
-#[doc(hidden)]
-pub mod rest;
+pub(crate) mod rest;
 mod schema;
 
 pub(crate) use self::context::sanitize_table_name;

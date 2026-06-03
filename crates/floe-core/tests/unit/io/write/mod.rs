@@ -1,6 +1,5 @@
 pub mod delta_merge;
 pub mod delta_write;
-pub mod iceberg_rest;
 pub mod iceberg_write;
 pub mod metrics;
 pub mod object_store;

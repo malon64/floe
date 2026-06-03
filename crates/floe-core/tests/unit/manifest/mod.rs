@@ -1,6 +1,6 @@
 use floe_core::{
     build_common_manifest_json, config_from_manifest_json, load_config, parse_profile_from_str,
-    resolve_config_location, ManifestOptions, PathMode,
+    resolve_config_location, validate_config_for_tests, ManifestOptions, PathMode,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -854,13 +854,18 @@ entities:
     // Round-trips back into a config that still addresses MotherDuck.
     let (reconstructed, _base) =
         config_from_manifest_json(&payload).expect("reconstruct config from manifest");
-    let duckdb = reconstructed.entities[0]
-        .sink
-        .accepted
+    let accepted = &reconstructed.entities[0].sink.accepted;
+    let duckdb = accepted
         .duckdb
         .as_ref()
         .expect("duckdb block should survive round-trip");
     assert_eq!(duckdb.connection.as_deref(), Some("md:analytics"));
+    // The synthetic "motherduck" storage placeholder must reconstruct to an unset
+    // storage; otherwise `validate_duckdb_sink` rejects the MotherDuck target.
+    assert_eq!(accepted.storage, None);
+    // The reconstructed config must pass validation, proving the manifest round-trip
+    // does not turn a valid MotherDuck config into an invalid one.
+    validate_config_for_tests(&reconstructed).expect("reconstructed MotherDuck config is valid");
 }
 
 #[test]

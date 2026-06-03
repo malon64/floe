@@ -377,4 +377,3 @@ async fn create_rest_table(
         .await
         .map_err(map_iceberg_err("rest catalog create_table failed"))
 }
-

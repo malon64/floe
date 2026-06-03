@@ -97,9 +97,19 @@ write lock.
 - A `duckdb.connection` that is not a MotherDuck (`md:`) string is rejected.
 - Merge modes require `schema.primary_key`.
 
+## Unique key deduplication
+
+`schema.unique_keys` works end-to-end across runs. Before each run, Floe scans the target table
+to seed the uniqueness tracker with existing keys, so rows that were written in a previous run
+are correctly detected as duplicates in the current run. This requires the target table to be
+readable — if it does not exist yet, seeding is skipped and all incoming rows are treated as new.
+
 ## Limitations
 
 - No object-store read-write `.duckdb` files (physically unsupported by DuckDB); use MotherDuck.
+- **Schema evolution is not supported.** `schema.schema_evolution` is ignored for DuckDB sinks.
+  Add, rename, or remove columns manually before running, or use `write_mode: overwrite` to
+  replace the table structure on each run.
 - DuckDB-native partitioning is not used; `partition_by` does not apply to DuckDB sinks.
 - DuckDB is a sink only — Floe does not read from DuckDB as a source.
 - Rejected output is not written to DuckDB (accepted only).

@@ -869,6 +869,94 @@ entities:
 }
 
 #[test]
+fn manifest_redacts_literal_motherduck_token() {
+    // A literal MotherDuck token must never be written into the manifest: manifests
+    // are orchestration/replay artifacts that may be persisted and shared. A `${ENV}`
+    // reference is non-secret and is preserved so replay can re-expand it; a literal
+    // secret is dropped entirely.
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+
+    let literal_yaml = r#"version: "0.1"
+entities:
+  - name: "customers"
+    source:
+      format: "csv"
+      path: "./in/customers.csv"
+    sink:
+      accepted:
+        format: "duckdb"
+        duckdb:
+          connection: "md:analytics"
+          table: "customers"
+          token: "super-secret-literal-token"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let literal_path = cfg_dir.join("literal.yml");
+    std::fs::write(&literal_path, literal_yaml).expect("write config");
+    let location =
+        resolve_config_location(literal_path.to_str().expect("utf8")).expect("resolve location");
+    let config = load_config(&location.path).expect("load config");
+    let payload =
+        build_common_manifest_json(&location, &config, &[], None, &ManifestOptions::default())
+            .expect("build manifest");
+
+    // The raw secret must not appear anywhere in the serialized manifest.
+    assert!(
+        !payload.contains("super-secret-literal-token"),
+        "literal MotherDuck token leaked into manifest JSON"
+    );
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    let duckdb = &value["entities"][0]["sinks"]["accepted"]["duckdb"];
+    assert!(
+        duckdb.get("token").map(|t| t.is_null()).unwrap_or(true),
+        "literal token field must be redacted, got {duckdb:?}"
+    );
+
+    // An ${ENV} reference is non-secret and must be preserved verbatim.
+    let env_yaml = r#"version: "0.1"
+entities:
+  - name: "customers"
+    source:
+      format: "csv"
+      path: "./in/customers.csv"
+    sink:
+      accepted:
+        format: "duckdb"
+        duckdb:
+          connection: "md:analytics"
+          table: "customers"
+          token: "${MOTHERDUCK_TOKEN}"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    let env_path = cfg_dir.join("env.yml");
+    std::fs::write(&env_path, env_yaml).expect("write config");
+    let location =
+        resolve_config_location(env_path.to_str().expect("utf8")).expect("resolve location");
+    let config = load_config(&location.path).expect("load config");
+    let payload =
+        build_common_manifest_json(&location, &config, &[], None, &ManifestOptions::default())
+            .expect("build manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    assert_eq!(
+        value["entities"][0]["sinks"]["accepted"]["duckdb"]["token"], "${MOTHERDUCK_TOKEN}",
+        "non-secret ${{ENV}} placeholder must be preserved for replay"
+    );
+}
+
+#[test]
 fn manifest_real_storage_named_motherduck_survives_roundtrip() {
     // The "motherduck" storage value is only a synthetic placeholder for MotherDuck
     // DuckDB sinks. A real, user-defined storage definition that happens to be named

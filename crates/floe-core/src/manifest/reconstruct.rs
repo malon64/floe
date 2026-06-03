@@ -233,16 +233,26 @@ fn sink_target_from_manifest(
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
+    // `"motherduck"` is a synthetic placeholder the manifest builder records for
+    // MotherDuck DuckDB sinks (which live over the network and bind no filesystem
+    // storage). Like `"local"`, it must reconstruct to an unset `storage`: a MotherDuck
+    // target's real location is its `duckdb.connection`, and `validate_duckdb_sink`
+    // rejects MotherDuck sinks that carry an explicit `sink.accepted.storage`. Gate this
+    // on the sink actually being a MotherDuck DuckDB target so a real, user-defined
+    // storage definition that happens to be named "motherduck" on a non-DuckDB sink is
+    // preserved verbatim rather than silently dropped.
+    let is_motherduck_placeholder = m.storage == "motherduck"
+        && m.format == "duckdb"
+        && duckdb
+            .as_ref()
+            .and_then(|cfg: &crate::config::DuckDbSinkTargetConfig| cfg.connection.as_deref())
+            .map(|connection| crate::io::write::duckdb::is_motherduck_connection(connection.trim()))
+            .unwrap_or(false);
+
     SinkTarget {
         format: m.format.clone(),
         path: m.path.clone(),
-        // `"motherduck"` is a synthetic placeholder the manifest builder records for
-        // MotherDuck DuckDB sinks (which live over the network and bind no filesystem
-        // storage). Like `"local"`, it must reconstruct to an unset `storage`: a
-        // MotherDuck target's real location is its `duckdb.connection`, and
-        // `validate_duckdb_sink` rejects MotherDuck sinks that carry an explicit
-        // `sink.accepted.storage`.
-        storage: if m.storage == "local" || m.storage == "motherduck" {
+        storage: if m.storage == "local" || is_motherduck_placeholder {
             None
         } else {
             Some(m.storage.clone())

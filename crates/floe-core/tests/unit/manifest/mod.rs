@@ -869,6 +869,74 @@ entities:
 }
 
 #[test]
+fn manifest_real_storage_named_motherduck_survives_roundtrip() {
+    // The "motherduck" storage value is only a synthetic placeholder for MotherDuck
+    // DuckDB sinks. A real, user-defined storage definition that happens to be named
+    // "motherduck" on a non-DuckDB sink must be preserved verbatim on reconstruct,
+    // not silently dropped to the default/local storage.
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let root = temp_dir.path();
+    let cfg_dir = root.join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+storages:
+  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "motherduck"
+      type: "s3"
+      bucket: "demo"
+      region: "us-east-1"
+entities:
+  - name: "events"
+    source:
+      format: "csv"
+      path: "./in/events.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        storage: "motherduck"
+        path: "s3://demo/out/events"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("build manifest");
+
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+    assert_eq!(
+        value["entities"][0]["sinks"]["accepted"]["storage"],
+        "motherduck"
+    );
+
+    let (reconstructed, _base) =
+        config_from_manifest_json(&payload).expect("reconstruct config from manifest");
+    let accepted = &reconstructed.entities[0].sink.accepted;
+    // Non-DuckDB sink: the real storage name must NOT be treated as the synthetic
+    // placeholder, so it is preserved rather than dropped to None.
+    assert_eq!(accepted.storage.as_deref(), Some("motherduck"));
+}
+
+#[test]
 fn manifest_path_mode_resolved_uri_sets_path_from_uri() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

@@ -71,6 +71,20 @@ const FEATURE_GATED_SINK_FORMATS: &[(&str, &str)] = &[
     ("duckdb", "duckdb"),
 ];
 
+/// True when `name` is a sink format floe knows about — whether it is compiled
+/// into this build or merely feature-gated out of it. Config validation and
+/// manifest generation use this (instead of `sink_format`) so a lean build still
+/// accepts and round-trips a config for a sink it cannot execute; an orchestrator
+/// may hand that manifest to a fuller build. The runtime write path keeps calling
+/// `sink_format`, which still fails with the clear "rebuild with --features" hint
+/// when you actually try to write a sink this build left out.
+pub(crate) fn is_known_sink_format(name: &str) -> bool {
+    SINK_FORMATS.iter().any(|f| f.format_name() == name)
+        || FEATURE_GATED_SINK_FORMATS
+            .iter()
+            .any(|(format, _)| *format == name)
+}
+
 pub(crate) fn sink_format(name: &str) -> FloeResult<&'static dyn SinkFormat> {
     if let Some(found) = SINK_FORMATS.iter().find(|f| f.format_name() == name) {
         return Ok(*found);

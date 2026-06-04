@@ -433,7 +433,10 @@ pub fn ensure_input_format(entity_name: &str, format: &str) -> FloeResult<()> {
 }
 
 pub fn ensure_accepted_sink_format(entity_name: &str, format: &str) -> FloeResult<()> {
-    if crate::io::write::sink_format::sink_format(format).is_err() {
+    // Accept any format floe knows about, including sinks this build feature-gated
+    // out: config validation and manifest generation must succeed for a sink the
+    // build cannot execute (the runtime write path enforces the compiled feature).
+    if !crate::io::write::sink_format::is_known_sink_format(format) {
         return Err(Box::new(unsupported_format_error(
             FormatKind::SinkAccepted,
             format,

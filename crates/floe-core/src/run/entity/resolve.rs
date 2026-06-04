@@ -72,7 +72,7 @@ fn motherduck_accepted_target(accepted: &config::SinkTarget) -> Option<Target> {
         return None;
     }
     let connection = accepted.duckdb.as_ref()?.connection.as_deref()?;
-    if !crate::io::write::duckdb::is_motherduck_connection(connection) {
+    if !crate::config::is_motherduck_connection(connection) {
         return None;
     }
     Some(Target::Local {

@@ -550,13 +550,18 @@ fn validate_sink(
     // network), so the generic storage-capability check does not apply to them.
     if !is_duckdb_motherduck(entity) {
         if let Some(storage_type) = storages.definition_type(&accepted_storage) {
-            let fmt = sink_format(entity.sink.accepted.format.as_str())?;
-            if !fmt.supported_storages().contains(&storage_type) {
-                let supported = fmt.supported_storages().join(", ");
-                return Err(Box::new(ConfigError(format!(
-                    "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
-                    entity.name, entity.sink.accepted.format, storage_type, supported
-                ))));
+            // A feature-gated sink that isn't compiled into this build returns Err
+            // here; skip the storage-capability check (it cannot be introspected) and
+            // let the runtime write path enforce the feature. Compiled sinks still
+            // validate fully.
+            if let Ok(fmt) = sink_format(entity.sink.accepted.format.as_str()) {
+                if !fmt.supported_storages().contains(&storage_type) {
+                    let supported = fmt.supported_storages().join(", ");
+                    return Err(Box::new(ConfigError(format!(
+                        "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
+                        entity.name, entity.sink.accepted.format, storage_type, supported
+                    ))));
+                }
             }
         }
     }
@@ -592,14 +597,18 @@ fn validate_sink(
 
 fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     let write_mode = entity.sink.write_mode;
-    let fmt = sink_format(entity.sink.accepted.format.as_str())?;
-    if !fmt.supported_modes().contains(&write_mode) {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.write_mode={} is not supported by sink.accepted.format={}",
-            entity.name,
-            write_mode.as_str(),
-            entity.sink.accepted.format
-        ))));
+    // A feature-gated sink not compiled into this build cannot report its supported
+    // write modes; skip the capability check (deferred to the runtime write path)
+    // while still validating the format-agnostic merge requirements below.
+    if let Ok(fmt) = sink_format(entity.sink.accepted.format.as_str()) {
+        if !fmt.supported_modes().contains(&write_mode) {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.write_mode={} is not supported by sink.accepted.format={}",
+                entity.name,
+                write_mode.as_str(),
+                entity.sink.accepted.format
+            ))));
+        }
     }
 
     let is_merge_mode = matches!(
@@ -721,18 +730,23 @@ fn validate_merge_options(
         return Ok(());
     };
 
-    let fmt = sink_format(entity.sink.accepted.format.as_str())?;
-    let supports_merge = fmt.supported_modes().iter().any(|m| {
-        matches!(
-            m,
-            crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
-        )
-    });
-    if !supports_merge {
-        return Err(Box::new(ConfigError(format!(
-            "entity.name={} sink.accepted.merge is only supported when sink.accepted.format supports merge (e.g. delta)",
-            entity.name
-        ))));
+    // For a feature-gated sink absent from this build we cannot introspect merge
+    // support; skip the capability check (the runtime write path enforces the
+    // feature) and validate the format-agnostic merge constraints below. Compiled
+    // sinks are still checked.
+    if let Ok(fmt) = sink_format(entity.sink.accepted.format.as_str()) {
+        let supports_merge = fmt.supported_modes().iter().any(|m| {
+            matches!(
+                m,
+                crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
+            )
+        });
+        if !supports_merge {
+            return Err(Box::new(ConfigError(format!(
+                "entity.name={} sink.accepted.merge is only supported when sink.accepted.format supports merge (e.g. delta)",
+                entity.name
+            ))));
+        }
     }
     if !matches!(
         write_mode,

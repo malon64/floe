@@ -13,9 +13,19 @@ name = "_floe"
 crate-type = ["cdylib"]
 
 [dependencies]
-floe-core = { path = "../floe-core", version = "0.4.7" }
+floe-core = { path = "../floe-core", version = "0.4.7", default-features = false }
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 serde_json = "1"
 
 [features]
+# `duckdb` is opt-in because it compiles a bundled native (C++) DuckDB build that
+# is slow, fails to cross-compile in the manylinux/musllinux wheel containers, and
+# would push wheels past PyPI's 100 MB per-file limit. It is excluded from the
+# default so published wheels stay lean and build on every target; enable it
+# explicitly when building from source. `delta`/`iceberg` are pure-Rust and stay
+# on by default.
+default = ["delta", "iceberg"]
+delta = ["floe-core/delta"]
+iceberg = ["floe-core/iceberg"]
+duckdb = ["floe-core/duckdb"]
 vendored-openssl = ["floe-core/vendored-openssl"]

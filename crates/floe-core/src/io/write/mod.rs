@@ -1,8 +1,14 @@
 pub mod accepted;
+// Arrow conversion helpers only feed the table-format sinks (Delta/DuckDB record
+// batches, Iceberg array conversion); skip compiling them when no such sink is on.
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
 pub mod arrow_convert;
 pub mod csv;
+#[cfg(feature = "delta")]
 pub mod delta;
+#[cfg(feature = "duckdb")]
 pub mod duckdb;
+#[cfg(feature = "iceberg")]
 pub mod iceberg;
 pub mod metrics;
 pub mod parquet;

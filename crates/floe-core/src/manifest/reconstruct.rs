@@ -246,7 +246,7 @@ fn sink_target_from_manifest(
         && duckdb
             .as_ref()
             .and_then(|cfg: &crate::config::DuckDbSinkTargetConfig| cfg.connection.as_deref())
-            .map(|connection| crate::io::write::duckdb::is_motherduck_connection(connection.trim()))
+            .map(|connection| crate::config::is_motherduck_connection(connection.trim()))
             .unwrap_or(false);
 
     SinkTarget {

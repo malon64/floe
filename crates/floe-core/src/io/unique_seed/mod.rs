@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
 use arrow::record_batch::RecordBatch;
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
 use df_interchange::Interchange;
 
-use crate::checks::normalize::{
-    output_column_mapping, rename_output_columns, resolve_normalize_strategy,
-};
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
+use crate::checks::normalize::rename_output_columns;
+use crate::checks::normalize::{output_column_mapping, resolve_normalize_strategy};
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
 use crate::errors::RunError;
 use crate::io::storage::Target;
 use crate::io::write::sink_format::{sink_format, SeedContext};
@@ -75,6 +78,7 @@ pub(crate) fn accepted_scan_projection(
     Ok((scan_cols, rename_back))
 }
 
+#[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
 pub(crate) fn seed_from_batches(
     unique_tracker: &mut check::UniqueTracker,
     batches: Vec<RecordBatch>,

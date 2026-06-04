@@ -1,7 +1,12 @@
 use floe_core::{
     build_common_manifest_json, config_from_manifest_json, load_config, parse_profile_from_str,
-    resolve_config_location, validate_config_for_tests, ManifestOptions, PathMode,
+    resolve_config_location, ManifestOptions, PathMode,
 };
+// `validate_config_for_tests` is only exercised by the duckdb-gated MotherDuck
+// round-trip assertion below; importing it unconditionally would warn (and fail the
+// lean `-D warnings` clippy job) on builds without the `duckdb` feature.
+#[cfg(feature = "duckdb")]
+use floe_core::validate_config_for_tests;
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -864,7 +869,12 @@ entities:
     // storage; otherwise `validate_duckdb_sink` rejects the MotherDuck target.
     assert_eq!(accepted.storage, None);
     // The reconstructed config must pass validation, proving the manifest round-trip
-    // does not turn a valid MotherDuck config into an invalid one.
+    // does not turn a valid MotherDuck config into an invalid one. Validation routes
+    // the duckdb sink through the feature-gated `sink_format` registry, so it only
+    // succeeds when the `duckdb` feature is compiled in; under the lean default build
+    // the registry intentionally rejects it. Gate the assertion accordingly while the
+    // manifest round-trip above still runs (and is verified) on every build.
+    #[cfg(feature = "duckdb")]
     validate_config_for_tests(&reconstructed).expect("reconstructed MotherDuck config is valid");
 }
 

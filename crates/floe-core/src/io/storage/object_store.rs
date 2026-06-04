@@ -1,23 +1,31 @@
+#[cfg(any(feature = "delta", feature = "iceberg"))]
 use std::collections::HashMap;
 
+#[cfg(feature = "iceberg")]
 use iceberg::io::{CLIENT_REGION, S3_REGION};
+#[cfg(feature = "delta")]
 use url::Url;
 
+#[cfg(any(feature = "delta", feature = "iceberg"))]
 use crate::{config, ConfigError, FloeResult};
 
+#[cfg(any(feature = "delta", feature = "iceberg"))]
 use super::Target;
 
+#[cfg(feature = "delta")]
 pub struct DeltaStoreConfig {
     pub table_url: Url,
     pub storage_options: HashMap<String, String>,
 }
 
+#[cfg(feature = "iceberg")]
 #[derive(Debug)]
 pub struct IcebergStoreConfig {
     pub warehouse_location: String,
     pub file_io_props: HashMap<String, String>,
 }
 
+#[cfg(feature = "delta")]
 pub fn delta_store_config(
     target: &Target,
     resolver: &config::StorageResolver,
@@ -98,6 +106,7 @@ pub fn delta_store_config(
     }
 }
 
+#[cfg(feature = "iceberg")]
 pub fn iceberg_store_config(
     target: &Target,
     resolver: &config::StorageResolver,

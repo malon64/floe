@@ -27,7 +27,7 @@ use crate::io::format::{
     AcceptedWriteRequest,
 };
 use crate::io::unique_seed::seed_from_batches;
-use crate::io::write::delta::record_batch::dataframe_to_record_batch;
+use crate::io::write::arrow_convert::dataframe_to_record_batch;
 use crate::io::write::sink_format::{SeedContext, SinkFormat};
 use crate::{check, config, FloeResult};
 
@@ -37,7 +37,6 @@ mod conn;
 mod merge;
 
 pub use self::conn::close_cached_connections;
-pub(crate) use self::conn::is_motherduck_connection;
 use self::conn::{
     quote_ident, quoted_table, resolve_schema_and_table, resolve_target, DuckDbTarget,
 };

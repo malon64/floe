@@ -14,7 +14,7 @@ use ::duckdb::Connection;
 
 use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
-use crate::io::write::strategy::merge::shared;
+use crate::io::write::strategy::merge::keys;
 use crate::{config, FloeResult};
 
 use super::conn::{quote_ident, quoted_table};
@@ -86,7 +86,7 @@ pub(crate) fn execute_scd1(
     let started = Instant::now();
     // Map the primary key through the output-column naming so it matches the
     // already-renamed DataFrame columns (see resolve_merge_key_output).
-    let merge_key = shared::resolve_merge_key_output(entity)?;
+    let merge_key = keys::resolve_merge_key_output(entity)?;
 
     if !table_exists {
         create_table_from_source(conn, schema, table, source_table)?;
@@ -105,7 +105,7 @@ pub(crate) fn execute_scd1(
 
     let target_rows_before = count_rows(conn, schema, table)?;
     let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
-    let ignore_columns = shared::resolve_merge_ignore_columns(entity)?;
+    let ignore_columns = keys::resolve_merge_ignore_columns(entity)?;
     let update_columns = source_columns
         .iter()
         .filter(|name| {
@@ -175,9 +175,9 @@ pub(crate) fn execute_scd2(
     let started = Instant::now();
     // Map the primary key through the output-column naming so it matches the
     // already-renamed DataFrame columns (see resolve_merge_key_output).
-    let merge_key = shared::resolve_merge_key_output(entity)?;
+    let merge_key = keys::resolve_merge_key_output(entity)?;
     let merge_key_set = merge_key.iter().map(String::as_str).collect::<HashSet<_>>();
-    let (ignore_columns, compare_columns_opt) = shared::resolve_merge_column_mappings(entity)?;
+    let (ignore_columns, compare_columns_opt) = keys::resolve_merge_column_mappings(entity)?;
     let compare_columns = compare_columns_opt.unwrap_or_else(|| {
         source_columns
             .iter()
@@ -187,7 +187,7 @@ pub(crate) fn execute_scd2(
             .cloned()
             .collect::<Vec<_>>()
     });
-    let system = shared::resolve_scd2_system_columns(entity);
+    let system = keys::resolve_scd2_system_columns(entity);
     let target = quoted_table(schema, table);
     let source = quote_ident(source_table);
 

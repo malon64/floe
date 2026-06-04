@@ -499,7 +499,7 @@ fn motherduck_connection(accepted: &crate::config::SinkTarget) -> Option<String>
         return None;
     }
     let connection = accepted.duckdb.as_ref()?.connection.as_deref()?.trim();
-    if crate::io::write::duckdb::is_motherduck_connection(connection) {
+    if crate::config::is_motherduck_connection(connection) {
         Some(connection.to_string())
     } else {
         None

@@ -17,6 +17,15 @@ pub mod state;
 pub mod vars;
 pub mod warnings;
 
+/// Re-export of the bundled DuckDB driver so integration tests can read sink
+/// output back without declaring `duckdb` as a (non-optional, always-compiled)
+/// dev-dependency, which would defeat the feature gate by building the bundled
+/// DuckDB amalgamation for every `cargo test` run. Only present with the
+/// `duckdb` feature.
+#[cfg(feature = "duckdb")]
+#[doc(hidden)]
+pub use ::duckdb as duckdb_driver;
+
 pub use crate::state::{
     inspect_entity_state, inspect_entity_state_with_base, reset_entity_state,
     reset_entity_state_with_base,

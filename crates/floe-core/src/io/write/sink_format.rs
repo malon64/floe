@@ -43,26 +43,50 @@ pub trait SinkFormat: Send + Sync {
 
 // ── Static registry ──────────────────────────────────────────────────────────
 
+#[cfg(feature = "delta")]
 use super::delta::DELTA_SINK_FORMAT;
+#[cfg(feature = "duckdb")]
 use super::duckdb::DUCKDB_SINK_FORMAT;
+#[cfg(feature = "iceberg")]
 use super::iceberg::ICEBERG_SINK_FORMAT;
 use super::parquet::PARQUET_SINK_FORMAT;
 
 pub(crate) static SINK_FORMATS: &[&dyn SinkFormat] = &[
-    &DELTA_SINK_FORMAT,
     &PARQUET_SINK_FORMAT,
+    #[cfg(feature = "delta")]
+    &DELTA_SINK_FORMAT,
+    #[cfg(feature = "iceberg")]
     &ICEBERG_SINK_FORMAT,
+    #[cfg(feature = "duckdb")]
     &DUCKDB_SINK_FORMAT,
 ];
 
+/// Sink formats that exist but are compiled out unless their Cargo feature is on.
+/// Lets `sink_format` tell the difference between an unknown format and a known
+/// one the user simply didn't build, so the error can point at the right
+/// `--features` flag instead of "unsupported".
+const FEATURE_GATED_SINK_FORMATS: &[(&str, &str)] = &[
+    ("delta", "delta"),
+    ("iceberg", "iceberg"),
+    ("duckdb", "duckdb"),
+];
+
 pub(crate) fn sink_format(name: &str) -> FloeResult<&'static dyn SinkFormat> {
-    SINK_FORMATS
+    if let Some(found) = SINK_FORMATS.iter().find(|f| f.format_name() == name) {
+        return Ok(*found);
+    }
+
+    if let Some((_, feature)) = FEATURE_GATED_SINK_FORMATS
         .iter()
-        .find(|f| f.format_name() == name)
-        .copied()
-        .ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "unsupported accepted sink format: {name}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })
+        .find(|(format, _)| *format == name)
+    {
+        return Err(Box::new(ConfigError(format!(
+            "accepted sink format '{name}' is not available in this build; \
+             rebuild with --features {feature}"
+        ))) as Box<dyn std::error::Error + Send + Sync>);
+    }
+
+    Err(Box::new(ConfigError(format!(
+        "unsupported accepted sink format: {name}"
+    ))) as Box<dyn std::error::Error + Send + Sync>)
 }

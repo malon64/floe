@@ -33,8 +33,14 @@ jobs:
           add-job-id-key: false
           shared-key: v0-rust-feature
           cache-on-failure: true
+      # Lint the lean default capability set (parquet + delta + iceberg). The
+      # duckdb sink pulls a bundled native build; linting it on every PR would
+      # reintroduce the slow compile this gating removed, so duckdb clippy lives
+      # in the dedicated, path-gated `duckdb` job below. `--no-default-features
+      # --features delta,iceberg` keeps floe-cli/floe-python (whose defaults
+      # include duckdb) from dragging in the bundle here.
       - name: Lint with clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features --features delta,iceberg -- -D warnings
 
   test:
     runs-on: ubuntu-latest
@@ -214,3 +220,49 @@ jobs:
       - name: Type-check stubs
         if: steps.changes.outputs.floe_python == 'true'
         run: .venv/bin/mypy crates/floe-python/tests/test_floe.py --ignore-missing-imports
+
+  # The DuckDB sink is the only one with a bundled native (C++) build, which is
+  # why it is opt-in (`--features duckdb`) and excluded from the default `test`
+  # and `clippy` jobs above. This job compiles that bundle only when DuckDB code
+  # changes, on its own rust-cache key so the heavy artifact is cached
+  # independently and never evicts (or is evicted by) the lean default build.
+  duckdb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            io_write_duckdb:
+              - "crates/floe-core/src/io/write/duckdb.rs"
+              - "crates/floe-core/src/io/write/duckdb/**"
+              - "crates/floe-core/tests/integration/duckdb_run.rs"
+              - "crates/floe-core/tests/unit/config/duckdb_validation.rs"
+              - "crates/floe-core/Cargo.toml"
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.io_write_duckdb == 'true'
+        with:
+          components: clippy
+      # ubuntu-latest ships build-essential (gcc/g++/make), which is all the
+      # bundled libduckdb-sys build needs — no extra toolchain install required.
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.io_write_duckdb == 'true'
+        with:
+          prefix-key: v0-rust
+          add-job-id-key: false
+          shared-key: v0-rust-duckdb
+          cache-on-failure: true
+      - name: Lint duckdb sink with clippy
+        if: steps.changes.outputs.io_write_duckdb == 'true'
+        run: cargo clippy -p floe-core --all-targets --features duckdb -- -D warnings
+      - name: Run duckdb sink tests
+        if: steps.changes.outputs.io_write_duckdb == 'true'
+        env:
+          CARGO_BUILD_JOBS: "4"
+          RUST_TEST_THREADS: "4"
+          RUSTFLAGS: "-C debuginfo=0"
+        run: |
+          cargo test -p floe-core --features duckdb --lib io::write::duckdb
+          cargo test -p floe-core --features duckdb --test unit config::duckdb_validation::
+          cargo test -p floe-core --features duckdb --test integration duckdb_run:: -- --test-threads=1

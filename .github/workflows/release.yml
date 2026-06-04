@@ -256,9 +256,13 @@ jobs:
       - name: Build floe
         shell: bash
         run: |
-          features=""
+          # Ship the lean sink set (parquet + delta + iceberg). The duckdb sink is
+          # intentionally excluded from released binaries: its bundled native (C++)
+          # build does not cross-compile under `cross` and bloats artifacts. Users
+          # who need it build from source with `--features duckdb`.
+          features="--no-default-features --features delta,iceberg"
           if [[ "${{ matrix.target }}" == *unknown-linux* ]]; then
-            features="--features vendored-openssl"
+            features="--no-default-features --features delta,iceberg,vendored-openssl"
           fi
           if [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build -p floe-cli ${features} --release --target ${{ matrix.target }}
@@ -465,9 +469,16 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: build
+          # Ship the lean sink set. The duckdb sink is excluded from published
+          # wheels: its bundled native (C++) build fails to compile in the
+          # manylinux/musllinux containers and would exceed PyPI's 100 MB
+          # per-file limit. Users who need it build from source with
+          # `--features duckdb`.
           args: >-
             --release
             --strip
+            --no-default-features
+            --features delta,iceberg
             -m crates/floe-python/Cargo.toml
             --out dist
           target: ${{ matrix.target }}

@@ -17,11 +17,21 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-floe-core = { path = "../floe-core", version = "0.4.7" }
+floe-core = { path = "../floe-core", version = "0.4.7", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [features]
+# `duckdb` is opt-in because it compiles a bundled native (C++) DuckDB build that
+# is slow and does not cross-compile under the release pipeline's `cross`/musl
+# targets (it would also bloat artifacts). It is excluded from the default so
+# `cargo install floe-cli` and the pre-built release binaries stay lean and build
+# everywhere; enable it explicitly with `cargo install floe-cli --features duckdb`.
+# `delta`/`iceberg` are pure-Rust and stay on by default.
+default = ["delta", "iceberg"]
+delta = ["floe-core/delta"]
+iceberg = ["floe-core/iceberg"]
+duckdb = ["floe-core/duckdb"]
 vendored-openssl = ["floe-core/vendored-openssl"]
 
 [dev-dependencies]

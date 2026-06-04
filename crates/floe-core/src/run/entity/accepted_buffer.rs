@@ -8,7 +8,7 @@ use crate::errors::RunError;
 use crate::io::format::AcceptedWriteOutput;
 use crate::io::storage::{CloudClient, Target};
 use crate::io::write::sink_format::SinkFormat;
-use crate::io::write::strategy::merge::shared::default_schema_evolution_summary;
+use crate::io::write::strategy::merge::keys::default_schema_evolution_summary;
 use crate::run::events::{event_time_ms, RunEvent, RunObserver};
 use crate::run::RunContext;
 use crate::FloeResult;

@@ -3,6 +3,11 @@ pub mod adls_storage;
 pub mod adls_validation;
 pub mod catalogs;
 pub mod config_validation;
+// DuckDB config validation goes through the always-compiled validator, which
+// consults the sink registry; that registry only knows the `duckdb` format when
+// the feature is on (otherwise it returns a "rebuild with --features duckdb"
+// error), so these tests run under the `duckdb` feature.
+#[cfg(feature = "duckdb")]
 pub mod duckdb_validation;
 pub mod gcs_storage;
 pub mod gcs_validation;

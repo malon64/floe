@@ -373,6 +373,15 @@ pub struct DuckDbSinkTargetConfig {
     pub token: Option<String>,
 }
 
+/// True if `connection` is a MotherDuck connection string (`md:` scheme).
+///
+/// This is a pure string check kept in `config` (always compiled) so config
+/// validation and manifest round-tripping can recognize MotherDuck sinks even
+/// when the feature-gated `duckdb` writer is not built into the binary.
+pub(crate) fn is_motherduck_connection(connection: &str) -> bool {
+    connection.trim_start().starts_with("md:")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoragesConfig {
     pub default: Option<String>,

@@ -93,11 +93,10 @@ impl MergeBackend for DeltaMergeBackend {
             let bootstrap_schema_columns =
                 build_scd2_bootstrap_schema_columns(ctx.entity, &system_columns)?;
             let conversion_start = Instant::now();
-            let batch =
-                crate::io::write::delta::record_batch::dataframe_to_record_batch_with_schema(
-                    &bootstrap_df,
-                    &bootstrap_schema_columns,
-                )?;
+            let batch = crate::io::write::arrow_convert::dataframe_to_record_batch_with_schema(
+                &bootstrap_df,
+                &bootstrap_schema_columns,
+            )?;
             perf.conversion_ms = conversion_start.elapsed().as_millis() as u64;
             let commit_start = Instant::now();
             let version = shared::write_delta_batch_version(
@@ -176,7 +175,7 @@ impl MergeBackend for DeltaMergeBackend {
         let source_for_close =
             shared::source_as_datafusion_df_from_batch(source_batch.clone(), &ctx.entity.name)?;
         let source_for_insert = shared::source_as_datafusion_df_from_batch(
-            crate::io::write::delta::record_batch::dataframe_to_record_batch_with_schema(
+            crate::io::write::arrow_convert::dataframe_to_record_batch_with_schema(
                 &source_with_system_columns,
                 &source_with_system_columns_schema,
             )?,

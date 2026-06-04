@@ -50,7 +50,7 @@ pub(super) fn run_accepted_write_phase(
     } = context;
 
     let default_schema_evolution =
-        crate::io::write::strategy::merge::shared::default_schema_evolution_summary(
+        crate::io::write::strategy::merge::keys::default_schema_evolution_summary(
             entity, write_mode,
         );
     if pending_input_count == 0 && !(full_refresh && write_mode == config::WriteMode::Overwrite) {

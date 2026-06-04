@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use duckdb::Connection;
+// Reach the DuckDB driver through floe-core's gated re-export instead of a
+// dev-dependency: a non-optional `duckdb` dev-dep would compile the bundled C++
+// amalgamation for every `cargo test` run, defeating the feature gate.
+use floe_core::duckdb_driver::Connection;
 use floe_core::io::write::duckdb::close_cached_connections;
 use floe_core::{run, RunOptions, RunOutcome};
 

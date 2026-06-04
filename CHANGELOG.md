@@ -2,9 +2,9 @@
 
 All notable changes to Floe are documented in this file.
 
-## v0.4.6
+## v0.4.7
 
-- **DuckDB accepted sink** (closes #248):
+- **DuckDB accepted sink** (closes #248, PR #372):
   - New `sink.accepted.format: duckdb` writes accepted output into a DuckDB database — a local
     `.duckdb` file or a remote [MotherDuck](https://motherduck.com) (`md:<database>`) database.
   - Full write-mode parity with Delta: `overwrite`, `append`, `merge_scd1`, and `merge_scd2` via
@@ -24,6 +24,17 @@ All notable changes to Floe are documented in this file.
   - Object-store `.duckdb` file paths (S3/GCS/ADLS) are rejected at validation with a pointer to
     MotherDuck (DuckDB cannot read-write database files over object storage).
   - See [DuckDB sink](docs/sinks/duckdb.md).
+
+- **Fix: normalize raw headers before projection in Parquet and ORC readers** (PR #373):
+  - `projected_columns` was comparing raw file headers (e.g. `"Customer ID"`) against
+    already-normalised declared column names (e.g. `"customer_id"`), so any column renamed by
+    `schema.normalize_columns` was silently projected out before reaching checks or the sink.
+  - Fix: `normalize_name` is now applied to each raw header before the set-membership test,
+    matching the pattern already used in the Avro reader.
+
+- **`floe` 0.4.7**: version bump for this release.
+
+## v0.4.6
 
 - **`dagster-floe`: load remote report URIs via fsspec** (fixes #361, PR #362):
   - `summary_uri` and `entity_report_uri` values pointing at `s3://`, `gs://`, or `abfs://` were raising a `ValueError` that was silently swallowed, causing asset checks to fall back to summary-only mode. They are now fetched correctly via `fsspec`.
@@ -52,7 +63,7 @@ All notable changes to Floe are documented in this file.
   - REST catalog configs that use `${ENV_VAR}` placeholders for credentials are now resolved against the process environment before the HTTP client is constructed, fixing authentication failures when credentials are injected at runtime rather than baked into the config file.
   - Malformed placeholder errors are redacted in log output to avoid leaking partial secrets.
 
-- **`floe` 0.4.6, `dagster-floe` 0.2.1**: version bumps for this release.
+- **`floe` 0.4.6, `dagster-floe` 0.2.1, `airflow-floe` 0.1.5**: version bumps for this release.
 
 ## v0.4.5
 

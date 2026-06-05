@@ -2,6 +2,41 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.1
+
+- **DuckDB is now available to non-Rust users via a lean-primary + heavy-companion
+  distribution.** v0.5.0 made `duckdb` an opt-in Cargo feature, which left it reachable
+  only by building from source. v0.5.1 ships the existing DuckDB sink (local `.duckdb`
+  files and MotherDuck `md:` databases) as a separate companion that the lean,
+  default-distributed `floe` transparently delegates to — modeled on the
+  companion-on-PATH pattern used by `git`/`git-lfs` and cargo subcommands, and the
+  ONNX-Runtime / PyTorch split-package model for Python.
+  - **CLI:** the lean `floe` binary auto-detects a DuckDB sink in the resolved config
+    and re-execs a `floe-duckdb` companion (same `floe-cli` source built
+    `--features duckdb`) with identical arguments, propagating its exit status. The
+    companion is resolved **only** from `PATH` or the canonicalized directory of the
+    running executable — never the current working directory (avoids the git-lfs
+    CVE GHSA-6rw3-3whw-jvjj class of attack). If no companion is found, the run fails
+    with an actionable install hint instead of a cryptic missing-feature error.
+  - **Docker:** new `ghcr.io/malon64/floe-duckdb` image (built from `Dockerfile.duckdb`)
+    bundles the native DuckDB build with `ENTRYPOINT ["floe-duckdb"]`. The lean
+    `ghcr.io/malon64/floe` image is unchanged.
+  - **Python:** new off-PyPI `floe-duckdb` wheel installs a `floe._floe_duckdb`
+    companion extension into the same `floe` package; the lean `floe.run()`
+    transparently delegates a DuckDB-sink run to it. Because the bundled native build
+    exceeds PyPI's 100 MB per-file limit and does not build in the manylinux/musllinux
+    containers, the companion wheel is published off PyPI (GitHub Release assets + a
+    PEP 503 simple index), à la `download.pytorch.org`:
+    `pip install floe-duckdb --extra-index-url https://malon64.github.io/floe/simple/`.
+  - No engine changes: this release only changes *distribution*. The DuckDB sink
+    behavior, config surface, and supported targets (Local + MotherDuck) are identical
+    to v0.5.0. DuckLake and remote-DuckDB (Quack) sinks remain deferred (they require a
+    DuckDB ≥1.5.3 / Arrow 58 bump that is blocked upstream until the Iceberg crate
+    publishes an Arrow 58 release).
+  - See [DuckDB sink](docs/sinks/duckdb.md) and [installation](docs/installation.md).
+
+- **`floe` 0.5.1**: version bump for this release.
+
 ## v0.5.0
 
 - **Accepted sinks are now opt-in Cargo features** (PR #375):

@@ -105,6 +105,26 @@ pub fn load_config(config_path: &str) -> PyResult<PyRootConfig> {
         .map_err(to_py_err)
 }
 
+/// True when the config writes to a DuckDB sink (accepted or rejected target).
+/// The lean `floe` Python wrapper calls this to decide whether a run must be
+/// delegated to the `floe._floe_duckdb` companion module. A load failure returns
+/// `false` so the lean run path surfaces the real error rather than masking it.
+#[pyfunction]
+pub fn config_targets_duckdb(config_path: &str) -> bool {
+    let path = Path::new(config_path);
+    match floe_core::load_config(path) {
+        Ok(config) => config.entities.iter().any(|entity| {
+            entity.sink.accepted.format == "duckdb"
+                || entity
+                    .sink
+                    .rejected
+                    .as_ref()
+                    .is_some_and(|rejected| rejected.format == "duckdb")
+        }),
+        Err(_) => false,
+    }
+}
+
 #[pyfunction]
 pub fn extract_config_env_vars(config_path: &str) -> PyResult<HashMap<String, String>> {
     let path = Path::new(config_path);

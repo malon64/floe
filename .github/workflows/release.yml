@@ -76,6 +76,7 @@ jobs:
               ("floe-cli (Cargo)",             "crates/floe-cli/Cargo.toml",       ["package", "version"]),
               ("floe-python (Cargo)",          "crates/floe-python/Cargo.toml",    ["package", "version"]),
               ("floe-python (pyproject.toml)", "crates/floe-python/pyproject.toml",["project",  "version"]),
+              ("floe-duckdb (pyproject.duckdb.toml)", "crates/floe-python/pyproject.duckdb.toml", ["project", "version"]),
           ]
           for label, path, keys in pkg_checks:
               with open(path, "rb") as f:
@@ -162,6 +163,183 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/floe:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  docker-duckdb:
+    name: Build floe-duckdb image (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    needs: [meta, validate]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Build each arch on a NATIVE runner. The duckdb image compiles a
+          # bundled native (C++) DuckDB build from source; under QEMU emulation
+          # that compile is prohibitively slow, so we build per-arch natively and
+          # combine the manifests in docker-duckdb-merge below.
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/floe-duckdb
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.duckdb
+          platforms: ${{ matrix.platform }}
+          # Push by digest only; the named multi-arch tags are assembled in the
+          # docker-duckdb-merge job from the per-arch digests.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=duckdb-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=duckdb-${{ matrix.arch }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: duckdb-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  docker-duckdb-merge:
+    name: Publish floe-duckdb multi-arch image (GHCR)
+    runs-on: ubuntu-latest
+    needs: [meta, docker-duckdb]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/floe-duckdb
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v7
+        with:
+          path: /tmp/digests
+          pattern: duckdb-digest-*
+          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:latest" \
+            $(for d in *; do printf '%s@sha256:%s ' "${IMAGE}" "$d"; done)
+      - name: Inspect
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+
+  build-duckdb-wheel:
+    name: Build floe-duckdb wheel (${{ matrix.target }} on ${{ matrix.os }})
+    needs: [meta, validate]
+    if: ${{ needs.meta.outputs.on_main == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners only. The bundled native DuckDB (C++) build does not
+          # compile in the manylinux/musllinux containers and cannot be cross-
+          # compiled, so these wheels are platform-tagged and published OFF PyPI
+          # (GitHub Release assets + a PEP 503 index), not to PyPI.
+          - os: ubuntu-latest
+            target: x86_64
+            manylinux: auto
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+          - os: ubuntu-24.04-arm
+            target: aarch64
+            manylinux: auto
+            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+          - os: macos-15-intel
+            target: x86_64
+            manylinux: "off"
+            before_script: ""
+          - os: macos-latest
+            target: aarch64
+            manylinux: "off"
+            before_script: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          # Build the DuckDB companion: same crate +duckdb, distinct module
+          # (floe._floe_duckdb) and dist name (floe-duckdb) via pyproject.duckdb.toml.
+          args: >-
+            --release
+            --strip
+            --features duckdb
+            -m crates/floe-python/Cargo.toml
+            --pyproject crates/floe-python/pyproject.duckdb.toml
+            --out dist
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          before-script-linux: ${{ matrix.before_script }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: duckdb-wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+
+  publish-duckdb-wheel:
+    name: Publish floe-duckdb wheels (off-PyPI)
+    needs: [meta, build-duckdb-wheel, release]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download duckdb wheels
+        uses: actions/download-artifact@v7
+        with:
+          path: duckdb-dist
+          pattern: duckdb-wheel-*
+          merge-multiple: true
+      - name: Attach wheels to the GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          files: duckdb-dist/*.whl
+      - name: Render PEP 503 index from all release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/render_pep503_index.py \
+            --repo "${{ github.repository }}" \
+            --out site/simple
+      - name: Publish index to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          # Keep any other gh-pages content (docs); only the simple/ tree is ours.
+          keep_files: true
 
   publish:
     runs-on: ubuntu-latest

@@ -144,8 +144,20 @@ class RunOutcome:
     def __repr__(self) -> str: ...
 
 # ---------------------------------------------------------------------------
+# Capability flags
+# ---------------------------------------------------------------------------
+
+HAS_DUCKDB: bool
+"""True only in the `+duckdb` build (the off-PyPI `floe-duckdb` companion)."""
+
+# ---------------------------------------------------------------------------
 # Core functions
 # ---------------------------------------------------------------------------
+
+def config_targets_duckdb(config_path: str) -> bool:
+    """True when the config writes to a DuckDB sink. Returns False if the config
+    cannot be loaded, so the normal run path surfaces the real error."""
+    ...
 
 def validate(
     config_path: str,

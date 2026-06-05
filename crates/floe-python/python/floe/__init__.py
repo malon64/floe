@@ -46,7 +46,7 @@ from floe._floe import (
     EntityConfig,
     RunOutcome,
     validate,
-    run,
+    run as _run,
     load_config,
     extract_config_env_vars,
     inspect_entity_state,
@@ -54,6 +54,49 @@ from floe._floe import (
     set_observer,
     clear_observer,
 )
+from floe import _floe as _lean
+
+# DuckDB sinks compile a bundled native build that is too large for PyPI, so the
+# published `floe` wheel is lean. DuckDB support ships as a separate off-PyPI
+# `floe-duckdb` wheel that installs a `floe._floe_duckdb` companion extension into
+# this same package. When a run targets a DuckDB sink and this is the lean build,
+# `run` transparently delegates to that companion, mirroring the lean `floe` CLI
+# re-execing the `floe-duckdb` binary. Install instructions for the companion:
+_DUCKDB_INSTALL_HINT = (
+    "this config writes to a DuckDB sink, but the installed `floe` wheel is the "
+    "lean build without DuckDB support and the `floe-duckdb` companion wheel is "
+    "not installed. Install it from the off-PyPI index, e.g. "
+    "`pip install floe-duckdb --extra-index-url "
+    "https://malon64.github.io/floe/simple/`, or use the "
+    "`ghcr.io/malon64/floe-duckdb` image."
+)
+
+
+def _duckdb_module():
+    """Return the `floe._floe_duckdb` companion extension, or None if absent."""
+    try:
+        from floe import _floe_duckdb
+
+        return _floe_duckdb
+    except ImportError:
+        return None
+
+
+def run(config_path, *args, **kwargs):
+    """Execute a floe pipeline.
+
+    Transparently delegates to the `floe-duckdb` companion when the config
+    targets a DuckDB sink and this lean build lacks native DuckDB support.
+    """
+    if not getattr(_lean, "HAS_DUCKDB", False) and _lean.config_targets_duckdb(
+        config_path
+    ):
+        companion = _duckdb_module()
+        if companion is None:
+            raise FloeConfigError(_DUCKDB_INSTALL_HINT)
+        return companion.run(config_path, *args, **kwargs)
+    return _run(config_path, *args, **kwargs)
+
 
 __all__ = [
     "__version__",

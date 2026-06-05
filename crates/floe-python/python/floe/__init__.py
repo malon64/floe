@@ -119,8 +119,14 @@ def run(config_path, *args, **kwargs):
     Transparently delegates to the `floe-duckdb` companion when the config
     targets a DuckDB sink and this lean build lacks native DuckDB support.
     """
-    if not getattr(_lean, "HAS_DUCKDB", False) and _lean.config_targets_duckdb(
-        config_path
+    # Dry runs resolve inputs and return previews before any sink write, so they
+    # never touch the DuckDB writer — run them on the lean build without the
+    # companion. `dry_run` is the 3rd positional arg (entities, dry_run, ...).
+    dry_run = kwargs.get("dry_run", args[1] if len(args) >= 2 else False)
+    if (
+        not dry_run
+        and not getattr(_lean, "HAS_DUCKDB", False)
+        and _lean.config_targets_duckdb(config_path)
     ):
         companion = _duckdb_module()
         if companion is None:

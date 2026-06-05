@@ -37,6 +37,14 @@ All notable changes to Floe are documented in this file.
 
 - **`floe` 0.5.1**: version bump for this release.
 
+## dagster-floe v0.2.2
+
+- **Expose public job run-config helpers for mixed asset jobs** (closes #376, PR #378):
+  - `resolve_execution_config(execution)` — derives the Dagster multiprocess run-config dict from a parsed `ManifestExecution` object; returns `None` when no concurrency constraint is set.
+  - `build_job_run_config_from_manifest(manifest_path)` — convenience wrapper that loads the manifest and delegates to `resolve_execution_config`.
+  - Both are exported from the top-level `floe_dagster` package.
+  - Users composing mixed Dagster asset jobs (Floe + dlt + dbt + other assets) can now pass the manifest-derived run config directly to `define_asset_job(config=...)` without duplicating internal logic.
+
 ## v0.5.0
 
 - **Accepted sinks are now opt-in Cargo features** (PR #375):

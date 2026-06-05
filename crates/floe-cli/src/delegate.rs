@@ -93,10 +93,13 @@ fn find_companion() -> Option<PathBuf> {
         }
     }
 
-    // 2. PATH, skipping empty entries and `.` which both denote the CWD.
+    // 2. PATH, considering only absolute entries. Any non-absolute entry
+    //    (empty, ".", "bin", "./.venv/bin", "..") is resolved relative to the
+    //    CWD, which must never be trusted for companion lookup (git-lfs CVE
+    //    GHSA-6rw3-3whw-jvjj), so skip them all.
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            if dir.as_os_str().is_empty() || dir == Path::new(".") {
+            if !dir.is_absolute() {
                 continue;
             }
             let candidate = dir.join(&name);

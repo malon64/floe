@@ -92,6 +92,37 @@ fn lean_run_does_not_resolve_companion_from_cwd() {
 
 #[cfg(unix)]
 #[test]
+fn lean_run_does_not_resolve_companion_from_relative_path_entry() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = write_duckdb_config(dir.path());
+
+    // A relative PATH entry ("bin") resolves against the CWD, so an executable
+    // dropped at ./bin/floe-duckdb must NOT be trusted (git-lfs CVE
+    // GHSA-6rw3-3whw-jvjj). The resolver must skip non-absolute PATH entries.
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("mkdir");
+    let stub = bin_dir.join("floe-duckdb");
+    fs::write(&stub, "#!/bin/sh\necho HIJACKED\nexit 0\n").expect("write stub");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&stub).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&stub, perms).unwrap();
+    }
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["run", "-c"])
+        .arg(&config_path)
+        .current_dir(dir.path())
+        .env("PATH", "bin")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("HIJACKED").not())
+        .stderr(predicate::str::contains("floe-duckdb"));
+}
+
+#[cfg(unix)]
+#[test]
 fn lean_run_delegates_to_companion_on_path() {
     let dir = tempdir().expect("tempdir");
     let config_path = write_duckdb_config(dir.path());

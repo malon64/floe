@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from dagster import AssetSelection, Definitions, define_asset_job
 
 from .assets import build_floe_asset_defs
-from .manifest import load_manifest
+from .manifest import ManifestExecution, load_manifest
 from .runner import LocalRunner, Runner
 
 
@@ -120,15 +120,9 @@ def build_definitions_from_manifest_paths(
                 "name": manifest_job_name,
                 "selection": selection,
             }
-            max_concurrent = _resolve_max_concurrent(manifest.execution.orchestration)
-            if max_concurrent is not None:
-                job_kwargs["config"] = {
-                    "execution": {
-                        "config": {
-                            "multiprocess": {"max_concurrent": max_concurrent}
-                        }
-                    }
-                }
+            run_config = resolve_execution_config(manifest.execution)
+            if run_config is not None:
+                job_kwargs["config"] = run_config
             jobs.append(define_asset_job(**job_kwargs))
 
     return Definitions(assets=assets_defs, jobs=jobs)
@@ -143,6 +137,32 @@ def _resolve_max_concurrent(orchestration: Any) -> int | None:
     if orchestration.max_concurrent_entities is not None:
         return orchestration.max_concurrent_entities
     return None
+
+
+def resolve_execution_config(
+    execution: ManifestExecution | None,
+) -> dict[str, Any] | None:
+    """Return a Dagster job run-config dict derived from a manifest execution block.
+
+    Returns ``None`` when the manifest carries no concurrency constraint.
+    """
+    if execution is None:
+        return None
+    max_concurrent = _resolve_max_concurrent(execution.orchestration)
+    if max_concurrent is None:
+        return None
+    return {"execution": {"config": {"multiprocess": {"max_concurrent": max_concurrent}}}}
+
+
+def build_job_run_config_from_manifest(
+    manifest_path: str,
+) -> dict[str, Any] | None:
+    """Load a Floe manifest and return its Dagster job run-config dict.
+
+    Returns ``None`` when the manifest carries no concurrency constraint.
+    """
+    manifest = load_manifest(manifest_path)
+    return resolve_execution_config(manifest.execution)
 
 
 def _default_job_name(manifest_path: str, manifest_id: str) -> str:

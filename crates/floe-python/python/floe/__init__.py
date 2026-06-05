@@ -51,8 +51,8 @@ from floe._floe import (
     extract_config_env_vars,
     inspect_entity_state,
     reset_entity_state,
-    set_observer,
-    clear_observer,
+    set_observer as _lean_set_observer,
+    clear_observer as _lean_clear_observer,
 )
 from floe import _floe as _lean
 
@@ -70,6 +70,37 @@ _DUCKDB_INSTALL_HINT = (
     "https://malon64.github.io/floe/simple/`, or use the "
     "`ghcr.io/malon64/floe-duckdb` image."
 )
+
+
+# The lean `_floe` and companion `_floe_duckdb` are separate native libraries
+# with independent observer state, so the registered callback must be mirrored
+# into the companion before a delegated run or its progress/log events are lost.
+# Track the active observer here so delegation can re-install it.
+_current_observer = None
+
+
+def set_observer(callback):
+    """Register a callback for live run/validation events.
+
+    Mirrors into the DuckDB companion (if loaded) so delegated DuckDB runs
+    emit the same events as native runs.
+    """
+    global _current_observer
+    _current_observer = callback
+    companion = _duckdb_module()
+    if companion is not None:
+        companion.set_observer(callback)
+    return _lean_set_observer(callback)
+
+
+def clear_observer():
+    """Remove the previously registered event callback."""
+    global _current_observer
+    _current_observer = None
+    companion = _duckdb_module()
+    if companion is not None:
+        companion.clear_observer()
+    return _lean_clear_observer()
 
 
 def _duckdb_module():
@@ -94,6 +125,8 @@ def run(config_path, *args, **kwargs):
         companion = _duckdb_module()
         if companion is None:
             raise FloeConfigError(_DUCKDB_INSTALL_HINT)
+        if _current_observer is not None:
+            companion.set_observer(_current_observer)
         return companion.run(config_path, *args, **kwargs)
     return _run(config_path, *args, **kwargs)
 

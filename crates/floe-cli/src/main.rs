@@ -503,12 +503,17 @@ fn main() -> FloeResult<()> {
 
                 // Re-exec the floe-duckdb companion before any work when this lean
                 // build is asked to run a DuckDB sink (no-op in the full build).
-                if let Some((cfg, _)) = floe_core::read_manifest_text(&manifest_path_str)
-                    .ok()
-                    .and_then(|json| floe_core::config_from_manifest_json(&json).ok())
-                {
-                    if let Err(err) = delegate::maybe_delegate_duckdb(&cfg) {
-                        exit_with_error(err);
+                // Dry runs never reach the DuckDB writer (run resolves inputs and
+                // returns previews before any sink write), so they run on the lean
+                // build without the companion.
+                if !dry_run {
+                    if let Some((cfg, _)) = floe_core::read_manifest_text(&manifest_path_str)
+                        .ok()
+                        .and_then(|json| floe_core::config_from_manifest_json(&json).ok())
+                    {
+                        if let Err(err) = delegate::maybe_delegate_duckdb(&cfg) {
+                            exit_with_error(err);
+                        }
                     }
                 }
 
@@ -698,9 +703,14 @@ fn main() -> FloeResult<()> {
             );
             // Re-exec the floe-duckdb companion before any work when this lean
             // build is asked to run a DuckDB sink (no-op in the full build).
-            if let Ok(ref cfg) = early_config {
-                if let Err(err) = delegate::maybe_delegate_duckdb(cfg) {
-                    exit_with_error(err);
+            // Dry runs never reach the DuckDB writer (run resolves inputs and
+            // returns previews before any sink write), so they run on the lean
+            // build without the companion.
+            if !dry_run {
+                if let Ok(ref cfg) = early_config {
+                    if let Err(err) = delegate::maybe_delegate_duckdb(cfg) {
+                        exit_with_error(err);
+                    }
                 }
             }
 

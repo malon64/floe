@@ -2,6 +2,28 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.0
+
+- **Accepted sinks are now opt-in Cargo features** (PR #375):
+  - `delta`, `iceberg`, and `duckdb` are each gated behind their own Cargo feature in `floe-core`.
+    Parquet (via Polars) is always compiled; the heavy sink dependencies are pulled in only when
+    requested. `floe-core`'s default features are `["delta", "iceberg"]`, and `floe-cli` /
+    `floe-python` forward the same defaults — so the shipped CLI and published wheels keep
+    Delta + Iceberg support and stay lean.
+  - **`duckdb` is opt-in everywhere.** The bundled native DuckDB build inflated compile times and
+    broke the manylinux/musllinux wheel cross-compile (and pushed wheels past PyPI's per-file size
+    limit), so it is excluded from default builds. Enable it from source with `--features duckdb`.
+  - **Breaking for library consumers:** code depending on `floe-core` with `default-features = false`
+    no longer compiles any sink; add the features you need (`delta`, `iceberg`, `duckdb`).
+  - Config validation and manifest generation accept any *known* sink format — including one whose
+    feature is not compiled into the current build — so a lean build still validates and round-trips
+    a config it cannot execute. Only the runtime write path enforces the feature, failing with a
+    clear `rebuild with --features <sink>` hint.
+  - CI now compiles and tests each sink selectively (path-filtered jobs with isolated caches), so the
+    expensive DuckDB bundle is built only when DuckDB code changes.
+
+- **`floe` 0.5.0**: version bump for this release.
+
 ## v0.4.7
 
 - **DuckDB accepted sink** (closes #248, PR #372):

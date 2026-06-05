@@ -123,6 +123,43 @@ fn lean_run_does_not_resolve_companion_from_relative_path_entry() {
 
 #[cfg(unix)]
 #[test]
+fn lean_run_skips_non_executable_companion_and_continues_search() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = write_duckdb_config(dir.path());
+
+    // A non-executable file named like the companion sits earlier in PATH. A
+    // correct resolver must skip it (it cannot be re-execed) and keep searching,
+    // mirroring how a shell resolves a command on PATH.
+    use std::os::unix::fs::PermissionsExt;
+    let first_dir = dir.path().join("first");
+    fs::create_dir_all(&first_dir).expect("mkdir");
+    let non_exec = first_dir.join("floe-duckdb");
+    fs::write(&non_exec, "not executable\n").expect("write non-exec");
+    let mut perms = fs::metadata(&non_exec).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&non_exec, perms).unwrap();
+
+    let second_dir = dir.path().join("second");
+    fs::create_dir_all(&second_dir).expect("mkdir");
+    let stub = second_dir.join("floe-duckdb");
+    fs::write(&stub, "#!/bin/sh\necho DELEGATED_OK\nexit 0\n").expect("write stub");
+    let mut perms = fs::metadata(&stub).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&stub, perms).unwrap();
+
+    let path = std::env::join_paths([&first_dir, &second_dir]).expect("join paths");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["run", "-c"])
+        .arg(&config_path)
+        .env("PATH", &path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("DELEGATED_OK"));
+}
+
+#[cfg(unix)]
+#[test]
 fn lean_run_delegates_to_companion_on_path() {
     let dir = tempdir().expect("tempdir");
     let config_path = write_duckdb_config(dir.path());

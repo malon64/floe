@@ -6,10 +6,13 @@ FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 
-# Cache dependencies first.
+# Cache dependencies first. Every workspace member manifest must be present or
+# `cargo fetch` fails loading the workspace (the root Cargo.toml lists
+# crates/floe-python as a member too).
 COPY Cargo.toml Cargo.lock ./
 COPY crates/floe-core/Cargo.toml crates/floe-core/Cargo.toml
 COPY crates/floe-cli/Cargo.toml crates/floe-cli/Cargo.toml
+COPY crates/floe-python/Cargo.toml crates/floe-python/Cargo.toml
 
 RUN cargo fetch --locked
 

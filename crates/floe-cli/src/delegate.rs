@@ -88,7 +88,7 @@ fn find_companion() -> Option<PathBuf> {
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
         let candidate = dir.join(&name);
-        if candidate.is_file() {
+        if is_executable_file(&candidate) {
             return Some(candidate);
         }
     }
@@ -103,11 +103,33 @@ fn find_companion() -> Option<PathBuf> {
                 continue;
             }
             let candidate = dir.join(&name);
-            if candidate.is_file() {
+            if is_executable_file(&candidate) {
                 return Some(candidate);
             }
         }
     }
 
     None
+}
+
+/// True only for a regular file that is actually executable. A non-executable
+/// file named like the companion (e.g. a stray data file earlier in PATH) must
+/// be skipped so the search continues to a real executable, mirroring how a
+/// shell resolves a command on PATH.
+#[cfg(not(feature = "duckdb"))]
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|meta| meta.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }

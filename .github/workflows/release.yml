@@ -284,17 +284,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Stage DuckDB build manifest
+        shell: bash
+        # maturin has no flag to select an alternate pyproject; it always reads
+        # `pyproject.toml` next to the manifest. Swap in the companion build
+        # manifest (dist name `floe-duckdb`, module `floe._floe_duckdb`, no
+        # python-source) so this job builds the heavy companion wheel. The
+        # workspace is shared with the maturin-action container, so this host
+        # copy is visible inside it.
+        run: cp crates/floe-python/pyproject.duckdb.toml crates/floe-python/pyproject.toml
       - uses: PyO3/maturin-action@v1
         with:
           command: build
           # Build the DuckDB companion: same crate +duckdb, distinct module
-          # (floe._floe_duckdb) and dist name (floe-duckdb) via pyproject.duckdb.toml.
+          # (floe._floe_duckdb) and dist name (floe-duckdb) from the staged
+          # pyproject.toml above.
           args: >-
             --release
             --strip
             --features duckdb
             -m crates/floe-python/Cargo.toml
-            --pyproject crates/floe-python/pyproject.duckdb.toml
             --out dist
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}

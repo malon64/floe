@@ -7,7 +7,8 @@ containers, so it is published OFF PyPI as GitHub Release assets. This script
 builds a self-hosted simple index (à la ``download.pytorch.org``) that ``pip``
 can consume::
 
-    pip install floe-duckdb --extra-index-url https://malon64.github.io/floe/simple/
+    pip install floe-python  # lean wheel from PyPI (provides the companion's dependency)
+    pip install floe-duckdb --index-url https://malon64.github.io/floe/simple/
 
 It enumerates every ``floe_duckdb-*.whl`` asset across ALL GitHub Releases via the
 GitHub REST API so the regenerated index always lists the full version history,

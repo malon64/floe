@@ -65,11 +65,18 @@ from floe import _floe as _lean
 # this same package. When a run targets a DuckDB sink and this is the lean build,
 # `run` transparently delegates to that companion, mirroring the lean `floe` CLI
 # re-execing the `floe-duckdb` binary. Install instructions for the companion:
+# `--index-url` (not `--extra-index-url`) so pip resolves the `floe-duckdb`
+# name ONLY from the off-PyPI index: `floe-duckdb` is intentionally absent from
+# PyPI, and `--extra-index-url` would leave PyPI in play, letting a squatted /
+# higher-version `floe-duckdb` there shadow the real companion (dependency
+# confusion). The companion's `floe-python` dependency is already satisfied
+# here — this hint only fires from an installed lean `floe` — so replacing PyPI
+# for this single install does not break dependency resolution.
 _DUCKDB_INSTALL_HINT = (
     "this config writes to a DuckDB sink, but the installed `floe` wheel is the "
     "lean build without DuckDB support and the `floe-duckdb` companion wheel is "
     "not installed. Install it from the off-PyPI index, e.g. "
-    "`pip install floe-duckdb --extra-index-url "
+    "`pip install floe-duckdb --index-url "
     "https://malon64.github.io/floe/simple/`, or use the "
     "`ghcr.io/malon64/floe-duckdb` image."
 )

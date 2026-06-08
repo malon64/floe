@@ -27,7 +27,10 @@ All notable changes to Floe are documented in this file.
     exceeds PyPI's 100 MB per-file limit and does not build in the manylinux/musllinux
     containers, the companion wheel is published off PyPI (GitHub Release assets + a
     PEP 503 simple index), à la `download.pytorch.org`:
-    `pip install floe-duckdb --extra-index-url https://malon64.github.io/floe/simple/`.
+    `pip install floe-python` then
+    `pip install floe-duckdb --index-url https://malon64.github.io/floe/simple/`
+    (`--index-url`, not `--extra-index-url`, so a squatted `floe-duckdb` on PyPI can't
+    shadow the off-PyPI companion).
   - No engine changes: this release only changes *distribution*. The DuckDB sink
     behavior, config surface, and supported targets (Local + MotherDuck) are identical
     to v0.5.0. DuckLake and remote-DuckDB (Quack) sinks remain deferred (they require a

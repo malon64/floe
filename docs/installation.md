@@ -111,8 +111,15 @@ off-PyPI index (the companion is too large for PyPI):
 
 ```bash
 pip install floe-python
-pip install floe-duckdb --extra-index-url https://malon64.github.io/floe/simple/
+pip install floe-duckdb --index-url https://malon64.github.io/floe/simple/
 ```
+
+> Use `--index-url` (not `--extra-index-url`) for the companion: `floe-duckdb` is
+> intentionally **not** on PyPI, and `--extra-index-url` would keep PyPI in play,
+> letting a squatted or higher-version `floe-duckdb` there shadow the real
+> off-PyPI wheel (dependency confusion). The companion's `floe-python` dependency
+> is already satisfied by the previous step, so consulting only the off-PyPI index
+> for the companion install resolves cleanly.
 
 The companion installs a `floe._floe_duckdb` extension into the same `floe` package.
 `floe.run(...)` then transparently delegates a DuckDB-sink run to it; without the

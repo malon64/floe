@@ -16,7 +16,7 @@ of:
 - a `floe-duckdb` companion binary on your `PATH` (lean `floe run` auto-re-execs it when
   a config targets a DuckDB sink), or
 - the off-PyPI `floe-duckdb` Python wheel
-  (`pip install floe-duckdb --extra-index-url https://malon64.github.io/floe/simple/`).
+  (`pip install floe-duckdb --index-url https://malon64.github.io/floe/simple/`).
 
 See [installation → DuckDB support](../installation.md#duckdb-support-companion-distribution)
 for details. A lean build still *validates* and round-trips a DuckDB-sink config; only the

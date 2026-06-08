@@ -158,6 +158,73 @@ fn lean_run_skips_non_executable_companion_and_continues_search() {
         .stdout(predicate::str::contains("DELEGATED_OK"));
 }
 
+/// A config whose ONLY DuckDB reference is the rejected sink. Rejected sinks
+/// accept `csv` only, so this is an invalid config — it must NOT trigger
+/// companion delegation.
+fn write_rejected_only_duckdb_config(dir: &std::path::Path) -> std::path::PathBuf {
+    let config_path = dir.join("rejected-config.yml");
+    let body = format!(
+        r#"version: "0.1"
+report:
+  path: "{report}"
+entities:
+  - name: customers
+    source:
+      format: csv
+      path: "{input}"
+    sink:
+      accepted:
+        format: parquet
+        path: "{accepted}"
+      rejected:
+        format: duckdb
+        path: "{rejected}"
+    policy:
+      severity: warn
+    schema:
+      columns:
+        - name: id
+          type: string
+"#,
+        report = dir.join("report").display(),
+        input = dir.join("in.csv").display(),
+        accepted = dir.join("accepted.parquet").display(),
+        rejected = dir.join("rejected.duckdb").display(),
+    );
+    fs::write(&config_path, body).expect("write config");
+    config_path
+}
+
+/// A `rejected.format: duckdb` config is invalid (rejected sinks accept `csv`
+/// only), so the lean binary must NOT delegate to the companion even when one is
+/// present on PATH. It must instead surface the real unsupported-rejected-sink
+/// validation error rather than a misleading companion-install hint.
+#[cfg(unix)]
+#[test]
+fn lean_run_with_only_rejected_duckdb_sink_does_not_delegate() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = write_rejected_only_duckdb_config(dir.path());
+
+    // A stub companion on PATH that would print a marker if (wrongly) re-execed.
+    use std::os::unix::fs::PermissionsExt;
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("mkdir");
+    let stub = bin_dir.join("floe-duckdb");
+    fs::write(&stub, "#!/bin/sh\necho DELEGATED_OK\nexit 0\n").expect("write stub");
+    let mut perms = fs::metadata(&stub).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&stub, perms).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    cmd.args(["run", "-c"])
+        .arg(&config_path)
+        .env("PATH", &bin_dir)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("DELEGATED_OK").not())
+        .stderr(predicate::str::contains("sink.rejected.format=duckdb"));
+}
+
 #[cfg(unix)]
 #[test]
 fn lean_run_delegates_to_companion_on_path() {

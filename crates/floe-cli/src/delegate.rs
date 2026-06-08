@@ -22,17 +22,18 @@ use floe_core::FloeResult;
 #[cfg(not(feature = "duckdb"))]
 const COMPANION_STEM: &str = "floe-duckdb";
 
-/// True when any entity writes to a DuckDB sink (accepted or rejected target).
+/// True when any entity writes to a DuckDB *accepted* sink. Only the accepted
+/// sink can target DuckDB: rejected sinks accept `csv` only
+/// (`format::rejected_sink_adapter`), so a `rejected.format: duckdb` is always
+/// invalid. Keying delegation on the rejected format too would re-exec the
+/// companion for such a config and surface a misleading "install the companion"
+/// hint instead of the real unsupported-rejected-sink validation error.
 #[cfg_attr(feature = "duckdb", allow(dead_code))]
 pub fn config_targets_duckdb(config: &RootConfig) -> bool {
-    config.entities.iter().any(|entity| {
-        entity.sink.accepted.format == "duckdb"
-            || entity
-                .sink
-                .rejected
-                .as_ref()
-                .is_some_and(|rejected| rejected.format == "duckdb")
-    })
+    config
+        .entities
+        .iter()
+        .any(|entity| entity.sink.accepted.format == "duckdb")
 }
 
 /// In the full build DuckDB is compiled in, so there is nothing to delegate.

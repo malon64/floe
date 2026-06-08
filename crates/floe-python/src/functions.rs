@@ -105,13 +105,18 @@ pub fn load_config(config_path: &str) -> PyResult<PyRootConfig> {
         .map_err(to_py_err)
 }
 
-/// True when the config writes to a DuckDB sink (accepted or rejected target).
-/// The lean `floe` Python wrapper calls this to decide whether a run must be
-/// delegated to the `floe._floe_duckdb` companion module. The same `profile_vars`
-/// / `profile_path` the run will use are applied first, so a sink format selected
-/// through a profile variable (e.g. `format: "{{SINK_FORMAT}}"`) is detected and
-/// delegated rather than silently run on the lean build. A load failure returns
-/// `false` so the lean run path surfaces the real error rather than masking it.
+/// True when the config writes to a DuckDB *accepted* sink. The lean `floe`
+/// Python wrapper calls this to decide whether a run must be delegated to the
+/// `floe._floe_duckdb` companion module. Only the accepted sink can target
+/// DuckDB: rejected sinks accept `csv` only, so a `rejected.format: duckdb` is
+/// always invalid and must fall through to the lean run path so its real
+/// unsupported-rejected-sink validation error surfaces, rather than being
+/// delegated (which would yield a misleading companion-install hint). The same
+/// `profile_vars` / `profile_path` the run will use are applied first, so a sink
+/// format selected through a profile variable (e.g. `format: "{{SINK_FORMAT}}"`)
+/// is detected and delegated rather than silently run on the lean build. A load
+/// failure returns `false` so the lean run path surfaces the real error rather
+/// than masking it.
 #[pyfunction]
 #[pyo3(signature = (config_path, profile_vars=None, profile_path=None))]
 pub fn config_targets_duckdb(
@@ -126,14 +131,10 @@ pub fn config_targets_duckdb(
         Err(_) => return false,
     };
     match floe_core::load_config_with_profile_vars(path, &vars) {
-        Ok(config) => config.entities.iter().any(|entity| {
-            entity.sink.accepted.format == "duckdb"
-                || entity
-                    .sink
-                    .rejected
-                    .as_ref()
-                    .is_some_and(|rejected| rejected.format == "duckdb")
-        }),
+        Ok(config) => config
+            .entities
+            .iter()
+            .any(|entity| entity.sink.accepted.format == "duckdb"),
         Err(_) => false,
     }
 }

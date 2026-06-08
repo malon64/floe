@@ -2,6 +2,21 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.2
+
+- **Fixes the v0.5.1 release pipeline so the DuckDB companion actually ships.** v0.5.1
+  published the lean `floe` (PyPI wheel + `ghcr.io/malon64/floe` image) correctly, but
+  the `floe-duckdb` companion image and off-PyPI wheel never published because the
+  companion image build failed. `Dockerfile.duckdb`'s dependency-cache layer copied
+  `crates/floe-python/Cargo.toml` (which declares an explicit `[lib] name = "_floe"`)
+  without its source, so `cargo fetch` failed parsing the workspace manifest
+  (*"can't find library `_floe`"*). The fetch layer now stubs
+  `crates/floe-python/src/lib.rs` before fetching; the real source replaces it in the
+  subsequent `COPY`. This path was invisible to release dry-runs because the Docker
+  jobs are gated off on dry-runs.
+- No engine or API changes: distribution-only patch. The DuckDB sink behavior, config
+  surface, and supported targets (Local + MotherDuck) are identical to v0.5.0/v0.5.1.
+
 ## v0.5.1
 
 - **DuckDB is now available to non-Rust users via a lean-primary + heavy-companion

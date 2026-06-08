@@ -14,6 +14,12 @@ COPY crates/floe-core/Cargo.toml crates/floe-core/Cargo.toml
 COPY crates/floe-cli/Cargo.toml crates/floe-cli/Cargo.toml
 COPY crates/floe-python/Cargo.toml crates/floe-python/Cargo.toml
 
+# floe-python declares an explicit [lib] (name = "_floe"), which cargo validates
+# while parsing the workspace manifest — so its lib source must exist even for
+# the dependency-only fetch layer. Stub it; the real source replaces it via the
+# `COPY crates crates` below.
+RUN mkdir -p crates/floe-python/src && touch crates/floe-python/src/lib.rs
+
 RUN cargo fetch --locked
 
 # Copy the full source and build with the duckdb feature on top of the default

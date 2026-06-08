@@ -319,7 +319,10 @@ jobs:
 
   publish-duckdb-wheel:
     name: Publish floe-duckdb wheels (off-PyPI)
-    needs: [meta, build-duckdb-wheel, release]
+    # Wait for publish-python: the companion wheel pins `floe-python==<version>`,
+    # so advertising it in the PEP 503 index before the matching lean wheel is
+    # live on PyPI would leave pip unable to resolve the dependency.
+    needs: [meta, build-duckdb-wheel, release, publish-python]
     if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     runs-on: ubuntu-latest
     env:

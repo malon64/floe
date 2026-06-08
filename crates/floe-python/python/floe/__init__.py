@@ -104,13 +104,22 @@ def clear_observer():
 
 
 def _duckdb_module():
-    """Return the `floe._floe_duckdb` companion extension, or None if absent."""
+    """Return the `floe._floe_duckdb` companion extension, or None if not installed.
+
+    Only a genuinely absent companion maps to None. If the companion IS installed
+    but its native extension fails to load (incompatible libc, unresolved symbol),
+    the import raises a plain ImportError (not ModuleNotFoundError); that is allowed
+    to propagate so the real loader error surfaces instead of a misleading
+    "companion wheel is not installed" hint.
+    """
     try:
         from floe import _floe_duckdb
 
         return _floe_duckdb
-    except ImportError:
-        return None
+    except ModuleNotFoundError as exc:
+        if exc.name in ("floe._floe_duckdb", "_floe_duckdb"):
+            return None
+        raise
 
 
 def run(config_path, *args, **kwargs):

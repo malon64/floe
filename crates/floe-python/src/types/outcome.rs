@@ -48,6 +48,24 @@ impl From<DryRunEntityPreview> for DryRunPreviewData {
     }
 }
 
+impl DryRunPreviewData {
+    fn from_dict(d: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(DryRunPreviewData {
+            name: d.get_item("name")?.extract()?,
+            input_path: d.get_item("input_path")?.extract()?,
+            input_format: d.get_item("input_format")?.extract()?,
+            accepted_path: d.get_item("accepted_path")?.extract()?,
+            accepted_format: d.get_item("accepted_format")?.extract()?,
+            rejected_path: d.get_item("rejected_path")?.extract()?,
+            rejected_format: d.get_item("rejected_format")?.extract()?,
+            archive_path: d.get_item("archive_path")?.extract()?,
+            archive_storage: d.get_item("archive_storage")?.extract()?,
+            report_file: d.get_item("report_file")?.extract()?,
+            scanned_files: d.get_item("scanned_files")?.extract()?,
+        })
+    }
+}
+
 impl TryFrom<RunOutcome> for PyRunOutcome {
     type Error = serde_json::Error;
 
@@ -79,6 +97,46 @@ fn json_loads<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
 
 #[pymethods]
 impl PyRunOutcome {
+    /// Rebuild a lean `RunOutcome` from the `to_dict()` payload of a companion's
+    /// `RunOutcome`. The lean `_floe` and companion `_floe_duckdb` are separate
+    /// native libraries, so a companion-returned outcome is a *different* Python
+    /// class. Delegated DuckDB runs round-trip through this so callers always get
+    /// the lean `RunOutcome` type they imported, not the companion's.
+    #[staticmethod]
+    fn from_dict(data: Bound<'_, PyAny>) -> PyResult<Self> {
+        let py = data.py();
+        let json = py.import_bound("json")?;
+        let dumps = |obj: Bound<'_, PyAny>| -> PyResult<String> {
+            json.call_method1("dumps", (obj,))?.extract()
+        };
+        let run_id: String = data.get_item("run_id")?.extract()?;
+        let report_base_path: Option<String> = data.get_item("report_base_path")?.extract()?;
+        let dry_run: bool = data.get_item("dry_run")?.extract()?;
+        let summary_json = dumps(data.get_item("summary")?)?;
+        let mut entity_reports_json = Vec::new();
+        for item in data.get_item("entity_reports")?.iter()? {
+            entity_reports_json.push(dumps(item?)?);
+        }
+        let previews = data.get_item("dry_run_previews")?;
+        let dry_run_previews_data = if previews.is_none() {
+            None
+        } else {
+            let mut v = Vec::new();
+            for item in previews.iter()? {
+                v.push(DryRunPreviewData::from_dict(&item?)?);
+            }
+            Some(v)
+        };
+        Ok(PyRunOutcome {
+            run_id,
+            report_base_path,
+            dry_run,
+            summary_json,
+            entity_reports_json,
+            dry_run_previews_data,
+        })
+    }
+
     #[getter]
     fn summary(&self, py: Python<'_>) -> PyResult<PyObject> {
         Ok(json_loads(py, &self.summary_json)?.into_py(py))

@@ -31,6 +31,7 @@ Run floe pipelines at Rust speed from Python notebooks::
 
 import importlib
 import importlib.util
+import sys
 from importlib.metadata import version as _pkg_version
 
 try:
@@ -84,12 +85,17 @@ _current_observer = None
 def set_observer(callback):
     """Register a callback for live run/validation events.
 
-    Mirrors into the DuckDB companion (if loaded) so delegated DuckDB runs
-    emit the same events as native runs.
+    Mirrors into the DuckDB companion only if it is *already* loaded, so
+    delegated DuckDB runs emit the same events as native runs. Registering an
+    observer must not trigger a companion import: if the companion is installed
+    but its native extension fails to load, that error should surface when a
+    DuckDB run is actually attempted, not as a side effect of setting an
+    observer. `run` re-installs the tracked observer into the companion right
+    before delegating, so a companion loaded later still gets the callback.
     """
     global _current_observer
     _current_observer = callback
-    companion = _duckdb_module()
+    companion = _loaded_duckdb_module()
     if companion is not None:
         companion.set_observer(callback)
     return _lean_set_observer(callback)
@@ -99,10 +105,20 @@ def clear_observer():
     """Remove the previously registered event callback."""
     global _current_observer
     _current_observer = None
-    companion = _duckdb_module()
+    companion = _loaded_duckdb_module()
     if companion is not None:
         companion.clear_observer()
     return _lean_clear_observer()
+
+
+def _loaded_duckdb_module():
+    """Return the companion module only if it is already imported, else None.
+
+    Unlike `_duckdb_module`, this never triggers an import, so it cannot raise a
+    companion load error. Used on paths (observer registration) where a broken
+    companion must not surface until a DuckDB run is actually attempted.
+    """
+    return sys.modules.get("floe._floe_duckdb")
 
 
 def _duckdb_module():
@@ -149,8 +165,33 @@ def run(config_path, *args, **kwargs):
             raise FloeConfigError(_DUCKDB_INSTALL_HINT)
         if _current_observer is not None:
             companion.set_observer(_current_observer)
-        return companion.run(config_path, *args, **kwargs)
+        try:
+            outcome = companion.run(config_path, *args, **kwargs)
+        except companion.FloeError as exc:
+            raise _translate_companion_error(exc) from exc
+        # The companion is a separate native library, so its RunOutcome is a
+        # distinct Python class. Round-trip through the dict form so callers get
+        # the lean `RunOutcome` type they imported from `floe`.
+        return RunOutcome.from_dict(outcome.to_dict())
     return _run(config_path, *args, **kwargs)
+
+
+# The companion's exception classes are distinct objects from the lean ones
+# (separate native libraries), so `except floe.FloeRunError` on a caller's side
+# would not catch a companion-raised error. Map each companion exception to the
+# matching lean class by name so delegated runs raise the types callers expect.
+_LEAN_EXCEPTIONS = {
+    "FloeConfigError": FloeConfigError,
+    "FloeRunError": FloeRunError,
+    "FloeStorageError": FloeStorageError,
+    "FloeIoError": FloeIoError,
+    "FloeError": FloeError,
+}
+
+
+def _translate_companion_error(exc):
+    lean_cls = _LEAN_EXCEPTIONS.get(type(exc).__name__, FloeError)
+    return lean_cls(str(exc))
 
 
 __all__ = [

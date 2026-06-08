@@ -107,12 +107,25 @@ pub fn load_config(config_path: &str) -> PyResult<PyRootConfig> {
 
 /// True when the config writes to a DuckDB sink (accepted or rejected target).
 /// The lean `floe` Python wrapper calls this to decide whether a run must be
-/// delegated to the `floe._floe_duckdb` companion module. A load failure returns
+/// delegated to the `floe._floe_duckdb` companion module. The same `profile_vars`
+/// / `profile_path` the run will use are applied first, so a sink format selected
+/// through a profile variable (e.g. `format: "{{SINK_FORMAT}}"`) is detected and
+/// delegated rather than silently run on the lean build. A load failure returns
 /// `false` so the lean run path surfaces the real error rather than masking it.
 #[pyfunction]
-pub fn config_targets_duckdb(config_path: &str) -> bool {
+#[pyo3(signature = (config_path, profile_vars=None, profile_path=None))]
+pub fn config_targets_duckdb(
+    config_path: &str,
+    profile_vars: Option<HashMap<String, String>>,
+    profile_path: Option<String>,
+) -> bool {
     let path = Path::new(config_path);
-    match floe_core::load_config(path) {
+    let vars = match load_optional_profile(profile_path, profile_vars) {
+        Ok(Some(profile)) => profile.variables,
+        Ok(None) => HashMap::new(),
+        Err(_) => return false,
+    };
+    match floe_core::load_config_with_profile_vars(path, &vars) {
         Ok(config) => config.entities.iter().any(|entity| {
             entity.sink.accepted.format == "duckdb"
                 || entity

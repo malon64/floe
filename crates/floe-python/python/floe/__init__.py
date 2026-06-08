@@ -121,12 +121,20 @@ def run(config_path, *args, **kwargs):
     """
     # Dry runs resolve inputs and return previews before any sink write, so they
     # never touch the DuckDB writer — run them on the lean build without the
-    # companion. `dry_run` is the 3rd positional arg (entities, dry_run, ...).
+    # companion. Positional order mirrors the native `run`:
+    # (config_path, entities, dry_run, run_id, full_refresh, profile_vars, profile_path).
     dry_run = kwargs.get("dry_run", args[1] if len(args) >= 2 else False)
+    # The sink format can be selected through a profile variable (e.g.
+    # `format: "{{SINK_FORMAT}}"`), so the delegation check must apply the same
+    # profile inputs as the run or it would miss the DuckDB sink and run lean.
+    profile_vars = kwargs.get("profile_vars", args[4] if len(args) >= 5 else None)
+    profile_path = kwargs.get("profile_path", args[5] if len(args) >= 6 else None)
     if (
         not dry_run
         and not getattr(_lean, "HAS_DUCKDB", False)
-        and _lean.config_targets_duckdb(config_path)
+        and _lean.config_targets_duckdb(
+            config_path, profile_vars=profile_vars, profile_path=profile_path
+        )
     ):
         companion = _duckdb_module()
         if companion is None:

@@ -69,6 +69,65 @@ docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe:latest run -c /work/example
 
 Cloud credentials should be provided via environment variables or runtime identity — not baked into the image.
 
+## DuckDB support (companion distribution)
+
+The default `floe` CLI, Docker image, and PyPI wheel are **lean**: they include the
+Parquet, Delta, and Iceberg sinks but **not** the DuckDB sink. DuckDB bundles a large
+native (C++) build that does not cross-compile in the release pipeline and exceeds
+PyPI's per-file size limit, so it ships as a separate **companion** that the lean
+`floe` transparently delegates to. There are three ways to get it:
+
+### 1. Docker image (recommended)
+
+```bash
+docker pull ghcr.io/malon64/floe-duckdb:latest
+docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe-duckdb:latest run -c /work/config.yml
+```
+
+This image is multi-arch (linux/amd64 + linux/arm64) and runs DuckDB sinks directly.
+
+### 2. Companion binary on `PATH`
+
+Install the lean `floe` as usual, then place a `floe-duckdb` binary alongside it (same
+directory) or anywhere on your `PATH`. When `floe run` resolves a config that writes to
+a DuckDB sink, the lean binary automatically re-execs `floe-duckdb` with the same
+arguments. If no companion is found, the run fails with an install hint rather than a
+missing-feature error.
+
+Build the companion from source:
+
+```bash
+cargo build -p floe-cli --release --features duckdb
+cp target/release/floe target/release/floe-duckdb   # place on PATH next to floe
+```
+
+> For security, the companion is resolved **only** from `PATH` or the directory of the
+> running `floe` executable — never the current working directory.
+
+### 3. Python — off-PyPI `floe-duckdb` wheel
+
+Install the lean `floe` package from PyPI, then add the DuckDB companion wheel from the
+off-PyPI index (the companion is too large for PyPI):
+
+```bash
+pip install floe-python
+pip install floe-duckdb --index-url https://malon64.github.io/floe/simple/
+```
+
+> Use `--index-url` (not `--extra-index-url`) for the companion: `floe-duckdb` is
+> intentionally **not** on PyPI, and `--extra-index-url` would keep PyPI in play,
+> letting a squatted or higher-version `floe-duckdb` there shadow the real
+> off-PyPI wheel (dependency confusion). The companion's `floe-python` dependency
+> is already satisfied by the previous step, so consulting only the off-PyPI index
+> for the companion install resolves cleanly.
+
+The companion installs a `floe._floe_duckdb` extension into the same `floe` package.
+`floe.run(...)` then transparently delegates a DuckDB-sink run to it; without the
+companion installed, such a run raises a `FloeConfigError` with install instructions.
+
+> DuckLake and remote-DuckDB (Quack) sinks are not yet available — they require a
+> DuckDB / Arrow upgrade that is currently blocked upstream.
+
 ## Troubleshooting
 
 - **`brew` not found**: install Homebrew from [brew.sh](https://brew.sh), then retry.

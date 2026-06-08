@@ -95,6 +95,7 @@ const STATE_LONG_ABOUT: &str = concat!(
     "  floe state reset -c example/config.yml -p profiles/local.yml --entity customers --yes\n",
 );
 
+mod delegate;
 mod logging;
 mod manifest_output;
 mod output;
@@ -500,6 +501,22 @@ fn main() -> FloeResult<()> {
                 // --- Manifest mode: no config file, no profile ---
                 let manifest_path = std::path::PathBuf::from(&manifest_path_str);
 
+                // Re-exec the floe-duckdb companion before any work when this lean
+                // build is asked to run a DuckDB sink (no-op in the full build).
+                // Dry runs never reach the DuckDB writer (run resolves inputs and
+                // returns previews before any sink write), so they run on the lean
+                // build without the companion.
+                if !dry_run {
+                    if let Some((cfg, _)) = floe_core::read_manifest_text(&manifest_path_str)
+                        .ok()
+                        .and_then(|json| floe_core::config_from_manifest_json(&json).ok())
+                    {
+                        if let Err(err) = delegate::maybe_delegate_duckdb(&cfg) {
+                            exit_with_error(err);
+                        }
+                    }
+                }
+
                 // Wire up lineage from manifest's embedded lineage block.
                 // Use read_manifest_text so remote URIs (s3://, gs://, abfs://) are
                 // downloaded before parsing; std::fs::read_to_string would fail silently.
@@ -684,6 +701,19 @@ fn main() -> FloeResult<()> {
                 options.profile.as_ref().and_then(|p| p.storages.as_ref()),
                 options.profile.as_ref().and_then(|p| p.lineage.as_ref()),
             );
+            // Re-exec the floe-duckdb companion before any work when this lean
+            // build is asked to run a DuckDB sink (no-op in the full build).
+            // Dry runs never reach the DuckDB writer (run resolves inputs and
+            // returns previews before any sink write), so they run on the lean
+            // build without the companion.
+            if !dry_run {
+                if let Ok(ref cfg) = early_config {
+                    if let Err(err) = delegate::maybe_delegate_duckdb(cfg) {
+                        exit_with_error(err);
+                    }
+                }
+            }
+
             let lineage_observer = early_config
                 .as_ref()
                 .ok()

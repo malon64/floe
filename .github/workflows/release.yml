@@ -261,18 +261,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Native runners only. The bundled native DuckDB (C++) build does not
-          # compile in the manylinux/musllinux containers and cannot be cross-
-          # compiled, so these wheels are platform-tagged and published OFF PyPI
-          # (GitHub Release assets + a PEP 503 index), not to PyPI.
+          # Native runners with manylinux OFF. The manylinux containers ship a
+          # GCC pinned to the legacy pre-C++11 CXX ABI, and bundled DuckDB refuses
+          # to compile its extensions under that ABI (platform.hpp guard). Building
+          # directly on the runner host uses a modern toolchain (new C++11 ABI) so
+          # the bundle compiles. The bundle also cannot be cross-compiled, so these
+          # wheels are platform-tagged and published OFF PyPI (GitHub Release assets
+          # + a PEP 503 index), not to PyPI — manylinux compliance is not required.
           - os: ubuntu-latest
             target: x86_64
-            manylinux: auto
-            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+            manylinux: "off"
+            before_script: ""
           - os: ubuntu-24.04-arm
             target: aarch64
-            manylinux: auto
-            before_script: "dnf install -y perl-core 2>/dev/null || yum install -y perl-core 2>/dev/null || true"
+            manylinux: "off"
+            before_script: ""
           - os: macos-15-intel
             target: x86_64
             manylinux: "off"

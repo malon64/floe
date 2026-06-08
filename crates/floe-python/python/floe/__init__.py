@@ -29,6 +29,8 @@ Run floe pipelines at Rust speed from Python notebooks::
     floe.run("pipeline.yml", profile_vars={"output_bucket": "s3://my-bucket"})
 """
 
+import importlib
+import importlib.util
 from importlib.metadata import version as _pkg_version
 
 try:
@@ -106,20 +108,17 @@ def clear_observer():
 def _duckdb_module():
     """Return the `floe._floe_duckdb` companion extension, or None if not installed.
 
-    Only a genuinely absent companion maps to None. If the companion IS installed
-    but its native extension fails to load (incompatible libc, unresolved symbol),
-    the import raises a plain ImportError (not ModuleNotFoundError); that is allowed
-    to propagate so the real loader error surfaces instead of a misleading
-    "companion wheel is not installed" hint.
+    A genuinely absent companion maps to None. If the companion IS installed but
+    its native extension fails to load (incompatible libc, unresolved symbol), the
+    loader error is allowed to propagate so it surfaces instead of a misleading
+    "companion wheel is not installed" hint. `find_spec` distinguishes the two:
+    `from floe import _floe_duckdb` would raise a plain ImportError for the absent
+    case too (attribute fallback), so the exception type alone cannot tell them
+    apart — but `find_spec` returns None only when the module is truly not there.
     """
-    try:
-        from floe import _floe_duckdb
-
-        return _floe_duckdb
-    except ModuleNotFoundError as exc:
-        if exc.name in ("floe._floe_duckdb", "_floe_duckdb"):
-            return None
-        raise
+    if importlib.util.find_spec("floe._floe_duckdb") is None:
+        return None
+    return importlib.import_module("floe._floe_duckdb")
 
 
 def run(config_path, *args, **kwargs):

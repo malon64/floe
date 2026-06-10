@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::config::{EntityConfig, LineageConfig};
 use crate::run::events::{RunEvent, RunObserver};
@@ -20,10 +21,15 @@ struct ColumnMapping {
     source_field: Option<String>,
 }
 
+struct OlDataset {
+    namespace: String,
+    name: String,
+}
+
 struct EntityUris {
-    source: String,
-    accepted: String,
-    rejected: Option<String>,
+    source: OlDataset,
+    accepted: OlDataset,
+    rejected: Option<OlDataset>,
 }
 
 pub struct OpenLineageObserver {
@@ -32,6 +38,7 @@ pub struct OpenLineageObserver {
     entity_start_ms: Mutex<HashMap<String, u128>>,
     entity_run_ids: Mutex<HashMap<String, String>>,
     run_start_ms: Mutex<Option<u128>>,
+    run_uuid: Mutex<Option<String>>,
     entity_schemas: HashMap<String, Vec<ColumnMapping>>,
     entity_uris: HashMap<String, EntityUris>,
     run_job_name: String,
@@ -87,12 +94,44 @@ impl OpenLineageObserver {
         let entity_uris = entities
             .iter()
             .map(|e| {
+                let (src_ns, src_name) = split_storage_uri(&e.source.path);
+                let source = OlDataset {
+                    namespace: src_ns,
+                    name: src_name,
+                };
+
+                let accepted = match e.sink.accepted.iceberg.as_ref() {
+                    Some(iceberg) => {
+                        let ns = iceberg.namespace.as_deref().unwrap_or(e.name.as_str());
+                        let tbl = iceberg.table.as_deref().unwrap_or(e.name.as_str());
+                        OlDataset {
+                            namespace: config.namespace.clone(),
+                            name: format!("{ns}.{tbl}"),
+                        }
+                    }
+                    None => {
+                        let (acc_ns, acc_name) = split_storage_uri(&e.sink.accepted.path);
+                        OlDataset {
+                            namespace: acc_ns,
+                            name: acc_name,
+                        }
+                    }
+                };
+
+                let rejected = e.sink.rejected.as_ref().map(|r| {
+                    let (rej_ns, rej_name) = split_storage_uri(&r.path);
+                    OlDataset {
+                        namespace: rej_ns,
+                        name: rej_name,
+                    }
+                });
+
                 (
                     e.name.clone(),
                     EntityUris {
-                        source: e.source.path.clone(),
-                        accepted: e.sink.accepted.path.clone(),
-                        rejected: e.sink.rejected.as_ref().map(|r| r.path.clone()),
+                        source,
+                        accepted,
+                        rejected,
                     },
                 )
             })
@@ -104,6 +143,7 @@ impl OpenLineageObserver {
             entity_start_ms: Mutex::new(HashMap::new()),
             entity_run_ids: Mutex::new(HashMap::new()),
             run_start_ms: Mutex::new(None),
+            run_uuid: Mutex::new(None),
             entity_schemas,
             entity_uris,
             run_job_name,
@@ -236,15 +276,12 @@ impl OpenLineageObserver {
         uris: Option<&EntityUris>,
     ) {
         let event_time = ms_to_iso8601(ts_ms);
-        let job_name = format!("{}.{name}", self.config.namespace);
 
         let mut run_facets = json!({});
         if let Some(parent) = self.parent_run_facet() {
             run_facets["parent"] = parent;
         }
 
-        // Build inputs/outputs based on whether stats and uris are present (COMPLETE/FAIL)
-        // or absent (START — keep both empty).
         let (inputs, outputs) = match (stats.as_ref(), uris) {
             (Some(s), Some(u)) => {
                 let rejection_rate = if s.rows > 0 {
@@ -253,18 +290,11 @@ impl OpenLineageObserver {
                     0.0
                 };
 
-                // Input: source dataset — sub-namespace avoids collision with real entity names.
-                let (src_ns, src_path) = split_storage_uri(&u.source);
                 let inputs = json!([{
-                    "namespace": format!("{}.source", self.config.namespace),
-                    "name": name,
-                    "facets": {
-                        "symlinks": symlinks_facet(self.producer(), &src_ns, &src_path, "DIRECTORY")
-                    }
+                    "namespace": u.source.namespace,
+                    "name": u.source.name
                 }]);
 
-                // Accepted output: entity name as logical identifier, TABLE type.
-                let (acc_ns, acc_path) = split_storage_uri(&u.accepted);
                 let schema_facet = json!({
                     "fields": s.schema_fields.iter().map(|col| {
                         json!({ "name": col.output_name, "type": col.column_type })
@@ -291,7 +321,6 @@ impl OpenLineageObserver {
                 });
 
                 let mut accepted_facets = json!({
-                    "symlinks": symlinks_facet(self.producer(), &acc_ns, &acc_path, "TABLE"),
                     "schema": schema_facet,
                     "dataQualityMetrics": accepted_dq_facet,
                     "floeQualityRun": floe_facet
@@ -305,8 +334,8 @@ impl OpenLineageObserver {
                             let src = col.source_field.as_deref().unwrap_or(&col.output_name);
                             let entry = json!({
                                 "inputFields": [{
-                                    "namespace": format!("{}.source", self.config.namespace),
-                                    "name": name,
+                                    "namespace": u.source.namespace,
+                                    "name": u.source.name,
                                     "field": src
                                 }]
                             });
@@ -321,14 +350,12 @@ impl OpenLineageObserver {
                 }
 
                 let mut out = vec![json!({
-                    "namespace": self.config.namespace,
-                    "name": name,
+                    "namespace": u.accepted.namespace,
+                    "name": u.accepted.name,
                     "facets": accepted_facets
                 })];
 
-                // Rejected output (when configured): DIRECTORY type, rejected-row quality metrics.
                 if let Some(ref rej) = u.rejected {
-                    let (rej_ns, rej_path) = split_storage_uri(rej);
                     let rejected_dq_facet = json!({
                         "rowCount": s.rejected,
                         "validCount": 0u64,
@@ -337,10 +364,9 @@ impl OpenLineageObserver {
                         "_schemaURL": "https://openlineage.io/spec/facets/1-0-2/DataQualityMetricsOutputDatasetFacet.json"
                     });
                     out.push(json!({
-                        "namespace": format!("{}.rejected", self.config.namespace),
-                        "name": name,
+                        "namespace": rej.namespace,
+                        "name": rej.name,
                         "facets": {
-                            "symlinks": symlinks_facet(self.producer(), &rej_ns, &rej_path, "DIRECTORY"),
                             "dataQualityMetrics": rejected_dq_facet
                         }
                     }));
@@ -360,7 +386,7 @@ impl OpenLineageObserver {
             },
             "job": {
                 "namespace": self.config.namespace,
-                "name": job_name,
+                "name": name,
                 "facets": {}
             },
             "inputs": inputs,
@@ -403,33 +429,29 @@ fn split_storage_uri(uri: &str) -> (String, String) {
         if let Some(after_scheme) = uri.strip_prefix(prefix) {
             if let Some(slash) = after_scheme.find('/') {
                 let authority = uri[..prefix.len() + slash].to_string();
-                let path = after_scheme[slash..].to_string();
+                let path = after_scheme[slash + 1..].to_string();
                 return (authority, path);
             }
-            return (uri.to_string(), "/".to_string());
+            return (uri.to_string(), String::new());
         }
     }
     ("file".to_string(), uri.to_string())
 }
 
-fn symlinks_facet(producer: &str, namespace: &str, name: &str, ds_type: &str) -> Value {
-    json!({
-        "identifiers": [{ "namespace": namespace, "name": name, "type": ds_type }],
-        "_producer": producer,
-        "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SymlinksDatasetFacet.json"
-    })
-}
-
 impl RunObserver for OpenLineageObserver {
     fn on_event(&self, event: RunEvent) {
         match event {
-            RunEvent::RunStarted { run_id, ts_ms, .. } => {
+            RunEvent::RunStarted { ts_ms, .. } => {
                 // Reset circuit breaker at the start of each run so a recovered endpoint
                 // is retried in subsequent runs within the same long-lived process.
                 self.consecutive_failures.store(0, Ordering::Relaxed);
                 self.circuit_open.store(false, Ordering::Relaxed);
                 if let Ok(mut guard) = self.run_start_ms.lock() {
                     *guard = Some(ts_ms);
+                }
+                let run_uuid = Uuid::new_v4().to_string();
+                if let Ok(mut guard) = self.run_uuid.lock() {
+                    *guard = Some(run_uuid.clone());
                 }
                 let event_time = ms_to_iso8601(ts_ms);
                 let mut run_facets = json!({});
@@ -440,7 +462,7 @@ impl RunObserver for OpenLineageObserver {
                     "eventType": "START",
                     "eventTime": event_time,
                     "run": {
-                        "runId": run_id,
+                        "runId": run_uuid,
                         "facets": run_facets
                     },
                     "job": {
@@ -455,14 +477,8 @@ impl RunObserver for OpenLineageObserver {
                 });
                 self.post_event(body);
             }
-            RunEvent::EntityStarted {
-                run_id,
-                name,
-                ts_ms,
-            } => {
-                // Use a per-entity run_id (overall_run_id.entity.name) so that
-                // the START and COMPLETE events for the same entity share the same run_id.
-                let entity_run_id = format!("{run_id}.entity.{name}");
+            RunEvent::EntityStarted { name, ts_ms, .. } => {
+                let entity_run_id = Uuid::new_v4().to_string();
                 if let Ok(mut guard) = self.entity_start_ms.lock() {
                     guard.insert(name.clone(), ts_ms);
                 }
@@ -515,17 +531,18 @@ impl RunObserver for OpenLineageObserver {
                     uris,
                 );
             }
-            RunEvent::RunFinished {
-                run_id,
-                status,
-                ts_ms,
-                ..
-            } => {
+            RunEvent::RunFinished { status, ts_ms, .. } => {
                 let event_type = if status == "failed" || status == "aborted" {
                     "FAIL"
                 } else {
                     "COMPLETE"
                 };
+                let run_uuid = self
+                    .run_uuid
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.clone())
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
                 let event_time = ms_to_iso8601(ts_ms);
                 let mut run_facets = json!({});
                 if let Some(parent) = self.parent_run_facet() {
@@ -535,7 +552,7 @@ impl RunObserver for OpenLineageObserver {
                     "eventType": event_type,
                     "eventTime": event_time,
                     "run": {
-                        "runId": run_id,
+                        "runId": run_uuid,
                         "facets": run_facets
                     },
                     "job": {

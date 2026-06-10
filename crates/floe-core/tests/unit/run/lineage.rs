@@ -1,6 +1,6 @@
 use floe_core::config::{
-    ColumnConfig, EntityConfig, IncrementalMode, LineageConfig, PolicyConfig, PolicySeverity,
-    SchemaConfig, SinkConfig, SinkTarget, SourceConfig, WriteMode,
+    ColumnConfig, EntityConfig, IcebergSinkTargetConfig, IncrementalMode, LineageConfig,
+    PolicyConfig, PolicySeverity, SchemaConfig, SinkConfig, SinkTarget, SourceConfig, WriteMode,
 };
 use floe_core::lineage::OpenLineageObserver;
 use floe_core::run::events::{RunEvent, RunObserver};
@@ -253,7 +253,7 @@ fn entity_finished_event(name: &str, status: &str) -> RunEvent {
     }
 }
 
-// COMPLETE entity event uses entity name as logical dataset identifier (not raw storage path).
+// COMPLETE entity event uses actual storage paths as dataset namespace/name.
 #[test]
 fn entity_complete_event_has_source_input_and_accepted_output() {
     let mut server = mockito::Server::new();
@@ -270,8 +270,8 @@ fn entity_complete_event_has_source_input_and_accepted_output() {
         .match_body(mockito::Matcher::AllOf(vec![
             mockito::Matcher::PartialJson(json!({
                 "eventType": "COMPLETE",
-                "inputs": [{ "namespace": "test-ns.source", "name": "orders" }],
-                "outputs": [{ "name": "orders" }]
+                "inputs": [{ "namespace": "file", "name": "/data/in/" }],
+                "outputs": [{ "namespace": "file", "name": "/data/out/" }]
             })),
         ]))
         .with_status(200)
@@ -305,10 +305,10 @@ fn entity_complete_event_includes_rejected_output_when_configured() {
         .match_body(mockito::Matcher::AllOf(vec![
             mockito::Matcher::PartialJson(json!({
                 "eventType": "COMPLETE",
-                "inputs": [{ "namespace": "test-ns.source", "name": "orders" }],
+                "inputs": [{ "namespace": "file", "name": "/data/in/" }],
                 "outputs": [
-                    { "namespace": "test-ns", "name": "orders" },
-                    { "namespace": "test-ns.rejected", "name": "orders" }
+                    { "namespace": "file", "name": "/data/out/" },
+                    { "namespace": "file", "name": "/data/rejected/" }
                 ]
             })),
         ]))
@@ -327,9 +327,9 @@ fn entity_complete_event_includes_rejected_output_when_configured() {
     _complete_mock.assert();
 }
 
-// Source dataset carries a SymlinksDatasetFacet with type=DIRECTORY pointing at the real path.
+// Source dataset uses the actual storage path as namespace/name (no symlinks).
 #[test]
-fn source_dataset_has_symlinks_with_directory_type() {
+fn source_dataset_uses_storage_namespace_and_name() {
     let mut server = mockito::Server::new();
 
     let _start_mock = server
@@ -343,20 +343,20 @@ fn source_dataset_has_symlinks_with_directory_type() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "namespace": "test-ns.source",
-                "name": "orders",
-                "facets": {
-                    "symlinks": {
-                        "identifiers": [{ "name": "/data/in/", "type": "DIRECTORY" }]
-                    }
-                }
+                "namespace": "s3://my-bucket",
+                "name": "data/raw/"
             }]
         })))
         .with_status(200)
         .expect(1)
         .create();
 
-    let entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    let entity = make_entity(
+        "orders",
+        "s3://my-bucket/data/raw/",
+        "s3://my-bucket/data/out/",
+        None,
+    );
     let config = make_config(&server.url(), None);
     let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
@@ -367,9 +367,9 @@ fn source_dataset_has_symlinks_with_directory_type() {
     _complete_mock.assert();
 }
 
-// Accepted output carries a SymlinksDatasetFacet with type=TABLE pointing at the real path.
+// Accepted output uses the actual storage path as namespace/name (no symlinks).
 #[test]
-fn accepted_dataset_has_symlinks_with_table_type() {
+fn accepted_dataset_uses_storage_namespace_and_name() {
     let mut server = mockito::Server::new();
 
     let _start_mock = server
@@ -383,19 +383,20 @@ fn accepted_dataset_has_symlinks_with_table_type() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "outputs": [{
-                "name": "orders",
-                "facets": {
-                    "symlinks": {
-                        "identifiers": [{ "name": "/data/out/", "type": "TABLE" }]
-                    }
-                }
+                "namespace": "s3://my-bucket",
+                "name": "data/out/"
             }]
         })))
         .with_status(200)
         .expect(1)
         .create();
 
-    let entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    let entity = make_entity(
+        "orders",
+        "s3://my-bucket/data/raw/",
+        "s3://my-bucket/data/out/",
+        None,
+    );
     let config = make_config(&server.url(), None);
     let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
@@ -421,7 +422,7 @@ fn accepted_dataset_has_schema_facet() {
         .mock("POST", "/api/v1/lineage")
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
-            "outputs": [{ "name": "orders", "facets": { "schema": {} } }]
+            "outputs": [{ "name": "/data/out/", "facets": { "schema": {} } }]
         })))
         .with_status(200)
         .expect(1)
@@ -455,7 +456,6 @@ fn accepted_dq_reflects_accepted_rows_only() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "outputs": [{
-                "name": "orders",
                 "facets": {
                     "dataQualityMetrics": {
                         "rowCount": 90_u64,
@@ -499,8 +499,8 @@ fn rejected_dq_reflects_rejected_rows_only() {
             "outputs": [
                 {},
                 {
-                    "namespace": "test-ns.rejected",
-                    "name": "orders",
+                    "namespace": "file",
+                    "name": "/data/rejected/",
                     "facets": {
                         "dataQualityMetrics": {
                             "rowCount": 10_u64,
@@ -583,7 +583,7 @@ fn floe_quality_run_has_no_accepted_rejected_keys() {
     _bad_mock.assert();
 }
 
-// Cloud storage URIs are split correctly: s3://bucket/path → namespace=s3://bucket, name=/path/.
+// S3 URIs split into bucket namespace and slash-free path name.
 #[test]
 fn split_storage_uri_s3() {
     let mut server = mockito::Server::new();
@@ -599,17 +599,8 @@ fn split_storage_uri_s3() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "namespace": "test-ns.source",
-                "name": "orders",
-                "facets": {
-                    "symlinks": {
-                        "identifiers": [{
-                            "namespace": "s3://my-bucket",
-                            "name": "/data/raw/",
-                            "type": "DIRECTORY"
-                        }]
-                    }
-                }
+                "namespace": "s3://my-bucket",
+                "name": "data/raw/"
             }]
         })))
         .with_status(200)
@@ -632,7 +623,7 @@ fn split_storage_uri_s3() {
     _complete_mock.assert();
 }
 
-// ADLS URIs are split at the first path separator after the authority component.
+// ADLS URIs split at the first path separator after the authority component.
 #[test]
 fn split_storage_uri_adls() {
     let mut server = mockito::Server::new();
@@ -648,17 +639,8 @@ fn split_storage_uri_adls() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "namespace": "test-ns.source",
-                "name": "orders",
-                "facets": {
-                    "symlinks": {
-                        "identifiers": [{
-                            "namespace": "abfss://container@acct.dfs.core.windows.net",
-                            "name": "/raw/",
-                            "type": "DIRECTORY"
-                        }]
-                    }
-                }
+                "namespace": "abfss://container@acct.dfs.core.windows.net",
+                "name": "raw/"
             }]
         })))
         .with_status(200)
@@ -681,7 +663,7 @@ fn split_storage_uri_adls() {
     _complete_mock.assert();
 }
 
-// abfs:// URIs are preserved as-is in symlink identifiers (not normalised to abfss://).
+// abfs:// URIs are preserved as-is in the namespace (not normalised to abfss://).
 #[test]
 fn split_storage_uri_abfs_preserved() {
     let mut server = mockito::Server::new();
@@ -697,17 +679,8 @@ fn split_storage_uri_abfs_preserved() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{
-                "namespace": "test-ns.source",
-                "name": "orders",
-                "facets": {
-                    "symlinks": {
-                        "identifiers": [{
-                            "namespace": "abfs://container@acct.dfs.core.windows.net",
-                            "name": "/raw/",
-                            "type": "DIRECTORY"
-                        }]
-                    }
-                }
+                "namespace": "abfs://container@acct.dfs.core.windows.net",
+                "name": "raw/"
             }]
         })))
         .with_status(200)
@@ -787,7 +760,7 @@ fn make_column(name: &str, column_type: &str, source: Option<&str>) -> ColumnCon
     }
 }
 
-// columnLineage facet maps each output column to itself when no explicit source field is set.
+// columnLineage facet maps each output column to the source dataset's storage coordinates.
 #[test]
 fn accepted_dataset_has_column_lineage_facet() {
     let mut server = mockito::Server::new();
@@ -803,14 +776,13 @@ fn accepted_dataset_has_column_lineage_facet() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "outputs": [{
-                "name": "orders",
                 "facets": {
                     "columnLineage": {
                         "fields": {
                             "order_id": {
                                 "inputFields": [{
-                                    "namespace": "test-ns.source",
-                                    "name": "orders",
+                                    "namespace": "file",
+                                    "name": "/data/in/",
                                     "field": "order_id"
                                 }]
                             }
@@ -851,14 +823,13 @@ fn column_lineage_uses_source_field_when_set() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "outputs": [{
-                "name": "orders",
                 "facets": {
                     "columnLineage": {
                         "fields": {
                             "amount": {
                                 "inputFields": [{
-                                    "namespace": "test-ns.source",
-                                    "name": "orders",
+                                    "namespace": "file",
+                                    "name": "/data/in/",
                                     "field": "raw_amt"
                                 }]
                             }
@@ -922,4 +893,141 @@ fn circuit_resets_on_new_run_started() {
     );
     assert_eq!(obs.consecutive_failures(), 0);
     success_mock.assert();
+}
+
+// RunStarted emits a run_id that is a valid UUID v4 (not a timestamp string).
+#[test]
+fn run_started_emits_valid_uuid_run_id() {
+    let mut server = mockito::Server::new();
+
+    let _mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::Regex(
+            r#""runId"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}""#
+                .to_string(),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
+
+    obs.on_event(run_started_event());
+    _mock.assert();
+}
+
+// EntityStarted emits a run_id that is a valid UUID v4 (not a derived string).
+#[test]
+fn entity_started_emits_valid_uuid_run_id() {
+    let mut server = mockito::Server::new();
+
+    let _mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::Regex(
+            r#""runId"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}""#
+                .to_string(),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
+
+    obs.on_event(entity_started_event());
+    _mock.assert();
+}
+
+// Entity job name is the entity name alone, not namespace.entity_name.
+#[test]
+fn entity_job_name_is_entity_name_without_namespace_prefix() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "job": { "namespace": "test-ns", "name": "orders" }
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let entity = make_entity("orders", "/data/in/", "/data/out/", None);
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
+
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
+// Iceberg sink: accepted output uses OL config namespace + iceberg namespace.table as name.
+#[test]
+fn iceberg_accepted_uses_catalog_namespace_and_table_name() {
+    let mut server = mockito::Server::new();
+
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{ "namespace": "s3://iceberg-data", "name": "bronze/sales/customers" }],
+            "outputs": [{ "namespace": "test-ns", "name": "sales_dev.customers" }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut entity = make_entity(
+        "customers",
+        "s3://iceberg-data/bronze/sales/customers",
+        "s3://warehouse/silver/customers",
+        None,
+    );
+    entity.sink.accepted.iceberg = Some(IcebergSinkTargetConfig {
+        catalog: None,
+        namespace: Some("sales_dev".to_string()),
+        table: Some("customers".to_string()),
+        location: None,
+    });
+
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
+
+    obs.on_event(RunEvent::EntityStarted {
+        run_id: "test-run-1".to_string(),
+        name: "customers".to_string(),
+        ts_ms: 1_001_000,
+    });
+    obs.on_event(RunEvent::EntityFinished {
+        run_id: "test-run-1".to_string(),
+        name: "customers".to_string(),
+        status: "success".to_string(),
+        files: 1,
+        files_skipped: 0,
+        rows: 50,
+        accepted: 50,
+        rejected: 0,
+        warnings: 0,
+        errors: 0,
+        ts_ms: 1_002_000,
+    });
+
+    _start_mock.assert();
+    _complete_mock.assert();
 }

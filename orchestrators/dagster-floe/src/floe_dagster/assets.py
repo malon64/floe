@@ -190,6 +190,7 @@ def _make_entity_multi_asset(
         group_name=group_name,
         check_specs=build_asset_check_specs(accepted_key),
         can_subset=False,
+        compute_kind="floe",
     )
     def _multi_asset(context):
         run = getattr(context, "run", None)

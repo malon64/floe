@@ -2,6 +2,23 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.3
+
+- **Fixes the release pipeline so the GitHub Release assets, Homebrew/Scoop
+  formulae, and off-PyPI `floe-duckdb` wheel actually publish.** In v0.5.2 the
+  `release` job's `Download artifacts` step had no `pattern`, so it pulled *every*
+  run artifact (~1.1 GB — including the ~80 MB DuckDB wheels and ~70 MB Python
+  wheels) and intermittently failed the download "after 5 retries", which left the
+  GitHub Release with no binary assets and skipped the dependent off-PyPI wheel
+  publish. The step is now scoped to `pattern: dist-*` (only the platform binary
+  archives it actually needs for the release assets and Homebrew/Scoop checksums);
+  the DuckDB wheels remain handled by the separately-scoped `publish-duckdb-wheel`
+  job. This was invisible to dry-runs because the `release` job is gated off on
+  dry-runs.
+- No engine or API changes: distribution-only patch. The DuckDB sink behavior,
+  config surface, and supported targets (Local + MotherDuck) are identical to
+  v0.5.0–v0.5.2.
+
 ## v0.5.2
 
 - **Fixes the v0.5.1 release pipeline so the DuckDB companion actually ships.** v0.5.1

@@ -118,6 +118,15 @@ def clear_observer():
     return _lean_clear_observer()
 
 
+# The companion extension's import path depends on how maturin lays out the
+# off-PyPI `floe-duckdb` wheel. The intended layout nests it as the
+# `floe._floe_duckdb` submodule, but maturin — building a pure-Rust wheel with no
+# `floe/` python-source to nest under — emits the pyo3 `#[pymodule] _floe_duckdb`
+# as a TOP-LEVEL `_floe_duckdb` package instead. Accept both names so delegation
+# works regardless of the wheel's layout, preferring the nested name when present.
+_DUCKDB_MODULE_NAMES = ("floe._floe_duckdb", "_floe_duckdb")
+
+
 def _loaded_duckdb_module():
     """Return the companion module only if it is already imported, else None.
 
@@ -125,23 +134,32 @@ def _loaded_duckdb_module():
     companion load error. Used on paths (observer registration) where a broken
     companion must not surface until a DuckDB run is actually attempted.
     """
-    return sys.modules.get("floe._floe_duckdb")
+    for name in _DUCKDB_MODULE_NAMES:
+        module = sys.modules.get(name)
+        if module is not None:
+            return module
+    return None
 
 
 def _duckdb_module():
-    """Return the `floe._floe_duckdb` companion extension, or None if not installed.
+    """Return the `floe-duckdb` companion extension, or None if not installed.
 
     A genuinely absent companion maps to None. If the companion IS installed but
     its native extension fails to load (incompatible libc, unresolved symbol), the
     loader error is allowed to propagate so it surfaces instead of a misleading
     "companion wheel is not installed" hint. `find_spec` distinguishes the two:
-    `from floe import _floe_duckdb` would raise a plain ImportError for the absent
-    case too (attribute fallback), so the exception type alone cannot tell them
-    apart — but `find_spec` returns None only when the module is truly not there.
+    a bare import would raise a plain ImportError for the absent case too
+    (attribute fallback), so the exception type alone cannot tell them apart — but
+    `find_spec` returns None only when the module is truly not there.
+
+    The companion may resolve under either the nested `floe._floe_duckdb` name
+    (intended layout) or a top-level `_floe_duckdb` (maturin's actual pure-Rust
+    output); try both and import the first that resolves.
     """
-    if importlib.util.find_spec("floe._floe_duckdb") is None:
-        return None
-    return importlib.import_module("floe._floe_duckdb")
+    for name in _DUCKDB_MODULE_NAMES:
+        if importlib.util.find_spec(name) is not None:
+            return importlib.import_module(name)
+    return None
 
 
 def run(config_path, *args, **kwargs):

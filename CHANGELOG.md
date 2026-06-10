@@ -2,6 +2,26 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.4
+
+- **Fixes the Python DuckDB companion so `floe.run()` actually delegates to it.**
+  The off-PyPI `floe-duckdb` wheel installs its native extension as a **top-level
+  `_floe_duckdb`** package (maturin's pure-Rust layout), but the lean `floe`
+  wrapper only looked for the nested `floe._floe_duckdb` submodule via
+  `importlib.util.find_spec`. The two never matched, so a DuckDB-sink run on an
+  install that *had* the companion still raised *"the `floe-duckdb` companion
+  wheel is not installed"* — the Python DuckDB channel was non-functional as
+  shipped. The wrapper now accepts **both** layouts (`floe._floe_duckdb` and
+  top-level `_floe_duckdb`), preferring the nested name when present. Verified
+  end-to-end against the published `floe-duckdb` wheel: a `merge_scd1` DuckDB sink
+  inserts on first run and upserts idempotently on re-run.
+- Operational note (no code change): the off-PyPI PEP 503 index at
+  `https://malon64.github.io/floe/simple/` requires **GitHub Pages** to be enabled
+  on the repository (source `gh-pages`); the release pipeline pushes the index to
+  that branch but cannot enable Pages itself.
+- Distribution-only patch — no engine/API/config changes; DuckDB sink behavior and
+  supported targets (Local + MotherDuck) are unchanged.
+
 ## v0.5.3
 
 - **Fixes the release pipeline so the GitHub Release assets, Homebrew/Scoop

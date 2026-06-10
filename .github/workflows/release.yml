@@ -550,6 +550,13 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v7
         with:
+          # Only the platform binary archives are needed here (GH Release assets +
+          # checksums for the Homebrew/Scoop formulae). Without this pattern the
+          # step downloads every run artifact — incl. the ~80 MB DuckDB wheels and
+          # ~70 MB Python wheels (~1.1 GB total) — which intermittently fails the
+          # download "after 5 retries". The DuckDB wheels are handled separately by
+          # publish-duckdb-wheel (pattern: duckdb-wheel-*).
+          pattern: dist-*
           path: dist
           merge-multiple: true
       - name: Create GitHub Release

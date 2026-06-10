@@ -213,6 +213,15 @@ jobs:
           .venv/bin/pip install "maturin>=1.7,<2" pytest mypy
       - name: Build and install floe-python
         if: steps.changes.outputs.floe_python == 'true'
+        # Match the memory discipline of the "Run tests" step above. Without
+        # `-C debuginfo=0` maturin links `lib_floe.so` with full debug info, whose
+        # oversized object files make the bundled `lld` exceed the runner's
+        # memory/disk during the output write and abort with
+        # `ld terminated with signal 7 [Bus error], core dumped`. The flag keeps
+        # the cdylib link small enough to succeed (Python tests don't need symbols).
+        env:
+          CARGO_BUILD_JOBS: "4"
+          RUSTFLAGS: "-C debuginfo=0"
         run: .venv/bin/maturin develop --manifest-path crates/floe-python/Cargo.toml
       - name: Run Python tests
         if: steps.changes.outputs.floe_python == 'true'

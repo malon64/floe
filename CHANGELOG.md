@@ -19,8 +19,21 @@ All notable changes to Floe are documented in this file.
   `https://malon64.github.io/floe/simple/` requires **GitHub Pages** to be enabled
   on the repository (source `gh-pages`); the release pipeline pushes the index to
   that branch but cannot enable Pages itself.
-- Distribution-only patch — no engine/API/config changes; DuckDB sink behavior and
-  supported targets (Local + MotherDuck) are unchanged.
+- **Fixes four OpenLineage emission bugs that made Floe's OL events unusable by
+  OpenMetadata 1.12.x and other strict consumers** (fixes #382, PR #386):
+  - S3 input dataset names no longer carry a leading slash (`split_storage_uri` now
+    drops the `/` separator, so `s3://bucket/path` splits into `("s3://bucket", "path")`).
+  - `runId` is now a spec-valid UUID v4 (a single `Uuid::new_v4()` is generated at
+    `RunStarted` and reused at `RunFinished`; each entity gets its own UUID) instead
+    of the raw timestamp-based run ID that OpenMetadata silently dropped.
+  - `inputs`/`outputs` now use resolvable storage coordinates (Iceberg → catalog
+    namespace + `{ns}.{table}`; all other sinks → `split_storage_uri` on the storage
+    path) instead of unmappable logical names, so lineage edges are derivable. The
+    redundant symlinks facets are removed.
+  - Entity job names no longer prepend the OL namespace (it already lives in the job
+    object's `namespace` field).
+- The DuckDB distribution changes above are distribution-only — DuckDB sink behavior
+  and supported targets (Local + MotherDuck) are unchanged.
 
 ## v0.5.3
 
@@ -91,6 +104,13 @@ All notable changes to Floe are documented in this file.
   - See [DuckDB sink](docs/sinks/duckdb.md) and [installation](docs/installation.md).
 
 - **`floe` 0.5.1**: version bump for this release.
+
+## dagster-floe v0.2.3
+
+- **Floe assets now carry a `compute_kind="floe"` branding badge** (PR #384):
+  - Every asset materialized by `dagster-floe` displays a "floe" compute-kind badge
+    in the Dagster UI, consistent with how `dagster-dbt` and `dagster-duckdb` brand
+    their assets. Cosmetic/UX only — no change to asset keys, execution, or run config.
 
 ## dagster-floe v0.2.2
 

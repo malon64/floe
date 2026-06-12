@@ -397,7 +397,12 @@ impl StorageClient for AdlsClient {
                         version: String::from(etag),
                     })
                 }
-                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err)
+                    if is_precondition_failed(&err)
+                        || (expected_version.is_none() && is_create_race(&err)) =>
+                {
+                    Ok(ConditionalWrite::Conflict)
+                }
                 Err(err) => Err(Box::new(StorageError(format!("adls upload failed: {err}")))
                     as Box<dyn std::error::Error + Send + Sync>),
             }
@@ -429,7 +434,7 @@ impl StorageClient for AdlsClient {
                 Ok(_) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
-                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) if is_precondition_failed(&err) => Ok(ConditionalWrite::Conflict),
                 Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
@@ -455,25 +460,33 @@ fn adls_key_from_uri(uri: &str) -> FloeResult<String> {
     Ok(key)
 }
 
-fn http_status(err: &azure_core::Error) -> Option<StatusCode> {
+fn http_failure(err: &azure_core::Error) -> Option<(StatusCode, Option<&str>)> {
     match err.kind() {
-        ErrorKind::HttpResponse { status, .. } => Some(*status),
+        ErrorKind::HttpResponse {
+            status, error_code, ..
+        } => Some((*status, error_code.as_deref())),
         _ => None,
     }
 }
 
 fn is_not_found(err: &azure_core::Error) -> bool {
-    http_status(err) == Some(StatusCode::NotFound)
+    matches!(http_failure(err), Some((StatusCode::NotFound, _)))
 }
 
-/// Conflict detection for CAS writes. Azure returns 412 (PreconditionFailed)
-/// for an `If-Match` mismatch but 409 (Conflict, `BlobAlreadyExists`) for a
-/// create-only `If-None-Match: *` that loses the race — both mean another
-/// writer won.
-fn is_precondition(err: &azure_core::Error) -> bool {
+/// `If-Match` mismatch: another writer changed the blob since our read.
+fn is_precondition_failed(err: &azure_core::Error) -> bool {
+    matches!(http_failure(err), Some((StatusCode::PreconditionFailed, _)))
+}
+
+/// Create-only `If-None-Match: *` losing the race: Azure reports it as 409
+/// with error code `BlobAlreadyExists`, not 412. Scoped to that exact code —
+/// Azure uses 409 for many non-race failures (`BlobImmutableDueToPolicy`,
+/// `BlobArchived`, `SnapshotsPresent`, lease errors, ...) that must surface as
+/// real storage errors instead of triggering CAS retries.
+fn is_create_race(err: &azure_core::Error) -> bool {
     matches!(
-        http_status(err),
-        Some(StatusCode::PreconditionFailed) | Some(StatusCode::Conflict)
+        http_failure(err),
+        Some((StatusCode::Conflict, Some(code))) if code.eq_ignore_ascii_case("BlobAlreadyExists")
     )
 }
 
@@ -486,3 +499,68 @@ pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
 }
 
 pub type AdlsLocation = uri::AdlsLocation;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn http_error(status: StatusCode, error_code: Option<&str>) -> azure_core::Error {
+        azure_core::Error::with_message(
+            ErrorKind::HttpResponse {
+                status,
+                error_code: error_code.map(str::to_string),
+                raw_response: None,
+            },
+            "test error",
+        )
+    }
+
+    #[test]
+    fn if_match_conflict_is_412_only() {
+        assert!(is_precondition_failed(&http_error(
+            StatusCode::PreconditionFailed,
+            Some("ConditionNotMet")
+        )));
+        assert!(!is_precondition_failed(&http_error(
+            StatusCode::Conflict,
+            Some("BlobAlreadyExists")
+        )));
+    }
+
+    #[test]
+    fn create_race_requires_blob_already_exists_code() {
+        assert!(is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("BlobAlreadyExists")
+        )));
+        // Other 409 codes are real storage failures, not CAS races: mapping
+        // them to Conflict would make state operations retry unrecoverable
+        // conditions (immutability policies, legal holds, snapshots, leases).
+        assert!(!is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("BlobImmutableDueToPolicy")
+        )));
+        assert!(!is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("SnapshotsPresent")
+        )));
+        assert!(!is_create_race(&http_error(StatusCode::Conflict, None)));
+        assert!(!is_create_race(&http_error(
+            StatusCode::PreconditionFailed,
+            Some("ConditionNotMet")
+        )));
+    }
+
+    #[test]
+    fn not_found_matches_404_only() {
+        assert!(is_not_found(&http_error(
+            StatusCode::NotFound,
+            Some("BlobNotFound")
+        )));
+        assert!(!is_not_found(&http_error(StatusCode::Conflict, None)));
+        assert!(!is_not_found(&azure_core::Error::with_message(
+            ErrorKind::Other,
+            "not http"
+        )));
+    }
+}

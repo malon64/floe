@@ -1,11 +1,19 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use azure_core::prelude::IfMatchCondition;
-use azure_identity::{DefaultAzureCredential, TokenCredentialOptions};
-use azure_storage::StorageCredentials;
-use azure_storage_blobs::prelude::{BlobServiceClient, ContainerClient};
-use futures::StreamExt;
+use azure_core::credentials::{AccessToken, TokenCredential, TokenRequestOptions};
+use azure_core::error::ErrorKind;
+use azure_core::http::{Etag, RequestContent, StatusCode, Url};
+use azure_identity::{
+    ClientSecretCredential, DeveloperToolsCredential, ManagedIdentityCredential,
+    WorkloadIdentityCredential,
+};
+use azure_storage_blob::models::{
+    BlobClientDeleteOptions, BlobClientUploadOptions, BlobContainerClientListBlobsOptions,
+};
+use azure_storage_blob::{BlobContainerClient, BlobServiceClient};
+use futures::{StreamExt, TryStreamExt};
 use tokio::runtime::Runtime;
 
 use crate::errors::StorageError;
@@ -19,7 +27,96 @@ pub struct AdlsClient {
     container: String,
     prefix: String,
     runtime: Runtime,
-    container_client: ContainerClient,
+    container_client: BlobContainerClient,
+}
+
+/// Ordered chain of token credentials, mirroring the retired
+/// `DefaultAzureCredential` from the pre-official SDK: each source is probed at
+/// token-acquisition time and the first one that succeeds is cached for
+/// subsequent calls. The official `azure_identity` crate ships no equivalent
+/// chain for production credentials, only the dev-time `DeveloperToolsCredential`.
+#[derive(Debug)]
+struct ChainedCredential {
+    sources: Vec<Arc<dyn TokenCredential>>,
+    cached_index: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl TokenCredential for ChainedCredential {
+    async fn get_token(
+        &self,
+        scopes: &[&str],
+        options: Option<TokenRequestOptions<'_>>,
+    ) -> azure_core::Result<AccessToken> {
+        let cached = self.cached_index.load(Ordering::Relaxed);
+        if let Some(source) = self.sources.get(cached) {
+            return source.get_token(scopes, options).await;
+        }
+        let mut errors = Vec::new();
+        for (index, source) in self.sources.iter().enumerate() {
+            match source.get_token(scopes, options.clone()).await {
+                Ok(token) => {
+                    self.cached_index.store(index, Ordering::Relaxed);
+                    return Ok(token);
+                }
+                Err(error) => errors.push(error.to_string()),
+            }
+        }
+        Err(azure_core::Error::with_message(
+            ErrorKind::Credential,
+            format!(
+                "no Azure credential in the chain could authenticate: {}",
+                errors.join("; ")
+            ),
+        ))
+    }
+}
+
+/// Build the ADLS credential with the same resolution order users relied on
+/// under the old `DefaultAzureCredential`: explicit service-principal env vars,
+/// then workload identity, then managed identity, then developer tools (az CLI).
+fn build_credential() -> FloeResult<Arc<dyn TokenCredential>> {
+    if let (Ok(tenant), Ok(client), Ok(secret)) = (
+        std::env::var("AZURE_TENANT_ID"),
+        std::env::var("AZURE_CLIENT_ID"),
+        std::env::var("AZURE_CLIENT_SECRET"),
+    ) {
+        let credential = ClientSecretCredential::new(&tenant, client, secret.into(), None)
+            .map_err(|err| {
+                Box::new(StorageError(format!(
+                    "adls service-principal credential init failed: {err}"
+                )))
+            })?;
+        return Ok(credential);
+    }
+    if std::env::var("AZURE_FEDERATED_TOKEN_FILE").is_ok() {
+        let credential = WorkloadIdentityCredential::new(None).map_err(|err| {
+            Box::new(StorageError(format!(
+                "adls workload-identity credential init failed: {err}"
+            )))
+        })?;
+        return Ok(credential);
+    }
+
+    let mut sources: Vec<Arc<dyn TokenCredential>> = Vec::new();
+    if let Ok(managed) = ManagedIdentityCredential::new(None) {
+        sources.push(managed);
+    }
+    if let Ok(developer) = DeveloperToolsCredential::new(None) {
+        sources.push(developer);
+    }
+    if sources.is_empty() {
+        return Err(Box::new(StorageError(
+            "adls credential init failed: no Azure credential source is available \
+             (set AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, run on a host \
+             with managed identity, or sign in with the Azure CLI)"
+                .to_string(),
+        )));
+    }
+    Ok(Arc::new(ChainedCredential {
+        sources,
+        cached_index: AtomicUsize::new(usize::MAX),
+    }))
 }
 
 impl AdlsClient {
@@ -37,11 +134,16 @@ impl AdlsClient {
             .enable_all()
             .build()
             .map_err(|err| Box::new(StorageError(format!("adls runtime init failed: {err}"))))?;
-        let credential = DefaultAzureCredential::create(TokenCredentialOptions::default())
-            .map_err(|err| Box::new(StorageError(format!("adls credential init failed: {err}"))))?;
-        let storage_credentials = StorageCredentials::token_credential(Arc::new(credential));
-        let service_client = BlobServiceClient::new(account.clone(), storage_credentials);
-        let container_client = service_client.container_client(container.clone());
+        let credential = build_credential()?;
+        let service_url = Url::parse(&format!("https://{account}.blob.core.windows.net/"))
+            .map_err(|err| {
+                Box::new(StorageError(format!(
+                    "adls service url for account {account} is invalid: {err}"
+                )))
+            })?;
+        let service_client = BlobServiceClient::new(service_url, Some(credential), None)
+            .map_err(|err| Box::new(StorageError(format!("adls client init failed: {err}"))))?;
+        let container_client = service_client.blob_container_client(&container);
         Ok(Self {
             account,
             container,
@@ -69,32 +171,50 @@ impl AdlsClient {
 impl StorageClient for AdlsClient {
     fn list(&self, prefix_or_path: &str) -> FloeResult<Vec<ObjectRef>> {
         let prefix = self.full_path(prefix_or_path);
-        let container = self.container.clone();
-        let account = self.account.clone();
-        let client = self.container_client.clone();
-        self.runtime.block_on(async move {
-            let mut refs = Vec::new();
-            let mut stream = client.list_blobs().prefix(prefix.clone()).into_stream();
-            while let Some(resp) = stream.next().await {
-                let resp = resp.map_err(|err| {
+        self.runtime.block_on(async {
+            let options = BlobContainerClientListBlobsOptions {
+                prefix: Some(prefix),
+                ..Default::default()
+            };
+            let mut pages = self
+                .container_client
+                .list_blobs(Some(options))
+                .map_err(|err| {
                     Box::new(StorageError(format!("adls list failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
+                })?
+                .into_pages();
+            let mut refs = Vec::new();
+            while let Some(page) = pages.try_next().await.map_err(|err| {
+                Box::new(StorageError(format!("adls list failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })? {
+                let segment = page.into_model().map_err(|err| {
+                    Box::new(StorageError(format!("adls list decode failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
                 })?;
-                for blob in resp.blobs.blobs() {
-                    let key = blob.name.clone();
+                for blob in segment.blob_items {
+                    let Some(key) = blob.name else { continue };
                     let uri = if key.is_empty() {
-                        format!("abfs://{}@{}.dfs.core.windows.net", container, account)
+                        format!(
+                            "abfs://{}@{}.dfs.core.windows.net",
+                            self.container, self.account
+                        )
                     } else {
                         format!(
                             "abfs://{}@{}.dfs.core.windows.net/{}",
-                            container, account, key
+                            self.container, self.account, key
                         )
                     };
+                    let properties = blob.properties;
                     refs.push(planner::object_ref(
                         uri,
                         key,
-                        Some(blob.properties.last_modified.to_string()),
-                        Some(blob.properties.content_length),
+                        properties
+                            .as_ref()
+                            .and_then(|props| props.last_modified)
+                            .map(|modified| modified.to_string()),
+                        properties.as_ref().and_then(|props| props.content_length),
                     ));
                 }
             }
@@ -109,35 +229,35 @@ impl StorageClient for AdlsClient {
             .unwrap_or("")
             .trim_start_matches('/')
             .to_string();
-        let key = if key.is_empty() {
+        if key.is_empty() {
             return Err(Box::new(StorageError(
                 "adls download requires a blob path".to_string(),
             )));
-        } else {
-            key
-        };
+        }
         let dest = planner::temp_path_for_key(temp_dir, &key);
-        let dest_clone = dest.clone();
-        let client = self.container_client.clone();
-        let key_clone = key.clone();
-        self.runtime.block_on(async move {
-            if let Some(parent) = dest_clone.parent() {
+        self.runtime.block_on(async {
+            if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-            let blob = client.blob_client(key_clone);
-            let mut stream = blob.get().into_stream();
-            let mut file = tokio::fs::File::create(&dest_clone).await?;
-            while let Some(chunk) = stream.next().await {
-                let resp = chunk.map_err(|err| {
+            let response = self
+                .container_client
+                .blob_client(&key)
+                .download(None)
+                .await
+                .map_err(|err| {
                     Box::new(StorageError(format!("adls download failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
-                let bytes = resp.data.collect().await.map_err(|err| {
+            let mut body = response.body;
+            let mut file = tokio::fs::File::create(&dest).await?;
+            while let Some(chunk) = body.next().await {
+                let bytes = chunk.map_err(|err| {
                     Box::new(StorageError(format!("adls download read failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
                 tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
             }
+            tokio::io::AsyncWriteExt::flush(&mut file).await?;
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         })?;
         Ok(dest)
@@ -155,14 +275,15 @@ impl StorageClient for AdlsClient {
                 "adls upload requires a blob path".to_string(),
             )));
         }
-        let client = self.container_client.clone();
-        let path = local_path.to_path_buf();
-        self.runtime.block_on(async move {
-            let data = tokio::fs::read(path).await?;
-            let blob = client.blob_client(key);
-            blob.put_block_blob(data)
-                .content_type("application/octet-stream")
-                .into_future()
+        self.runtime.block_on(async {
+            let data = tokio::fs::read(local_path).await?;
+            let options = BlobClientUploadOptions {
+                blob_content_type: Some("application/octet-stream".to_string()),
+                ..Default::default()
+            };
+            self.container_client
+                .blob_client(&key)
+                .upload(RequestContent::from(data), Some(options))
                 .await
                 .map_err(|err| {
                     Box::new(StorageError(format!("adls upload failed: {err}")))
@@ -190,13 +311,15 @@ impl StorageClient for AdlsClient {
         if key.is_empty() {
             return Ok(());
         }
-        let client = self.container_client.clone();
-        self.runtime.block_on(async move {
-            let blob = client.blob_client(key);
-            blob.delete().into_future().await.map_err(|err| {
-                Box::new(StorageError(format!("adls delete failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
+        self.runtime.block_on(async {
+            self.container_client
+                .blob_client(&key)
+                .delete(None)
+                .await
+                .map_err(|err| {
+                    Box::new(StorageError(format!("adls delete failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
             Ok(())
         })
     }
@@ -213,33 +336,32 @@ impl StorageClient for AdlsClient {
 
     fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
         let key = adls_key_from_uri(uri)?;
-        let client = self.container_client.clone();
-        self.runtime.block_on(async move {
-            let blob = client.blob_client(key);
-            let mut stream = blob.get().into_stream();
-            let mut body = Vec::new();
-            let mut version = None;
-            while let Some(chunk) = stream.next().await {
-                let resp = match chunk {
-                    Ok(resp) => resp,
-                    Err(err) if is_not_found(&err) => return Ok(None),
-                    Err(err) => {
-                        return Err(
-                            Box::new(StorageError(format!("adls download failed: {err}")))
-                                as Box<dyn std::error::Error + Send + Sync>,
-                        )
-                    }
-                };
-                if version.is_none() {
-                    version = Some(resp.blob.properties.etag.to_string());
+        self.runtime.block_on(async {
+            let response = match self.container_client.blob_client(&key).download(None).await {
+                Ok(response) => response,
+                Err(err) if is_not_found(&err) => return Ok(None),
+                Err(err) => {
+                    return Err(
+                        Box::new(StorageError(format!("adls download failed: {err}")))
+                            as Box<dyn std::error::Error + Send + Sync>,
+                    )
                 }
-                let bytes = resp.data.collect().await.map_err(|err| {
-                    Box::new(StorageError(format!("adls download read failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
-                })?;
-                body.extend_from_slice(&bytes);
-            }
-            Ok(version.map(|version| StoredObject { body, version }))
+            };
+            let version = response.properties.etag.clone().map(String::from);
+            let body = response.body.collect().await.map_err(|err| {
+                Box::new(StorageError(format!("adls download read failed: {err}")))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let Some(version) = version else {
+                return Err(Box::new(StorageError(format!(
+                    "adls download response for {key} is missing an etag"
+                )))
+                    as Box<dyn std::error::Error + Send + Sync>);
+            };
+            Ok(Some(StoredObject {
+                body: body.to_vec(),
+                version,
+            }))
         })
     }
 
@@ -250,22 +372,37 @@ impl StorageClient for AdlsClient {
         body: &[u8],
     ) -> FloeResult<ConditionalWrite> {
         let key = adls_key_from_uri(uri)?;
-        let client = self.container_client.clone();
         let body = body.to_vec();
-        self.runtime.block_on(async move {
-            let condition = expected_version
-                .map(|version| IfMatchCondition::Match(version.to_string()))
-                .unwrap_or_else(|| IfMatchCondition::NotMatch("*".to_string()));
-            match client
-                .blob_client(key)
-                .put_block_blob(body)
-                .if_match(condition)
-                .content_type("application/json")
-                .into_future()
+        self.runtime.block_on(async {
+            let options = BlobClientUploadOptions {
+                blob_content_type: Some("application/json".to_string()),
+                if_match: expected_version.map(Etag::from),
+                if_none_match: expected_version.is_none().then(|| Etag::from("*")),
+                ..Default::default()
+            };
+            match self
+                .container_client
+                .blob_client(&key)
+                .upload(RequestContent::from(body), Some(options))
                 .await
             {
-                Ok(resp) => Ok(ConditionalWrite::Written { version: resp.etag }),
-                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Ok(result) => {
+                    let Some(etag) = result.etag else {
+                        return Err(Box::new(StorageError(format!(
+                            "adls upload response for {key} is missing an etag"
+                        )))
+                            as Box<dyn std::error::Error + Send + Sync>);
+                    };
+                    Ok(ConditionalWrite::Written {
+                        version: String::from(etag),
+                    })
+                }
+                Err(err)
+                    if is_precondition_failed(&err)
+                        || (expected_version.is_none() && is_create_race(&err)) =>
+                {
+                    Ok(ConditionalWrite::Conflict)
+                }
                 Err(err) => Err(Box::new(StorageError(format!("adls upload failed: {err}")))
                     as Box<dyn std::error::Error + Send + Sync>),
             }
@@ -283,17 +420,21 @@ impl StorageClient for AdlsClient {
             });
         };
         let key = adls_key_from_uri(uri)?;
-        let client = self.container_client.clone();
-        self.runtime.block_on(async move {
-            let request = client
-                .blob_client(key)
-                .delete()
-                .if_match(IfMatchCondition::Match(expected_version.to_string()));
-            match request.into_future().await {
+        self.runtime.block_on(async {
+            let options = BlobClientDeleteOptions {
+                if_match: Some(Etag::from(expected_version)),
+                ..Default::default()
+            };
+            match self
+                .container_client
+                .blob_client(&key)
+                .delete(Some(options))
+                .await
+            {
                 Ok(_) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
-                Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
+                Err(err) if is_precondition_failed(&err) => Ok(ConditionalWrite::Conflict),
                 Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
@@ -319,14 +460,34 @@ fn adls_key_from_uri(uri: &str) -> FloeResult<String> {
     Ok(key)
 }
 
-fn is_not_found<E: std::fmt::Display>(err: &E) -> bool {
-    let text = err.to_string();
-    text.contains("404") || text.contains("NotFound")
+fn http_failure(err: &azure_core::Error) -> Option<(StatusCode, Option<&str>)> {
+    match err.kind() {
+        ErrorKind::HttpResponse {
+            status, error_code, ..
+        } => Some((*status, error_code.as_deref())),
+        _ => None,
+    }
 }
 
-fn is_precondition<E: std::fmt::Display>(err: &E) -> bool {
-    let text = err.to_string();
-    text.contains("412") || text.contains("condition") || text.contains("Condition")
+fn is_not_found(err: &azure_core::Error) -> bool {
+    matches!(http_failure(err), Some((StatusCode::NotFound, _)))
+}
+
+/// `If-Match` mismatch: another writer changed the blob since our read.
+fn is_precondition_failed(err: &azure_core::Error) -> bool {
+    matches!(http_failure(err), Some((StatusCode::PreconditionFailed, _)))
+}
+
+/// Create-only `If-None-Match: *` losing the race: Azure reports it as 409
+/// with error code `BlobAlreadyExists`, not 412. Scoped to that exact code —
+/// Azure uses 409 for many non-race failures (`BlobImmutableDueToPolicy`,
+/// `BlobArchived`, `SnapshotsPresent`, lease errors, ...) that must surface as
+/// real storage errors instead of triggering CAS retries.
+fn is_create_race(err: &azure_core::Error) -> bool {
+    matches!(
+        http_failure(err),
+        Some((StatusCode::Conflict, Some(code))) if code.eq_ignore_ascii_case("BlobAlreadyExists")
+    )
 }
 
 pub fn parse_adls_uri(uri: &str) -> FloeResult<AdlsLocation> {
@@ -338,3 +499,68 @@ pub fn format_abfs_uri(container: &str, account: &str, path: &str) -> String {
 }
 
 pub type AdlsLocation = uri::AdlsLocation;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn http_error(status: StatusCode, error_code: Option<&str>) -> azure_core::Error {
+        azure_core::Error::with_message(
+            ErrorKind::HttpResponse {
+                status,
+                error_code: error_code.map(str::to_string),
+                raw_response: None,
+            },
+            "test error",
+        )
+    }
+
+    #[test]
+    fn if_match_conflict_is_412_only() {
+        assert!(is_precondition_failed(&http_error(
+            StatusCode::PreconditionFailed,
+            Some("ConditionNotMet")
+        )));
+        assert!(!is_precondition_failed(&http_error(
+            StatusCode::Conflict,
+            Some("BlobAlreadyExists")
+        )));
+    }
+
+    #[test]
+    fn create_race_requires_blob_already_exists_code() {
+        assert!(is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("BlobAlreadyExists")
+        )));
+        // Other 409 codes are real storage failures, not CAS races: mapping
+        // them to Conflict would make state operations retry unrecoverable
+        // conditions (immutability policies, legal holds, snapshots, leases).
+        assert!(!is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("BlobImmutableDueToPolicy")
+        )));
+        assert!(!is_create_race(&http_error(
+            StatusCode::Conflict,
+            Some("SnapshotsPresent")
+        )));
+        assert!(!is_create_race(&http_error(StatusCode::Conflict, None)));
+        assert!(!is_create_race(&http_error(
+            StatusCode::PreconditionFailed,
+            Some("ConditionNotMet")
+        )));
+    }
+
+    #[test]
+    fn not_found_matches_404_only() {
+        assert!(is_not_found(&http_error(
+            StatusCode::NotFound,
+            Some("BlobNotFound")
+        )));
+        assert!(!is_not_found(&http_error(StatusCode::Conflict, None)));
+        assert!(!is_not_found(&azure_core::Error::with_message(
+            ErrorKind::Other,
+            "not http"
+        )));
+    }
+}

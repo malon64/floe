@@ -4,11 +4,11 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use polars::prelude::{ArrowDataType, DataType, SerReader};
-use serde::Serialize;
 use serde_json::Value as JsonValue;
-use serde_yaml::Value as YamlValue;
 use tempfile::NamedTempFile;
 use url::Url;
+use yaml_rust2::yaml::Hash as YamlHash;
+use yaml_rust2::{Yaml, YamlEmitter, YamlLoader};
 
 use crate::config;
 use crate::errors::IoError;
@@ -50,67 +50,16 @@ struct InferredEntity {
     notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedEntityYaml {
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    domain: Option<String>,
-    source: GeneratedSourceYaml,
-    sink: GeneratedSinkYaml,
-    policy: GeneratedPolicyYaml,
-    schema: GeneratedSchemaYaml,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedSourceYaml {
-    format: String,
-    path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    options: Option<GeneratedSourceOptions>,
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct GeneratedSourceOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
     separator: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     json_mode: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedSinkYaml {
-    accepted: GeneratedSinkTargetYaml,
-    rejected: GeneratedSinkTargetYaml,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedSinkTargetYaml {
-    format: String,
-    path: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedPolicyYaml {
-    severity: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedSchemaYaml {
-    mismatch: GeneratedMismatchYaml,
-    columns: Vec<GeneratedColumn>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GeneratedMismatchYaml {
-    missing_columns: String,
-    extra_columns: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct GeneratedColumn {
     name: String,
     source: String,
-    #[serde(rename = "type")]
     column_type: String,
     nullable: bool,
     unique: bool,
@@ -684,23 +633,33 @@ fn arrow_dtype_to_floe_type(dtype: &ArrowDataType) -> String {
 }
 
 fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResult<String> {
-    let mut root: YamlValue = serde_yaml::from_str(config_text)?;
-    let root_map = root.as_mapping_mut().ok_or_else(|| {
-        Box::new(ConfigError(
+    let mut docs = YamlLoader::load_from_str(config_text)?;
+    if docs.len() > 1 {
+        return Err(Box::new(ConfigError(
+            "YAML contains multiple documents; expected one".to_string(),
+        )));
+    }
+    let mut root = if docs.is_empty() {
+        Yaml::Null
+    } else {
+        docs.swap_remove(0)
+    };
+    let Yaml::Hash(root_map) = &mut root else {
+        return Err(Box::new(ConfigError(
             "config root must be a YAML mapping".to_string(),
-        )) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+        )));
+    };
 
-    let entities_key = YamlValue::String("entities".to_string());
-    let new_entity_value = serde_yaml::to_value(build_generated_entity_yaml(inferred))?;
+    let entities_key = yaml_str("entities");
+    let new_entity_value = build_generated_entity_yaml(inferred);
 
     match root_map.get_mut(&entities_key) {
         Some(value) => {
-            let entities = value.as_sequence_mut().ok_or_else(|| {
-                Box::new(ConfigError(
+            let Yaml::Array(entities) = value else {
+                return Err(Box::new(ConfigError(
                     "root.entities must be a YAML sequence".to_string(),
-                )) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+                )));
+            };
             if entities
                 .iter()
                 .any(|entity| entity_name_matches(entity, &inferred.name))
@@ -713,57 +672,97 @@ fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResul
             entities.push(new_entity_value);
         }
         None => {
-            root_map.insert(entities_key, YamlValue::Sequence(vec![new_entity_value]));
+            root_map.insert(entities_key, Yaml::Array(vec![new_entity_value]));
         }
     }
 
-    Ok(serde_yaml::to_string(&root)?)
+    let mut rendered = String::new();
+    YamlEmitter::new(&mut rendered).dump(&root)?;
+    let body = rendered.strip_prefix("---\n").unwrap_or(&rendered);
+    Ok(format!("{body}\n"))
 }
 
-fn entity_name_matches(value: &YamlValue, name: &str) -> bool {
+fn entity_name_matches(value: &Yaml, name: &str) -> bool {
     value
-        .as_mapping()
-        .and_then(|map| map.get(YamlValue::String("name".to_string())))
-        .and_then(YamlValue::as_str)
+        .as_hash()
+        .and_then(|map| map.get(&yaml_str("name")))
+        .and_then(Yaml::as_str)
         == Some(name)
 }
 
-fn build_generated_entity_yaml(inferred: &InferredEntity) -> GeneratedEntityYaml {
+fn yaml_str(value: impl Into<String>) -> Yaml {
+    Yaml::String(value.into())
+}
+
+fn build_generated_entity_yaml(inferred: &InferredEntity) -> Yaml {
+    let mut entity = YamlHash::new();
+    entity.insert(yaml_str("name"), yaml_str(&inferred.name));
+    if let Some(domain) = &inferred.domain {
+        entity.insert(yaml_str("domain"), yaml_str(domain));
+    }
+
+    let mut source = YamlHash::new();
+    source.insert(yaml_str("format"), yaml_str(&inferred.format));
+    source.insert(yaml_str("path"), yaml_str(&inferred.input));
     let source_options = match inferred.format.as_str() {
-        "json" => inferred.source_options.clone(),
-        "csv" => inferred.source_options.clone(),
+        "json" | "csv" => inferred.source_options.as_ref(),
         _ => None,
     };
-
-    GeneratedEntityYaml {
-        name: inferred.name.clone(),
-        domain: inferred.domain.clone(),
-        source: GeneratedSourceYaml {
-            format: inferred.format.clone(),
-            path: inferred.input.clone(),
-            options: source_options,
-        },
-        sink: GeneratedSinkYaml {
-            accepted: GeneratedSinkTargetYaml {
-                format: "parquet".to_string(),
-                path: format!("out/accepted/{}/", inferred.name),
-            },
-            rejected: GeneratedSinkTargetYaml {
-                format: "csv".to_string(),
-                path: format!("out/rejected/{}/", inferred.name),
-            },
-        },
-        policy: GeneratedPolicyYaml {
-            severity: "reject".to_string(),
-        },
-        schema: GeneratedSchemaYaml {
-            mismatch: GeneratedMismatchYaml {
-                missing_columns: "reject_file".to_string(),
-                extra_columns: "ignore".to_string(),
-            },
-            columns: inferred.columns.clone(),
-        },
+    if let Some(options) = source_options {
+        let mut options_map = YamlHash::new();
+        if let Some(separator) = &options.separator {
+            options_map.insert(yaml_str("separator"), yaml_str(separator));
+        }
+        if let Some(json_mode) = &options.json_mode {
+            options_map.insert(yaml_str("json_mode"), yaml_str(json_mode));
+        }
+        source.insert(yaml_str("options"), Yaml::Hash(options_map));
     }
+    entity.insert(yaml_str("source"), Yaml::Hash(source));
+
+    let mut accepted = YamlHash::new();
+    accepted.insert(yaml_str("format"), yaml_str("parquet"));
+    accepted.insert(
+        yaml_str("path"),
+        yaml_str(format!("out/accepted/{}/", inferred.name)),
+    );
+    let mut rejected = YamlHash::new();
+    rejected.insert(yaml_str("format"), yaml_str("csv"));
+    rejected.insert(
+        yaml_str("path"),
+        yaml_str(format!("out/rejected/{}/", inferred.name)),
+    );
+    let mut sink = YamlHash::new();
+    sink.insert(yaml_str("accepted"), Yaml::Hash(accepted));
+    sink.insert(yaml_str("rejected"), Yaml::Hash(rejected));
+    entity.insert(yaml_str("sink"), Yaml::Hash(sink));
+
+    let mut policy = YamlHash::new();
+    policy.insert(yaml_str("severity"), yaml_str("reject"));
+    entity.insert(yaml_str("policy"), Yaml::Hash(policy));
+
+    let mut mismatch = YamlHash::new();
+    mismatch.insert(yaml_str("missing_columns"), yaml_str("reject_file"));
+    mismatch.insert(yaml_str("extra_columns"), yaml_str("ignore"));
+    let mut schema = YamlHash::new();
+    schema.insert(yaml_str("mismatch"), Yaml::Hash(mismatch));
+    schema.insert(
+        yaml_str("columns"),
+        Yaml::Array(inferred.columns.iter().map(generated_column_yaml).collect()),
+    );
+    entity.insert(yaml_str("schema"), Yaml::Hash(schema));
+
+    Yaml::Hash(entity)
+}
+
+fn generated_column_yaml(column: &GeneratedColumn) -> Yaml {
+    let mut map = YamlHash::new();
+    map.insert(yaml_str("name"), yaml_str(&column.name));
+    map.insert(yaml_str("source"), yaml_str(&column.source));
+    map.insert(yaml_str("type"), yaml_str(&column.column_type));
+    map.insert(yaml_str("nullable"), Yaml::Boolean(column.nullable));
+    map.insert(yaml_str("unique"), Yaml::Boolean(column.unique));
+    Yaml::Hash(map)
 }
 
 fn validate_generated_config(yaml: &str, target_path: &Path) -> FloeResult<()> {

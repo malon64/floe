@@ -1,0 +1,80 @@
+# cargo-deny configuration — supply-chain gates for advisories, licenses,
+# bans, and sources. Run locally with `cargo deny check`; CI runs it in
+# .github/workflows/supply-chain.yml.
+
+[graph]
+# Audit the full feature surface (including the optional duckdb/delta/iceberg
+# sinks) so the companion build is covered by the same gates.
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+# Flag unmaintained crates only when they are direct workspace dependencies;
+# the polars/aws/azure trees carry transitive ones we cannot act on.
+unmaintained = "workspace"
+ignore = [
+  # pyo3 0.22 advisories. Fixes require pyo3 >= 0.24.1 / >= 0.29, a major
+  # migration of floe-python tracked separately. Remove both when pyo3 is bumped.
+  { id = "RUSTSEC-2025-0020", reason = "fix needs pyo3 >= 0.24.1; floe-python migration tracked in a dedicated issue" },
+  { id = "RUSTSEC-2026-0177", reason = "fix needs pyo3 >= 0.29; floe-python migration tracked in a dedicated issue" },
+  # rsa Marvin timing side channel: no fixed release exists. Pulled transitively
+  # via reqsign <- opendal <- iceberg-storage-opendal; floe never performs RSA
+  # decryption with attacker-observable timing (signing requests only).
+  { id = "RUSTSEC-2023-0071", reason = "no fixed rsa release; transitive via reqsign/opendal, not used for RSA decryption oracles" },
+  # rustls-webpki 0.101.x advisories. The patched 0.103.x copy is already in the
+  # lock; the remaining 0.101.7 copy is hard-pinned by rustls 0.21 inside
+  # aws-smithy-http-client (legacy TLS path of the AWS SDK) and cannot be bumped
+  # downstream. Remove when the AWS SDK drops its rustls 0.21 fallback.
+  { id = "RUSTSEC-2026-0098", reason = "remaining affected copy pinned by aws-smithy-http-client's rustls 0.21 legacy path" },
+  { id = "RUSTSEC-2026-0099", reason = "remaining affected copy pinned by aws-smithy-http-client's rustls 0.21 legacy path" },
+  { id = "RUSTSEC-2026-0104", reason = "remaining affected copy pinned by aws-smithy-http-client's rustls 0.21 legacy path" },
+  # core2 0.4.0 was yanked with no in-range replacement; it is pinned by
+  # libflate <- apache-avro 0.16. Remove when apache-avro is bumped past 0.16.
+  { crate = "core2@0.4.0", reason = "yanked with no ^0.4 replacement; pinned by apache-avro 0.16's libflate" },
+]
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "OpenSSL",
+  "bzip2-1.0.6",
+]
+
+# ring ships a combined license file without an SPDX expression in Cargo.toml.
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+# The dependency tree (polars + aws + azure + arrow) inevitably carries
+# duplicate minor versions; gating on that would be permanently red.
+multiple-versions = "allow"
+wildcards = "deny"
+deny = [
+  # Removed in favor of the yaml-rust2 stack already used by config parsing;
+  # serde_yaml is archived/unmaintained. Keep it out.
+  { crate = "serde_yaml", reason = "unmaintained (archived); use yaml-rust2" },
+  # The pre-official Azure SDK track is deprecated; floe migrated to the
+  # official azure_identity + azure_storage_blob crates.
+  { crate = "azure_storage", reason = "deprecated unofficial Azure SDK track" },
+  { crate = "azure_storage_blobs", reason = "deprecated unofficial Azure SDK track" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -634,6 +634,11 @@ fn arrow_dtype_to_floe_type(dtype: &ArrowDataType) -> String {
 
 fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResult<String> {
     let mut docs = YamlLoader::load_from_str(config_text)?;
+    if docs.len() > 1 {
+        return Err(Box::new(ConfigError(
+            "YAML contains multiple documents; expected one".to_string(),
+        )));
+    }
     let mut root = if docs.is_empty() {
         Yaml::Null
     } else {

@@ -367,3 +367,36 @@ fn add_entity_unknown_extension_requires_explicit_format() {
 
     assert!(err.to_string().contains("use --format"));
 }
+
+#[test]
+fn add_entity_rejects_multi_document_config() {
+    let dir = tempdir().expect("tempdir");
+    let config_path = dir.path().join("config.yml");
+    let input_path = dir.path().join("customers.csv");
+
+    let multi_doc = format!(
+        "{}---\nversion: \"0.2\"\nentities: []\n",
+        base_config_yaml()
+    );
+    write_file(&config_path, &multi_doc);
+    write_file(&input_path, "id,name\n1,Alice\n");
+    let original = fs::read_to_string(&config_path).expect("read config");
+
+    let err = add_entity_to_config(AddEntityOptions {
+        config_path: config_path.clone(),
+        output_path: None,
+        input: input_path.display().to_string(),
+        format: Some("csv".to_string()),
+        name: Some("customers".to_string()),
+        domain: None,
+        dry_run: false,
+    })
+    .expect_err("multi-document config should be rejected");
+
+    assert_eq!(
+        err.to_string(),
+        "YAML contains multiple documents; expected one"
+    );
+    let after = fs::read_to_string(&config_path).expect("read config after failure");
+    assert_eq!(after, original, "config file must not be modified");
+}

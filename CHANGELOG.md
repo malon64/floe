@@ -2,6 +2,31 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.5
+
+- **Distributes `floe-duckdb` as a prebuilt standalone CLI binary for all platforms.**
+  Previous releases shipped the DuckDB-enabled build only as a Docker image
+  (`ghcr.io/malon64/floe-duckdb`) and a Python companion wheel. The CLI binary had to
+  be compiled from source. From this release, `floe-duckdb` binaries are attached to
+  every GitHub Release for all five supported platforms (Linux x86\_64/arm64,
+  macOS x86\_64/arm64, Windows x86\_64) and are available via the existing
+  Homebrew tap and Scoop bucket:
+  ```sh
+  # macOS / Linux — Homebrew
+  brew tap malon64/floe   # skip if already tapped
+  brew install malon64/floe/floe-duckdb
+
+  # Windows — Scoop
+  scoop bucket add floe https://github.com/malon64/scoop-floe
+  scoop install floe-duckdb
+  ```
+  `floe-duckdb` is a complete, standalone CLI (same commands, same config format as
+  `floe`) with the DuckDB sink compiled in. It can be used directly (`floe-duckdb run
+  config.yml`) or placed alongside the lean `floe` binary — `floe` auto-delegates a
+  DuckDB-sink run to `floe-duckdb` without user intervention.
+- Distribution-only patch — no engine, API, or config changes. DuckDB sink behavior
+  and supported targets (Local + MotherDuck) are unchanged.
+
 ## v0.5.4
 
 - **Fixes the Python DuckDB companion so `floe.run()` actually delegates to it.**

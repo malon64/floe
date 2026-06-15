@@ -86,23 +86,52 @@ docker run --rm -v "$PWD:/work" ghcr.io/malon64/floe-duckdb:latest run -c /work/
 
 This image is multi-arch (linux/amd64 + linux/arm64) and runs DuckDB sinks directly.
 
-### 2. Companion binary on `PATH`
+### 2. Companion CLI binary (`floe-duckdb`)
 
-Install the lean `floe` as usual, then place a `floe-duckdb` binary alongside it (same
-directory) or anywhere on your `PATH`. When `floe run` resolves a config that writes to
-a DuckDB sink, the lean binary automatically re-execs `floe-duckdb` with the same
-arguments. If no companion is found, the run fails with an install hint rather than a
-missing-feature error.
+Prebuilt `floe-duckdb` binaries are available for all five supported platforms via
+GitHub Releases, Homebrew, and Scoop. `floe-duckdb` is a **complete, standalone CLI**
+(same commands, same config format as `floe`) with DuckDB compiled in.
 
-Build the companion from source:
+**Homebrew (macOS + Linux):**
+
+```bash
+brew tap malon64/floe   # skip if already tapped for the lean `floe`
+brew install malon64/floe/floe-duckdb
+```
+
+**Scoop (Windows):**
+
+```powershell
+scoop bucket add floe https://github.com/malon64/scoop-floe   # skip if already added
+scoop install floe-duckdb
+```
+
+**Prebuilt binary (all platforms):**
+
+Download from [GitHub Releases](https://github.com/malon64/floe/releases):
+
+| Platform | Archive |
+|---|---|
+| macOS arm64 (Apple Silicon) | `floe-duckdb-vX.Y.Z-aarch64-apple-darwin.tar.gz` |
+| macOS x86_64 | `floe-duckdb-vX.Y.Z-x86_64-apple-darwin.tar.gz` |
+| Linux x86_64 | `floe-duckdb-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `floe-duckdb-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz` |
+| Windows x86_64 | `floe-duckdb-vX.Y.Z-x86_64-pc-windows-msvc.zip` |
+
+**Usage:** either call `floe-duckdb` directly (`floe-duckdb run config.yml`), or place
+it alongside the lean `floe` binary (same directory) or anywhere on your `PATH` — `floe`
+auto-detects a DuckDB sink in your config and re-executes `floe-duckdb` with the same
+arguments, with no user action required.
+
+> For security, the companion is resolved **only** from `PATH` or the directory of the
+> running `floe` executable — never the current working directory.
+
+**Build from source** (if you need a custom feature set):
 
 ```bash
 cargo build -p floe-cli --release --features duckdb
 cp target/release/floe target/release/floe-duckdb   # place on PATH next to floe
 ```
-
-> For security, the companion is resolved **only** from `PATH` or the directory of the
-> running `floe` executable — never the current working directory.
 
 ### 3. Python — off-PyPI `floe-duckdb` wheel
 

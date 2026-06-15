@@ -7,7 +7,7 @@ use azure_core::error::ErrorKind;
 use azure_core::http::{Etag, RequestContent, StatusCode, Url};
 use azure_identity::{
     ClientSecretCredential, DeveloperToolsCredential, ManagedIdentityCredential,
-    WorkloadIdentityCredential,
+    ManagedIdentityCredentialOptions, UserAssignedId, WorkloadIdentityCredential,
 };
 use azure_storage_blob::models::{
     BlobClientDeleteOptions, BlobClientUploadOptions, BlobContainerClientListBlobsOptions,
@@ -99,7 +99,14 @@ fn build_credential() -> FloeResult<Arc<dyn TokenCredential>> {
     }
 
     let mut sources: Vec<Arc<dyn TokenCredential>> = Vec::new();
-    if let Ok(managed) = ManagedIdentityCredential::new(None) {
+    let mi_options =
+        std::env::var("AZURE_CLIENT_ID")
+            .ok()
+            .map(|client_id| ManagedIdentityCredentialOptions {
+                user_assigned_id: Some(UserAssignedId::ClientId(client_id)),
+                ..Default::default()
+            });
+    if let Ok(managed) = ManagedIdentityCredential::new(mi_options) {
         sources.push(managed);
     }
     if let Ok(developer) = DeveloperToolsCredential::new(None) {

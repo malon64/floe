@@ -69,12 +69,12 @@ pub struct EntityConfig {
     pub pii: Option<PiiConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiiConfig {
     pub columns: Vec<PiiColumnConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiiColumnConfig {
     pub name: String,
     pub strategy: PiiStrategy,

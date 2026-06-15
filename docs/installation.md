@@ -88,8 +88,8 @@ This image is multi-arch (linux/amd64 + linux/arm64) and runs DuckDB sinks direc
 
 ### 2. Companion CLI binary (`floe-duckdb`)
 
-Prebuilt `floe-duckdb` binaries are available for all five supported platforms via
-GitHub Releases, Homebrew, and Scoop. `floe-duckdb` is a **complete, standalone CLI**
+Prebuilt `floe-duckdb` binaries are available for macOS and Linux via
+GitHub Releases and Homebrew. `floe-duckdb` is a **complete, standalone CLI**
 (same commands, same config format as `floe`) with DuckDB compiled in.
 
 **Homebrew (macOS + Linux):**
@@ -99,14 +99,12 @@ brew tap malon64/floe   # skip if already tapped for the lean `floe`
 brew install malon64/floe/floe-duckdb
 ```
 
-**Scoop (Windows):**
+> **Windows:** The prebuilt `floe-duckdb` binary is not yet available on Windows
+> (the bundled C++ DuckDB build fails with MSVC). Windows users can use the Docker
+> image (`docker run ghcr.io/malon64/floe-duckdb`) or build from source:
+> `cargo build -p floe-cli --release --features duckdb`.
 
-```powershell
-scoop bucket add floe https://github.com/malon64/scoop-floe   # skip if already added
-scoop install floe-duckdb
-```
-
-**Prebuilt binary (all platforms):**
+**Prebuilt binary (macOS + Linux):**
 
 Download from [GitHub Releases](https://github.com/malon64/floe/releases):
 
@@ -116,7 +114,6 @@ Download from [GitHub Releases](https://github.com/malon64/floe/releases):
 | macOS x86_64 | `floe-duckdb-vX.Y.Z-x86_64-apple-darwin.tar.gz` |
 | Linux x86_64 | `floe-duckdb-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` |
 | Linux arm64 | `floe-duckdb-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz` |
-| Windows x86_64 | `floe-duckdb-vX.Y.Z-x86_64-pc-windows-msvc.zip` |
 
 **Usage:** either call `floe-duckdb` directly (`floe-duckdb run config.yml`), or place
 it alongside the lean `floe` binary (same directory) or anywhere on your `PATH` — `floe`

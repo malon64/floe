@@ -2,6 +2,49 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.5.6
+
+- **Fixes the `build-duckdb-cli` Windows build failure introduced in v0.5.5.**
+  The bundled C++ DuckDB library (`libduckdb-sys`) fails to compile with MSVC
+  `cl.exe` (exit code 2 on `ub_src_storage_compression_chimp.cpp`). Windows was
+  mistakenly included in the `build-duckdb-cli` matrix even though the
+  `build-duckdb-wheel` job already excluded it for the same reason. The Windows
+  entry is now dropped from `build-duckdb-cli`; four Unix/macOS platforms remain
+  (Linux x86\_64/arm64, macOS x86\_64/arm64). The lean `floe.exe` Windows binary is
+  **unaffected** — it is built by a separate job that does not enable the `duckdb`
+  feature. Windows users who need DuckDB support can use
+  `docker run ghcr.io/malon64/floe-duckdb` or build from source:
+  `cargo build -p floe-cli --release --features duckdb`.
+- **Supply-chain hardening and dependency migrations (PR #396):**
+  - `cargo-deny` gate added (`deny.toml`): denies known advisories, yanked crates,
+    non-whitelisted licenses, and non-whitelisted crate sources; bans
+    re-introduction of `serde_yaml` and deprecated `azure_storage*` 0.x crates.
+    A new `.github/workflows/supply-chain.yml` workflow runs the gate on every PR
+    touching dependency files, weekly on a schedule, and on demand.
+  - Dependabot configured (`.github/dependabot.yml`): weekly Cargo updates
+    (minor + patch, grouped by ecosystem), GitHub Actions pin updates, and pip
+    updates. `duckdb`/`libduckdb-sys` are ignored until the Arrow 58 migration
+    lands (tracked in issue #387).
+  - **Five security advisories resolved:**
+    - `aws-lc-sys` 0.36 → 0.41: fixes RUSTSEC-2026-0044/0045/0046/0047/0048
+      (X.509 name-constraint bypass, AES-CCM timing side-channel, PKCS7
+      validation bypasses, CRL logic error).
+    - `rustls-webpki` 0.103.9 → 0.103.13: fixes RUSTSEC-2026-0098/0099/0104/0049.
+    - `lz4_flex` 0.11.5 → 0.11.6 and 0.12.0 → 0.12.1: fixes RUSTSEC-2026-0041
+      (uninitialized-memory leak on invalid input).
+  - **`serde_yaml` removed** (archived / unmaintained): `add_entity.rs` now uses
+    the `yaml-rust2` stack already present in the config parser — one YAML library
+    in the dependency tree instead of two.
+  - **Azure SDK migrated to GA 1.0:** `azure_core` / `azure_identity` /
+    `azure_storage` / `azure_storage_blobs` 0.20 (deprecated unofficial track) →
+    `azure_core` / `azure_identity` / `azure_storage_blob` 1.0. Conditional writes
+    (`If-Match` / `If-None-Match: *` on put; `If-Match` on delete) are preserved;
+    conflict detection is now typed (`ErrorKind::HttpResponse` 412/409) instead of
+    fragile string matching; 409 is now correctly mapped to `Conflict`.
+    `DefaultAzureCredential` is replaced by a `ChainedCredential` that tries
+    service-principal env vars → workload identity → managed identity → Azure CLI.
+- Distribution-only and dependency patch — no engine, API, or config changes.
+
 ## v0.5.5
 
 - **Distributes `floe-duckdb` as a prebuilt standalone CLI binary for all platforms.**

@@ -551,7 +551,10 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, archive_ext: tar.gz }
           - { os: macos-13,         target: x86_64-apple-darwin,       archive_ext: tar.gz }
           - { os: macos-latest,     target: aarch64-apple-darwin,      archive_ext: tar.gz }
-          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    archive_ext: zip    }
+          # Windows excluded: libduckdb-sys bundled C++ fails to compile with MSVC
+          # cl.exe (same reason build-duckdb-wheel already omits Windows). The lean
+          # floe.exe Windows binary is unaffected — it is built by the separate `build`
+          # job which avoids the duckdb feature entirely.
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
@@ -600,24 +603,6 @@ jobs:
           t.with_suffix(t.suffix + ".sha256").write_text(
               f"{hashlib.sha256(t.read_bytes()).hexdigest()}  {t.name}\n", encoding="utf-8")
           PY
-      - name: Package binary (Windows)
-        if: matrix.archive_ext == 'zip'
-        shell: python
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          import hashlib, os, shutil, zipfile
-          from pathlib import Path
-          target = os.environ["TARGET"]
-          version = os.environ["VERSION"]
-          rel = Path(f"target/{target}/release")
-          shutil.copy(rel / "floe.exe", rel / "floe-duckdb.exe")
-          arch = Path(f"dist/floe-duckdb-v{version}-{target}.zip")
-          arch.parent.mkdir(parents=True, exist_ok=True)
-          with zipfile.ZipFile(arch, "w", zipfile.ZIP_DEFLATED) as zf:
-              zf.write(rel / "floe-duckdb.exe", "floe-duckdb.exe")
-          sha = hashlib.sha256(arch.read_bytes()).hexdigest()
-          Path(str(arch) + ".sha256").write_text(f"{sha}  {arch.name}\n", encoding="utf-8")
       - uses: actions/upload-artifact@v6
         with:
           # Prefix 'dist-duckdb-' so these artifacts are included in the 'release'
@@ -748,7 +733,7 @@ jobs:
           echo "linux_arm_sha=$(cut -d ' ' -f1 "${d}/floe-duckdb-v${v}-aarch64-unknown-linux-gnu.tar.gz.sha256")"   >> "$GITHUB_OUTPUT"
           echo "mac_x86_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-x86_64-apple-darwin.tar.gz.sha256")"         >> "$GITHUB_OUTPUT"
           echo "mac_arm_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-aarch64-apple-darwin.tar.gz.sha256")"        >> "$GITHUB_OUTPUT"
-          echo "windows_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-x86_64-pc-windows-msvc.zip.sha256")"         >> "$GITHUB_OUTPUT"
+          # Windows excluded from floe-duckdb: libduckdb-sys C++ build fails with MSVC.
       - name: Render Homebrew formula (floe-duckdb)
         run: |
           python .github/scripts/render_homebrew_formula_duckdb.py \
@@ -770,24 +755,8 @@ jobs:
           fi
           git commit -m "bump floe-duckdb to v${VERSION}"
           git push
-      - name: Render Scoop manifest (floe-duckdb)
-        run: |
-          python .github/scripts/render_scoop_manifest_duckdb.py \
-            --version "${VERSION}" \
-            --windows-sha "${{ steps.duckdb_shas.outputs.windows_sha }}" \
-            --out "scoop/bucket/floe-duckdb.json"
-      - name: Commit and push Scoop manifest (floe-duckdb)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd scoop
-          git add bucket/floe-duckdb.json
-          if git diff --cached --quiet; then
-            echo "No floe-duckdb Scoop changes to commit."
-            exit 0
-          fi
-          git commit -m "bump floe-duckdb to v${VERSION}"
-          git push
+      # Note: no Scoop manifest for floe-duckdb — Windows is excluded from the
+      # build-duckdb-cli matrix (libduckdb-sys bundled C++ fails with MSVC cl.exe).
 
   build-python:
     name: Build Python wheels (${{ matrix.target }} on ${{ matrix.os }})

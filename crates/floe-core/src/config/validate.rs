@@ -324,6 +324,14 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
                 entity.name, col.name
             ))));
         }
+        if col.strategy == PiiStrategy::Hash && col.key.is_none() {
+            eprintln!(
+                "warn: entity.name={} pii.columns[name={}].strategy=hash has no key: \
+                 unsalted SHA-256 is reversible for low-entropy identifiers (email, phone, ID); \
+                 set `key:` to a secret value or `${{ENV_VAR}}` reference to use HMAC-SHA256",
+                entity.name, col.name
+            );
+        }
         if col.strategy == PiiStrategy::Drop
             && (accepted_format == "iceberg" || accepted_format == "delta")
         {

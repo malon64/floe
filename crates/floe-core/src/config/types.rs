@@ -80,6 +80,12 @@ pub struct PiiColumnConfig {
     pub strategy: PiiStrategy,
     pub mask_pattern: Option<String>,
     pub redact_value: Option<String>,
+    /// HMAC-SHA256 key for `strategy: hash`. Accepts a plain literal or a
+    /// single `${ENV_VAR}` reference resolved at masking time. When absent,
+    /// plain SHA-256 is used (backward-compatible but reversible for
+    /// low-entropy values).
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

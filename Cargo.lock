@@ -3416,6 +3416,7 @@ dependencies = [
  "gcloud-storage",
  "glob",
  "hex",
+ "hmac",
  "iceberg",
  "iceberg-catalog-rest",
  "iceberg-storage-opendal",

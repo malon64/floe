@@ -247,10 +247,7 @@ fn build_common_manifest(
                 .and_then(|v| serde_json::to_value(v).ok()),
         };
 
-        let pii = entity
-            .pii
-            .as_ref()
-            .and_then(|v| serde_json::to_value(v).ok());
+        let pii = entity.pii.as_ref().and_then(redact_pii_for_manifest);
 
         let source_path = if options.path_mode == PathMode::ResolvedUri && source.resolved {
             resolved_uri_to_path(&source.uri)
@@ -466,6 +463,21 @@ fn resolve_or_raw(
 /// If the accepted sink is a MotherDuck DuckDB target, return its (trimmed)
 /// `md:<database>` connection string. Returns `None` for every other sink, so the
 /// normal filesystem path-resolution flow applies.
+/// Serialize the PII config for the manifest with any literal HMAC key redacted.
+/// Only exact `${ENV_VAR}` references are preserved (the secret lives in the
+/// environment, not in the manifest); literal keys are dropped so they are never
+/// written to persisted or shared manifest JSON.
+fn redact_pii_for_manifest(pii: &crate::config::PiiConfig) -> Option<serde_json::Value> {
+    let mut sanitized = pii.clone();
+    for col in &mut sanitized.columns {
+        col.key = match col.key.take() {
+            Some(key) if is_exact_env_placeholder(&key) => Some(key),
+            _ => None,
+        };
+    }
+    serde_json::to_value(&sanitized).ok()
+}
+
 /// Serialize a DuckDB sink config for the manifest with the MotherDuck token
 /// redacted. Manifests are orchestration/replay artifacts that may be persisted
 /// and shared, so a literal secret token must never be written. A `${ENV}`

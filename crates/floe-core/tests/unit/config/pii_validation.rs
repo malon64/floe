@@ -575,3 +575,38 @@ entities:
           strategy: "hash""#;
     assert_validation_error(config, &["sink.archive", "unmasked", "pii"]);
 }
+
+#[test]
+fn pii_hash_without_key_is_still_valid() {
+    // Keyless hash emits a warning but must not be rejected.
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "email"
+          strategy: "hash""#,
+    );
+    assert_validation_ok(&config);
+}
+
+#[test]
+fn pii_hash_with_literal_key_is_valid() {
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "email"
+          strategy: "hash"
+          key: "mysecret""#,
+    );
+    assert_validation_ok(&config);
+}
+
+#[test]
+fn pii_hash_with_env_key_ref_is_valid() {
+    // Env-var references in key are resolved at masking time, not at parse time,
+    // so an unset variable must not cause a config error.
+    let config = base_config_with_pii(
+        r#"      columns:
+        - name: "email"
+          strategy: "hash"
+          key: "${FLOE_PII_HMAC_KEY_UNSET}""#,
+    );
+    assert_validation_ok(&config);
+}

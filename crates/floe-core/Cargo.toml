@@ -51,7 +51,7 @@ orc-rust = "0.7.1"
 # split the RecordBatch type and break `dataframe_to_record_batch` ingestion.
 duckdb = { version = "=1.10500.0", features = ["bundled", "appender-arrow"], optional = true }
 
-reqwest = { version = "0.12", default-features = true, features = ["native-tls-vendored", "json", "blocking"] }
+reqwest = { version = "0.13", default-features = true, features = ["native-tls-vendored", "json", "blocking"] }
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"

@@ -538,9 +538,96 @@ jobs:
           name: dist-${{ matrix.target }}
           path: dist/*
 
+  build-duckdb-cli:
+    name: Build floe-duckdb CLI (${{ matrix.target }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [meta, validate]
+    if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  archive_ext: tar.gz }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, archive_ext: tar.gz }
+          - { os: macos-13,         target: x86_64-apple-darwin,       archive_ext: tar.gz }
+          - { os: macos-latest,     target: aarch64-apple-darwin,      archive_ext: tar.gz }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    archive_ext: zip    }
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      # Cache keyed separately from the lean build so the heavy duckdb artifact
+      # never evicts (or is evicted by) the lean default build cache.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-rust
+          add-job-id-key: false
+          shared-key: v0-rust-duckdb-cli-${{ matrix.target }}
+          cache-on-failure: true
+      - name: Build floe-duckdb
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: "4"
+          # -C debuginfo=0 prevents the bundled lld from exceeding runner memory/disk
+          # during the output write (same discipline as the duckdb CI job).
+          RUSTFLAGS: "-C debuginfo=0"
+        run: |
+          features="--no-default-features --features delta,iceberg,duckdb"
+          if [[ "${{ matrix.target }}" == *unknown-linux* ]]; then
+            features="${features},vendored-openssl"
+          fi
+          # Native runner only — `cross` cannot build the bundled C++ DuckDB library.
+          cargo build -p floe-cli ${features} --release --target ${{ matrix.target }}
+      - name: Package binary (Unix)
+        if: matrix.archive_ext == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          version="${VERSION}"
+          # Cargo always names the output binary 'floe' (the [[bin]] name). Rename it
+          # to 'floe-duckdb' so that when extracted alongside the lean 'floe', the
+          # companion discovery in delegate.rs finds it by name.
+          cp "target/${target}/release/floe" "target/${target}/release/floe-duckdb"
+          mkdir -p dist
+          tarball="floe-duckdb-v${version}-${target}.tar.gz"
+          tar -C "target/${target}/release" -czf "dist/${tarball}" floe-duckdb
+          python - <<PY
+          import hashlib
+          from pathlib import Path
+          t = Path("dist/${tarball}")
+          t.with_suffix(t.suffix + ".sha256").write_text(
+              f"{hashlib.sha256(t.read_bytes()).hexdigest()}  {t.name}\n", encoding="utf-8")
+          PY
+      - name: Package binary (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: python
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          import hashlib, os, shutil, zipfile
+          from pathlib import Path
+          target = os.environ["TARGET"]
+          version = os.environ["VERSION"]
+          rel = Path(f"target/{target}/release")
+          shutil.copy(rel / "floe.exe", rel / "floe-duckdb.exe")
+          arch = Path(f"dist/floe-duckdb-v{version}-{target}.zip")
+          arch.parent.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(arch, "w", zipfile.ZIP_DEFLATED) as zf:
+              zf.write(rel / "floe-duckdb.exe", "floe-duckdb.exe")
+          sha = hashlib.sha256(arch.read_bytes()).hexdigest()
+          Path(str(arch) + ".sha256").write_text(f"{sha}  {arch.name}\n", encoding="utf-8")
+      - uses: actions/upload-artifact@v6
+        with:
+          # Prefix 'dist-duckdb-' so these artifacts are included in the 'release'
+          # job's 'pattern: dist-*' download and land in the same dist/ directory.
+          name: dist-duckdb-${{ matrix.target }}
+          path: dist/*
+
   release:
     runs-on: ubuntu-latest
-    needs: [meta, publish, build]
+    needs: [meta, publish, build, build-duckdb-cli]
     if: ${{ needs.meta.outputs.on_main == 'true' && github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.dry_run == false) }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
@@ -647,6 +734,59 @@ jobs:
             exit 0
           fi
           git commit -m "bump floe to v${VERSION}"
+          git push
+      # ── floe-duckdb companion binary: Homebrew + Scoop ─────────────────────
+      # The dist-duckdb-* artifacts are included in the pattern: dist-* download
+      # above (merge-multiple: true), so the archives are already in dist/ and
+      # attached to the GitHub Release via the 'files: dist/**' step above.
+      - id: duckdb_shas
+        name: Collect floe-duckdb checksums
+        shell: bash
+        run: |
+          v="${VERSION}"; d="dist"
+          echo "linux_sha=$(cut -d ' ' -f1     "${d}/floe-duckdb-v${v}-x86_64-unknown-linux-gnu.tar.gz.sha256")"    >> "$GITHUB_OUTPUT"
+          echo "linux_arm_sha=$(cut -d ' ' -f1 "${d}/floe-duckdb-v${v}-aarch64-unknown-linux-gnu.tar.gz.sha256")"   >> "$GITHUB_OUTPUT"
+          echo "mac_x86_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-x86_64-apple-darwin.tar.gz.sha256")"         >> "$GITHUB_OUTPUT"
+          echo "mac_arm_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-aarch64-apple-darwin.tar.gz.sha256")"        >> "$GITHUB_OUTPUT"
+          echo "windows_sha=$(cut -d ' ' -f1   "${d}/floe-duckdb-v${v}-x86_64-pc-windows-msvc.zip.sha256")"         >> "$GITHUB_OUTPUT"
+      - name: Render Homebrew formula (floe-duckdb)
+        run: |
+          python .github/scripts/render_homebrew_formula_duckdb.py \
+            --version "${VERSION}" \
+            --linux-sha     "${{ steps.duckdb_shas.outputs.linux_sha }}" \
+            --linux-arm-sha "${{ steps.duckdb_shas.outputs.linux_arm_sha }}" \
+            --mac-x86-sha   "${{ steps.duckdb_shas.outputs.mac_x86_sha }}" \
+            --mac-arm-sha   "${{ steps.duckdb_shas.outputs.mac_arm_sha }}" \
+            --out "homebrew/Formula/floe-duckdb.rb"
+      - name: Commit and push Homebrew formula (floe-duckdb)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd homebrew
+          git add Formula/floe-duckdb.rb
+          if git diff --cached --quiet; then
+            echo "No floe-duckdb Homebrew changes to commit."
+            exit 0
+          fi
+          git commit -m "bump floe-duckdb to v${VERSION}"
+          git push
+      - name: Render Scoop manifest (floe-duckdb)
+        run: |
+          python .github/scripts/render_scoop_manifest_duckdb.py \
+            --version "${VERSION}" \
+            --windows-sha "${{ steps.duckdb_shas.outputs.windows_sha }}" \
+            --out "scoop/bucket/floe-duckdb.json"
+      - name: Commit and push Scoop manifest (floe-duckdb)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop
+          git add bucket/floe-duckdb.json
+          if git diff --cached --quiet; then
+            echo "No floe-duckdb Scoop changes to commit."
+            exit 0
+          fi
+          git commit -m "bump floe-duckdb to v${VERSION}"
           git push
 
   build-python:

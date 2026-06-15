@@ -32,12 +32,34 @@ entities:
 
 | Strategy  | Description                                                                                    | Extra fields           |
 |-----------|------------------------------------------------------------------------------------------------|------------------------|
-| `hash`    | Replaces each value with its lowercase hex SHA-256 digest. Null values remain null.            | —                      |
+| `hash`    | Replaces each value with a lowercase hex digest. Null values remain null. See security note.   | `key` (opt.)           |
 | `drop`    | Removes the column from the accepted output entirely.                                          | —                      |
 | `nullify` | Replaces every value with null, preserving the column and its type.                            | —                      |
 | `redact`  | Replaces every non-null value with a fixed string (default `[REDACTED]`).                      | `redact_value` (opt.)  |
 | `mask`    | Applies a pattern string with optional `{firstN}` / `{lastN}` reveal tokens (see below).      | `mask_pattern` (req.)  |
 | `tokenize`| Reserved for a future lookup-table tokenization strategy; rejected at config validation now.   | —                      |
+
+> **Security notice — `strategy: hash`**
+>
+> Without a `key`, the digest is plain, **unsalted SHA-256**. For low-entropy PII — emails,
+> phone numbers, national IDs, credit-card numbers — an attacker with access to the masked
+> output can recover most original values via precomputed dictionary. **Always set `key:`**
+> when hashing real PII.
+>
+> When `key:` is present, **HMAC-SHA256** is used instead. The keyed digest is computationally
+> infeasible to reverse, while still preserving referential integrity (same input + same key →
+> same output across runs). The key accepts a plain literal or a `${ENV_VAR}` reference
+> resolved at masking time:
+>
+> ```yaml
+> pii:
+>   columns:
+>     - name: email
+>       strategy: hash
+>       key: "${FLOE_PII_HMAC_KEY}"   # read from environment at run time
+> ```
+>
+> A configuration warning is emitted whenever `strategy: hash` is used without `key:`.
 
 ### `mask` pattern syntax
 
@@ -84,4 +106,6 @@ config-load time.
 - `strategy: drop` is rejected for Delta and Iceberg sinks.
 - `strategy: tokenize` is rejected at config validation (not yet implemented).
 - `redact_value` and `mask_pattern` are ignored for strategies that do not use them.
+- `key` is only used by `strategy: hash`; it is ignored for other strategies.
+- A configuration warning is emitted when `strategy: hash` is used without `key:` (keyless hashing is still valid for backward compatibility).
 - Duplicate column names within `pii.columns` are rejected.

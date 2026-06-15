@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use hmac::{Hmac, Mac};
 use polars::prelude::*;
 use sha2::{Digest, Sha256};
 
 use crate::config::{extract_first_n, extract_last_n, PiiColumnConfig, PiiConfig, PiiStrategy};
 use crate::FloeResult;
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Apply PII masking to all configured columns.
 ///
@@ -45,7 +48,7 @@ fn apply_pii_column(
     match col_cfg.strategy {
         PiiStrategy::Hash => {
             let col = df.column(runtime_name)?;
-            let new_series = hash_column(col, runtime_name)?;
+            let new_series = hash_column(col, runtime_name, col_cfg.key.as_deref())?;
             df.with_column(new_series).map_err(|e| {
                 Box::new(crate::errors::RunError(format!(
                     "PII hash: failed to replace column {runtime_name}: {e}"
@@ -114,15 +117,50 @@ fn to_string_chunked(col: &Column, col_name: &str) -> FloeResult<StringChunked> 
     Ok(ca.clone())
 }
 
-fn hash_column(col: &Column, col_name: &str) -> FloeResult<Series> {
+fn resolve_pii_key(raw_key: &str, col_name: &str) -> FloeResult<String> {
+    if !raw_key.contains("${") {
+        return Ok(raw_key.to_string());
+    }
+    let Some(inner) = raw_key.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
+        return Err(Box::new(crate::errors::ConfigError(format!(
+            "pii column {col_name}: key must be a plain value or a single ${{VAR_NAME}} \
+             reference; mixing literal text with ${{...}} is not supported"
+        ))));
+    };
+    if inner.is_empty() || inner.contains('{') || inner.contains('}') {
+        return Err(Box::new(crate::errors::ConfigError(format!(
+            "pii column {col_name}: key has invalid placeholder syntax"
+        ))));
+    }
+    std::env::var(inner).map_err(|_| {
+        Box::new(crate::errors::RunError(format!(
+            "pii column {col_name}: key references env var {inner} which is not set"
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })
+}
+
+fn hash_column(col: &Column, col_name: &str, key: Option<&str>) -> FloeResult<Series> {
     let ca = to_string_chunked(col, col_name)?;
-    let hashed: StringChunked = ca.apply(|opt| {
-        opt.map(|v| {
-            let mut hasher = Sha256::new();
-            hasher.update(v.as_bytes());
-            hex::encode(hasher.finalize()).into()
+    let hashed: StringChunked = if let Some(raw_key) = key {
+        let resolved = resolve_pii_key(raw_key, col_name)?;
+        let key_bytes = resolved.as_bytes().to_vec();
+        ca.apply(|opt| {
+            opt.map(|v| {
+                let mut mac =
+                    HmacSha256::new_from_slice(&key_bytes).expect("HMAC accepts keys of any size");
+                mac.update(v.as_bytes());
+                hex::encode(mac.finalize().into_bytes()).into()
+            })
         })
-    });
+    } else {
+        ca.apply(|opt| {
+            opt.map(|v| {
+                let mut hasher = Sha256::new();
+                hasher.update(v.as_bytes());
+                hex::encode(hasher.finalize()).into()
+            })
+        })
+    };
     let mut s = hashed.into_series();
     s.rename(col_name.into());
     Ok(s)
@@ -200,6 +238,19 @@ mod tests {
                 strategy,
                 mask_pattern: None,
                 redact_value: None,
+                key: None,
+            }],
+        }
+    }
+
+    fn keyed_hash_pii(name: &str, key: &str) -> PiiConfig {
+        PiiConfig {
+            columns: vec![PiiColumnConfig {
+                name: name.to_string(),
+                strategy: PiiStrategy::Hash,
+                mask_pattern: None,
+                redact_value: None,
+                key: Some(key.to_string()),
             }],
         }
     }
@@ -282,6 +333,7 @@ mod tests {
                 strategy: PiiStrategy::Redact,
                 mask_pattern: None,
                 redact_value: Some("[PII]".to_string()),
+                key: None,
             }],
         };
         apply_pii_masking(&mut df, &pii, &HashMap::new()).unwrap();
@@ -368,6 +420,7 @@ mod tests {
                 strategy: PiiStrategy::Mask,
                 mask_pattern: Some("****{last4}".to_string()),
                 redact_value: None,
+                key: None,
             }],
         };
         apply_pii_masking(&mut df, &pii, &HashMap::new()).unwrap();
@@ -383,6 +436,7 @@ mod tests {
                 strategy: PiiStrategy::Mask,
                 mask_pattern: Some("****{last4}".to_string()),
                 redact_value: None,
+                key: None,
             }],
         };
         apply_pii_masking(&mut df, &pii, &HashMap::new()).unwrap();
@@ -399,6 +453,7 @@ mod tests {
                 strategy: PiiStrategy::Mask,
                 mask_pattern: Some("****{last4}".to_string()),
                 redact_value: None,
+                key: None,
             }],
         };
         apply_pii_masking(&mut df, &pii, &HashMap::new()).unwrap();
@@ -422,6 +477,7 @@ mod tests {
                 strategy: PiiStrategy::Redact,
                 mask_pattern: None,
                 redact_value: None,
+                key: None,
             }],
         };
         apply_pii_masking(&mut df, &pii, &mapping).unwrap();
@@ -442,5 +498,109 @@ mod tests {
         .unwrap();
         // Other columns must be untouched.
         assert_eq!(get_str(&df, "other", 0).unwrap(), "value");
+    }
+
+    // --- keyed HMAC-SHA256 hash ---
+
+    #[test]
+    fn hash_with_literal_key_uses_hmac() {
+        let mut df = single_col_df("email", &[Some("alice@example.com")]);
+        apply_pii_masking(&mut df, &keyed_hash_pii("email", "secret"), &HashMap::new()).unwrap();
+        let v = get_str(&df, "email", 0).unwrap();
+        assert_eq!(v.len(), 64, "HMAC-SHA256 hex output must be 64 chars");
+        assert!(v.chars().all(|c| c.is_ascii_hexdigit()));
+        // Must differ from the plain SHA-256 of the same value.
+        let mut df2 = single_col_df("email", &[Some("alice@example.com")]);
+        apply_pii_masking(
+            &mut df2,
+            &simple_pii("email", PiiStrategy::Hash),
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert_ne!(
+            v,
+            get_str(&df2, "email", 0).unwrap(),
+            "keyed hash must differ from plain SHA-256"
+        );
+    }
+
+    #[test]
+    fn hash_with_same_key_is_reproducible() {
+        let pii = keyed_hash_pii("f", "mykey");
+        let mut df1 = single_col_df("f", &[Some("value")]);
+        let mut df2 = single_col_df("f", &[Some("value")]);
+        apply_pii_masking(&mut df1, &pii, &HashMap::new()).unwrap();
+        apply_pii_masking(&mut df2, &pii, &HashMap::new()).unwrap();
+        assert_eq!(
+            get_str(&df1, "f", 0),
+            get_str(&df2, "f", 0),
+            "same key and value must produce identical HMAC"
+        );
+    }
+
+    #[test]
+    fn hash_with_different_keys_differ() {
+        let mut df1 = single_col_df("f", &[Some("same-value")]);
+        let mut df2 = single_col_df("f", &[Some("same-value")]);
+        apply_pii_masking(&mut df1, &keyed_hash_pii("f", "key-a"), &HashMap::new()).unwrap();
+        apply_pii_masking(&mut df2, &keyed_hash_pii("f", "key-b"), &HashMap::new()).unwrap();
+        assert_ne!(
+            get_str(&df1, "f", 0),
+            get_str(&df2, "f", 0),
+            "different keys must produce different HMACs"
+        );
+    }
+
+    #[test]
+    fn hash_with_env_key_resolves_var() {
+        std::env::set_var("FLOE_TEST_PII_KEY", "env-secret");
+        let mut df1 = single_col_df("f", &[Some("data")]);
+        let mut df2 = single_col_df("f", &[Some("data")]);
+        apply_pii_masking(
+            &mut df1,
+            &keyed_hash_pii("f", "${FLOE_TEST_PII_KEY}"),
+            &HashMap::new(),
+        )
+        .unwrap();
+        apply_pii_masking(
+            &mut df2,
+            &keyed_hash_pii("f", "env-secret"),
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            get_str(&df1, "f", 0),
+            get_str(&df2, "f", 0),
+            "${{ENV_VAR}} key must resolve to the same HMAC as the literal key"
+        );
+        std::env::remove_var("FLOE_TEST_PII_KEY");
+    }
+
+    #[test]
+    fn resolve_pii_key_rejects_mixed_syntax() {
+        let err = super::resolve_pii_key("prefix-${VAR}", "col").unwrap_err();
+        assert!(
+            err.to_string().contains("single"),
+            "error must mention single reference"
+        );
+    }
+
+    #[test]
+    fn resolve_pii_key_rejects_missing_env_var() {
+        let err = super::resolve_pii_key("${FLOE_MISSING_PII_KEY_XYZ}", "col").unwrap_err();
+        assert!(
+            err.to_string().contains("not set"),
+            "error must mention not set"
+        );
+    }
+
+    #[test]
+    fn hash_with_key_preserves_null() {
+        let mut df = single_col_df("f", &[Some("value"), None]);
+        apply_pii_masking(&mut df, &keyed_hash_pii("f", "k"), &HashMap::new()).unwrap();
+        assert!(
+            get_str(&df, "f", 1).is_none(),
+            "null must stay null after keyed hash"
+        );
     }
 }

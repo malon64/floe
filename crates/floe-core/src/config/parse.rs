@@ -1159,7 +1159,7 @@ fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
     validate_known_keys(
         hash,
         "pii.columns",
-        &["name", "strategy", "mask_pattern", "redact_value"],
+        &["name", "strategy", "mask_pattern", "redact_value", "key"],
     )?;
     let name = get_string(hash, "name", "pii.columns")?;
     let strategy_str = get_string(hash, "strategy", "pii.columns")?;
@@ -1181,6 +1181,7 @@ fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
         strategy,
         mask_pattern: opt_string(hash, "mask_pattern", "pii.columns")?,
         redact_value: opt_string(hash, "redact_value", "pii.columns")?,
+        key: opt_string(hash, "key", "pii.columns")?,
     })
 }
 

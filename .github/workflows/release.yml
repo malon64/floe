@@ -117,7 +117,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: dist-*
@@ -212,7 +212,7 @@ jobs:
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: duckdb-digest-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -229,7 +229,7 @@ jobs:
       IMAGE: ghcr.io/${{ github.repository_owner }}/floe-duckdb
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: duckdb-digest-*
@@ -336,7 +336,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           before-script-linux: ${{ matrix.before_script }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: duckdb-wheel-${{ matrix.os }}-${{ matrix.target }}
           path: dist
@@ -356,7 +356,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download duckdb wheels
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: duckdb-dist
           pattern: duckdb-wheel-*
@@ -551,7 +551,7 @@ jobs:
           sha_path = Path(str(archive_path) + ".sha256")
           sha_path.write_text(f"{sha}  {archive_path.name}\n", encoding="utf-8")
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.target }}
           path: dist/*
@@ -621,7 +621,7 @@ jobs:
           t.with_suffix(t.suffix + ".sha256").write_text(
               f"{hashlib.sha256(t.read_bytes()).hexdigest()}  {t.name}\n", encoding="utf-8")
           PY
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           # Prefix 'dist-duckdb-' so these artifacts are included in the 'release'
           # job's 'pattern: dist-*' download and land in the same dist/ directory.
@@ -638,7 +638,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           # Only the platform binary archives are needed here (GH Release assets +
           # checksums for the Homebrew/Scoop formulae). Without this pattern the
@@ -836,7 +836,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           before-script-linux: ${{ matrix.before_script }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: py-dist-${{ matrix.os }}-${{ matrix.target }}
           path: dist
@@ -852,7 +852,7 @@ jobs:
         with:
           command: sdist
           args: -m crates/floe-python/Cargo.toml --out dist
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: py-dist-sdist
           path: dist
@@ -864,7 +864,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: "py-dist-*"

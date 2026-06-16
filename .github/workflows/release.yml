@@ -424,9 +424,27 @@ jobs:
       - name: Publish floe-core
         if: ${{ steps.check.outputs.core_exists != 'true' }}
         run: cargo publish -p floe-core
-      - name: Wait for crates.io index
+      - name: Wait for floe-core to appear in crates.io index
         if: ${{ steps.check.outputs.core_exists != 'true' }}
-        run: sleep 30
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.request
+          version = os.environ["VERSION"]
+          url = f"https://crates.io/api/v1/crates/floe-core/{version}"
+          for attempt in range(30):          # up to 5 minutes (30 × 10 s)
+              try:
+                  with urllib.request.urlopen(url, timeout=10) as resp:
+                      data = json.load(resp)
+                  if data.get("version", {}).get("num") == version:
+                      print(f"floe-core {version} is available in the crates.io index")
+                      break
+              except Exception as exc:
+                  print(f"  (probe failed: {exc})")
+              print(f"[{attempt + 1}/30] floe-core {version} not yet in index, waiting 10 s...")
+              time.sleep(10)
+          else:
+              print(f"WARNING: floe-core {version} still not visible after 5 min; proceeding anyway")
+          PY
       - name: Publish floe-cli
         if: ${{ steps.check.outputs.cli_exists != 'true' }}
         run: cargo publish -p floe-cli

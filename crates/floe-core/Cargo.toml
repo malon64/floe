@@ -58,7 +58,7 @@ hex = "0.4"
 thiserror = "1"
 
 [dev-dependencies]
-rust_xlsxwriter = "0.67"
+rust_xlsxwriter = "0.95"
 mockito = "1"
 
 [features]

@@ -92,7 +92,7 @@ impl TryFrom<RunOutcome> for PyRunOutcome {
 }
 
 fn json_loads<'py>(py: Python<'py>, s: &str) -> PyResult<Bound<'py, PyAny>> {
-    py.import_bound("json")?.call_method1("loads", (s,))
+    py.import("json")?.call_method1("loads", (s,))
 }
 
 #[pymethods]
@@ -105,7 +105,7 @@ impl PyRunOutcome {
     #[staticmethod]
     fn from_dict(data: Bound<'_, PyAny>) -> PyResult<Self> {
         let py = data.py();
-        let json = py.import_bound("json")?;
+        let json = py.import("json")?;
         let dumps = |obj: Bound<'_, PyAny>| -> PyResult<String> {
             json.call_method1("dumps", (obj,))?.extract()
         };
@@ -114,7 +114,7 @@ impl PyRunOutcome {
         let dry_run: bool = data.get_item("dry_run")?.extract()?;
         let summary_json = dumps(data.get_item("summary")?)?;
         let mut entity_reports_json = Vec::new();
-        for item in data.get_item("entity_reports")?.iter()? {
+        for item in data.get_item("entity_reports")?.try_iter()? {
             entity_reports_json.push(dumps(item?)?);
         }
         let previews = data.get_item("dry_run_previews")?;
@@ -122,7 +122,7 @@ impl PyRunOutcome {
             None
         } else {
             let mut v = Vec::new();
-            for item in previews.iter()? {
+            for item in previews.try_iter()? {
                 v.push(DryRunPreviewData::from_dict(&item?)?);
             }
             Some(v)
@@ -138,27 +138,27 @@ impl PyRunOutcome {
     }
 
     #[getter]
-    fn summary(&self, py: Python<'_>) -> PyResult<PyObject> {
-        Ok(json_loads(py, &self.summary_json)?.into_py(py))
+    fn summary<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        json_loads(py, &self.summary_json)
     }
 
     #[getter]
-    fn entity_reports(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn entity_reports<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
         self.entity_reports_json
             .iter()
-            .map(|s| Ok(json_loads(py, s)?.into_py(py)))
+            .map(|s| json_loads(py, s))
             .collect()
     }
 
     #[getter]
-    fn dry_run_previews(&self, py: Python<'_>) -> PyResult<Option<Vec<PyObject>>> {
+    fn dry_run_previews<'py>(&self, py: Python<'py>) -> PyResult<Option<Vec<Bound<'py, PyAny>>>> {
         let Some(ref previews) = self.dry_run_previews_data else {
             return Ok(None);
         };
-        let result: PyResult<Vec<PyObject>> = previews
+        let result: PyResult<Vec<Bound<'py, PyAny>>> = previews
             .iter()
             .map(|p| {
-                let d = PyDict::new_bound(py);
+                let d = PyDict::new(py);
                 d.set_item("name", &p.name)?;
                 d.set_item("input_path", &p.input_path)?;
                 d.set_item("input_format", &p.input_format)?;
@@ -170,21 +170,21 @@ impl PyRunOutcome {
                 d.set_item("archive_storage", p.archive_storage.as_deref())?;
                 d.set_item("report_file", p.report_file.as_deref())?;
                 d.set_item("scanned_files", &p.scanned_files)?;
-                Ok(d.into_py(py))
+                Ok(d.into_any())
             })
             .collect();
         Ok(Some(result?))
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let d = PyDict::new_bound(py);
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
         d.set_item("run_id", &self.run_id)?;
         d.set_item("report_base_path", self.report_base_path.as_deref())?;
         d.set_item("dry_run", self.dry_run)?;
         d.set_item("summary", self.summary(py)?)?;
         d.set_item("entity_reports", self.entity_reports(py)?)?;
         d.set_item("dry_run_previews", self.dry_run_previews(py)?)?;
-        Ok(d.into_py(py))
+        Ok(d)
     }
 
     fn __repr__(&self) -> String {

@@ -65,7 +65,7 @@ pub fn validate(
         profile_storages: profile.as_ref().and_then(|p| p.storages.clone()),
         profile_lineage: profile.and_then(|p| p.lineage),
     };
-    py.allow_threads(|| floe_core::validate(&path, options))
+    py.detach(|| floe_core::validate(&path, options))
         .map_err(to_py_err)
 }
 
@@ -91,7 +91,7 @@ pub fn run(
         profile,
     };
     let outcome = py
-        .allow_threads(|| floe_core::run(&path, options))
+        .detach(|| floe_core::run(&path, options))
         .map_err(to_py_err)?;
     PyRunOutcome::try_from(outcome)
         .map_err(|e| FloeError::new_err(format!("failed to serialize run outcome: {e}")))
@@ -146,21 +146,21 @@ pub fn extract_config_env_vars(config_path: &str) -> PyResult<HashMap<String, St
 }
 
 #[pyfunction]
-pub fn inspect_entity_state(
-    py: Python<'_>,
+pub fn inspect_entity_state<'py>(
+    py: Python<'py>,
     config_path: &str,
     entity_name: &str,
-) -> PyResult<PyObject> {
+) -> PyResult<Bound<'py, PyDict>> {
     let path = PathBuf::from(config_path);
     let entity_name = entity_name.to_string();
     let inspection = py
-        .allow_threads(|| {
+        .detach(|| {
             let config_base = ConfigBase::local_from_path(&path);
             floe_core::inspect_entity_state_with_base(&path, config_base, &entity_name)
         })
         .map_err(to_py_err)?;
 
-    let d = PyDict::new_bound(py);
+    let d = PyDict::new(py);
     d.set_item("entity_name", &inspection.entity_name)?;
     d.set_item("incremental_mode", inspection.incremental_mode.as_str())?;
     d.set_item("path_uri", &inspection.path.uri)?;
@@ -171,21 +171,19 @@ pub fn inspect_entity_state(
     if let Some(state) = &inspection.state {
         let state_json = serde_json::to_string(state)
             .map_err(|e| FloeError::new_err(format!("failed to serialize state: {e}")))?;
-        let state_dict = py
-            .import_bound("json")?
-            .call_method1("loads", (&state_json,))?;
+        let state_dict = py.import("json")?.call_method1("loads", (&state_json,))?;
         d.set_item("state", state_dict)?;
     } else {
         d.set_item("state", py.None())?;
     }
-    Ok(d.into_py(py))
+    Ok(d)
 }
 
 #[pyfunction]
 pub fn reset_entity_state(py: Python<'_>, config_path: &str, entity_name: &str) -> PyResult<bool> {
     let path = PathBuf::from(config_path);
     let entity_name = entity_name.to_string();
-    py.allow_threads(|| {
+    py.detach(|| {
         let config_base = ConfigBase::local_from_path(&path);
         floe_core::reset_entity_state_with_base(&path, config_base, &entity_name)
     })

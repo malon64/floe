@@ -9,14 +9,14 @@ use crate::types::errors::FloeError;
 /// The Python-side callable is stored in a Mutex so it can be swapped
 /// between notebook cells without reinstalling the observer.
 pub struct MutablePythonObserver {
-    // Arc<PyObject> so we can clone the handle cheaply (no GIL needed)
+    // Arc<Py<PyAny>> so we can clone the handle cheaply (no GIL needed)
     // before releasing the lock, preventing deadlock if the callback
     // itself calls set_observer/clear_observer.
-    callback: Mutex<Option<Arc<PyObject>>>,
+    callback: Mutex<Option<Arc<Py<PyAny>>>>,
 }
 
-// SAFETY: PyObject is not Send by default, but we only access it
-// inside Python::with_gil which correctly re-acquires the GIL.
+// SAFETY: Py<PyAny> is not Send by default, but we only access it
+// inside Python::attach which correctly re-acquires the GIL.
 unsafe impl Send for MutablePythonObserver {}
 unsafe impl Sync for MutablePythonObserver {}
 
@@ -24,23 +24,23 @@ impl RunObserver for MutablePythonObserver {
     fn on_event(&self, event: RunEvent) {
         // Clone the Arc while holding the lock, then drop the guard before
         // entering Python. Arc::clone is GIL-free and cheap. Holding the
-        // MutexGuard across with_gil would deadlock if the callback calls
+        // MutexGuard across Python::attach would deadlock if the callback calls
         // set_observer/clear_observer (which lock the same mutex).
-        let cb: Option<Arc<PyObject>> = self.callback.lock().ok().and_then(|g| (*g).clone());
+        let cb: Option<Arc<Py<PyAny>>> = self.callback.lock().ok().and_then(|g| (*g).clone());
         let Some(cb) = cb else { return };
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let Ok(s) = serde_json::to_string(&event) else {
                 return;
             };
-            let Ok(json_mod) = py.import_bound("json") else {
+            let Ok(json_mod) = py.import("json") else {
                 return;
             };
             let Ok(event_dict) = json_mod.call_method1("loads", (&s,)) else {
                 return;
             };
             // Ignore callback errors so a buggy observer never aborts the run
-            let _ = cb.call1(py, (event_dict,));
+            let _ = cb.bind(py).call1((event_dict,));
         });
     }
 }
@@ -59,7 +59,7 @@ fn get_or_install_observer() -> &'static MutablePythonObserver {
 }
 
 #[pyo3::pyfunction]
-pub fn set_observer(py: Python<'_>, callback: PyObject) -> PyResult<bool> {
+pub fn set_observer(py: Python<'_>, callback: Py<PyAny>) -> PyResult<bool> {
     if !callback.bind(py).is_callable() {
         return Err(pyo3::exceptions::PyTypeError::new_err(
             "observer callback must be callable",

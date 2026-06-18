@@ -1,6 +1,6 @@
-// PyO3's #[pyfunction] macro emits identity From<PyErr> conversions and
-// create_exception! emits cfg(gil-refs) checks — both are known false positives.
-#![allow(clippy::useless_conversion, unexpected_cfgs)]
+// PyO3's #[pyfunction] macro emits identity From<PyErr> conversions — a known
+// false positive for clippy::useless_conversion.
+#![allow(clippy::useless_conversion)]
 
 mod functions;
 mod observer;
@@ -19,17 +19,11 @@ use types::outcome::PyRunOutcome;
 // delegate a DuckDB-sink run to the companion module.
 fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Exception hierarchy
-    m.add("FloeError", m.py().get_type_bound::<FloeError>())?;
-    m.add(
-        "FloeConfigError",
-        m.py().get_type_bound::<FloeConfigError>(),
-    )?;
-    m.add("FloeRunError", m.py().get_type_bound::<FloeRunError>())?;
-    m.add(
-        "FloeStorageError",
-        m.py().get_type_bound::<FloeStorageError>(),
-    )?;
-    m.add("FloeIoError", m.py().get_type_bound::<FloeIoError>())?;
+    m.add("FloeError", m.py().get_type::<FloeError>())?;
+    m.add("FloeConfigError", m.py().get_type::<FloeConfigError>())?;
+    m.add("FloeRunError", m.py().get_type::<FloeRunError>())?;
+    m.add("FloeStorageError", m.py().get_type::<FloeStorageError>())?;
+    m.add("FloeIoError", m.py().get_type::<FloeIoError>())?;
 
     // Capability flag: true only in the `+duckdb` build. The lean Python wrapper
     // reads this to know whether it must delegate DuckDB sinks to the companion.

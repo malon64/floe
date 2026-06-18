@@ -14,10 +14,6 @@ yanked = "deny"
 # the polars/aws/azure trees carry transitive ones we cannot act on.
 unmaintained = "workspace"
 ignore = [
-  # pyo3 0.22 advisories. Fixes require pyo3 >= 0.24.1 / >= 0.29, a major
-  # migration of floe-python tracked separately. Remove both when pyo3 is bumped.
-  { id = "RUSTSEC-2025-0020", reason = "fix needs pyo3 >= 0.24.1; floe-python migration tracked in a dedicated issue" },
-  { id = "RUSTSEC-2026-0177", reason = "fix needs pyo3 >= 0.29; floe-python migration tracked in a dedicated issue" },
   # rsa Marvin timing side channel: no fixed release exists. Pulled transitively
   # via reqsign <- opendal <- iceberg-storage-opendal; floe never performs RSA
   # decryption with attacker-observable timing (signing requests only).

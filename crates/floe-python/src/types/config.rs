@@ -1,7 +1,10 @@
 use floe_core::config::{EntityConfig, RootConfig};
 use pyo3::prelude::*;
 
-#[pyclass(name = "EntityConfig")]
+// `Clone` is needed to hand copies to Python (e.g. the `entities` getter); this type
+// is only ever produced for Python, never extracted from it, so opt out of the
+// (now opt-in) `FromPyObject` derive pyo3 0.29 generates for cloneable pyclasses.
+#[pyclass(name = "EntityConfig", skip_from_py_object)]
 #[derive(Clone)]
 pub struct PyEntityConfig {
     #[pyo3(get)]

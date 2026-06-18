@@ -1,8 +1,15 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::{CatalogTypeConfig, ResolvedDeltaCatalogTarget};
 use crate::errors::RunError;
 use crate::FloeResult;
+
+/// Registration is a handful of small JSON calls; an unreachable or hung workspace
+/// must fail the run rather than block it forever while the state-claim heartbeat
+/// keeps the entity's inputs locked.
+const UNITY_HTTP_TIMEOUT_SECS: u64 = 30;
 
 /// Runtime config for a single Unity Catalog registration.
 #[derive(Debug, Clone)]
@@ -123,7 +130,10 @@ pub(crate) async fn register_unity_table(
     cfg: &UnityCatalogConfig,
     table_uri: &str,
 ) -> FloeResult<()> {
-    let client = reqwest::Client::new();
+    let client = build_unity_client(
+        Duration::from_secs(UNITY_HTTP_TIMEOUT_SECS),
+        &cfg.catalog_name,
+    )?;
     let catalog_def = &cfg.catalog_name;
     let full_name = format!("{}.{}.{}", cfg.unity_catalog, cfg.schema, cfg.table);
 
@@ -215,6 +225,17 @@ pub(crate) async fn register_unity_table(
     Err(Box::new(RunError(format!(
         "unity catalog {catalog_def} POST table {full_name} returned status {status}: {detail}"
     ))))
+}
+
+fn build_unity_client(timeout: Duration, catalog_name: &str) -> FloeResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|err| {
+            Box::new(RunError(format!(
+                "unity catalog {catalog_name}: failed to build HTTP client: {err}"
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })
 }
 
 async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> FloeResult<()> {

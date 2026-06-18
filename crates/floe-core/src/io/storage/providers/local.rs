@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use glob::glob;
 
@@ -194,18 +195,32 @@ struct FileLock {
     path: PathBuf,
 }
 
+/// A lock left behind by a process that died without releasing it (SIGKILL, OOM,
+/// power loss) would otherwise be permanent. The lock only guards a brief
+/// read-modify-write of a small JSON file, so any lock older than this is treated
+/// as abandoned and broken.
+const LOCK_STALE_TTL: Duration = Duration::from_secs(5 * 60);
+
 impl FileLock {
     fn acquire(base: &Path) -> FloeResult<Self> {
         let lock_path = PathBuf::from(format!("{}.lock", base.display()));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&lock_path)
             {
-                Ok(_) => return Ok(Self { path: lock_path }),
+                Ok(mut file) => {
+                    use std::io::Write;
+                    let _ = file.write_all(lock_contents().as_bytes());
+                    return Ok(Self { path: lock_path });
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if lock_is_stale(&lock_path) {
+                        let _ = std::fs::remove_file(&lock_path);
+                        continue;
+                    }
                     if std::time::Instant::now() >= deadline {
                         return Err(format!(
                             "timed out acquiring local state lock {}",
@@ -213,7 +228,7 @@ impl FileLock {
                         )
                         .into());
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) => return Err(Box::new(e)),
             }
@@ -225,6 +240,45 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+fn lock_contents() -> String {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("{now_ms}:{}", std::process::id())
+}
+
+fn lock_is_stale(lock_path: &Path) -> bool {
+    lock_age(lock_path).is_some_and(|age| age > LOCK_STALE_TTL)
+}
+
+/// Age of an existing lock, from its embedded acquisition timestamp. Falls back to
+/// the file's mtime for empty (create-then-write race) or legacy lock files, and
+/// returns `None` when nothing readable is available so the lock is left intact.
+fn lock_age(lock_path: &Path) -> Option<Duration> {
+    if let Ok(content) = std::fs::read_to_string(lock_path) {
+        if let Some(acquired_ms) = content
+            .split(':')
+            .next()
+            .and_then(|s| s.trim().parse::<u128>().ok())
+        {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis();
+            return Some(Duration::from_millis(
+                now_ms.saturating_sub(acquired_ms) as u64
+            ));
+        }
+    }
+    std::fs::metadata(lock_path)
+        .ok()?
+        .modified()
+        .ok()?
+        .elapsed()
+        .ok()
 }
 
 fn local_version(path: &Path) -> FloeResult<String> {

@@ -187,6 +187,40 @@ fn table_create_with_schema_creation() {
 }
 
 #[test]
+fn client_times_out_against_a_hung_endpoint() {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    // A socket that accepts the connection but never sends a response — the worst
+    // case the timeout guards against (a reachable but wedged Databricks workspace).
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let handle = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 64];
+            let _ = stream.read(&mut buf);
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    let client = build_unity_client(Duration::from_millis(150), "test_def").expect("client");
+    let start = Instant::now();
+    let result = block_on(async {
+        client
+            .get(format!("http://{addr}/api/2.1/unity-catalog/tables/x"))
+            .send()
+            .await
+    });
+    assert!(result.is_err(), "request must fail rather than hang");
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "timeout should fire well before the server responds"
+    );
+    handle.join().ok();
+}
+
+#[test]
 fn unexpected_get_status_returns_error() {
     let mut server = mockito::Server::new();
     server

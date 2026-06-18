@@ -36,8 +36,8 @@ use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
 use self::metadata::{
-    latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
-    parse_metadata_version_from_location,
+    latest_adls_metadata_location, latest_gcs_metadata_location, latest_local_metadata_location,
+    latest_s3_metadata_location, parse_metadata_version_from_location,
 };
 pub(crate) use self::rest::{build_rest_catalog, write_via_rest_catalog, RestIcebergCatalogConfig};
 use self::schema::{ensure_partition_spec_matches, ensure_schema_matches, prepare_iceberg_write};
@@ -179,7 +179,7 @@ impl SinkFormat for IcebergSinkFormat {
     }
 
     fn supported_storages(&self) -> &'static [&'static str] {
-        &["local", "s3", "gcs"]
+        &["local", "s3", "gcs", "adls"]
     }
 
     fn write(&self, req: AcceptedWriteRequest<'_>) -> FloeResult<AcceptedWriteOutput> {
@@ -250,7 +250,14 @@ impl SinkFormat for IcebergSinkFormat {
                 let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
                 latest_gcs_metadata_location(client, base_key)?
             }
-            Target::Adls { .. } => return Ok(()),
+            Target::Adls {
+                storage,
+                base_path,
+                ..
+            } => {
+                let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
+                latest_adls_metadata_location(client, base_path)?
+            }
         };
         let Some(metadata_location) = metadata_location else {
             return Ok(());
@@ -378,6 +385,7 @@ async fn write_iceberg_table_async(
         && !table_root_uri.starts_with("s3a://")
         && !table_root_uri.starts_with("gs://")
         && !table_root_uri.starts_with("az://")
+        && !table_root_uri.starts_with("abfs://")
         && !table_root_uri.starts_with("abfss://");
     let mut catalog_builder = MemoryCatalogBuilder::default();
     if is_local {
@@ -404,6 +412,18 @@ async fn write_iceberg_table_async(
     } else if table_root_uri.starts_with("gs://") {
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::Gcs));
+    } else if table_root_uri.starts_with("abfss://") {
+        catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
+            OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfss".parse().expect("abfss is a valid AzureStorageScheme"),
+            },
+        ));
+    } else if table_root_uri.starts_with("abfs://") {
+        catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
+            OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfs".parse().expect("abfs is a valid AzureStorageScheme"),
+            },
+        ));
     }
     let catalog = catalog_builder
         .load(catalog_name, catalog_props)
@@ -720,6 +740,7 @@ async fn collect_iceberg_batches(
         && !warehouse_location.starts_with("s3a://")
         && !warehouse_location.starts_with("gs://")
         && !warehouse_location.starts_with("az://")
+        && !warehouse_location.starts_with("abfs://")
         && !warehouse_location.starts_with("abfss://");
 
     let mut props = catalog_props;
@@ -753,6 +774,18 @@ async fn collect_iceberg_batches(
     } else if warehouse_location.starts_with("gs://") {
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::Gcs));
+    } else if warehouse_location.starts_with("abfss://") {
+        catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
+            OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfss".parse().expect("abfss is a valid AzureStorageScheme"),
+            },
+        ));
+    } else if warehouse_location.starts_with("abfs://") {
+        catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
+            OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfs".parse().expect("abfs is a valid AzureStorageScheme"),
+            },
+        ));
     }
     let catalog = catalog_builder.load(ICEBERG_CATALOG_NAME, props).await?;
 

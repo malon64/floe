@@ -2,8 +2,8 @@
 
 Floe writes Iceberg tables for `sink.accepted.format: iceberg` using filesystem
 catalog layout semantics (table root with `metadata/` and `data/`) on local
-storage, S3, and GCS. Floe also supports AWS Glue and Iceberg REST catalog
-registration.
+storage, S3, GCS, and ADLS Gen2. Floe also supports AWS Glue and Iceberg REST
+catalog registration.
 
 ## Storage catalog model
 
@@ -13,6 +13,7 @@ registration.
   - local filesystem (filesystem catalog semantics)
   - S3 (filesystem catalog semantics or AWS Glue catalog)
   - GCS (filesystem catalog semantics)
+  - ADLS Gen2 (filesystem catalog semantics or Iceberg REST catalog)
 
 ## Example config
 
@@ -98,6 +99,47 @@ credentials up front through the AWS SDK and hands them to the writer, so EKS Po
 the other container-credential modes work for both the Glue catalog metadata and the S3 data
 and metadata writes — no extra configuration is required. To use explicit keys instead, set
 the `AWS_*` environment variables.
+
+## ADLS Gen2 (filesystem catalog)
+
+Iceberg tables on Azure Data Lake Storage Gen2 use filesystem catalog semantics.
+Authentication follows the same credential chain as other ADLS operations (service
+principal → workload identity → managed identity → Azure CLI).
+
+```yaml
+storages:
+  default: "local_fs"
+  definitions:
+    - name: "local_fs"
+      type: "local"
+    - name: "adls_out"
+      type: "adls"
+      account: "mystorageaccount"
+      container: "lakehouse"
+      prefix: "warehouse/iceberg"
+
+entities:
+  - name: "customer"
+    source:
+      format: "csv"
+      path: "/data/in/customers.csv"
+    sink:
+      write_mode: "append"
+      accepted:
+        format: "iceberg"
+        path: "customer_iceberg"
+        storage: "adls_out"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "customer_id"
+          type: "string"
+```
+
+REST catalog (Polaris, Nessie, Snowflake) is also supported with ADLS data
+locations — set `sink.accepted.iceberg.catalog` to a REST catalog definition and
+the `warehouse_storage` field to the ADLS storage definition.
 
 ## REST catalog credentials
 

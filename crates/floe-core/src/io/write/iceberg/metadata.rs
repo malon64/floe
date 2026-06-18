@@ -66,6 +66,19 @@ pub(crate) fn latest_gcs_metadata_location(
     latest_metadata_location_from_objects(listed)
 }
 
+pub(crate) fn latest_adls_metadata_location(
+    client: &mut dyn io::storage::StorageClient,
+    base_key: &str,
+) -> FloeResult<Option<String>> {
+    let metadata_prefix = if base_key.trim_matches('/').is_empty() {
+        "metadata/".to_string()
+    } else {
+        format!("{}/metadata/", base_key.trim_matches('/'))
+    };
+    let listed = client.list(&metadata_prefix)?;
+    latest_metadata_location_from_objects(listed)
+}
+
 fn latest_metadata_location_from_objects(objects: Vec<ObjectRef>) -> FloeResult<Option<String>> {
     let mut best: Option<(i64, String, String)> = None;
     for object in objects {

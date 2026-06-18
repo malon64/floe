@@ -97,6 +97,18 @@ pub(crate) async fn build_rest_catalog(
             })
         } else if effective_uri.starts_with("gs://") {
             Arc::new(OpenDalStorageFactory::Gcs)
+        } else if effective_uri.starts_with("abfss://") {
+            Arc::new(OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfss"
+                    .parse()
+                    .expect("abfss is a valid AzureStorageScheme"),
+            })
+        } else if effective_uri.starts_with("abfs://") {
+            Arc::new(OpenDalStorageFactory::Azdls {
+                configured_scheme: "abfs"
+                    .parse()
+                    .expect("abfs is a valid AzureStorageScheme"),
+            })
         } else {
             Arc::new(LocalFsStorageFactory)
         };

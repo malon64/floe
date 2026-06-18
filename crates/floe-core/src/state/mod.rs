@@ -849,7 +849,7 @@ fn is_path_separator(ch: char) -> bool {
 }
 
 fn is_remote_uri(value: &str) -> bool {
-    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
+    crate::io::storage::uri::is_remote_uri(value)
 }
 
 pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeResult<EntityState> {

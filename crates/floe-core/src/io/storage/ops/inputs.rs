@@ -288,11 +288,7 @@ pub fn localize_input(
 }
 
 fn is_cloud_uri(uri: &str) -> bool {
-    uri.starts_with("s3://")
-        || uri.starts_with("gs://")
-        || uri.starts_with("abfs://")
-        || uri.starts_with("az://")
-        || uri.starts_with("gcs://")
+    crate::io::storage::uri::is_remote_uri(uri)
 }
 
 fn system_time_to_rfc3339(value: SystemTime) -> Option<String> {

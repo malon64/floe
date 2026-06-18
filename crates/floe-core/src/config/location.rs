@@ -43,6 +43,8 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
 }
 
 fn download_remote_config(uri: &str, temp_dir: &Path) -> FloeResult<PathBuf> {
+    let normalized = storage::uri::normalize_remote_uri(uri);
+    let uri = normalized.as_ref();
     if uri.starts_with("s3://") {
         let location = storage::s3::parse_s3_uri(uri)?;
         let client = storage::s3::S3Client::new(location.bucket, None, None, None)?;
@@ -81,6 +83,8 @@ pub fn write_bytes_to_remote_uri(bytes: &[u8], uri: &str) -> FloeResult<()> {
 }
 
 pub fn upload_to_remote_uri(local_path: &Path, uri: &str) -> FloeResult<()> {
+    let normalized = storage::uri::normalize_remote_uri(uri);
+    let uri = normalized.as_ref();
     if uri.starts_with("s3://") {
         let location = storage::s3::parse_s3_uri(uri)?;
         let client = storage::s3::S3Client::new(location.bucket, None, None, None)?;
@@ -111,5 +115,5 @@ pub fn upload_to_remote_uri(local_path: &Path, uri: &str) -> FloeResult<()> {
 }
 
 pub(crate) fn is_remote_uri(value: &str) -> bool {
-    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
+    crate::io::storage::uri::is_remote_uri(value)
 }

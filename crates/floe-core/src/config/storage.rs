@@ -643,7 +643,8 @@ fn format_gcs_uri(bucket: &str, key: &str) -> String {
 }
 
 fn parse_adls_uri(value: &str) -> Option<(String, String, String)> {
-    let stripped = value.strip_prefix("abfs://")?;
+    let normalized = crate::io::storage::uri::normalize_remote_uri(value);
+    let stripped = normalized.strip_prefix("abfs://")?;
     let (container, rest) = stripped.split_once('@')?;
     let (account, path) = rest.split_once(".dfs.core.windows.net")?;
     let path = path.trim_start_matches('/').to_string();
@@ -661,7 +662,7 @@ fn parent_prefix(key: &str) -> String {
 }
 
 pub(crate) fn is_remote_uri(value: &str) -> bool {
-    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
+    crate::io::storage::uri::is_remote_uri(value)
 }
 
 fn is_relative_path(value: &str) -> bool {

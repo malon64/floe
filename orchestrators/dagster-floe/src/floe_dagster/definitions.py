@@ -13,7 +13,25 @@ from .runner import LocalRunner, Runner
 
 
 def build_runner_from_env() -> Runner:
-    return LocalRunner(os.environ.get("FLOE_BIN", "floe"))
+    return LocalRunner(
+        os.environ.get("FLOE_BIN", "floe"),
+        timeout=_timeout_from_env(),
+    )
+
+
+def _timeout_from_env() -> float | None:
+    raw = os.environ.get("FLOE_RUN_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        timeout = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"FLOE_RUN_TIMEOUT_SECONDS must be a number, got {raw!r}"
+        ) from exc
+    if timeout <= 0:
+        raise ValueError("FLOE_RUN_TIMEOUT_SECONDS must be positive")
+    return timeout
 
 
 def build_definitions(

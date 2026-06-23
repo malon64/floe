@@ -35,8 +35,9 @@ class Runner:
 
 
 class LocalRunner(Runner):
-    def __init__(self, floe_bin: str = "floe") -> None:
+    def __init__(self, floe_bin: str = "floe", timeout: float | None = None) -> None:
         self._floe_cmd = shlex.split(floe_bin)
+        self._timeout = timeout
 
     def run_floe_entity(
         self,
@@ -122,7 +123,17 @@ class LocalRunner(Runner):
             args.extend(["--log-format", log_format])
             cwd = None
             env_overrides = None
-        return _run(args, cwd=cwd, env_overrides=env_overrides, dagster_job_name=dagster_job_name)
+        return _run(
+            args,
+            cwd=cwd,
+            env_overrides=env_overrides,
+            dagster_job_name=dagster_job_name,
+            timeout=self._timeout,
+        )
+
+
+# Conventional exit code for a process killed by a timeout (matches timeout(1)).
+_TIMEOUT_EXIT_CODE = 124
 
 
 def _run(
@@ -130,20 +141,43 @@ def _run(
     cwd: str | None = None,
     env_overrides: dict[str, str] | None = None,
     dagster_job_name: str | None = None,
+    timeout: float | None = None,
 ) -> RunResult:
     env = os.environ.copy()
     if env_overrides:
         env.update(env_overrides)
     if dagster_job_name:
         env["DAGSTER_JOB_NAME"] = dagster_job_name
-    proc = subprocess.run(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        capture_output=True,
-    )
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Surface the timeout as a failed RunResult (non-zero exit) rather than
+        # raising, so the asset layer turns it into a clean Dagster Failure with
+        # the reason in metadata — mirroring how the k8s/databricks runners
+        # report failures and keeping runner.py free of any dagster imports.
+        return RunResult(
+            stdout=_as_text(exc.stdout),
+            stderr=_as_text(exc.stderr),
+            exit_code=_TIMEOUT_EXIT_CODE,
+            status="timeout",
+            failure_reason=f"floe run exceeded the {timeout}s timeout and was terminated",
+        )
     return RunResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+def _as_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def _contains_run_id_placeholder(execution: ManifestExecution) -> bool:

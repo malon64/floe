@@ -7,7 +7,7 @@ use aws_sdk_s3::Client;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Runtime;
 
-use crate::errors::StorageError;
+use crate::errors::FloeError;
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 use crate::FloeResult;
@@ -28,7 +28,7 @@ impl S3Client {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(StorageError(format!("failed to build aws runtime: {err}"))))?;
+            .map_err(|err| FloeError::storage(format!("failed to build aws runtime: {err}")))?;
         let endpoint = endpoint.map(ToOwned::to_owned);
         let config = runtime.block_on(async {
             let region_provider = match region {
@@ -76,10 +76,10 @@ impl StorageClient for S3Client {
                     request = request.continuation_token(token);
                 }
                 let response = request.send().await.map_err(|err| {
-                    Box::new(StorageError(format!(
+                    FloeError::storage(format!(
                         "s3 list objects failed for bucket {}: {err}",
                         bucket
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?;
                 if let Some(contents) = response.contents {
                     for object in contents {
@@ -121,10 +121,7 @@ impl StorageClient for S3Client {
                 .key(key.clone())
                 .send()
                 .await
-                .map_err(|err| {
-                    Box::new(StorageError(format!("s3 get object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
-                })?;
+                .map_err(|err| FloeError::storage(format!("s3 get object failed: {err}")))?;
             if let Some(parent) = dest_clone.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
@@ -143,10 +140,9 @@ impl StorageClient for S3Client {
         let key = location.key;
         let path = local_path.to_path_buf();
         self.runtime.block_on(async move {
-            let body = ByteStream::from_path(path).await.map_err(|err| {
-                Box::new(StorageError(format!("s3 upload body failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let body = ByteStream::from_path(path)
+                .await
+                .map_err(|err| FloeError::storage(format!("s3 upload body failed: {err}")))?;
             self.client
                 .put_object()
                 .bucket(bucket)
@@ -154,10 +150,7 @@ impl StorageClient for S3Client {
                 .body(body)
                 .send()
                 .await
-                .map_err(|err| {
-                    Box::new(StorageError(format!("s3 put object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
-                })?;
+                .map_err(|err| FloeError::storage(format!("s3 put object failed: {err}")))?;
             Ok(())
         })
     }
@@ -178,10 +171,7 @@ impl StorageClient for S3Client {
                 .copy_source(copy_source)
                 .send()
                 .await
-                .map_err(|err| {
-                    Box::new(StorageError(format!("s3 copy object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
-                })?;
+                .map_err(|err| FloeError::storage(format!("s3 copy object failed: {err}")))?;
             Ok(())
         })
     }
@@ -197,10 +187,7 @@ impl StorageClient for S3Client {
                 .key(key)
                 .send()
                 .await
-                .map_err(|err| {
-                    Box::new(StorageError(format!("s3 delete object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
-                })?;
+                .map_err(|err| FloeError::storage(format!("s3 delete object failed: {err}")))?;
             Ok(())
         })
     }
@@ -224,17 +211,14 @@ impl StorageClient for S3Client {
                 Ok(response) => response,
                 Err(err) if is_not_found(&err) => return Ok(None),
                 Err(err) => {
-                    return Err(
-                        Box::new(StorageError(format!("s3 get object failed: {err}")))
-                            as Box<dyn std::error::Error + Send + Sync>,
-                    )
+                    return Err(FloeError::storage(format!("s3 get object failed: {err}")).into())
                 }
             };
             let version = response.e_tag.unwrap_or_default();
-            let body = response.body.collect().await.map_err(|err| {
-                Box::new(StorageError(format!("s3 read object body failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let body =
+                response.body.collect().await.map_err(|err| {
+                    FloeError::storage(format!("s3 read object body failed: {err}"))
+                })?;
             Ok(Some(StoredObject {
                 body: body.into_bytes().to_vec(),
                 version,
@@ -266,10 +250,7 @@ impl StorageClient for S3Client {
                     version: output.e_tag.unwrap_or_default(),
                 }),
                 Err(err) if is_precondition_or_conflict(&err) => Ok(ConditionalWrite::Conflict),
-                Err(err) => Err(
-                    Box::new(StorageError(format!("s3 put object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>,
-                ),
+                Err(err) => Err(FloeError::storage(format!("s3 put object failed: {err}")).into()),
             }
         })
     }
@@ -301,10 +282,9 @@ impl StorageClient for S3Client {
                     version: "deleted".to_string(),
                 }),
                 Err(err) if is_precondition_or_conflict(&err) => Ok(ConditionalWrite::Conflict),
-                Err(err) => Err(
-                    Box::new(StorageError(format!("s3 delete object failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>,
-                ),
+                Err(err) => {
+                    Err(FloeError::storage(format!("s3 delete object failed: {err}")).into())
+                }
             }
         })
     }

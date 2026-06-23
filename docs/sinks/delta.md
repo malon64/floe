@@ -42,7 +42,8 @@ Schema evolution for standard Delta writes:
 
 Merge mode notes (`merge_scd1`, `merge_scd2`):
 - Requires `schema.primary_key` in config (non-empty, non-nullable columns).
-- Only supported on Delta accepted sinks.
+- This page documents the Delta implementation. DuckDB also supports merge modes;
+  see [DuckDB sink](duckdb.md) for its implementation details.
 - Strict remains the default behavior.
 - `schema.schema_evolution.mode: add_columns` enables additive-only evolution for merge modes too.
   - New non-key business columns may be added to the target Delta table before merge.

@@ -5,8 +5,8 @@ Floe resolves accepted/rejected write behavior from `sink.write_mode`.
 Supported values:
 - `overwrite` (default): existing output parts are replaced before writing new output.
 - `append`: new output parts are added without deleting existing ones.
-- `merge_scd1` (Delta accepted sink only): SCD1 upsert keyed by `schema.primary_key`.
-- `merge_scd2` (Delta accepted sink only): SCD2 merge keyed by `schema.primary_key`.
+- `merge_scd1`: SCD1 upsert keyed by `schema.primary_key` on Delta or DuckDB accepted sinks.
+- `merge_scd2`: SCD2 merge keyed by `schema.primary_key` on Delta or DuckDB accepted sinks.
 
 ## Standard Delta writes (`append`, `overwrite`)
 
@@ -25,28 +25,29 @@ For accepted Delta sinks, standard write modes stay strict by default.
 
 ## `merge_scd1` semantics
 
-- Accepted sink format must be `delta`.
+- Accepted sink format must be `delta` or `duckdb`.
 - `schema.primary_key` is required and is used as merge key.
 - Source rows are validated for merge-key uniqueness during row checks.
   In `policy.severity=warn`, duplicate merge-key rows are rejected before merge so only unambiguous rows are merged.
 - On key match: update non-key columns from source.
 - `sink.accepted.merge.ignore_columns` can exclude additional business columns from SCD1 update sets.
 - On missing key: insert source row.
-- Strict remains the default behavior.
+- Strict schema handling remains the default behavior.
 - `schema.schema_evolution.mode: add_columns` enables additive-only Delta schema evolution for merge writes.
   - New non-key business columns may be added before the merge commit.
   - Existing columns must remain compatible; drop/rename/type-change flows are rejected.
   - Merge-key columns cannot be introduced by schema evolution.
-- Merge execution uses Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
-- Single-writer assumption: Delta commit conflicts are returned as clear write errors.
+- DuckDB merge writes use DuckDB's native `MERGE INTO`; DuckDB schema evolution is not supported.
+- Delta merge writes use Delta native merge (`MERGE INTO`) through delta-rs/DataFusion.
+- Single-writer assumption: sink-level commit or lock conflicts are returned as clear write errors.
 
 ## `merge_scd2` semantics
 
-- Accepted sink format must be `delta`.
+- Accepted sink format must be `delta` or `duckdb`.
 - `schema.primary_key` is required and is used as merge key.
 - Source rows are validated for merge-key uniqueness during row checks.
   In `policy.severity=warn`, duplicate merge-key rows are rejected before merge so only unambiguous rows are merged.
-- Floe manages SCD2 system columns in Delta tables:
+- Floe manages SCD2 system columns in Delta and DuckDB target tables:
   - `__floe_is_current`
   - `__floe_valid_from`
   - `__floe_valid_to`
@@ -63,17 +64,18 @@ For accepted Delta sinks, standard write modes stay strict by default.
 - Change detection columns are resolved as:
   - `sink.accepted.merge.compare_columns` when configured
   - otherwise all non-key business columns minus `sink.accepted.merge.ignore_columns`
-- Strict remains the default behavior.
+- Strict schema handling remains the default behavior.
 - `schema.schema_evolution.mode: add_columns` enables additive-only Delta schema evolution for merge writes.
   - New business columns may be added while Floe preserves SCD2 system columns.
   - Existing columns must remain compatible; drop/rename/type-change flows are rejected.
   - Merge-key columns cannot be introduced by schema evolution.
-- Single-writer assumption: Delta commit conflicts are returned as clear write errors.
+- DuckDB merge writes use DuckDB's native `MERGE INTO`; DuckDB schema evolution is not supported.
+- Single-writer assumption: sink-level commit or lock conflicts are returned as clear write errors.
 
 ## Rejected output behavior
 
 `sink.write_mode` is shared with rejected output:
 - `overwrite`: first rejected write in a run starts fresh, subsequent rejected files append.
 - `append`: rejected files append.
-- `merge_scd1`: rejected files append (merge logic is accepted-Delta specific only).
-- `merge_scd2`: rejected files append (merge logic is accepted-Delta specific only).
+- `merge_scd1`: rejected files append (merge logic applies only to the accepted Delta/DuckDB sink).
+- `merge_scd2`: rejected files append (merge logic applies only to the accepted Delta/DuckDB sink).

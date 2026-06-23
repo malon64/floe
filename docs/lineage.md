@@ -49,8 +49,9 @@ For each Floe run, Floe posts OpenLineage `RunEvent` objects to
 
 Each entity event carries the actual data movement as OpenLineage datasets:
 
-- **`inputs`** — one dataset named after `source.path`; carries schema, data quality, and Floe quality run facets
-- **`outputs`** — one dataset named after `sink.accepted.path`; plus one named after `sink.rejected.path` when a rejected sink is configured
+- **`inputs`** — one dataset named after `source.path`
+- **`outputs`** — one dataset named after the accepted sink; plus one named
+  after the rejected sink when a rejected sink is configured
 
 This produces a lineage graph in Marquez (and compatible tools) of the form:
 
@@ -61,11 +62,16 @@ source path  →  <namespace>.<entity> job  →  accepted sink path
 
 ### Facets on entity COMPLETE/FAIL events
 
-Attached to the **source input dataset**:
+Attached to the **accepted output dataset**:
 
-- **`DataQualityMetrics`** (`dataQualityMetrics`) — `rowCount`, `validCount`, `invalidCount`
-- **`FloeQualityRun`** — `entity`, `rejectionRate`, `files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`
 - **`SchemaDataset`** (`schema`) — column names and types from `schema.columns`
+- **`DataQualityMetrics`** (`dataQualityMetrics`) — accepted row counts for the output dataset
+- **`FloeQualityRun`** — `entity`, `rejectionRate`, `files`, `rows`, `accepted`, `rejected`, `warnings`, `errors`
+- **`ColumnLineageDatasetFacet`** (`columnLineage`) — output columns mapped to
+  source fields when configured, or to the same source field name by default
+
+When a rejected sink is configured, the rejected output dataset carries its own
+`DataQualityMetrics` facet with rejected row counts.
 
 ### ParentRun facet (Airflow / Dagster)
 

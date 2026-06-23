@@ -1,6 +1,12 @@
 # Using floe from Python
 
-`floe-python` wraps the floe Rust engine via [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs), giving you full-speed ingestion pipelines callable from Python scripts, Jupyter notebooks, or any orchestrator. A single ABI3 wheel covers Python 3.10–3.13.
+`floe-python` wraps the Floe Rust engine via [PyO3](https://pyo3.rs) and
+[maturin](https://www.maturin.rs), so the same contract-first ingestion gate can
+run from Python scripts, Jupyter notebooks, tests, or orchestrators. Use it when
+you want Floe inside an existing Python workflow without deploying a service or
+starting a separate platform instance.
+
+A single ABI3 wheel covers Python 3.10–3.13.
 
 ```bash
 pip install floe-python
@@ -10,7 +16,7 @@ pip install floe-python
 
 ## The core functions
 
-Four functions cover every use case:
+Four functions cover the main embedded and notebook use cases:
 
 | Function | Returns | When to use |
 |---|---|---|

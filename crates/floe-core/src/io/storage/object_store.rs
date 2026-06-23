@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 #[cfg(feature = "iceberg")]
 use iceberg::io::{
-    CLIENT_REGION, S3_ACCESS_KEY_ID, S3_REGION, S3_SECRET_ACCESS_KEY, S3_SESSION_TOKEN,
+    ADLS_ACCOUNT_KEY, ADLS_ACCOUNT_NAME, ADLS_SAS_TOKEN, CLIENT_REGION, S3_ACCESS_KEY_ID,
+    S3_REGION, S3_SECRET_ACCESS_KEY, S3_SESSION_TOKEN,
 };
 #[cfg(feature = "delta")]
 use url::Url;
@@ -150,12 +151,12 @@ pub fn iceberg_store_config(
                 .strip_prefix("abfs://")
                 .map(|rest| format!("abfss://{rest}"))
                 .unwrap_or_else(|| uri.to_string());
-            file_io_props.insert("adls.account-name".to_string(), account.to_string());
+            file_io_props.insert(ADLS_ACCOUNT_NAME.to_string(), account.to_string());
             if let Ok(key) = std::env::var("AZURE_STORAGE_ACCOUNT_KEY") {
-                file_io_props.insert("adls.account-key".to_string(), key);
+                file_io_props.insert(ADLS_ACCOUNT_KEY.to_string(), key);
             }
             if let Ok(sas) = std::env::var("AZURE_STORAGE_SAS_TOKEN") {
-                file_io_props.insert("adls.sas-token".to_string(), sas);
+                file_io_props.insert(ADLS_SAS_TOKEN.to_string(), sas);
             }
             Ok(IcebergStoreConfig {
                 warehouse_location,

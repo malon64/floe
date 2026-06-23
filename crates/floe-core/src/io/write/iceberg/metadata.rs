@@ -1,8 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::io::storage::ObjectRef;
-use crate::{io, FloeResult};
+use crate::{errors::StorageError, FloeResult};
 
 pub(crate) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
     let metadata_dir = table_root.join("metadata");
@@ -41,7 +41,7 @@ pub(crate) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Op
 }
 
 pub(crate) fn latest_s3_metadata_location(
-    client: &mut dyn io::storage::StorageClient,
+    client: &mut dyn crate::io::storage::StorageClient,
     base_key: &str,
 ) -> FloeResult<Option<String>> {
     let metadata_prefix = if base_key.trim_matches('/').is_empty() {
@@ -54,7 +54,7 @@ pub(crate) fn latest_s3_metadata_location(
 }
 
 pub(crate) fn latest_gcs_metadata_location(
-    client: &mut dyn io::storage::StorageClient,
+    client: &mut dyn crate::io::storage::StorageClient,
     base_key: &str,
 ) -> FloeResult<Option<String>> {
     let metadata_prefix = if base_key.trim_matches('/').is_empty() {
@@ -66,20 +66,113 @@ pub(crate) fn latest_gcs_metadata_location(
     latest_metadata_location_from_objects(listed)
 }
 
-pub(crate) fn latest_adls_metadata_location(
-    client: &mut dyn io::storage::StorageClient,
-    base_key: &str,
+/// List the Iceberg metadata directory on ADLS using an OpenDAL Azdls operator
+/// built from the same `file_io_props` used for the write — avoiding the
+/// OAuth-only floe blob client which fails when the CLI identity lacks
+/// Storage Blob Data plane RBAC.
+///
+/// `warehouse_uri` is the fully-qualified `abfs[s]://container@account.dfs.core.windows.net/path`
+/// table-root URI from `IcebergStoreConfig`.
+#[cfg(feature = "iceberg")]
+pub(crate) fn latest_adls_metadata_location_via_opendal(
+    file_io_props: &HashMap<String, String>,
+    warehouse_uri: &str,
 ) -> FloeResult<Option<String>> {
-    let metadata_prefix = if base_key.trim_matches('/').is_empty() {
+    use opendal::services::AzdlsConfig;
+    use opendal::{Configurator, Operator};
+
+    let url = url::Url::parse(warehouse_uri).map_err(|e| {
+        Box::new(StorageError(format!(
+            "adls iceberg warehouse uri invalid ({warehouse_uri}): {e}"
+        )))
+    })?;
+
+    let filesystem = url.username().to_string();
+    let host = url.host_str().unwrap_or("").to_string();
+    let http_scheme = if warehouse_uri.starts_with("abfss://") {
+        "https"
+    } else {
+        "http"
+    };
+    let endpoint = format!("{http_scheme}://{host}");
+
+    // Container-relative path for the table root; metadata lives one level below.
+    let table_path = url.path().trim_start_matches('/').trim_end_matches('/');
+    let metadata_list_path = if table_path.is_empty() {
         "metadata/".to_string()
     } else {
-        format!("{}/metadata/", base_key.trim_matches('/'))
+        format!("{table_path}/metadata/")
     };
-    let listed = client.list(&metadata_prefix)?;
-    latest_metadata_location_from_objects(listed)
+
+    let config = AzdlsConfig {
+        filesystem: filesystem.clone(),
+        endpoint: Some(endpoint),
+        account_name: file_io_props.get("adls.account-name").cloned(),
+        account_key: file_io_props.get("adls.account-key").cloned(),
+        sas_token: file_io_props.get("adls.sas-token").cloned(),
+        tenant_id: file_io_props.get("adls.tenant-id").cloned(),
+        client_id: file_io_props.get("adls.client-id").cloned(),
+        client_secret: file_io_props.get("adls.client-secret").cloned(),
+        ..Default::default()
+    };
+
+    let op = Operator::new(config.into_builder())
+        .map_err(|e| {
+            Box::new(StorageError(format!(
+                "adls iceberg opendal operator init failed: {e}"
+            )))
+        })?
+        .finish();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            Box::new(StorageError(format!(
+                "adls iceberg listing runtime init failed: {e}"
+            )))
+        })?;
+
+    let entries = runtime
+        .block_on(op.list(&metadata_list_path))
+        .map_err(|e| {
+            Box::new(StorageError(format!("adls list failed: {e}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+    let adls_scheme = if warehouse_uri.starts_with("abfss://") {
+        "abfss"
+    } else {
+        "abfs"
+    };
+    let uri_base = format!("{adls_scheme}://{filesystem}@{host}");
+
+    let mut best: Option<(i64, String)> = None;
+    for entry in &entries {
+        let path = entry.path();
+        let file_name = path.rsplit('/').next().unwrap_or("");
+        if !file_name.ends_with(".metadata.json") {
+            continue;
+        }
+        let Some(version) = parse_metadata_version_from_filename(file_name) else {
+            continue;
+        };
+        let take = match &best {
+            None => true,
+            Some((bv, bpath)) => version > *bv || (version == *bv && path > bpath.as_str()),
+        };
+        if take {
+            let full_uri = format!("{uri_base}/{}", path.trim_start_matches('/'));
+            best = Some((version, full_uri));
+        }
+    }
+
+    Ok(best.map(|(_, uri)| uri))
 }
 
-fn latest_metadata_location_from_objects(objects: Vec<ObjectRef>) -> FloeResult<Option<String>> {
+fn latest_metadata_location_from_objects(
+    objects: Vec<crate::io::storage::ObjectRef>,
+) -> FloeResult<Option<String>> {
     let mut best: Option<(i64, String, String)> = None;
     for object in objects {
         let file_name = object

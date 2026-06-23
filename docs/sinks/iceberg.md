@@ -103,8 +103,29 @@ the `AWS_*` environment variables.
 ## ADLS Gen2 (filesystem catalog)
 
 Iceberg tables on Azure Data Lake Storage Gen2 use filesystem catalog semantics.
-Authentication follows the same credential chain as other ADLS operations (service
-principal → workload identity → managed identity → Azure CLI).
+
+### Authentication
+
+The Iceberg write path (OpenDAL/reqsign) and the metadata listing path both use
+the same credential resolution order:
+
+1. **Account key** — set `AZURE_STORAGE_ACCOUNT_KEY` in the environment. Floe
+   forwards it as `adls.account-key` to the storage layer. Simplest option for
+   local development and CI.
+2. **SAS token** — set `AZURE_STORAGE_SAS_TOKEN`. Used only if no account key
+   is set. The token must have at least List + Read permissions on the container.
+3. **Service principal** — set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and
+   `AZURE_CLIENT_SECRET`. Reqsign reads these automatically; no extra config
+   needed in the floe manifest.
+4. **Workload identity / managed identity** — picked up automatically from the
+   Azure environment.
+
+> **Note on Azure CLI (`az login`)**: Azure CLI works for management-plane
+> operations (e.g. `az storage account keys list`) but does **not** work for
+> the Iceberg storage write path. If your CLI identity also has
+> `Storage Blob Data Contributor` RBAC on the container, it can be used for
+> the metadata listing, but setting `AZURE_STORAGE_ACCOUNT_KEY` is recommended
+> for local development to avoid RBAC configuration overhead.
 
 ```yaml
 storages:

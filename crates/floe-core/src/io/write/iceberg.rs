@@ -36,8 +36,9 @@ use self::data_files::{iceberg_small_file_threshold_bytes, write_data_files};
 pub(crate) use self::glue::load_glue_table_state;
 use self::glue::upsert_glue_table;
 use self::metadata::{
-    latest_adls_metadata_location, latest_gcs_metadata_location, latest_local_metadata_location,
-    latest_s3_metadata_location, parse_metadata_version_from_location,
+    latest_adls_metadata_location_via_opendal, latest_gcs_metadata_location,
+    latest_local_metadata_location, latest_s3_metadata_location,
+    parse_metadata_version_from_location,
 };
 pub(crate) use self::rest::{build_rest_catalog, write_via_rest_catalog, RestIcebergCatalogConfig};
 use self::schema::{ensure_partition_spec_matches, ensure_schema_matches, prepare_iceberg_write};
@@ -250,12 +251,10 @@ impl SinkFormat for IcebergSinkFormat {
                 let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
                 latest_gcs_metadata_location(client, base_key)?
             }
-            Target::Adls {
-                storage, base_path, ..
-            } => {
-                let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
-                latest_adls_metadata_location(client, base_path)?
-            }
+            Target::Adls { .. } => latest_adls_metadata_location_via_opendal(
+                &store.file_io_props,
+                &store.warehouse_location,
+            )?,
         };
         let Some(metadata_location) = metadata_location else {
             return Ok(());

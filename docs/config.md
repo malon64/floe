@@ -164,9 +164,9 @@ is available for templating within that entity.
 - Entity-local state settings used by incremental ingestion.
 - `state.path` (optional)
   - Overrides the file or object used to store entity state.
-  - Supports local paths and cloud URIs for S3 (`s3://`), GCS (`gs://`), and ADLS (`abfs://`).
+  - Supports local paths and cloud URIs for S3 (`s3://`), GCS (`gs://`), and ADLS (`abfs://` or `abfss://`).
   - Relative paths always resolve as local filesystem paths, regardless of the source
-    storage context. Only explicit cloud URIs (`s3://`, `gs://`, `abfs://`) use remote
+    storage context. Only explicit cloud URIs (`s3://`, `gs://`, `abfs://`, `abfss://`) use remote
     storage. A relative override with a cloud source will produce local state and will
     not benefit from remote claim coordination.
   - If omitted and `incremental_mode: file` is used, Floe derives the path under the

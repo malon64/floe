@@ -2,6 +2,49 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.0
+
+- **HMAC-SHA256 keyed hashing for `strategy: hash` (`docs/pii.md`, #388).**
+  The optional `key:` field on a `pii.columns[]` entry selects HMAC-SHA256 instead of
+  plain SHA-256, making hash-masked values computationally infeasible to reverse by
+  dictionary attack while preserving referential integrity (same input + same key → same
+  output across runs). The key accepts a plain literal or a `${ENV_VAR}` reference
+  resolved at masking time.
+  - Plain SHA-256 remains the default for backward compatibility.
+  - A configuration warning is emitted when `strategy: hash` is used without `key:`.
+  - Literal keys are redacted from manifest serialization so they never appear in the
+    run manifest JSON.
+- **`abfss://` URIs now accepted everywhere (#393).**
+  The secure `abfss://` spelling (the one Azure surfaces in the portal and Databricks
+  shows in external-location URIs) was previously not recognized and silently fell
+  through to local-path handling. Floe now normalizes `abfss://` to the canonical
+  `abfs://` at config-parse time, so both spellings work end-to-end in source paths,
+  sink paths, state paths, and storage config.
+  - `is_remote_uri` was deduplicated from four copy-pasted sites into a single
+    canonical helper (`io/storage/core/uri.rs`); adding a scheme is now a one-line change.
+- **Run reliability hardening (#389, #390).**
+  - *Unity Catalog HTTP timeout*: the `reqwest` client used for Unity Catalog table
+    registration had no timeout. A hung or unreachable Databricks workspace now times out
+    after 30 seconds instead of blocking forever.
+  - *Stale lock recovery*: a local `.lock` file left behind by a killed or OOM-killed
+    process (previously permanent) is now broken automatically when older than 5 minutes.
+    The lock records its acquisition timestamp + PID; the fallback is file mtime for
+    legacy locks.
+  - *CAS jittered backoff*: conditional-write retries no longer fire in lockstep with no
+    delay. Full-jitter exponential backoff (50 ms base, 2 s cap) is applied between
+    failed attempts, and the retry count is raised from 5 to 8. No external PRNG
+    dependency — entropy is derived from the system clock.
+
+### Internal hardening
+
+- **pyo3 0.22 → 0.29 (#391):** clears two supply-chain advisories
+  (RUSTSEC-2025-0020, RUSTSEC-2026-0177) that were parked under `[advisories].ignore`
+  in `deny.toml`. The `cargo-deny` supply-chain gate is re-armed with both ignore
+  entries removed. No API or behavior change visible to Python callers.
+- **`cargo update`:** ~250 transitive lockfile bumps to latest semver-compatible
+  versions (tokio 1.49→1.52.3, aws-sdk-s3 1.120→1.137, openssl 0.10.75→0.10.81,
+  rustls 0.23.36→0.23.40, arrow 57.2→57.3.1, deltalake 0.30.1→0.30.2, and more).
+
 ## v0.5.6
 
 - **Fixes the `build-duckdb-cli` Windows build failure introduced in v0.5.5.**

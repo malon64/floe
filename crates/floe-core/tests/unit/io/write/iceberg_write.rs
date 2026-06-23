@@ -528,8 +528,7 @@ fn current_snapshot_id(table_path: &Path) -> FloeResult<i64> {
             .current_snapshot()
             .map(|s| s.snapshot_id())
             .ok_or_else(|| {
-                floe_core::FloeError::run("missing current iceberg snapshot".to_string())
-                    .into()
+                floe_core::FloeError::run("missing current iceberg snapshot".to_string()).into()
             })
     })
 }

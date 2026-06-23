@@ -1,8 +1,10 @@
 # Floe Support Matrix (Current)
 
 This matrix reflects **current behavior** in the codebase (not aspirational).
-Cloud storage uses temp download/upload for file IO, except Delta and S3/GCS Iceberg
-accepted sinks which use direct object_store-backed transactions/writes.
+Cloud storage uses temp download/upload for file IO, except Delta and S3/GCS
+Iceberg accepted sinks which use direct object_store-backed transactions/writes.
+DuckDB accepted output targets a local `.duckdb` file or MotherDuck; object-store
+database files are rejected because DuckDB cannot update them safely in place.
 
 ## Inputs
 

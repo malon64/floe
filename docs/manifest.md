@@ -2,6 +2,11 @@
 
 ## Why manifests?
 
+Manifests are how Floe plugs its ingestion gate into platforms that already
+orchestrate work. They let Airflow, Dagster, Kubernetes, Databricks jobs, or
+similar runners execute Floe contracts without learning Floe's YAML model at
+parse time.
+
 Orchestrators like Dagster and Airflow build their job/DAG graphs *before* any data runs — at parse time. If they read your Floe YAML directly at that moment, they'd have to understand Floe's config format, resolve `{{variables}}`, infer entity names, and guess output paths — all before a single row moves. That's a lot of coupling for a scheduling layer.
 
 **Manifests decouple "what will run" from "when it runs."** You generate a manifest once (after editing your config), commit it alongside your code, and the orchestrator reads the static JSON at parse time. At run time it just calls `floe run --manifest` — no YAML parsing, no variable resolution, no guesswork.

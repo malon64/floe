@@ -197,6 +197,9 @@ preconditions, and delete the state object. Normal source listing permissions ar
 still needed for input discovery; state itself does not require listing except
 where the selected cloud provider or IAM policy requires it for object access.
 
+See [Incremental File Ingestion](incremental.md) for examples, CLI operations,
+state file shape, and CAS behavior.
+
 ### `source` (required)
 
 - `format` (required)
@@ -268,15 +271,15 @@ where the selected cloud provider or IAM policy requires it for object access.
 - `write_mode` (optional)
   - `overwrite` (default): remove existing dataset parts, then write new ones.
   - `append`: add new dataset parts without deleting existing ones.
-  - `merge_scd1`: Delta-only upsert mode keyed by `schema.primary_key`.
+  - `merge_scd1`: upsert mode keyed by `schema.primary_key` for Delta or DuckDB accepted sinks.
     - updates matching keys (SCD1) and inserts new keys
-    - requires `sink.accepted.format: delta`
+    - requires `sink.accepted.format: delta` or `duckdb`
     - requires non-empty `schema.primary_key`
     - optional merge behavior can be configured in `sink.accepted.merge`
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
-  - `merge_scd2`: Delta-only history mode keyed by `schema.primary_key`.
+  - `merge_scd2`: history mode keyed by `schema.primary_key` for Delta or DuckDB accepted sinks.
     - closes changed current rows and inserts new current versions
-    - requires `sink.accepted.format: delta`
+    - requires `sink.accepted.format: delta` or `duckdb`
     - requires non-empty `schema.primary_key`
     - optional merge behavior can be configured in `sink.accepted.merge`
     - source rows must be unique on `schema.primary_key` (duplicates abort the entity merge)
@@ -344,9 +347,9 @@ where the selected cloud provider or IAM policy requires it for object access.
       - `transform` (optional, default `identity`): `identity`, `year`, `month`, `day`, `hour`
     - `floe validate` checks column existence and supported transforms.
     - Runtime wiring is implemented for Iceberg accepted writes (table partition spec + partitioned file layout).
-  - `merge` (optional, Delta merge modes only)
+  - `merge` (optional, Delta and DuckDB merge modes only)
     - Supported only when:
-      - `sink.accepted.format: delta`
+      - `sink.accepted.format: delta` or `duckdb`
       - `sink.write_mode: merge_scd1` or `merge_scd2`
     - `ignore_columns` (optional)
       - List of schema business columns excluded from merge update/compare behavior.

@@ -197,6 +197,9 @@ preconditions, and delete the state object. Normal source listing permissions ar
 still needed for input discovery; state itself does not require listing except
 where the selected cloud provider or IAM policy requires it for object access.
 
+See [Incremental File Ingestion](incremental.md) for examples, CLI operations,
+state file shape, and CAS behavior.
+
 ### `source` (required)
 
 - `format` (required)

@@ -32,7 +32,7 @@ need a lightweight entry gate for file contracts and quality checks.
 | Capability | Documentation |
 |---|---|
 | Contracts and full YAML reference | [config.md](config.md) |
-| Pipeline phases and gate behavior | [how-it-works.md](how-it-works.md) |
+| Pipeline phases and execution details | [how-it-works.md](how-it-works.md) |
 | Checks and policy behavior | [checks.md](checks.md) |
 | Supported inputs, outputs, storage, and catalogs | [support-matrix.md](support-matrix.md) |
 | Write modes and merge semantics | [write_modes.md](write_modes.md) |
@@ -41,7 +41,9 @@ need a lightweight entry gate for file contracts and quality checks.
 | Iceberg sink with Glue or REST catalog | [sinks/iceberg.md](sinks/iceberg.md) |
 | DuckDB and MotherDuck sink | [sinks/duckdb.md](sinks/duckdb.md) |
 | S3, ADLS, and GCS storage | [storages/s3.md](storages/s3.md), [storages/adls.md](storages/adls.md), [storages/gcs.md](storages/gcs.md) |
-| Environment-specific profiles and variables | [profiles.md](profiles.md), [variables.md](variables.md) |
+| Incremental file state | [incremental.md](incremental.md) |
+| Profiles and variables | [profiles.md](profiles.md), [variables.md](variables.md) |
+| PII masking | [pii.md](pii.md) |
 | Run reports and logging | [report.md](report.md), [logging.md](logging.md) |
 | OpenLineage integration | [lineage.md](lineage.md) |
 | Python and notebooks | [python-bindings.md](python-bindings.md) |

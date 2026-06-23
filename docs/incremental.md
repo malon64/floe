@@ -12,20 +12,35 @@ over time, for example daily partner drops, API exports, or landing-zone batches
 Set `incremental_mode: file` on the entity:
 
 ```yaml
+storages:
+  default: raw_s3
+  definitions:
+    - name: raw_s3
+      type: s3
+      bucket: raw-bucket
+      region: eu-west-1
+    - name: lake_s3
+      type: s3
+      bucket: lake-bucket
+      region: eu-west-1
+
 entities:
   - name: orders
     incremental_mode: file
     source:
       format: csv
-      path: s3://raw-bucket/incoming/orders/
+      storage: raw_s3
+      path: incoming/orders/
     sink:
       write_mode: append
       accepted:
         format: delta
-        path: s3://lake-bucket/bronze/orders/
+        storage: lake_s3
+        path: bronze/orders/
       rejected:
         format: parquet
-        path: s3://lake-bucket/rejected/orders/
+        storage: lake_s3
+        path: rejected/orders/
     policy:
       severity: reject
     schema:
@@ -56,15 +71,22 @@ entities:
   - name: orders
     incremental_mode: file
     state:
-      path: s3://ops-bucket/floe-state/orders/state.json
+      path: s3://raw-bucket/floe-state/orders/state.json
     source:
       format: csv
-      path: s3://raw-bucket/incoming/orders/
+      storage: raw_s3
+      path: incoming/orders/
 ```
 
 Only explicit cloud URIs (`s3://`, `gs://`, `abfs://`, `abfss://`) create remote
 state. Relative `state.path` values are local filesystem paths, even when the
 source is remote.
+
+Explicit remote `state.path` values are resolved through the entity's
+`source.storage`. The URI must therefore match the same storage definition, such
+as the same S3 bucket, GCS bucket, or ADLS account/container. A separate state
+prefix in the same bucket is supported; a separate state bucket is not currently
+supported by this override.
 
 ## Inspect State
 

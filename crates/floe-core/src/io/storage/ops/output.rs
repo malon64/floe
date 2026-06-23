@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::{config, errors::StorageError, FloeResult};
+use crate::{config, errors::FloeError, FloeResult};
 
 use crate::io::storage::{paths, CloudClient, OutputPlacement, Target};
 
@@ -76,7 +76,7 @@ fn require_temp_dir<'a>(
     label: &str,
 ) -> FloeResult<&'a Path> {
     temp_dir.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-        Box::new(StorageError(format!(
+        Box::new(FloeError::storage(format!(
             "entity.name={} missing temp dir for {} output",
             entity.name, label
         )))

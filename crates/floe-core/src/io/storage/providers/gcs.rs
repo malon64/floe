@@ -8,7 +8,7 @@ use google_cloud_storage::http::objects::list::ListObjectsRequest;
 use google_cloud_storage::http::objects::upload::{Media, UploadObjectRequest, UploadType};
 use tokio::runtime::Runtime;
 
-use crate::errors::StorageError;
+use crate::errors::FloeError;
 use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocation};
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 use crate::FloeResult;
@@ -24,12 +24,15 @@ impl GcsClient {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(StorageError(format!("gcs runtime init failed: {err}"))))?;
+            .map_err(|err| {
+                Box::new(FloeError::storage(format!(
+                    "gcs runtime init failed: {err}"
+                )))
+            })?;
         let client = runtime.block_on(async {
-            let config = ClientConfig::default()
-                .with_auth()
-                .await
-                .map_err(|err| Box::new(StorageError(format!("gcs auth init failed: {err}"))))?;
+            let config = ClientConfig::default().with_auth().await.map_err(|err| {
+                Box::new(FloeError::storage(format!("gcs auth init failed: {err}")))
+            })?;
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(Client::new(config))
         })?;
         Ok(Self {
@@ -64,7 +67,7 @@ impl StorageClient for GcsClient {
                     ..Default::default()
                 };
                 let response = client.list_objects(&request).await.map_err(|err| {
-                    Box::new(StorageError(format!(
+                    Box::new(FloeError::storage(format!(
                         "gcs list objects failed for bucket {}: {err}",
                         bucket
                     ))) as Box<dyn std::error::Error + Send + Sync>
@@ -111,7 +114,7 @@ impl StorageClient for GcsClient {
                 )
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("gcs download failed: {err}")))
+                    Box::new(FloeError::storage(format!("gcs download failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             if let Some(parent) = dest_clone.parent() {
@@ -138,7 +141,7 @@ impl StorageClient for GcsClient {
                 .upload_object(&request, data, &upload_type)
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("gcs upload failed: {err}")))
+                    Box::new(FloeError::storage(format!("gcs upload failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
@@ -165,7 +168,7 @@ impl StorageClient for GcsClient {
                 })
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("gcs delete failed: {err}")))
+                    Box::new(FloeError::storage(format!("gcs delete failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
@@ -193,7 +196,7 @@ impl StorageClient for GcsClient {
                 Err(err) if is_not_found(&err) => return Ok(None),
                 Err(err) => {
                     return Err(
-                        Box::new(StorageError(format!("gcs get object failed: {err}")))
+                        Box::new(FloeError::storage(format!("gcs get object failed: {err}")))
                             as Box<dyn std::error::Error + Send + Sync>,
                     )
                 }
@@ -209,7 +212,7 @@ impl StorageClient for GcsClient {
                 )
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("gcs download failed: {err}")))
+                    Box::new(FloeError::storage(format!("gcs download failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(Some(StoredObject {
@@ -231,7 +234,9 @@ impl StorageClient for GcsClient {
         let generation = expected_version
             .map(str::parse::<i64>)
             .transpose()
-            .map_err(|err| Box::new(StorageError(format!("invalid gcs generation: {err}"))))?;
+            .map_err(|err| {
+                Box::new(FloeError::storage(format!("invalid gcs generation: {err}")))
+            })?;
         self.runtime.block_on(async move {
             let upload_type = UploadType::Simple(Media::new(location.key.clone()));
             let request = UploadObjectRequest {
@@ -244,8 +249,10 @@ impl StorageClient for GcsClient {
                     version: object.generation.to_string(),
                 }),
                 Err(err) if is_precondition(&err) => Ok(ConditionalWrite::Conflict),
-                Err(err) => Err(Box::new(StorageError(format!("gcs upload failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>),
+                Err(err) => Err(
+                    Box::new(FloeError::storage(format!("gcs upload failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
             }
         })
     }
@@ -262,10 +269,9 @@ impl StorageClient for GcsClient {
         };
         let location = parse_gcs_uri(uri)?;
         let client = self.client.clone();
-        let generation = expected_version
-            .parse::<i64>()
-            .map(Some)
-            .map_err(|err| Box::new(StorageError(format!("invalid gcs generation: {err}"))))?;
+        let generation = expected_version.parse::<i64>().map(Some).map_err(|err| {
+            Box::new(FloeError::storage(format!("invalid gcs generation: {err}")))
+        })?;
         self.runtime.block_on(async move {
             match client
                 .delete_object(&DeleteObjectRequest {
@@ -283,8 +289,10 @@ impl StorageClient for GcsClient {
                 Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
-                Err(err) => Err(Box::new(StorageError(format!("gcs delete failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>),
+                Err(err) => Err(
+                    Box::new(FloeError::storage(format!("gcs delete failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
             }
         })
     }

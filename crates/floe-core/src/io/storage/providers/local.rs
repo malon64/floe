@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use glob::glob;
 
-use crate::errors::{RunError, StorageError};
+use crate::errors::{FloeError, RunError};
 use crate::{config, ConfigError, FloeResult};
 
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
@@ -65,10 +65,10 @@ impl StorageClient for LocalClient {
         );
         planner::ensure_parent_dir(&dest)?;
         std::fs::copy(&src, &dest).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local download failed from {}: {err}",
-                src.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                src.display().to_string(),
+                format!("local download failed from {}: {err}", src.display()),
+            )
         })?;
         Ok(dest)
     }
@@ -77,10 +77,10 @@ impl StorageClient for LocalClient {
         let dest = PathBuf::from(uri.trim_start_matches("local://"));
         planner::ensure_parent_dir(&dest)?;
         std::fs::copy(local_path, &dest).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local upload failed to {}: {err}",
-                dest.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                dest.display().to_string(),
+                format!("local upload failed to {}: {err}", dest.display()),
+            )
         })?;
         Ok(())
     }
@@ -101,11 +101,14 @@ impl StorageClient for LocalClient {
         let dst = Path::new(dst_uri.trim_start_matches("local://"));
         planner::ensure_parent_dir(dst)?;
         std::fs::copy(src, dst).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local copy failed from {} to {}: {err}",
-                src.display(),
-                dst.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                dst.display().to_string(),
+                format!(
+                    "local copy failed from {} to {}: {err}",
+                    src.display(),
+                    dst.display()
+                ),
+            )
         })?;
         Ok(())
     }
@@ -114,10 +117,10 @@ impl StorageClient for LocalClient {
         let path = Path::new(uri.trim_start_matches("local://"));
         if path.exists() {
             std::fs::remove_file(path).map_err(|err| {
-                Box::new(StorageError(format!(
-                    "local delete failed for {}: {err}",
-                    path.display()
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::storage_at(
+                    path.display().to_string(),
+                    format!("local delete failed for {}: {err}", path.display()),
+                )
             })?;
         }
         Ok(())

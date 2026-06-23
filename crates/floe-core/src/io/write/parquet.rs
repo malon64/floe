@@ -7,7 +7,7 @@ use polars::prelude::{
 };
 
 use crate::checks::normalize::rename_output_columns;
-use crate::errors::{IoError, StorageError};
+use crate::errors::{FloeError, IoError};
 use crate::io::format::{AcceptedWriteOutput, AcceptedWriteRequest};
 use crate::io::read::parquet::read_parquet_lazy;
 use crate::io::storage::Target;
@@ -227,7 +227,7 @@ impl SinkFormat for ParquetSinkFormat {
             }
             Target::S3 { .. } | Target::Gcs { .. } | Target::Adls { .. } => {
                 let temp_dir = ctx.temp_dir.ok_or_else(|| {
-                    Box::new(StorageError(format!(
+                    Box::new(FloeError::storage(format!(
                         "entity.name={} missing temp dir for parquet seed",
                         ctx.entity.name
                     ))) as Box<dyn std::error::Error + Send + Sync>

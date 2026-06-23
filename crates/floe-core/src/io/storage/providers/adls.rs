@@ -16,7 +16,7 @@ use azure_storage_blob::{BlobContainerClient, BlobServiceClient};
 use futures::{StreamExt, TryStreamExt};
 use tokio::runtime::Runtime;
 
-use crate::errors::StorageError;
+use crate::errors::FloeError;
 use crate::io::storage::{
     planner, uri, validation, ConditionalWrite, ObjectRef, StorageClient, StoredObject,
 };
@@ -83,7 +83,7 @@ fn build_credential() -> FloeResult<Arc<dyn TokenCredential>> {
     ) {
         let credential = ClientSecretCredential::new(&tenant, client, secret.into(), None)
             .map_err(|err| {
-                Box::new(StorageError(format!(
+                Box::new(FloeError::storage(format!(
                     "adls service-principal credential init failed: {err}"
                 )))
             })?;
@@ -91,7 +91,7 @@ fn build_credential() -> FloeResult<Arc<dyn TokenCredential>> {
     }
     if std::env::var("AZURE_FEDERATED_TOKEN_FILE").is_ok() {
         let credential = WorkloadIdentityCredential::new(None).map_err(|err| {
-            Box::new(StorageError(format!(
+            Box::new(FloeError::storage(format!(
                 "adls workload-identity credential init failed: {err}"
             )))
         })?;
@@ -113,7 +113,7 @@ fn build_credential() -> FloeResult<Arc<dyn TokenCredential>> {
         sources.push(developer);
     }
     if sources.is_empty() {
-        return Err(Box::new(StorageError(
+        return Err(Box::new(FloeError::storage(
             "adls credential init failed: no Azure credential source is available \
              (set AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, run on a host \
              with managed identity, or sign in with the Azure CLI)"
@@ -140,16 +140,24 @@ impl AdlsClient {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(StorageError(format!("adls runtime init failed: {err}"))))?;
+            .map_err(|err| {
+                Box::new(FloeError::storage(format!(
+                    "adls runtime init failed: {err}"
+                )))
+            })?;
         let credential = build_credential()?;
         let service_url = Url::parse(&format!("https://{account}.blob.core.windows.net/"))
             .map_err(|err| {
-                Box::new(StorageError(format!(
+                Box::new(FloeError::storage(format!(
                     "adls service url for account {account} is invalid: {err}"
                 )))
             })?;
-        let service_client = BlobServiceClient::new(service_url, Some(credential), None)
-            .map_err(|err| Box::new(StorageError(format!("adls client init failed: {err}"))))?;
+        let service_client =
+            BlobServiceClient::new(service_url, Some(credential), None).map_err(|err| {
+                Box::new(FloeError::storage(format!(
+                    "adls client init failed: {err}"
+                )))
+            })?;
         let container_client = service_client.blob_container_client(&container);
         Ok(Self {
             account,
@@ -187,18 +195,19 @@ impl StorageClient for AdlsClient {
                 .container_client
                 .list_blobs(Some(options))
                 .map_err(|err| {
-                    Box::new(StorageError(format!("adls list failed: {err}")))
+                    Box::new(FloeError::storage(format!("adls list failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?
                 .into_pages();
             let mut refs = Vec::new();
             while let Some(page) = pages.try_next().await.map_err(|err| {
-                Box::new(StorageError(format!("adls list failed: {err}")))
+                Box::new(FloeError::storage(format!("adls list failed: {err}")))
                     as Box<dyn std::error::Error + Send + Sync>
             })? {
                 let segment = page.into_model().map_err(|err| {
-                    Box::new(StorageError(format!("adls list decode failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
+                    Box::new(FloeError::storage(format!(
+                        "adls list decode failed: {err}"
+                    ))) as Box<dyn std::error::Error + Send + Sync>
                 })?;
                 for blob in segment.blob_items {
                     let Some(key) = blob.name else { continue };
@@ -237,7 +246,7 @@ impl StorageClient for AdlsClient {
             .trim_start_matches('/')
             .to_string();
         if key.is_empty() {
-            return Err(Box::new(StorageError(
+            return Err(Box::new(FloeError::storage(
                 "adls download requires a blob path".to_string(),
             )));
         }
@@ -252,15 +261,16 @@ impl StorageClient for AdlsClient {
                 .download(None)
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("adls download failed: {err}")))
+                    Box::new(FloeError::storage(format!("adls download failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             let mut body = response.body;
             let mut file = tokio::fs::File::create(&dest).await?;
             while let Some(chunk) = body.next().await {
                 let bytes = chunk.map_err(|err| {
-                    Box::new(StorageError(format!("adls download read failed: {err}")))
-                        as Box<dyn std::error::Error + Send + Sync>
+                    Box::new(FloeError::storage(format!(
+                        "adls download read failed: {err}"
+                    ))) as Box<dyn std::error::Error + Send + Sync>
                 })?;
                 tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
             }
@@ -278,7 +288,7 @@ impl StorageClient for AdlsClient {
             .trim_start_matches('/')
             .to_string();
         if key.is_empty() {
-            return Err(Box::new(StorageError(
+            return Err(Box::new(FloeError::storage(
                 "adls upload requires a blob path".to_string(),
             )));
         }
@@ -293,7 +303,7 @@ impl StorageClient for AdlsClient {
                 .upload(RequestContent::from(data), Some(options))
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("adls upload failed: {err}")))
+                    Box::new(FloeError::storage(format!("adls upload failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
@@ -324,7 +334,7 @@ impl StorageClient for AdlsClient {
                 .delete(None)
                 .await
                 .map_err(|err| {
-                    Box::new(StorageError(format!("adls delete failed: {err}")))
+                    Box::new(FloeError::storage(format!("adls delete failed: {err}")))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;
             Ok(())
@@ -349,18 +359,19 @@ impl StorageClient for AdlsClient {
                 Err(err) if is_not_found(&err) => return Ok(None),
                 Err(err) => {
                     return Err(
-                        Box::new(StorageError(format!("adls download failed: {err}")))
+                        Box::new(FloeError::storage(format!("adls download failed: {err}")))
                             as Box<dyn std::error::Error + Send + Sync>,
                     )
                 }
             };
             let version = response.properties.etag.clone().map(String::from);
             let body = response.body.collect().await.map_err(|err| {
-                Box::new(StorageError(format!("adls download read failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(FloeError::storage(format!(
+                    "adls download read failed: {err}"
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
             let Some(version) = version else {
-                return Err(Box::new(StorageError(format!(
+                return Err(Box::new(FloeError::storage(format!(
                     "adls download response for {key} is missing an etag"
                 )))
                     as Box<dyn std::error::Error + Send + Sync>);
@@ -395,7 +406,7 @@ impl StorageClient for AdlsClient {
             {
                 Ok(result) => {
                     let Some(etag) = result.etag else {
-                        return Err(Box::new(StorageError(format!(
+                        return Err(Box::new(FloeError::storage(format!(
                             "adls upload response for {key} is missing an etag"
                         )))
                             as Box<dyn std::error::Error + Send + Sync>);
@@ -410,8 +421,10 @@ impl StorageClient for AdlsClient {
                 {
                     Ok(ConditionalWrite::Conflict)
                 }
-                Err(err) => Err(Box::new(StorageError(format!("adls upload failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>),
+                Err(err) => Err(
+                    Box::new(FloeError::storage(format!("adls upload failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
             }
         })
     }
@@ -445,8 +458,10 @@ impl StorageClient for AdlsClient {
                 Err(err) if is_not_found(&err) => Ok(ConditionalWrite::Written {
                     version: "deleted".to_string(),
                 }),
-                Err(err) => Err(Box::new(StorageError(format!("adls delete failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>),
+                Err(err) => Err(
+                    Box::new(FloeError::storage(format!("adls delete failed: {err}")))
+                        as Box<dyn std::error::Error + Send + Sync>,
+                ),
             }
         })
     }
@@ -460,7 +475,7 @@ fn adls_key_from_uri(uri: &str) -> FloeResult<String> {
         .trim_start_matches('/')
         .to_string();
     if key.is_empty() {
-        return Err(Box::new(StorageError(
+        return Err(Box::new(FloeError::storage(
             "adls state operation requires a blob path".to_string(),
         )));
     }

@@ -181,6 +181,38 @@ fn local_client_download_copies_file() {
 }
 
 #[test]
+fn local_client_download_failure_is_structured_floe_error() {
+    use floe_core::{FloeError, FloeErrorKind};
+
+    let root = temp_dir("floe-local-download-fail");
+    let missing = root.join("does-not-exist.txt");
+    let dest_dir = root.join("dest");
+    let client = LocalClient::new();
+
+    let err = client
+        .download_to_temp(missing.to_string_lossy().as_ref(), &dest_dir)
+        .expect_err("download of a missing source should fail");
+
+    let floe = err
+        .downcast_ref::<FloeError>()
+        .expect("storage failures should be a structured FloeError");
+    assert_eq!(floe.kind(), FloeErrorKind::Storage);
+    match floe {
+        FloeError::Storage { path, message } => {
+            assert_eq!(
+                path.as_deref(),
+                Some(missing.display().to_string().as_str())
+            );
+            assert!(
+                message.starts_with("local download failed from"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("expected Storage variant, got {other:?}"),
+    }
+}
+
+#[test]
 fn local_client_conditional_state_create_update_and_delete() {
     let root = temp_dir("floe-local-state-conditional");
     let state_path = root.join("state.json");

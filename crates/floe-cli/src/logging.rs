@@ -69,6 +69,20 @@ impl RunObserver for CliObserver {
 }
 
 fn error_code_for(err: &(dyn std::error::Error + 'static)) -> &'static str {
+    // Structured enum first (#395); fall back to the legacy wrappers for
+    // not-yet-migrated modules.
+    if let Some(core) = err.downcast_ref::<floe_core::FloeError>() {
+        return match core.kind() {
+            floe_core::FloeErrorKind::Storage => "storage_error",
+            floe_core::FloeErrorKind::Io => "io_error",
+            floe_core::FloeErrorKind::Config | floe_core::FloeErrorKind::Validation => {
+                "config_error"
+            }
+            floe_core::FloeErrorKind::Run
+            | floe_core::FloeErrorKind::Sink
+            | floe_core::FloeErrorKind::State => "run_error",
+        };
+    }
     if err.is::<floe_core::ConfigError>() {
         return "config_error";
     }

@@ -76,9 +76,10 @@ fn require_temp_dir<'a>(
     label: &str,
 ) -> FloeResult<&'a Path> {
     temp_dir.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-        Box::new(FloeError::storage(format!(
+        FloeError::storage(format!(
             "entity.name={} missing temp dir for {} output",
             entity.name, label
-        )))
+        ))
+        .into()
     })
 }

@@ -564,13 +564,14 @@ fn iceberg_store_config_builds_adls_target() -> FloeResult<()> {
         store.warehouse_location
     );
     assert_eq!(
-        store.file_io_props.get("account_name").map(String::as_str),
+        store
+            .file_io_props
+            .get("adls.account-name")
+            .map(String::as_str),
         Some("account")
     );
-    assert_eq!(
-        store.file_io_props.get("filesystem").map(String::as_str),
-        Some("container")
-    );
+    // filesystem is derived from the URI path by iceberg-storage-opendal, not passed as a prop
+    assert!(!store.file_io_props.contains_key("filesystem"));
     Ok(())
 }
 

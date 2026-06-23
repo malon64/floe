@@ -212,7 +212,6 @@ Current scope:
 - No merge/upsert
 - No cleanup/garbage collection of orphaned files/metadata
 - No table compaction/maintenance jobs (externalized to platform/data lake workflows)
-- No ADLS Iceberg sink yet (follow-up work)
 
 ## Glue catalog scope and limitations
 

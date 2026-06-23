@@ -105,9 +105,7 @@ pub(crate) async fn build_rest_catalog(
             })
         } else if effective_uri.starts_with("abfs://") {
             Arc::new(OpenDalStorageFactory::Azdls {
-                configured_scheme: "abfs"
-                    .parse()
-                    .expect("abfs is a valid AzureStorageScheme"),
+                configured_scheme: "abfs".parse().expect("abfs is a valid AzureStorageScheme"),
             })
         } else {
             Arc::new(LocalFsStorageFactory)

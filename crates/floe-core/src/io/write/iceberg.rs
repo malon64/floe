@@ -251,9 +251,7 @@ impl SinkFormat for IcebergSinkFormat {
                 latest_gcs_metadata_location(client, base_key)?
             }
             Target::Adls {
-                storage,
-                base_path,
-                ..
+                storage, base_path, ..
             } => {
                 let client = ctx.cloud.client_for(ctx.resolver, storage, ctx.entity)?;
                 latest_adls_metadata_location(client, base_path)?
@@ -415,7 +413,9 @@ async fn write_iceberg_table_async(
     } else if table_root_uri.starts_with("abfss://") {
         catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
             OpenDalStorageFactory::Azdls {
-                configured_scheme: "abfss".parse().expect("abfss is a valid AzureStorageScheme"),
+                configured_scheme: "abfss"
+                    .parse()
+                    .expect("abfss is a valid AzureStorageScheme"),
             },
         ));
     } else if table_root_uri.starts_with("abfs://") {
@@ -777,7 +777,9 @@ async fn collect_iceberg_batches(
     } else if warehouse_location.starts_with("abfss://") {
         catalog_builder = catalog_builder.with_storage_factory(std::sync::Arc::new(
             OpenDalStorageFactory::Azdls {
-                configured_scheme: "abfss".parse().expect("abfss is a valid AzureStorageScheme"),
+                configured_scheme: "abfss"
+                    .parse()
+                    .expect("abfss is a valid AzureStorageScheme"),
             },
         ));
     } else if warehouse_location.starts_with("abfs://") {

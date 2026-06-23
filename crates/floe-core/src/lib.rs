@@ -35,7 +35,7 @@ pub use checks as check;
 pub use config::{
     resolve_config_location, upload_to_remote_uri, write_bytes_to_remote_uri, ConfigLocation,
 };
-pub use errors::{ConfigError, FloeError, FloeErrorKind};
+pub use errors::{FloeError, FloeErrorKind};
 pub use manifest::{
     build_common_manifest_json, config_from_manifest_json, ManifestOptions, PathMode,
 };

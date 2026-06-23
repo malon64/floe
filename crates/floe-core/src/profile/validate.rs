@@ -1,8 +1,9 @@
+use crate::errors::FloeError;
 use std::collections::{HashMap, HashSet};
 
 use crate::config::{LineageConfig, StoragesConfig};
 use crate::profile::types::{ProfileConfig, ProfileRunner};
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 /// Validate a parsed profile.
 ///
@@ -14,9 +15,9 @@ use crate::{ConfigError, FloeResult};
 ///   Valid `${KEY}` cross-references are allowed — they are expanded by `resolve_vars` later.
 pub fn validate_profile(profile: &ProfileConfig) -> FloeResult<()> {
     if profile.metadata.name.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "profile.metadata.name must not be empty".to_string(),
-        )));
+        return Err(
+            FloeError::config("profile.metadata.name must not be empty".to_string()).into(),
+        );
     }
 
     if let Some(execution) = &profile.execution {
@@ -41,32 +42,36 @@ fn validate_profile_catalogs(profile: &ProfileConfig) -> FloeResult<()> {
         return Ok(());
     };
     if catalogs.definitions.is_empty() {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.catalogs.definitions must not be empty".to_string(),
-        )));
+        )
+        .into());
     }
 
     let mut names = HashSet::new();
     for definition in &catalogs.definitions {
         if definition.name.trim().is_empty() {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "profile.catalogs.definitions.name must not be empty".to_string(),
-            )));
+            )
+            .into());
         }
         if !names.insert(definition.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.catalogs.definitions name={} is duplicated",
                 definition.name
-            ))));
+            ))
+            .into());
         }
     }
 
     if let Some(default_name) = &catalogs.default {
         if !names.contains(default_name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.catalogs.default={} does not match any definition",
                 default_name
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -75,95 +80,105 @@ fn validate_profile_catalogs(profile: &ProfileConfig) -> FloeResult<()> {
 
 fn validate_profile_storages(storages: &StoragesConfig) -> FloeResult<()> {
     if storages.definitions.is_empty() {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.storages.definitions must not be empty".to_string(),
-        )));
+        )
+        .into());
     }
     const ALLOWED_STORAGE_TYPES: &[&str] = &["local", "s3", "adls", "gcs"];
     let mut names = HashSet::new();
     for definition in &storages.definitions {
         if definition.name.trim().is_empty() {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "profile.storages.definitions.name must not be empty".to_string(),
-            )));
+            )
+            .into());
         }
         if !names.insert(definition.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.storages.definitions name={} is duplicated",
                 definition.name
-            ))));
+            ))
+            .into());
         }
         if !ALLOWED_STORAGE_TYPES.contains(&definition.fs_type.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.storages.definitions name={} type={} is unsupported (allowed: {})",
                 definition.name,
                 definition.fs_type,
                 ALLOWED_STORAGE_TYPES.join(", ")
-            ))));
+            ))
+            .into());
         }
         if definition.fs_type == "s3" {
             if definition.bucket.is_none() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "profile.storages.definitions name={} requires bucket for type s3",
                     definition.name
-                ))));
+                ))
+                .into());
             }
             if definition.region.is_none() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "profile.storages.definitions name={} requires region for type s3",
                     definition.name
-                ))));
+                ))
+                .into());
             }
         }
         if definition.fs_type == "adls" {
             if definition.account.is_none() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "profile.storages.definitions name={} requires account for type adls",
                     definition.name
-                ))));
+                ))
+                .into());
             }
             if definition.container.is_none() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "profile.storages.definitions name={} requires container for type adls",
                     definition.name
-                ))));
+                ))
+                .into());
             }
         }
         if definition.fs_type == "gcs" && definition.bucket.is_none() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.storages.definitions name={} requires bucket for type gcs",
                 definition.name
-            ))));
+            ))
+            .into());
         }
     }
     let Some(default_name) = &storages.default else {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.storages.default is required when storages is set".to_string(),
-        )));
+        )
+        .into());
     };
     if !names.contains(default_name.as_str()) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "profile.storages.default={default_name} does not match any definition"
-        ))));
+        ))
+        .into());
     }
     Ok(())
 }
 
 fn validate_profile_lineage(lineage: &LineageConfig) -> FloeResult<()> {
     if lineage.url.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "profile.lineage.url must not be empty".to_string(),
-        )));
+        return Err(FloeError::config("profile.lineage.url must not be empty".to_string()).into());
     }
     if lineage.namespace.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "profile.lineage.namespace must not be empty".to_string(),
-        )));
+        return Err(
+            FloeError::config("profile.lineage.namespace must not be empty".to_string()).into(),
+        );
     }
     if lineage.max_failures == Some(0) {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.lineage.max_failures must be at least 1".to_string(),
-        )));
+        )
+        .into());
     }
     Ok(())
 }
@@ -246,9 +261,10 @@ pub fn detect_malformed_placeholder(value: &str) -> Option<String> {
 fn validate_no_malformed_vars(vars: &HashMap<String, String>) -> FloeResult<()> {
     for (key, value) in vars {
         if let Some(placeholder) = detect_malformed_placeholder(value) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile variable \"{key}\" contains malformed placeholder: {placeholder}"
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -257,9 +273,10 @@ fn validate_no_malformed_vars(vars: &HashMap<String, String>) -> FloeResult<()> 
 fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()> {
     for (key, value) in vars {
         if let Some(placeholder) = detect_unresolved_placeholders(value) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile variable \"{key}\" contains unresolved placeholder: {placeholder}"
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -268,11 +285,12 @@ fn validate_no_unresolved_vars(vars: &HashMap<String, String>) -> FloeResult<()>
 fn validate_runner_type(runner_type: &str) -> FloeResult<()> {
     const KNOWN_RUNNERS: &[&str] = &["local", "kubernetes_job", "databricks_job"];
     if !KNOWN_RUNNERS.contains(&runner_type) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "profile.execution.runner.type: unknown runner \"{runner_type}\"; \
              known runners: {}",
             KNOWN_RUNNERS.join(", ")
-        ))));
+        ))
+        .into());
     }
     Ok(())
 }
@@ -286,9 +304,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
             .unwrap_or("")
             .is_empty()
         {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "profile.execution.runner.image is required for kubernetes_job".to_string(),
-            )));
+            )
+            .into());
         }
         if runner
             .namespace
@@ -297,9 +316,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
             .unwrap_or("")
             .is_empty()
         {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "profile.execution.runner.namespace is required for kubernetes_job".to_string(),
-            )));
+            )
+            .into());
         }
     }
     if runner.runner_type != "databricks_job" {
@@ -313,9 +333,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         .unwrap_or("")
         .is_empty()
     {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.runner.workspace_url is required for databricks_job".to_string(),
-        )));
+        )
+        .into());
     }
     if runner
         .existing_cluster_id
@@ -324,10 +345,11 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         .unwrap_or("")
         .is_empty()
     {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.runner.existing_cluster_id is required for databricks_job"
                 .to_string(),
-        )));
+        )
+        .into());
     }
     if runner
         .config_uri
@@ -336,9 +358,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         .unwrap_or("")
         .is_empty()
     {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.runner.config_uri is required for databricks_job".to_string(),
-        )));
+        )
+        .into());
     }
     if runner
         .python_file_uri
@@ -347,9 +370,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         .unwrap_or("")
         .is_empty()
     {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.runner.python_file_uri is required for databricks_job".to_string(),
-        )));
+        )
+        .into());
     }
 
     let auth_ref = runner
@@ -359,10 +383,10 @@ fn validate_runner_contract(runner: &ProfileRunner) -> FloeResult<()> {
         .map(str::trim)
         .unwrap_or("");
     if auth_ref.is_empty() {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.runner.auth.service_principal_oauth_ref is required for databricks_job"
                 .to_string(),
-        )));
+        ).into());
     }
 
     Ok(())

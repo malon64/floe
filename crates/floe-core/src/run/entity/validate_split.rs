@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
@@ -6,11 +7,10 @@ use polars::prelude::{BooleanChunked, DataFrame};
 
 use crate::checks::normalize::rename_output_columns;
 use crate::config::PolicySeverity;
-use crate::errors::RunError;
 use crate::report::build::summarize_validation_exprs;
 use crate::run::events::{event_time_ms, RunObserver};
 use crate::run::RunContext;
-use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
+use crate::{check, config, io, report, warnings, FloeResult};
 
 use super::super::output::{
     append_rejection_columns, validate_rejected_target, write_error_report_output,
@@ -168,10 +168,7 @@ pub(super) fn run_validate_split_phase(
             phase_timings.read_parse_ms += start.elapsed().as_millis() as u64;
         }
         let input = inputs.pop().ok_or_else(|| {
-            Box::new(RunError(format!(
-                "entity.name={} missing input data",
-                entity.name
-            )))
+            FloeError::run(format!("entity.name={} missing input data", entity.name))
         })?;
         let (input_file, mut raw_df, mut df) = match input {
             ReadInput::Data {
@@ -294,10 +291,10 @@ pub(super) fn run_validate_split_phase(
         let source_stem = input_file.source_stem.as_str();
 
         let raw_df = raw_df.ok_or_else(|| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "entity.name={} raw dataframe unavailable for rejection checks",
                 entity.name
-            )))
+            ))
         })?;
 
         // Fast-path columnar count check — O(columns), no row iteration.
@@ -427,9 +424,9 @@ pub(super) fn run_validate_split_phase(
                         .collect::<Vec<_>>();
                     let (force_accept_mask, _) = check::build_row_masks(&force_accept_rows);
                     df.filter(&force_accept_mask).map_err(|err| {
-                        Box::new(RunError(format!(
+                        FloeError::run(format!(
                             "failed to filter merge duplicate source rows: {err}"
-                        )))
+                        ))
                     })?
                 };
                 rename_output_columns(&mut accepted_df, output_column_map)?;
@@ -474,10 +471,10 @@ pub(super) fn run_validate_split_phase(
 
                     let (accept_mask, reject_mask) = check::build_row_masks(&accept_rows);
                     let mut accepted_df = df.filter(&accept_mask).map_err(|err| {
-                        Box::new(RunError(format!("failed to filter accepted rows: {err}")))
+                        FloeError::run(format!("failed to filter accepted rows: {err}"))
                     })?;
                     let mut rejected_df = df.filter(&reject_mask).map_err(|err| {
-                        Box::new(RunError(format!("failed to filter rejected rows: {err}")))
+                        FloeError::run(format!("failed to filter rejected rows: {err}"))
                     })?;
                     append_rejection_columns(&mut rejected_df, &errors_json, false)?;
                     rename_output_columns(&mut accepted_df, output_column_map)?;
@@ -488,16 +485,16 @@ pub(super) fn run_validate_split_phase(
                     }
                     accepted_df_opt = Some(accepted_df);
                     let rejected_config = entity.sink.rejected.as_ref().ok_or_else(|| {
-                        Box::new(ConfigError(format!(
+                        FloeError::config(format!(
                             "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
-                        )))
+                        ))
                     })?;
                     let rejected_target = rejected_target.ok_or_else(|| {
-                        Box::new(ConfigError(format!(
+                        FloeError::config(format!(
                             "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
-                        )))
+                        ))
                     })?;
                     let rejected_mode = if write_mode == config::WriteMode::Overwrite {
                         if rejected_overwrite_used {
@@ -540,10 +537,10 @@ pub(super) fn run_validate_split_phase(
                 if has_errors {
                     validate_rejected_target(entity, "abort")?;
                     let rejected_target = rejected_target.ok_or_else(|| {
-                        Box::new(ConfigError(format!(
+                        FloeError::config(format!(
                             "entity.name={} sink.rejected.storage is required for rejection",
                             entity.name
-                        )))
+                        ))
                     })?;
                     let rejected_write_start = perf_enabled.then(Instant::now);
                     let rejected_path_value = write_rejected_raw_output(

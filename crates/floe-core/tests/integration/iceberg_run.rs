@@ -208,11 +208,11 @@ fn load_local_iceberg_table(
         .build()
         .expect("runtime");
     runtime.block_on(async {
-        let metadata_location = latest_metadata_location(table_path).ok_or_else(|| {
-            Box::new(floe_core::errors::RunError(
-                "missing iceberg metadata file".to_string(),
-            )) as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let metadata_location = latest_metadata_location(table_path).ok_or_else(
+            || -> Box<dyn std::error::Error + Send + Sync> {
+                floe_core::FloeError::run("missing iceberg metadata file".to_string()).into()
+            },
+        )?;
         let catalog = MemoryCatalogBuilder::default()
             .with_storage_factory(Arc::new(LocalFsStorageFactory))
             .load(
@@ -224,23 +224,19 @@ fn load_local_iceberg_table(
             )
             .await
             .map_err(|err| {
-                Box::new(floe_core::errors::RunError(format!(
-                    "iceberg test catalog init failed: {err}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                floe_core::FloeError::run(format!("iceberg test catalog init failed: {err}"))
             })?;
         let namespace = NamespaceIdent::new("floe".to_string());
         if !catalog.namespace_exists(&namespace).await.map_err(|err| {
-            Box::new(floe_core::errors::RunError(format!(
-                "iceberg test namespace exists failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            floe_core::FloeError::run(format!("iceberg test namespace exists failed: {err}"))
         })? {
             catalog
                 .create_namespace(&namespace, HashMap::new())
                 .await
                 .map_err(|err| {
-                    Box::new(floe_core::errors::RunError(format!(
+                    floe_core::FloeError::run(format!(
                         "iceberg test namespace create failed: {err}"
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?;
         }
         let ident = TableIdent::new(namespace, table_name.to_string());
@@ -248,9 +244,8 @@ fn load_local_iceberg_table(
             .register_table(&ident, metadata_location)
             .await
             .map_err(|err| {
-                Box::new(floe_core::errors::RunError(format!(
-                    "iceberg test register table failed: {err}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                floe_core::FloeError::run(format!("iceberg test register table failed: {err}"))
+                    .into()
             })
     })
 }

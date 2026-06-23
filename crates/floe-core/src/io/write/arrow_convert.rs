@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::sync::Arc;
 
 use arrow::array::{
@@ -17,7 +18,6 @@ use polars::prelude::{DataType, Series, TimeUnit};
 use crate::checks::normalize;
 #[cfg(any(feature = "delta", feature = "duckdb"))]
 use crate::config;
-use crate::errors::RunError;
 use crate::FloeResult;
 
 /// Convert a Polars `DataFrame` into an Arrow `RecordBatch`, honoring the entity's
@@ -49,15 +49,16 @@ pub(crate) fn dataframe_to_record_batch_with_schema(
     for column in schema_columns {
         let series = df
             .column(column.name.as_str())
-            .map_err(|err| Box::new(RunError(format!("column lookup failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("column lookup failed: {err}")))?;
         let series = series.as_materialized_series();
         let array = record_batch_series_to_arrow(series)?;
         let nullable = column.nullable.unwrap_or(true);
         if !nullable && array.null_count() > 0 {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "write rejected nulls for non-nullable column {}",
                 column.name
-            ))));
+            ))
+            .into());
         }
         fields.push(Field::new(
             column.name.clone(),
@@ -67,10 +68,8 @@ pub(crate) fn dataframe_to_record_batch_with_schema(
         arrays.push(array);
     }
     let schema = Arc::new(Schema::new(fields));
-    RecordBatch::try_new(schema, arrays).map_err(|err| {
-        Box::new(RunError(format!("record batch build failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    RecordBatch::try_new(schema, arrays)
+        .map_err(|err| FloeError::run(format!("record batch build failed: {err}")).into())
 }
 
 #[cfg(any(feature = "delta", feature = "duckdb"))]
@@ -86,10 +85,8 @@ pub(crate) fn dataframe_to_record_batch_all(df: &DataFrame) -> FloeResult<Record
         arrays.push(array);
     }
     let schema = Arc::new(Schema::new(fields));
-    RecordBatch::try_new(schema, arrays).map_err(|err| {
-        Box::new(RunError(format!("record batch build failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    RecordBatch::try_new(schema, arrays)
+        .map_err(|err| FloeError::run(format!("record batch build failed: {err}")).into())
 }
 
 #[cfg(any(feature = "delta", feature = "duckdb"))]
@@ -101,7 +98,7 @@ fn record_batch_series_to_arrow(series: &Series) -> FloeResult<ArrayRef> {
             time_encoding: ArrowTimeEncoding::Nanoseconds,
         },
         |dtype| {
-            RunError(format!(
+            FloeError::run(format!(
                 "sink does not support dtype {dtype:?} for {}",
                 series.name()
             ))
@@ -134,7 +131,7 @@ pub(crate) fn series_to_arrow_array<F>(
     unsupported_dtype: F,
 ) -> FloeResult<ArrayRef>
 where
-    F: Fn(&DataType) -> RunError,
+    F: Fn(&DataType) -> FloeError,
 {
     let array: ArrayRef = match series.dtype() {
         DataType::String => Arc::new(StringArray::from_iter(series.str()?)),

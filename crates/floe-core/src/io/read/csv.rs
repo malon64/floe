@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -5,7 +6,6 @@ use polars::prelude::{
     col, DataFrame, DataType, LazyCsvReader, LazyFileListReader, PlPath, Schema, SerReader,
 };
 
-use crate::errors::{IoError, RunError};
 use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
@@ -63,15 +63,14 @@ pub fn read_csv_header(
     let reader = read_options
         .try_into_reader_with_file_path(None)
         .map_err(|err| {
-            Box::new(IoError(format!(
+            FloeError::io(format!(
                 "failed to open csv at {}: {err}",
                 input_path.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
-    let df = reader.finish().map_err(|err| {
-        Box::new(IoError(format!("csv header read failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let df = reader
+        .finish()
+        .map_err(|err| FloeError::io(format!("csv header read failed: {err}")))?;
     Ok(df
         .get_column_names()
         .iter()
@@ -173,9 +172,9 @@ fn read_csv_input_with_columns(
         let raw_df = read_csv_file(path, source_options, &raw_plan)?;
         let mut typed_df = format::cast_df_to_schema(&raw_df, &typed_schema)?;
         if let Some(projection) = typed_projection.as_ref() {
-            typed_df = typed_df.select(projection).map_err(|err| {
-                Box::new(RunError(format!("failed to project typed columns: {err}")))
-            })?;
+            typed_df = typed_df
+                .select(projection)
+                .map_err(|err| FloeError::run(format!("failed to project typed columns: {err}")))?;
         }
         return format::finalize_read_input(input_file, Some(raw_df), typed_df, normalize_strategy);
     }
@@ -249,10 +248,10 @@ fn read_csv_lazy(
     }
 
     let mut lf = reader.finish().map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to scan csv at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     if let Some(columns) = projection {
@@ -260,10 +259,8 @@ fn read_csv_lazy(
         lf = lf.select(exprs);
     }
 
-    lf.collect().map_err(|err| {
-        Box::new(IoError(format!("csv read failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    lf.collect()
+        .map_err(|err| FloeError::io(format!("csv read failed: {err}")).into())
 }
 
 fn projected_columns(

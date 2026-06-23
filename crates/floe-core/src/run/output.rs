@@ -1,9 +1,9 @@
+use crate::errors::FloeError;
 use std::path::Path;
 
 use polars::prelude::DataFrame;
 
-use crate::errors::RunError;
-use crate::{check, config, io, ConfigError, FloeResult};
+use crate::{check, config, io, FloeResult};
 
 use io::format::{self, LocalInputFile};
 use io::storage::Target;
@@ -137,9 +137,7 @@ pub(super) fn validate_rejected_target<'a>(
     severity: &str,
 ) -> FloeResult<&'a config::SinkTarget> {
     let rejected_target = entity.sink.rejected.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
-            "sink.rejected is required for {severity} severity"
-        )))
+        FloeError::config(format!("sink.rejected is required for {severity} severity"))
     })?;
     Ok(rejected_target)
 }
@@ -151,8 +149,8 @@ pub(super) fn append_rejection_columns(
 ) -> FloeResult<()> {
     let (row_index, errors) = check::rejected_error_columns(errors_per_row, include_all_rows);
     df.with_column(row_index)
-        .map_err(|err| Box::new(RunError(format!("failed to add __floe_row_index: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("failed to add __floe_row_index: {err}")))?;
     df.with_column(errors)
-        .map_err(|err| Box::new(RunError(format!("failed to add __floe_errors: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("failed to add __floe_errors: {err}")))?;
     Ok(())
 }

@@ -6,11 +6,11 @@
 //! of which sink Cargo features are enabled.
 
 #[cfg(any(feature = "delta", feature = "duckdb"))]
+use crate::errors::FloeError;
 use std::collections::{HashMap, HashSet};
 
 use crate::config;
 #[cfg(any(feature = "delta", feature = "duckdb"))]
-use crate::errors::RunError;
 #[cfg(any(feature = "delta", feature = "duckdb"))]
 use crate::FloeResult;
 
@@ -47,16 +47,17 @@ pub(crate) fn default_schema_evolution_summary(
 #[cfg(any(feature = "delta", feature = "duckdb"))]
 pub(crate) fn resolve_merge_key(entity: &config::EntityConfig) -> FloeResult<Vec<String>> {
     let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "entity.name={} merge write modes require schema.primary_key",
             entity.name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     if primary_key.is_empty() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} merge write modes require non-empty schema.primary_key",
             entity.name
-        ))));
+        ))
+        .into());
     }
     Ok(primary_key.clone())
 }

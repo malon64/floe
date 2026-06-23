@@ -1,9 +1,10 @@
+use crate::errors::FloeError;
 use std::path::Path;
 
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::{Yaml, YamlLoader};
 
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub(crate) fn load_yaml(path: &Path) -> FloeResult<Vec<Yaml>> {
     let contents = std::fs::read_to_string(path)?;
@@ -14,21 +15,21 @@ pub(crate) fn load_yaml(path: &Path) -> FloeResult<Vec<Yaml>> {
 pub(crate) fn yaml_hash<'a>(value: &'a Yaml, ctx: &str) -> FloeResult<&'a Hash> {
     match value {
         Yaml::Hash(hash) => Ok(hash),
-        _ => Err(Box::new(ConfigError(format!("expected map at {ctx}")))),
+        _ => Err(FloeError::config(format!("expected map at {ctx}")).into()),
     }
 }
 
 pub(crate) fn yaml_array<'a>(value: &'a Yaml, ctx: &str) -> FloeResult<&'a Vec<Yaml>> {
     match value {
         Yaml::Array(values) => Ok(values),
-        _ => Err(Box::new(ConfigError(format!("expected array at {ctx}")))),
+        _ => Err(FloeError::config(format!("expected array at {ctx}")).into()),
     }
 }
 
 pub(crate) fn yaml_string(value: &Yaml, ctx: &str) -> FloeResult<String> {
     match value {
         Yaml::String(value) => Ok(value.clone()),
-        _ => Err(Box::new(ConfigError(format!("expected string at {ctx}")))),
+        _ => Err(FloeError::config(format!("expected string at {ctx}")).into()),
     }
 }
 
@@ -49,14 +50,10 @@ pub(crate) fn validate_known_keys(hash: &Hash, ctx: &str, allowed: &[&str]) -> F
     for key in hash.keys() {
         let key = match key {
             Yaml::String(value) => value.as_str(),
-            _ => {
-                return Err(Box::new(ConfigError(format!(
-                    "expected string key at {ctx}"
-                ))))
-            }
+            _ => return Err(FloeError::config(format!("expected string key at {ctx}")).into()),
         };
         if !allowed.contains(&key) {
-            return Err(Box::new(ConfigError(format!("unknown field {ctx}.{key}"))));
+            return Err(FloeError::config(format!("unknown field {ctx}.{key}")).into());
         }
     }
     Ok(())

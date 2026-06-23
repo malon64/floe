@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -5,7 +6,6 @@ use std::path::PathBuf;
 use iceberg::spec::{Schema, UnboundPartitionSpec};
 use iceberg::{Catalog, NamespaceIdent, TableCreation, TableIdent};
 
-use crate::errors::RunError;
 use crate::io::storage::{object_store::iceberg_store_config, Target};
 use crate::{config, io, FloeResult};
 
@@ -21,10 +21,11 @@ pub(super) fn build_iceberg_write_context(
     mut remote: Option<&mut IcebergRemoteContext<'_>>,
 ) -> FloeResult<IcebergWriteContext> {
     if entity.sink.accepted.iceberg.is_some() && remote.is_none() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "iceberg catalog writes require runtime catalog context for entity {}",
             entity.name
-        ))));
+        ))
+        .into());
     }
     match target {
         Target::Local { base_path, .. } => {
@@ -161,10 +162,11 @@ pub(super) fn build_iceberg_write_context(
                 }),
             }
         }
-        Target::Adls { .. } => Err(Box::new(RunError(format!(
+        Target::Adls { .. } => Err(FloeError::run(format!(
             "iceberg sink currently supports local, s3, or gcs storage only for entity {}",
             entity.name
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -214,10 +216,7 @@ fn build_catalog_config(
     resolved: &config::ResolvedIcebergCatalogTarget,
 ) -> FloeResult<IcebergWriteContext> {
     let catalog = IcebergCatalogConfig::from_resolved(resolved).map_err(|err| {
-        Box::new(crate::errors::RunError(format!(
-            "entity.name={} catalog config: {err}",
-            entity.name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        crate::errors::FloeError::run(format!("entity.name={} catalog config: {err}", entity.name))
     })?;
     let catalog_target = Target::from_resolved(&resolved.table_location)?;
     let store = iceberg_store_config(&catalog_target, ctx.resolver, entity)?;

@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use serde::Deserialize;
 
 use crate::config::{
@@ -6,7 +7,7 @@ use crate::config::{
     SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
     StoragesConfig, WriteMode,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 // Minimal deserializable mirror of CommonManifest — only the fields needed to reconstruct
 // a RootConfig and run an entity.
@@ -97,7 +98,7 @@ pub struct ManifestColumnDefForRun {
 pub fn config_from_manifest_json(json: &str) -> FloeResult<(crate::config::RootConfig, String)> {
     let manifest: ManifestForRun =
         serde_json::from_str(json).map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
-            Box::new(ConfigError(format!("manifest parse error: {err}")))
+            FloeError::config(format!("manifest parse error: {err}")).into()
         })?;
 
     let storages = manifest

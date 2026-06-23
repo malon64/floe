@@ -1,7 +1,7 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::errors::ConfigError;
 use crate::io::format::{AcceptedWriteOutput, AcceptedWriteRequest};
 use crate::io::storage::Target;
 use crate::{check, config, io, FloeResult};
@@ -94,13 +94,12 @@ pub(crate) fn sink_format(name: &str) -> FloeResult<&'static dyn SinkFormat> {
         .iter()
         .find(|(format, _)| *format == name)
     {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "accepted sink format '{name}' is not available in this build; \
              rebuild with --features {feature}"
-        ))) as Box<dyn std::error::Error + Send + Sync>);
+        ))
+        .into());
     }
 
-    Err(Box::new(ConfigError(format!(
-        "unsupported accepted sink format: {name}"
-    ))) as Box<dyn std::error::Error + Send + Sync>)
+    Err(FloeError::config(format!("unsupported accepted sink format: {name}")).into())
 }

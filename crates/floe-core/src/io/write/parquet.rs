@@ -7,13 +7,13 @@ use polars::prelude::{
 };
 
 use crate::checks::normalize::rename_output_columns;
-use crate::errors::{FloeError, IoError};
+use crate::errors::FloeError;
 use crate::io::format::{AcceptedWriteOutput, AcceptedWriteRequest};
 use crate::io::read::parquet::read_parquet_lazy;
 use crate::io::storage::Target;
 use crate::io::write::sink_format::{SeedContext, SinkFormat};
 use crate::io::write::{parts, strategy};
-use crate::{check, config, io, ConfigError, FloeResult};
+use crate::{check, config, io, FloeResult};
 
 use super::metrics;
 
@@ -65,7 +65,7 @@ pub fn write_parquet_to_path(
         .lazy()
         .sink_parquet(target, write_options, None, sink_options)
         .and_then(|lf| lf.with_new_streaming(true).collect())
-        .map_err(|err| Box::new(IoError(format!("parquet write failed: {err}"))))?;
+        .map_err(|err| FloeError::io(format!("parquet write failed: {err}")))?;
     Ok(())
 }
 
@@ -79,9 +79,9 @@ fn build_parquet_write_options(
         }
         if let Some(row_group_size) = options.row_group_size {
             let row_group_size = usize::try_from(row_group_size).map_err(|_| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "parquet row_group_size is too large: {row_group_size}"
-                )))
+                ))
             })?;
             write_options.row_group_size = Some(row_group_size);
         }
@@ -277,9 +277,7 @@ fn parse_parquet_compression(value: &str) -> FloeResult<ParquetCompression> {
         "gzip" => Ok(ParquetCompression::Gzip(None)),
         "zstd" => Ok(ParquetCompression::Zstd(None)),
         "uncompressed" => Ok(ParquetCompression::Uncompressed),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported parquet compression: {value}"
-        )))),
+        _ => Err(FloeError::config(format!("unsupported parquet compression: {value}")).into()),
     }
 }
 

@@ -57,9 +57,9 @@ impl OpenLineageObserver {
             .timeout(timeout)
             .build()
             .map_err(|e| {
-                Box::new(crate::errors::ConfigError(format!(
+                crate::errors::FloeError::config(format!(
                     "lineage: failed to build HTTP client: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
 
         let run_job_name = config

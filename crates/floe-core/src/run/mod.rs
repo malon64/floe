@@ -1,13 +1,13 @@
+use crate::errors::FloeError;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Once;
 use std::time::Instant;
 
-use crate::errors::IoError;
 use crate::report::build::project_metadata_json;
 use crate::report::output::write_summary_report;
 use crate::runtime::{DefaultRuntime, Runtime};
-use crate::{config, io, report, ConfigError, FloeResult, RunOptions, ValidateOptions};
+use crate::{config, io, report, FloeResult, RunOptions, ValidateOptions};
 
 mod context;
 pub(crate) mod entity;
@@ -71,10 +71,9 @@ pub(crate) fn validate_entities(
         .collect();
 
     if !missing.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "entities not found: {}",
-            missing.join(", ")
-        ))));
+        return Err(
+            FloeError::config(format!("entities not found: {}", missing.join(", "))).into(),
+        );
     }
     Ok(())
 }
@@ -181,11 +180,12 @@ fn run_from_context(
                 entity.sink.write_mode,
                 config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2
             ) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity '{}': --full-refresh is not supported with write_mode '{}'",
                     entity.name,
                     entity.sink.write_mode.as_str()
-                ))));
+                ))
+                .into());
             }
         }
     }
@@ -409,7 +409,7 @@ fn resolve_entity_plans<'a>(
         let temp_dir = if needs_temp {
             Some(
                 tempfile::TempDir::new()
-                    .map_err(|err| Box::new(IoError(format!("tempdir failed: {err}"))))?,
+                    .map_err(|err| FloeError::io(format!("tempdir failed: {err}")))?,
             )
         } else {
             None

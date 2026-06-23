@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::sync::Arc;
 
 use arrow::array::ArrayRef;
@@ -7,7 +8,6 @@ use iceberg::spec::{NestedField, PrimitiveType, Schema, Transform, Type, Unbound
 use polars::prelude::{DataFrame, DataType, Series};
 
 use crate::checks::normalize;
-use crate::errors::RunError;
 use crate::io::write::arrow_convert::{self, ArrowConversionOptions, ArrowTimeEncoding};
 use crate::{config, FloeResult};
 
@@ -19,10 +19,11 @@ pub(super) fn prepare_iceberg_write(
 ) -> FloeResult<PreparedIcebergWrite> {
     let columns = resolve_output_columns(df, entity)?;
     if columns.is_empty() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "iceberg sink requires at least one column for entity {}",
             entity.name
-        ))));
+        ))
+        .into());
     }
 
     let mut iceberg_fields = Vec::with_capacity(columns.len());
@@ -30,10 +31,11 @@ pub(super) fn prepare_iceberg_write(
 
     for (field_id, (name, nullable, series)) in (1_i32..).zip(columns) {
         if !nullable && series.null_count() > 0 {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "iceberg write rejected nulls for non-nullable column {}",
                 name
-            ))));
+            ))
+            .into());
         }
 
         let primitive = polars_dtype_to_iceberg_type(series, &entity.name)?;
@@ -56,11 +58,8 @@ pub(super) fn prepare_iceberg_write(
         schema_to_arrow_schema(&iceberg_schema)
             .map_err(map_iceberg_err("iceberg arrow schema conversion failed"))?,
     );
-    let batch = RecordBatch::try_new(arrow_schema, arrays).map_err(|err| {
-        Box::new(RunError(format!(
-            "iceberg record batch build failed: {err}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let batch = RecordBatch::try_new(arrow_schema, arrays)
+        .map_err(|err| FloeError::run(format!("iceberg record batch build failed: {err}")))?;
 
     Ok(PreparedIcebergWrite {
         iceberg_schema,
@@ -81,10 +80,10 @@ fn build_unbound_partition_spec(
     for field in fields {
         let column = field.column.trim();
         let schema_field = iceberg_schema.field_by_name(column).ok_or_else(|| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "entity.name={} iceberg partition_spec column {} was not found in runtime schema",
                 entity.name, column
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let normalized_transform = field.transform.trim().to_ascii_lowercase();
         let transform = iceberg_partition_transform(&normalized_transform, &entity.name, column)?;
@@ -109,10 +108,11 @@ fn iceberg_partition_transform(
         "day" => Transform::Day,
         "hour" => Transform::Hour,
         _ => {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
             "entity.name={} iceberg partition_spec column {} has unsupported runtime transform {}",
             entity_name, column, transform
-        ))))
+        ))
+            .into())
         }
     };
     Ok(iceberg_transform)
@@ -152,7 +152,7 @@ fn resolve_output_columns<'a>(
     for column in &schema_columns {
         let series = df
             .column(column.name.as_str())
-            .map_err(|err| Box::new(RunError(format!("iceberg column lookup failed: {err}"))))?
+            .map_err(|err| FloeError::run(format!("iceberg column lookup failed: {err}")))?
             .as_materialized_series();
         columns.push((column.name.clone(), column.nullable.unwrap_or(true), series));
     }
@@ -177,11 +177,11 @@ fn polars_dtype_to_iceberg_type(series: &Series, entity_name: &str) -> FloeResul
             }
         }
         dtype => {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "iceberg sink supports scalar types only; unsupported dtype {dtype:?} for column {} (entity {})",
                 series.name(),
                 entity_name
-            ))))
+            )).into())
         }
     };
     Ok(primitive)
@@ -199,7 +199,7 @@ fn series_to_arrow_array(
             time_encoding: ArrowTimeEncoding::Microseconds,
         },
         |dtype| {
-            RunError(format!(
+            FloeError::run(format!(
                 "iceberg sink supports scalar types only; unsupported dtype {dtype:?} for column {} (entity {})",
                 column_name, entity_name
             ))
@@ -215,12 +215,12 @@ pub(super) fn ensure_schema_matches(
     let existing_fields = existing.as_struct().fields();
     let expected_fields = expected.as_struct().fields();
     if existing_fields.len() != expected_fields.len() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} iceberg schema evolution is not supported (column count differs: existing={}, incoming={})",
             entity.name,
             existing_fields.len(),
             expected_fields.len()
-        ))));
+        )).into());
     }
 
     for (index, (existing_field, expected_field)) in existing_fields
@@ -232,13 +232,13 @@ pub(super) fn ensure_schema_matches(
             || existing_field.required != expected_field.required
             || existing_field.field_type != expected_field.field_type
         {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} iceberg schema evolution is not supported (column {} differs: existing={} incoming={})",
                 entity.name,
                 index,
                 describe_field(existing_field),
                 describe_field(expected_field)
-            ))));
+            )).into());
         }
     }
 
@@ -261,12 +261,12 @@ pub(super) fn ensure_partition_spec_matches(
         .map_err(map_iceberg_err("iceberg partition spec bind failed"))?;
 
     if !existing.is_compatible_with(&expected_bound) {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} iceberg partition spec evolution is not supported (existing={} incoming={})",
             entity.name,
             describe_partition_spec(existing),
             describe_partition_spec(&expected_bound)
-        ))));
+        )).into());
     }
 
     Ok(())

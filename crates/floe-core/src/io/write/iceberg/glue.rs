@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_glue::config::Region as GlueRegion;
 use aws_sdk_glue::types::{
@@ -6,7 +7,6 @@ use aws_sdk_glue::types::{
 };
 use aws_sdk_glue::Client as GlueClient;
 
-use crate::errors::RunError;
 use crate::{warnings, FloeResult};
 
 use super::GlueIcebergCatalogConfig;
@@ -47,10 +47,10 @@ pub(crate) async fn load_glue_table_state(
     match response {
         Ok(output) => {
             let table = output.table().ok_or_else(|| {
-                Box::new(RunError(format!(
+                FloeError::run(format!(
                     "glue get_table returned no table for {}.{}",
                     glue_cfg.database, glue_cfg.table
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             let parameters = table.parameters();
             let metadata_location =
@@ -60,10 +60,10 @@ pub(crate) async fn load_glue_table_state(
                 .map(|value| value.eq_ignore_ascii_case("ICEBERG"))
                 .unwrap_or(false);
             if !is_iceberg || metadata_location.is_none() {
-                return Err(Box::new(RunError(format!(
+                return Err(FloeError::run(format!(
                     "glue table {}.{} exists but is not an Iceberg table (missing table_type=ICEBERG or metadata_location)",
                     glue_cfg.database, glue_cfg.table
-                ))));
+                )).into());
             }
 
             // Ownership check: warn or error if the table was not created by Floe.
@@ -84,10 +84,10 @@ pub(crate) async fn load_glue_table_state(
                         ),
                     );
                 } else {
-                    return Err(Box::new(RunError(format!(
+                    return Err(FloeError::run(format!(
                         "glue table {}.{} was not created by Floe; set allow_takeover=true on the catalog definition to take ownership",
                         glue_cfg.database, glue_cfg.table
-                    ))));
+                    )).into());
                 }
             }
 
@@ -108,15 +108,16 @@ pub(crate) async fn load_glue_table_state(
             }
             let code = err.as_service_error().and_then(|e| e.meta().code());
             if is_access_denied(code) {
-                return Err(Box::new(RunError(format!(
+                return Err(FloeError::run(format!(
                     "glue get_table denied for {}.{}: ensure the IAM role/user has glue:GetTable permission: {err}",
                     glue_cfg.database, glue_cfg.table
-                ))));
+                )).into());
             }
-            Err(Box::new(RunError(format!(
+            Err(FloeError::run(format!(
                 "glue get_table failed for {}.{}: {err}",
                 glue_cfg.database, glue_cfg.table
-            ))))
+            ))
+            .into())
         }
     }
 }
@@ -153,15 +154,16 @@ pub(super) async fn upsert_glue_table(
             {
                 let code = err.as_service_error().and_then(|e| e.meta().code());
                 if is_access_denied(code) {
-                    return Err(Box::new(RunError(format!(
+                    return Err(FloeError::run(format!(
                         "glue create_table denied for {}.{}: ensure the IAM role/user has glue:CreateTable permission: {err}",
                         glue_cfg.database, glue_cfg.table
-                    ))));
+                    )).into());
                 }
-                return Err(Box::new(RunError(format!(
+                return Err(FloeError::run(format!(
                     "glue create_table failed for {}.{}: {err}",
                     glue_cfg.database, glue_cfg.table
-                ))));
+                ))
+                .into());
             }
         }
     }
@@ -195,16 +197,16 @@ pub(super) async fn upsert_glue_table(
                 }
                 let code = err.as_service_error().and_then(|e| e.meta().code());
                 if is_access_denied(code) {
-                    return Err(Box::new(RunError(format!(
+                    return Err(FloeError::run(format!(
                         "glue update_table denied for {}.{}: ensure the IAM role/user has glue:UpdateTable permission: {err}",
                         glue_cfg.database, glue_cfg.table
-                    ))));
+                    )).into());
                 }
-                return Err(Box::new(RunError(format!(
+                return Err(FloeError::run(format!(
                     "glue update_table failed for {}.{}: {err}",
                     glue_cfg.database, glue_cfg.table
-                )))
-                    as Box<dyn std::error::Error + Send + Sync>);
+                ))
+                .into());
             }
         }
     }
@@ -224,9 +226,9 @@ async fn ensure_glue_database(
                 .is_some_and(|e| e.is_entity_not_found_exception())
             {
                 if !create_if_missing {
-                    return Err(Box::new(RunError(format!(
+                    return Err(FloeError::run(format!(
                         "glue database {database} does not exist; set create_database_if_missing=true to create it automatically"
-                    ))));
+                    )).into());
                 }
                 let db_input = GlueDatabaseInput::builder()
                     .name(database)
@@ -238,21 +240,20 @@ async fn ensure_glue_database(
                     .send()
                     .await
                     .map_err(|e| {
-                        Box::new(RunError(format!(
-                            "glue create_database failed for {database}: {e}"
-                        ))) as Box<dyn std::error::Error + Send + Sync>
+                        FloeError::run(format!("glue create_database failed for {database}: {e}"))
                     })?;
                 Ok(())
             } else {
                 let code = err.as_service_error().and_then(|e| e.meta().code());
                 if is_access_denied(code) {
-                    return Err(Box::new(RunError(format!(
+                    return Err(FloeError::run(format!(
                         "glue get_database denied for {database}: ensure the IAM role/user has glue:GetDatabase permission: {err}"
-                    ))));
+                    )).into());
                 }
-                Err(Box::new(RunError(format!(
-                    "glue get_database failed for {database}: {err}"
-                ))))
+                Err(
+                    FloeError::run(format!("glue get_database failed for {database}: {err}"))
+                        .into(),
+                )
             }
         }
     }

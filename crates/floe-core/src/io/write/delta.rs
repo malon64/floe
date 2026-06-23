@@ -1,8 +1,8 @@
+use crate::errors::FloeError;
 use polars::prelude::DataFrame;
 use std::path::Path;
 use std::time::Instant;
 
-use crate::errors::RunError;
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown,
     AcceptedWriteRequest, CatalogRegistration,
@@ -67,7 +67,7 @@ fn write_delta_table_with_metrics(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("delta runtime init failed: {err}")))?;
     let (version, merge, schema_evolution, mut perf_breakdown) = match mode {
         config::WriteMode::Overwrite | config::WriteMode::Append => {
             let outcome = shared::write_standard_delta_version_with_perf(
@@ -200,17 +200,15 @@ impl SinkFormat for DeltaSinkFormat {
                     .enable_all()
                     .build()
                     .map_err(|err| {
-                        Box::new(RunError(format!(
-                            "unity catalog runtime init failed: {err}"
-                        )))
+                        FloeError::run(format!("unity catalog runtime init failed: {err}"))
                     })?;
                 runtime
                     .block_on(unity::register_unity_table(&cfg, &table_uri))
                     .map_err(|err| {
-                        Box::new(RunError(format!(
+                        FloeError::run(format!(
                             "entity.name={} unity catalog registration failed: {err}",
                             entity.name
-                        )))
+                        ))
                     })?;
                 Some(resolved)
             }
@@ -246,17 +244,17 @@ impl SinkFormat for DeltaSinkFormat {
     ) -> FloeResult<()> {
         let store = object_store::delta_store_config(ctx.target, ctx.resolver, ctx.entity)?;
         let builder = deltalake::table::builder::DeltaTableBuilder::from_url(store.table_url)
-            .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+            .map_err(|err| FloeError::run(format!("delta builder failed: {err}")))?
             .with_storage_options(store.storage_options);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| Box::new(RunError(format!("delta runtime init failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("delta runtime init failed: {err}")))?;
         let table = runtime.block_on(async move { builder.load().await });
         let table = match table {
             Ok(table) => table,
             Err(deltalake::DeltaTableError::NotATable(_)) => return Ok(()),
-            Err(err) => return Err(Box::new(RunError(format!("delta load failed: {err}")))),
+            Err(err) => return Err(FloeError::run(format!("delta load failed: {err}")).into()),
         };
         let scan_cols = ctx.scan_cols.to_vec();
         let batches = runtime
@@ -264,7 +262,7 @@ impl SinkFormat for DeltaSinkFormat {
                 let (_t, stream) = table.scan_table().with_columns(scan_cols).await?;
                 deltalake::operations::collect_sendable_stream(stream).await
             })
-            .map_err(|err| Box::new(RunError(format!("delta scan failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("delta scan failed: {err}")))?;
         seed_from_batches(tracker, batches, ctx.rename_back)
     }
 }

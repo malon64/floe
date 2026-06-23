@@ -2,19 +2,20 @@ use crate::log::emit_log;
 
 /// Structured, matchable error type for floe-core (#395).
 ///
-/// Historically floe-core returned `Box<dyn Error>` over four stringly-typed
+/// floe-core formerly returned `Box<dyn Error>` over four stringly-typed
 /// wrappers (`ConfigError`/`RunError`/`StorageError`/`IoError`), so consumers
 /// could only classify failures by inspecting message strings. `FloeError`
 /// gives each failure a typed variant plus structured context fields (entity,
-/// path, rule) while keeping `Display` byte-compatible with the legacy wrappers
-/// so existing exact-string assertions still hold.
+/// path, rule). Every floe-core failure is now a `FloeError`; its `Display` is
+/// just the message, so the exact-string assertions in the test suite still hold.
 ///
-/// Migration is incremental: `FloeResult<T>` remains the boxed alias, and
-/// `FloeError` flows into it for free via `?` (it is `Error + Send + Sync`).
-/// Consumers recover the structured error with
-/// `err.downcast_ref::<FloeError>()`. Modules are converted one subsystem at a
-/// time; the legacy wrappers below remain for not-yet-migrated code and convert
-/// into `FloeError` via the `From` impls.
+/// `FloeResult<T>` stays the boxed alias (`Result<T, Box<dyn Error + Send + Sync>>`)
+/// so foreign errors (`io::Error`, serde, polars, deltalake, reqwest, …) keep
+/// flowing through `?`. `FloeError` boxes into it for free (it is
+/// `Error + Send + Sync`); always return a bare `FloeError` (never
+/// `Box::new(FloeError)`, which would double-box and defeat the downcast).
+/// Consumers recover the structured error with `err.downcast_ref::<FloeError>()`
+/// and classify by `.kind()`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FloeError {
     /// Config parsing / shape errors.
@@ -157,48 +158,6 @@ impl FloeError {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct ConfigError(pub String);
-
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct RunError(pub String);
-
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct StorageError(pub String);
-
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct IoError(pub String);
-
-// Legacy wrappers convert into the structured enum so not-yet-migrated code can
-// be absorbed by migrated callers without losing the failure kind.
-impl From<ConfigError> for FloeError {
-    fn from(err: ConfigError) -> Self {
-        Self::config(err.0)
-    }
-}
-
-impl From<RunError> for FloeError {
-    fn from(err: RunError) -> Self {
-        Self::run(err.0)
-    }
-}
-
-impl From<StorageError> for FloeError {
-    fn from(err: StorageError) -> Self {
-        Self::storage(err.0)
-    }
-}
-
-impl From<IoError> for FloeError {
-    fn from(err: IoError) -> Self {
-        Self::io(err.0)
-    }
-}
-
 pub fn emit(
     run_id: &str,
     entity: Option<&str>,
@@ -242,16 +201,6 @@ mod tests {
         assert_eq!(FloeError::storage("x").kind(), FloeErrorKind::Storage);
         assert_eq!(FloeError::io("x").kind(), FloeErrorKind::Io);
         assert_eq!(FloeError::run("x").kind(), FloeErrorKind::Run);
-    }
-
-    #[test]
-    fn legacy_wrappers_convert_into_the_enum_preserving_message_and_kind() {
-        let err: FloeError = StorageError("boom".into()).into();
-        assert_eq!(err.kind(), FloeErrorKind::Storage);
-        assert_eq!(err.to_string(), "boom");
-
-        let err: FloeError = ConfigError("nope".into()).into();
-        assert_eq!(err.kind(), FloeErrorKind::Config);
     }
 
     #[test]

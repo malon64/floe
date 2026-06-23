@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::time::Instant;
 
 use arrow::datatypes::{DataType, FieldRef};
@@ -10,7 +11,6 @@ use deltalake::{datafusion::prelude::SessionContext, DeltaTable};
 use polars::prelude::DataFrame;
 use std::collections::{HashMap, HashSet};
 
-use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::{object_store, Target};
 use crate::{config, FloeResult};
@@ -119,7 +119,7 @@ pub(crate) fn plan_delta_schema_evolution(
 
     let snapshot = table
         .snapshot()
-        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("delta schema load failed: {err}")))?;
     let target_schema = table.schema();
     let target_fields = target_schema.fields();
     let source_schema = batch.schema();
@@ -136,11 +136,11 @@ pub(crate) fn plan_delta_schema_evolution(
     summary.incompatible_changes_detected = !incompatible_changes.is_empty();
 
     if !incompatible_changes.is_empty() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} delta schema evolution failed: add_columns supports additive changes only; incompatible changes detected: {}",
             entity.name,
             incompatible_changes.join("; ")
-        ))));
+        )).into());
     }
 
     if matches!(
@@ -155,11 +155,11 @@ pub(crate) fn plan_delta_schema_evolution(
             .collect::<Vec<_>>();
         if !added_merge_key_columns.is_empty() {
             summary.incompatible_changes_detected = true;
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} delta schema evolution failed: merge key columns cannot be added: {}",
                 entity.name,
                 added_merge_key_columns.join(", ")
-            ))));
+            )).into());
         }
     }
 
@@ -173,10 +173,10 @@ pub(crate) fn plan_delta_schema_evolution(
 
     let partition_columns = snapshot.metadata().partition_columns();
     if !partition_columns.is_empty() {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} delta schema evolution failed: add_columns is unsupported for partitioned delta tables in this phase",
             entity.name
-        ))));
+        )).into());
     }
 
     summary.applied = true;
@@ -263,7 +263,7 @@ pub(crate) fn load_delta_table(
     let table_url = store.table_url;
     let storage_options = store.storage_options;
     let builder = DeltaTableBuilder::from_url(table_url.clone())
-        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .map_err(|err| FloeError::run(format!("delta builder failed: {err}")))?
         .with_storage_options(storage_options.clone());
 
     runtime
@@ -274,7 +274,7 @@ pub(crate) fn load_delta_table(
                 Err(err) => Err(err),
             }
         })
-        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))).into())
+        .map_err(|err| FloeError::run(format!("delta schema load failed: {err}")).into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -293,7 +293,7 @@ pub(crate) fn write_delta_batch_version(
     let table_url = store.table_url;
     let storage_options = store.storage_options;
     let builder = DeltaTableBuilder::from_url(table_url.clone())
-        .map_err(|err| Box::new(RunError(format!("delta builder failed: {err}"))))?
+        .map_err(|err| FloeError::run(format!("delta builder failed: {err}")))?
         .with_storage_options(storage_options.clone());
     Ok(runtime
         .block_on(async move {
@@ -326,7 +326,7 @@ pub(crate) fn write_delta_batch_version(
             })?;
             Ok::<i64, deltalake::DeltaTableError>(version)
         })
-        .map_err(|err| Box::new(RunError(format!("delta write failed: {err}"))))?)
+        .map_err(|err| FloeError::run(format!("delta write failed: {err}")))?)
 }
 
 fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
@@ -336,7 +336,7 @@ fn save_mode_for_write_mode(mode: config::WriteMode) -> SaveMode {
 pub(crate) fn delta_schema_columns(table: &DeltaTable) -> FloeResult<Vec<String>> {
     let columns = table
         .snapshot()
-        .map_err(|err| Box::new(RunError(format!("delta schema load failed: {err}"))))?
+        .map_err(|err| FloeError::run(format!("delta schema load failed: {err}")))?
         .schema()
         .fields()
         .map(|field| field.name.clone())
@@ -369,18 +369,20 @@ pub(crate) fn validate_merge_schema_compatibility(
             if allow_target_additive_evolution {
                 continue;
             }
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} delta {mode_name} failed: target schema missing source column {}",
                 entity_name, source_column
-            ))));
+            ))
+            .into());
         }
     }
     for system_column in system_columns {
         if !target_columns.contains(system_column) {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} delta {mode_name} failed: target schema missing system column {}",
                 entity_name, system_column
-            ))));
+            ))
+            .into());
         }
     }
     for target_column in target_schema_columns {
@@ -388,10 +390,11 @@ pub(crate) fn validate_merge_schema_compatibility(
             continue;
         }
         if !source_columns.contains(target_column.as_str()) {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} delta {mode_name} failed: source schema missing target column {}",
                 entity_name, target_column
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -409,10 +412,11 @@ pub(crate) fn source_as_datafusion_df_from_batch(
     entity_name: &str,
 ) -> FloeResult<deltalake::datafusion::prelude::DataFrame> {
     SessionContext::new().read_batch(batch).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "entity.name={} delta merge failed to build source dataframe: {err}",
             entity_name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
+        .into()
     })
 }
 

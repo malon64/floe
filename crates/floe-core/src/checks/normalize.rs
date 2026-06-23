@@ -1,8 +1,9 @@
+use crate::errors::FloeError;
 use std::collections::{HashMap, HashSet};
 
 use polars::prelude::DataFrame;
 
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 pub fn resolve_normalize_strategy(entity: &config::EntityConfig) -> FloeResult<Option<String>> {
     let normalize = match &entity.schema.normalize_columns {
@@ -21,9 +22,9 @@ pub fn resolve_normalize_strategy(entity: &config::EntityConfig) -> FloeResult<O
     let normalized = normalize_strategy_name(raw);
     match normalized.as_str() {
         "snakecase" | "lower" | "camelcase" | "none" => Ok(Some(normalized)),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported normalize_columns.strategy: {raw}"
-        )))),
+        _ => {
+            Err(FloeError::config(format!("unsupported normalize_columns.strategy: {raw}")).into())
+        }
     }
 }
 
@@ -42,10 +43,11 @@ pub fn resolve_source_columns(
             source_name.to_string()
         };
         if let Some(existing) = seen.insert(normalized_name.clone(), source_name.to_string()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "column source collision: {} and {} -> {}",
                 existing, column.name, normalized_name
-            ))));
+            ))
+            .into());
         }
         resolved.push(config::ColumnConfig {
             name: normalized_name,
@@ -80,10 +82,11 @@ pub fn source_column_mapping(
             source.to_string()
         };
         if !seen.insert(normalized.clone()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "column source collision: duplicate source selector {}",
                 normalized
-            ))));
+            ))
+            .into());
         }
         mapping.insert(normalized, source.to_string());
     }
@@ -111,10 +114,11 @@ pub fn output_column_mapping(
             column.name.clone()
         };
         if let Some(existing) = targets.insert(target_name.clone(), normalized_source.clone()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "output column name collision: {} and {} -> {}",
                 existing, normalized_source, target_name
-            ))));
+            ))
+            .into());
         }
         if normalized_source != target_name {
             mapping.insert(normalized_source, target_name);
@@ -194,11 +198,8 @@ pub fn rename_output_columns(
             renamed.push(name.clone());
         }
     }
-    df.set_column_names(renamed.iter()).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "failed to rename output columns: {err}"
-        )))
-    })?;
+    df.set_column_names(renamed.iter())
+        .map_err(|err| FloeError::config(format!("failed to rename output columns: {err}")))?;
     Ok(())
 }
 
@@ -209,19 +210,16 @@ pub fn normalize_dataframe_columns(df: &mut DataFrame, strategy: &str) -> FloeRe
     for name in names {
         let normalized = normalize_name(name, strategy);
         if let Some(existing) = seen.insert(normalized.clone(), name.to_string()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "normalized input column collision: {} and {} -> {}",
                 existing, name, normalized
-            ))));
+            ))
+            .into());
         }
         normalized_names.push(normalized);
     }
     df.set_column_names(normalized_names.iter())
-        .map_err(|err| {
-            Box::new(ConfigError(format!(
-                "failed to normalize column names: {err}"
-            )))
-        })?;
+        .map_err(|err| FloeError::config(format!("failed to normalize column names: {err}")))?;
     Ok(())
 }
 

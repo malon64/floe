@@ -1,10 +1,11 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 
 use crate::config::{
     CatalogDefinition, CatalogTypeConfig, EntityConfig, ResolvedPath, RootConfig, SinkTarget,
     StorageResolver,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 /// Normalizes an identifier for use as a catalog namespace, table, or database name.
 /// Lowercases, replaces non-alphanumeric/non-underscore/non-hyphen chars with `_`,
@@ -72,10 +73,11 @@ impl CatalogResolver {
                 .insert(definition.name.clone(), definition.clone())
                 .is_some()
             {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "catalogs.definitions name={} is duplicated",
                     definition.name
-                ))));
+                ))
+                .into());
             }
         }
 
@@ -110,17 +112,17 @@ impl CatalogResolver {
         let catalog_name = match iceberg_cfg.catalog.as_deref() {
             Some(name) => name.to_string(),
             None => self.default_name.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} sink.accepted.iceberg.catalog is required when no catalogs.default is set",
                     entity.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?,
         };
         let definition = self.definition(&catalog_name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.accepted.iceberg.catalog references unknown catalog {}",
                 entity.name, catalog_name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         // namespace and table names use the shared normalizer — same rules for all catalog types
@@ -131,10 +133,10 @@ impl CatalogResolver {
             CatalogTypeConfig::Rest { .. } => "default",
             // Unity catalogs are for Delta, not Iceberg — validate.rs prevents this path.
             CatalogTypeConfig::Unity { .. } => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.iceberg.catalog references a unity catalog, which only supports Delta Lake",
                     entity.name
-                ))) as Box<dyn std::error::Error + Send + Sync>);
+                )).into());
             }
         };
         let namespace_source = iceberg_cfg
@@ -217,18 +219,18 @@ impl CatalogResolver {
         let catalog_name = match delta_cfg.catalog.as_deref() {
             Some(name) => name.to_string(),
             None => self.default_name.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} sink.accepted.delta.catalog is required when no catalogs.default is set",
                     entity.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?,
         };
 
         let definition = self.definition(&catalog_name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.accepted.delta.catalog references unknown catalog {}",
                 entity.name, catalog_name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         // Schema resolution: entity override → entity domain → catalog definition schema field.

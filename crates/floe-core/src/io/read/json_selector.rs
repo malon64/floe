@@ -1,6 +1,5 @@
+use crate::errors::FloeError;
 use serde_json::Value;
-
-use crate::ConfigError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectorToken {
@@ -160,6 +159,6 @@ pub fn compact_json(value: &Value) -> Result<String, SelectorError> {
     })
 }
 
-pub fn selector_tokens_or_error(selector: &str) -> Result<Vec<SelectorToken>, ConfigError> {
-    parse_selector(selector).map_err(|err| ConfigError(err.message))
+pub fn selector_tokens_or_error(selector: &str) -> Result<Vec<SelectorToken>, FloeError> {
+    parse_selector(selector).map_err(|err| FloeError::config(err.message))
 }

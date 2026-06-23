@@ -50,16 +50,16 @@ fn apply_pii_column(
             let col = df.column(runtime_name)?;
             let new_series = hash_column(col, runtime_name, col_cfg.key.as_deref())?;
             df.with_column(new_series).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "PII hash: failed to replace column {runtime_name}: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         }
         PiiStrategy::Drop => {
             df.drop_in_place(runtime_name).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "PII drop: failed to drop column {runtime_name}: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         }
         PiiStrategy::Nullify => {
@@ -68,9 +68,9 @@ fn apply_pii_column(
             let dtype = col.dtype().clone();
             let null_series = Series::full_null(runtime_name.into(), len, &dtype);
             df.with_column(null_series).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "PII nullify: failed to replace column {runtime_name}: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         }
         PiiStrategy::Redact => {
@@ -78,9 +78,9 @@ fn apply_pii_column(
             let col = df.column(runtime_name)?;
             let new_series = redact_column(col, runtime_name, redact_value)?;
             df.with_column(new_series).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "PII redact: failed to replace column {runtime_name}: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         }
         PiiStrategy::Mask => {
@@ -90,9 +90,9 @@ fn apply_pii_column(
             let col = df.column(runtime_name)?;
             let new_series = mask_column(col, runtime_name, pattern, first_n, last_n)?;
             df.with_column(new_series).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "PII mask: failed to replace column {runtime_name}: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         }
         PiiStrategy::Tokenize => {
@@ -104,15 +104,15 @@ fn apply_pii_column(
 
 fn to_string_chunked(col: &Column, col_name: &str) -> FloeResult<StringChunked> {
     let str_col = col.cast(&DataType::String).map_err(|e| {
-        Box::new(crate::errors::RunError(format!(
+        crate::errors::FloeError::run(format!(
             "PII: failed to cast column {col_name} to string: {e}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let series = str_col.as_materialized_series().clone();
     let ca = series.str().map_err(|e| {
-        Box::new(crate::errors::RunError(format!(
+        crate::errors::FloeError::run(format!(
             "PII: failed to access string chunked array for column {col_name}: {e}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     Ok(ca.clone())
 }
@@ -122,20 +122,23 @@ fn resolve_pii_key(raw_key: &str, col_name: &str) -> FloeResult<String> {
         return Ok(raw_key.to_string());
     }
     let Some(inner) = raw_key.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
-        return Err(Box::new(crate::errors::ConfigError(format!(
+        return Err(crate::errors::FloeError::config(format!(
             "pii column {col_name}: key must be a plain value or a single ${{VAR_NAME}} \
              reference; mixing literal text with ${{...}} is not supported"
-        ))));
+        ))
+        .into());
     };
     if inner.is_empty() || inner.contains('{') || inner.contains('}') {
-        return Err(Box::new(crate::errors::ConfigError(format!(
+        return Err(crate::errors::FloeError::config(format!(
             "pii column {col_name}: key has invalid placeholder syntax"
-        ))));
+        ))
+        .into());
     }
     std::env::var(inner).map_err(|_| {
-        Box::new(crate::errors::RunError(format!(
+        crate::errors::FloeError::run(format!(
             "pii column {col_name}: key references env var {inner} which is not set"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
+        .into()
     })
 }
 

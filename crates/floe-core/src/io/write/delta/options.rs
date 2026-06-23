@@ -1,4 +1,4 @@
-use crate::errors::RunError;
+use crate::errors::FloeError;
 use crate::io::write::metrics;
 use crate::{config, FloeResult};
 
@@ -20,9 +20,9 @@ pub fn delta_write_runtime_options(
         .and_then(|options| options.max_size_per_file);
     let target_file_size_bytes = match target_file_size_bytes_u64 {
         Some(value) => Some(usize::try_from(value).map_err(|_| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "delta sink max_size_per_file is too large for this platform: {value}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?),
         None => None,
     };

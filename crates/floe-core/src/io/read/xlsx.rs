@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -5,7 +6,6 @@ use std::path::Path;
 use calamine::{open_workbook, Data, Reader, Xlsx};
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
-use crate::errors::IoError;
 use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
@@ -258,9 +258,8 @@ impl InputAdapter for XlsxInputAdapter {
         let mut inputs = Vec::with_capacity(files.len());
         for input_file in files {
             let path = &input_file.local_path;
-            let df = read_xlsx_file(path, &options).map_err(|err| {
-                Box::new(IoError(err.to_string())) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let df =
+                read_xlsx_file(path, &options).map_err(|err| FloeError::io(err.to_string()))?;
             let input = format::read_input_from_df(
                 input_file,
                 &df,

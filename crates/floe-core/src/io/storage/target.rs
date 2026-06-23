@@ -1,4 +1,5 @@
-use crate::{config, io, ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::{config, io, FloeResult};
 
 use super::{paths, OutputPlacement};
 
@@ -67,10 +68,7 @@ impl Target {
                 base_key: location.key,
             });
         }
-        Err(Box::new(ConfigError(format!(
-            "unsupported storage uri: {}",
-            resolved.uri
-        ))))
+        Err(FloeError::config(format!("unsupported storage uri: {}", resolved.uri)).into())
     }
 
     pub fn storage(&self) -> &str {

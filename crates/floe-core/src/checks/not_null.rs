@@ -1,7 +1,7 @@
+use crate::errors::FloeError;
 use polars::prelude::{col, lit, AnyValue, DataFrame, Expr, NULL};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
-use crate::errors::RunError;
 use crate::FloeResult;
 
 pub fn not_null_errors(
@@ -17,16 +17,12 @@ pub fn not_null_errors(
     let mut null_masks = Vec::with_capacity(required_cols.len());
     for name in required_cols {
         let index = indices.get(name).ok_or_else(|| {
-            Box::new(RunError(format!(
-                "required column {name} not found in dataframe"
-            )))
+            FloeError::run(format!("required column {name} not found in dataframe"))
         })?;
         let mask = df
             .select_at_idx(*index)
             .ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "required column {name} not found in dataframe"
-                )))
+                FloeError::run(format!("required column {name} not found in dataframe"))
             })?
             .is_null();
         null_masks.push(mask);
@@ -56,16 +52,12 @@ pub fn not_null_errors_sparse(
     let mut null_masks = Vec::with_capacity(required_cols.len());
     for name in required_cols {
         let index = indices.get(name).ok_or_else(|| {
-            Box::new(RunError(format!(
-                "required column {name} not found in dataframe"
-            )))
+            FloeError::run(format!("required column {name} not found in dataframe"))
         })?;
         let mask = df
             .select_at_idx(*index)
             .ok_or_else(|| {
-                Box::new(RunError(format!(
-                    "required column {name} not found in dataframe"
-                )))
+                FloeError::run(format!("required column {name} not found in dataframe"))
             })?
             .is_null();
         null_masks.push((name, mask));
@@ -103,9 +95,9 @@ pub fn not_null_counts(df: &DataFrame, required_cols: &[String]) -> FloeResult<V
     let null_counts = df.null_count();
     let mut counts = Vec::new();
     for name in required_cols {
-        let series = null_counts.column(name).map_err(|err| {
-            Box::new(RunError(format!("required column {name} not found: {err}")))
-        })?;
+        let series = null_counts
+            .column(name)
+            .map_err(|err| FloeError::run(format!("required column {name} not found: {err}")))?;
         let value = series.get(0).unwrap_or(AnyValue::UInt32(0));
         let violations = match value {
             AnyValue::UInt32(value) => value as u64,

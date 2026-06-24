@@ -289,7 +289,7 @@ fn with_transaction<T>(
 
 fn exec(conn: &Connection, sql: &str, context: &str) -> FloeResult<()> {
     conn.execute_batch(sql)
-        .map_err(|err| FloeError::run(format!("{context}: {err}")))
+        .map_err(|err| FloeError::run(format!("{context}: {err}")).into())
 }
 
 /// True if `schema.table` already exists in the current database.

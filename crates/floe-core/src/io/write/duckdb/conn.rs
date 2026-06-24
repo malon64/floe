@@ -295,6 +295,7 @@ fn register_arrow_vtab(connection: &Connection) -> FloeResult<()> {
             FloeError::run(format!(
                 "duckdb arrow virtual table registration failed: {err}"
             ))
+            .into()
         })
 }
 
@@ -323,6 +324,7 @@ pub(crate) fn expand_env_token(token: &str, entity_name: &str) -> FloeResult<Str
             "entity.name={entity_name} sink.accepted.duckdb.token references env var {inner} which \
              is not set"
         ))
+        .into()
     })
 }
 

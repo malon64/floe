@@ -564,8 +564,10 @@ fn iceberg_store_config_builds_adls_target() -> FloeResult<()> {
 
     let store = iceberg_store_config(&target, &resolver, &entity)?;
     assert!(
-        store.warehouse_location.contains("container@account"),
-        "warehouse_location should be the abfs URI: {}",
+        store
+            .warehouse_location
+            .starts_with("abfss://container@account.dfs.core.windows.net/data/iceberg/orders"),
+        "warehouse_location should be the abfss URI: {}",
         store.warehouse_location
     );
     assert_eq!(

@@ -112,8 +112,9 @@ the same credential resolution order:
 1. **Account key** — set `AZURE_STORAGE_ACCOUNT_KEY` in the environment. Floe
    forwards it as `adls.account-key` to the storage layer. Simplest option for
    local development and CI.
-2. **SAS token** — set `AZURE_STORAGE_SAS_TOKEN`. Used only if no account key
-   is set. The token must have at least List + Read permissions on the container.
+2. **SAS token** — set `AZURE_STORAGE_SAS_TOKEN`. Floe forwards it as
+   `adls.sas-token`; the token must have at least List + Read permissions on
+   the container.
 3. **Service principal** — set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and
    `AZURE_CLIENT_SECRET`. Reqsign reads these automatically; no extra config
    needed in the floe manifest.
@@ -121,11 +122,9 @@ the same credential resolution order:
    Azure environment.
 
 > **Note on Azure CLI (`az login`)**: Azure CLI works for management-plane
-> operations (e.g. `az storage account keys list`) but does **not** work for
-> the Iceberg storage write path. If your CLI identity also has
-> `Storage Blob Data Contributor` RBAC on the container, it can be used for
-> the metadata listing, but setting `AZURE_STORAGE_ACCOUNT_KEY` is recommended
-> for local development to avoid RBAC configuration overhead.
+> operations (e.g. `az storage account keys list`) but is not consumed by the
+> Iceberg OpenDAL storage path. Use account key, SAS, service-principal, workload
+> identity, or managed identity credentials for Iceberg data and metadata IO.
 
 ```yaml
 storages:

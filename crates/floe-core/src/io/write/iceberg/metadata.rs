@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{errors::StorageError, FloeResult};
+use crate::{errors::FloeError, FloeResult};
 
 pub(crate) fn latest_local_metadata_location(table_root: &Path) -> FloeResult<Option<String>> {
     let metadata_dir = table_root.join("metadata");
@@ -82,9 +82,9 @@ pub(crate) fn latest_adls_metadata_location_via_opendal(
     use opendal::{Configurator, Operator};
 
     let url = url::Url::parse(warehouse_uri).map_err(|e| {
-        Box::new(StorageError(format!(
+        FloeError::storage(format!(
             "adls iceberg warehouse uri invalid ({warehouse_uri}): {e}"
-        )))
+        ))
     })?;
 
     let filesystem = url.username().to_string();
@@ -117,28 +117,19 @@ pub(crate) fn latest_adls_metadata_location_via_opendal(
     };
 
     let op = Operator::new(config.into_builder())
-        .map_err(|e| {
-            Box::new(StorageError(format!(
-                "adls iceberg opendal operator init failed: {e}"
-            )))
-        })?
+        .map_err(|e| FloeError::storage(format!("adls iceberg opendal operator init failed: {e}")))?
         .finish();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| {
-            Box::new(StorageError(format!(
-                "adls iceberg listing runtime init failed: {e}"
-            )))
+            FloeError::storage(format!("adls iceberg listing runtime init failed: {e}"))
         })?;
 
-    let entries = runtime
+    let entries: Vec<opendal::Entry> = runtime
         .block_on(op.list(&metadata_list_path))
-        .map_err(|e| {
-            Box::new(StorageError(format!("adls list failed: {e}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        .map_err(|e| FloeError::storage(format!("adls list failed: {e}")))?;
 
     let adls_scheme = if warehouse_uri.starts_with("abfss://") {
         "abfss"

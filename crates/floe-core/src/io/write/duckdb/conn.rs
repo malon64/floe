@@ -6,6 +6,7 @@
 //! `AcceptedBuffer` flush, so the sink reuses a single cached connection per
 //! canonical target id and serializes writes through the inner `Mutex`.
 
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -13,7 +14,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use ::duckdb::{Config, Connection};
 
 use crate::config::DuckDbSinkTargetConfig;
-use crate::errors::{ConfigError, RunError};
 use crate::io::storage::Target;
 use crate::FloeResult;
 
@@ -117,10 +117,10 @@ pub(crate) fn resolve_target(
                 cache_key,
             });
         }
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={entity_name} sink.accepted.duckdb.connection={connection:?} is unsupported; \
              only MotherDuck connection strings (md:<database>) are accepted"
-        ))));
+        )).into());
     }
 
     match target {
@@ -130,12 +130,13 @@ pub(crate) fn resolve_target(
             Ok(DuckDbTarget::Local { path, cache_key })
         }
         Target::S3 { uri, .. } | Target::Gcs { uri, .. } | Target::Adls { uri, .. } => {
-            Err(Box::new(ConfigError(format!(
+            Err(FloeError::config(format!(
                 "entity.name={entity_name} sink.accepted.format=duckdb cannot write a database \
                  file to object storage ({uri}); DuckDB only supports read-write on local files. \
                  Use a MotherDuck target (sink.accepted.duckdb.connection: md:<database>) for \
                  remote writes"
-            ))))
+            ))
+            .into())
         }
     }
 }
@@ -211,11 +212,9 @@ fn canonical_cache_key(path: &Path) -> String {
 /// Acquire (open + cache, or reuse) the shared connection for `target`.
 pub(crate) fn acquire(target: &DuckDbTarget) -> FloeResult<Arc<Mutex<Connection>>> {
     let cache = connection_cache();
-    let mut guard = cache.lock().map_err(|_| {
-        Box::new(RunError(
-            "duckdb connection cache lock poisoned".to_string(),
-        ))
-    })?;
+    let mut guard = cache
+        .lock()
+        .map_err(|_| FloeError::run("duckdb connection cache lock poisoned".to_string()))?;
     if let Some(existing) = guard.get(target.cache_key()) {
         return Ok(Arc::clone(existing));
     }
@@ -254,10 +253,7 @@ fn open_connection(target: &DuckDbTarget) -> FloeResult<Connection> {
                 }
             }
             Connection::open(path).map_err(|err| {
-                Box::new(RunError(format!(
-                    "duckdb open failed for {}: {err}",
-                    path.display()
-                )))
+                FloeError::run(format!("duckdb open failed for {}: {err}", path.display()))
             })?
         }
         DuckDbTarget::MotherDuck {
@@ -269,20 +265,20 @@ fn open_connection(target: &DuckDbTarget) -> FloeResult<Connection> {
                 let config = Config::default()
                     .with("motherduck_token", token)
                     .map_err(|err| {
-                        Box::new(RunError(format!(
+                        FloeError::run(format!(
                             "duckdb motherduck token configuration failed: {err}"
-                        )))
+                        ))
                     })?;
                 Connection::open_with_flags(connection, config).map_err(|err| {
-                    Box::new(RunError(format!(
+                    FloeError::run(format!(
                         "duckdb motherduck connection failed for {connection}: {err}"
-                    )))
+                    ))
                 })?
             }
             None => Connection::open(connection).map_err(|err| {
-                Box::new(RunError(format!(
+                FloeError::run(format!(
                     "duckdb motherduck connection failed for {connection}: {err}"
-                )))
+                ))
             })?,
         },
     };
@@ -296,9 +292,10 @@ fn register_arrow_vtab(connection: &Connection) -> FloeResult<()> {
     connection
         .register_table_function::<::duckdb::vtab::arrow::ArrowVTab>("arrow")
         .map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "duckdb arrow virtual table registration failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
+            .into()
         })
 }
 
@@ -310,21 +307,24 @@ pub(crate) fn expand_env_token(token: &str, entity_name: &str) -> FloeResult<Str
         return Ok(token.to_string());
     }
     let Some(inner) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={entity_name} sink.accepted.duckdb.token must be a plain value or a \
              single ${{VAR_NAME}} reference; mixing literal text with ${{...}} is not supported"
-        ))));
+        ))
+        .into());
     };
     if inner.is_empty() || inner.contains('{') || inner.contains('}') {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={entity_name} sink.accepted.duckdb.token has invalid placeholder syntax"
-        ))));
+        ))
+        .into());
     }
     std::env::var(inner).map_err(|_| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "entity.name={entity_name} sink.accepted.duckdb.token references env var {inner} which \
              is not set"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
+        .into()
     })
 }
 

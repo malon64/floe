@@ -1,4 +1,5 @@
-use crate::{ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::FloeResult;
 
 pub fn suffixes_for_format(format: &str) -> FloeResult<Vec<String>> {
     match format {
@@ -16,9 +17,10 @@ pub fn suffixes_for_format(format: &str) -> FloeResult<Vec<String>> {
         ]),
         "xlsx" => Ok(vec![".xlsx".to_string()]),
         "xml" => Ok(vec![".xml".to_string()]),
-        _ => Err(Box::new(ConfigError(format!(
+        _ => Err(FloeError::config(format!(
             "unsupported source format for input resolution: {format}"
-        )))),
+        ))
+        .into()),
     }
 }
 

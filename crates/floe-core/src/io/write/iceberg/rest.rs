@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,7 +13,6 @@ use iceberg_catalog_rest::{
 use iceberg_storage_opendal::OpenDalStorageFactory;
 
 use crate::config::CatalogTypeConfig;
-use crate::errors::RunError;
 use crate::io::format::CatalogRegistration;
 use crate::{config, FloeResult};
 
@@ -134,9 +134,10 @@ impl RestIcebergCatalogConfig {
                 namespace,
                 table,
             }),
-            _ => Err(Box::new(RunError(
+            _ => Err(FloeError::run(
                 "RestIcebergCatalogConfig::from_type_config called on non-REST catalog".to_string(),
-            ))),
+            )
+            .into()),
         }
     }
 }
@@ -158,19 +159,21 @@ fn expand_env_ref_part(part: &str, catalog_name: &str) -> FloeResult<String> {
         return Ok(part.to_string());
     };
     let Some(name) = inner.strip_suffix('}') else {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "rest iceberg catalog {catalog_name} credential has unclosed env placeholder"
-        ))));
+        ))
+        .into());
     };
     if name.is_empty() || name.contains('{') || name.contains('}') {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "rest iceberg catalog {catalog_name} credential has invalid env placeholder"
-        ))));
+        ))
+        .into());
     }
     std::env::var(name).map_err(|_| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "rest iceberg catalog {catalog_name} credential references env var {name} which is not set"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        )).into()
     })
 }
 
@@ -253,11 +256,12 @@ pub(crate) async fn write_via_rest_catalog(
             .await?
         }
         config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2 => {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} sink.write_mode={} is only supported for delta accepted sinks",
                 entity.name,
                 mode.as_str()
-            ))));
+            ))
+            .into());
         }
     };
 

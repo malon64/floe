@@ -1,10 +1,10 @@
+use crate::errors::FloeError;
 use deltalake::protocol::SaveMode;
 use polars::prelude::{DataFrame, DataType, NamedFrom, Series, TimeUnit};
 use std::collections::HashSet;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::checks::normalize;
-use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::Target;
 use crate::{config, FloeResult};
@@ -49,9 +49,10 @@ impl MergeBackend for DeltaMergeBackend {
         crate::io::format::AcceptedSchemaEvolution,
         shared::DeltaMergePerfBreakdown,
     )> {
-        Err(Box::new(RunError(
-            "write_mode=merge_scd1 is not implemented for scd2 backend".to_string(),
-        )))
+        Err(
+            FloeError::run("write_mode=merge_scd1 is not implemented for scd2 backend".to_string())
+                .into(),
+        )
     }
 
     fn execute_scd2(
@@ -215,7 +216,7 @@ impl MergeBackend for DeltaMergeBackend {
             merge.await
         });
         let (table_after_close, close_metrics) =
-            close_result.map_err(|err| Box::new(RunError(format!("delta merge failed: {err}"))))?;
+            close_result.map_err(|err| FloeError::run(format!("delta merge failed: {err}")))?;
 
         let active_match_predicate = format!(
             "{} AND {} = true",
@@ -260,13 +261,11 @@ impl MergeBackend for DeltaMergeBackend {
             merge.await
         });
         let (table, insert_metrics) = insert_result
-            .map_err(|err| Box::new(RunError(format!("delta merge_scd2 failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("delta merge_scd2 failed: {err}")))?;
         perf.merge_exec_ms = merge_exec_start.elapsed().as_millis() as u64;
-        let version = table.version().ok_or_else(|| {
-            Box::new(RunError(
-                "delta table version missing after merge".to_string(),
-            ))
-        })?;
+        let version = table
+            .version()
+            .ok_or_else(|| FloeError::run("delta table version missing after merge".to_string()))?;
         let source_rows = source_df.height() as u64;
         let closed_count = close_metrics.num_target_rows_updated as u64;
         let inserted_count = insert_metrics.num_target_rows_inserted as u64;
@@ -306,10 +305,10 @@ fn append_scd2_system_columns(
     )
     .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
     .map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta merge_scd2 failed to build {} column: {err}",
             system_columns.valid_from.as_str()
-        )))
+        ))
     })?;
     let valid_to = Series::new(
         system_columns.valid_to.as_str().into(),
@@ -317,32 +316,32 @@ fn append_scd2_system_columns(
     )
     .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
     .map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta merge_scd2 failed to build {} column: {err}",
             system_columns.valid_to.as_str()
-        )))
+        ))
     })?;
     let is_current = Series::new(
         system_columns.is_current.as_str().into(),
         vec![Some(true); row_count],
     );
     df.with_column(valid_from).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta merge_scd2 failed to append {} column: {err}",
             system_columns.valid_from.as_str()
-        )))
+        ))
     })?;
     df.with_column(valid_to).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta merge_scd2 failed to append {} column: {err}",
             system_columns.valid_to.as_str()
-        )))
+        ))
     })?;
     df.with_column(is_current).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta merge_scd2 failed to append {} column: {err}",
             system_columns.is_current.as_str()
-        )))
+        ))
     })?;
     Ok(())
 }

@@ -1,4 +1,5 @@
 #[cfg(any(feature = "delta", feature = "iceberg"))]
+use crate::errors::FloeError;
 use std::collections::HashMap;
 
 #[cfg(feature = "iceberg")]
@@ -7,7 +8,7 @@ use iceberg::io::{CLIENT_REGION, S3_REGION};
 use url::Url;
 
 #[cfg(any(feature = "delta", feature = "iceberg"))]
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 #[cfg(any(feature = "delta", feature = "iceberg"))]
 use super::Target;
@@ -34,10 +35,10 @@ pub fn delta_store_config(
     match target {
         Target::Local { base_path, .. } => {
             let url = Url::from_directory_path(base_path).map_err(|_| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta table path is not a valid url: {}",
                     entity.name, base_path
-                )))
+                ))
             })?;
             Ok(DeltaStoreConfig {
                 table_url: url,
@@ -51,10 +52,10 @@ pub fn delta_store_config(
             ..
         } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta s3 path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             let mut storage_options = HashMap::new();
             if let Some(definition) = resolver.definition(storage) {
@@ -75,10 +76,10 @@ pub fn delta_store_config(
             ..
         } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta adls path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             let mut storage_options = HashMap::new();
             storage_options.insert(
@@ -93,10 +94,10 @@ pub fn delta_store_config(
         }
         Target::Gcs { uri, .. } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta gcs path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             Ok(DeltaStoreConfig {
                 table_url: url,
@@ -141,9 +142,10 @@ pub fn iceberg_store_config(
             warehouse_location: uri.to_string(),
             file_io_props: HashMap::new(),
         }),
-        Target::Adls { .. } => Err(Box::new(ConfigError(format!(
+        Target::Adls { .. } => Err(FloeError::config(format!(
             "entity.name={} iceberg sink is only supported on local, s3, or gcs storage for now",
             entity.name
-        )))),
+        ))
+        .into()),
     }
 }

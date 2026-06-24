@@ -528,9 +528,7 @@ fn current_snapshot_id(table_path: &Path) -> FloeResult<i64> {
             .current_snapshot()
             .map(|s| s.snapshot_id())
             .ok_or_else(|| {
-                Box::new(floe_core::errors::RunError(
-                    "missing current iceberg snapshot".to_string(),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                floe_core::FloeError::run("missing current iceberg snapshot".to_string()).into()
             })
     })
 }
@@ -553,19 +551,13 @@ fn scan_i64_column(table_path: &Path, column: &str) -> FloeResult<Vec<i64>> {
             .map_err(map_iceberg_err("iceberg scan read failed"))?
         {
             let idx = batch.schema().index_of(column).map_err(|err| {
-                Box::new(floe_core::errors::RunError(format!(
-                    "missing column in scan batch: {err}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                floe_core::FloeError::run(format!("missing column in scan batch: {err}"))
             })?;
             let arr = batch
                 .column(idx)
                 .as_any()
                 .downcast_ref::<Int64Array>()
-                .ok_or_else(|| {
-                    Box::new(floe_core::errors::RunError(
-                        "expected Int64Array".to_string(),
-                    )) as Box<dyn std::error::Error + Send + Sync>
-                })?;
+                .ok_or_else(|| floe_core::FloeError::run("expected Int64Array".to_string()))?;
             for i in 0..arr.len() {
                 values.push(arr.value(i));
             }
@@ -575,11 +567,8 @@ fn scan_i64_column(table_path: &Path, column: &str) -> FloeResult<Vec<i64>> {
 }
 
 async fn load_table(table_path: &Path) -> FloeResult<iceberg::table::Table> {
-    let metadata_location = latest_metadata_location(table_path)?.ok_or_else(|| {
-        Box::new(floe_core::errors::RunError(
-            "missing iceberg metadata file".to_string(),
-        )) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let metadata_location = latest_metadata_location(table_path)?
+        .ok_or_else(|| floe_core::FloeError::run("missing iceberg metadata file".to_string()))?;
     // LocalFsStorageFactory is required so that register_table can read the
     // metadata JSON from disk and the subsequent scan reads Parquet files from disk.
     let catalog = MemoryCatalogBuilder::default()
@@ -637,16 +626,14 @@ fn test_runtime() -> FloeResult<tokio::runtime::Runtime> {
         .enable_all()
         .build()
         .map_err(|err| {
-            Box::new(floe_core::errors::RunError(format!(
-                "iceberg test runtime init failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            floe_core::FloeError::run(format!("iceberg test runtime init failed: {err}")).into()
         })
 }
 
 fn map_iceberg_err(
     context: &'static str,
 ) -> impl FnOnce(iceberg::Error) -> Box<dyn std::error::Error + Send + Sync> {
-    move |err| Box::new(floe_core::errors::RunError(format!("{context}: {err}")))
+    move |err| floe_core::FloeError::run(format!("{context}: {err}")).into()
 }
 
 fn collect_file_stats(dir: &Path) -> FloeResult<(u64, u64)> {

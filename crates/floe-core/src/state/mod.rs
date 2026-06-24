@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,7 @@ use crate::config::{
 use crate::io::storage::{
     extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient, StoredObject,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub const ENTITY_STATE_SCHEMA_V1: &str = "floe.state.file-ingest.v1";
 pub const ENTITY_STATE_SCHEMA_V2: &str = "floe.state.file-ingest.v2";
@@ -240,10 +241,11 @@ pub fn claim_entity_inputs(
         }
     }
 
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
         entity.name
-    ))))
+    ))
+    .into())
 }
 
 /// Full-refresh variant of `claim_entity_inputs`.
@@ -305,10 +307,11 @@ pub fn claim_all_entity_inputs(
         }
     }
 
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} full-refresh state write conflicted after {STATE_CAS_RETRIES} retries",
         entity.name
-    ))))
+    ))
+    .into())
 }
 
 pub fn promote_claimed_entity_state(
@@ -446,10 +449,11 @@ fn mutate_claimed_state(
             return Ok(());
         }
     }
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
         entity_name
-    ))))
+    ))
+    .into())
 }
 
 pub fn inspect_entity_state_with_base(
@@ -509,10 +513,11 @@ pub fn reset_entity_state(
             };
             match client.delete_object_conditional(&uri, Some(&object.version))? {
                 ConditionalWrite::Written { .. } => Ok(true),
-                ConditionalWrite::Conflict => Err(Box::new(ConfigError(format!(
+                ConditionalWrite::Conflict => Err(FloeError::config(format!(
                     "entity.name={} remote state changed while resetting: {}",
                     entity.name, uri
-                )))),
+                ))
+                .into()),
             }
         }
     }
@@ -536,10 +541,7 @@ fn resolve_entity_state_target<'a>(
         .entities
         .iter()
         .find(|entity| entity.name == entity_name)
-        .ok_or_else(|| {
-            Box::new(ConfigError(format!("entity not found: {entity_name}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        .ok_or_else(|| FloeError::config(format!("entity not found: {entity_name}")))?;
     let resolver = StorageResolver::new(config, config_base)?;
     let path = resolve_entity_state_path(&resolver, entity)?;
     Ok((entity, path))
@@ -547,10 +549,10 @@ fn resolve_entity_state_target<'a>(
 
 pub fn write_entity_state_atomic(path: &Path, state: &EntityState) -> FloeResult<()> {
     let parent = path.parent().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "state path has no parent directory: {}",
             path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     fs::create_dir_all(parent)?;
 
@@ -694,10 +696,11 @@ fn state_target_from_resolved(resolved: &ResolvedPath) -> FloeResult<EntityState
             uri: resolved.uri.clone(),
         });
     }
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "state path is neither local nor supported remote: {}",
         resolved.uri
-    ))))
+    ))
+    .into())
 }
 
 fn remove_expired_claims(state: &mut EntityState) {
@@ -858,17 +861,19 @@ pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeR
 
 fn validate_entity_state_name(entity_name: &str, state: EntityState) -> FloeResult<EntityState> {
     if state.schema != ENTITY_STATE_SCHEMA_V1 && state.schema != ENTITY_STATE_SCHEMA_V2 {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} state schema mismatch: expected {} or {}, got {}",
             entity_name, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2, state.schema
-        ))));
+        ))
+        .into());
     }
 
     if state.entity != entity_name {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} state entity mismatch: expected {}, got {}",
             entity_name, entity_name, state.entity
-        ))));
+        ))
+        .into());
     }
 
     Ok(state)

@@ -7,12 +7,12 @@
 //! every affected row with the action DuckDB took (`INSERT` / `UPDATE` /
 //! `DELETE`).
 
+use crate::errors::FloeError;
 use std::collections::HashSet;
 use std::time::Instant;
 
 use ::duckdb::Connection;
 
-use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::write::strategy::merge::keys;
 use crate::{config, FloeResult};
@@ -31,14 +31,14 @@ struct MergeActionTally {
 fn run_merge_with_tally(conn: &Connection, sql: &str) -> FloeResult<MergeActionTally> {
     let mut stmt = conn
         .prepare(sql)
-        .map_err(|err| Box::new(RunError(format!("duckdb merge prepare failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("duckdb merge prepare failed: {err}")))?;
     let rows = stmt
         .query_map([], |row| row.get::<usize, String>(0))
-        .map_err(|err| Box::new(RunError(format!("duckdb merge execution failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("duckdb merge execution failed: {err}")))?;
     let mut tally = MergeActionTally::default();
     for action in rows {
-        let action = action
-            .map_err(|err| Box::new(RunError(format!("duckdb merge row read failed: {err}"))))?;
+        let action =
+            action.map_err(|err| FloeError::run(format!("duckdb merge row read failed: {err}")))?;
         match action.to_ascii_uppercase().as_str() {
             "INSERT" => tally.inserted += 1,
             "UPDATE" => tally.updated += 1,
@@ -53,7 +53,7 @@ fn count_rows(conn: &Connection, schema: &str, table: &str) -> FloeResult<u64> {
     let sql = format!("SELECT count(*) FROM {}", quoted_table(schema, table));
     let count: i64 = conn
         .query_row(&sql, [], |row| row.get(0))
-        .map_err(|err| Box::new(RunError(format!("duckdb row count failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("duckdb row count failed: {err}")))?;
     Ok(count.max(0) as u64)
 }
 
@@ -206,7 +206,7 @@ pub(crate) fn execute_scd2(
             valid_to = quote_ident(&system.valid_to),
         );
         conn.execute(&sql, [])
-            .map_err(|err| Box::new(RunError(format!("duckdb scd2 bootstrap failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("duckdb scd2 bootstrap failed: {err}")))?;
         let inserted = count_rows(conn, schema, table)?;
         return Ok(AcceptedMergeMetrics {
             merge_key,
@@ -288,7 +288,7 @@ fn count_rows_in(conn: &Connection, table: &str) -> FloeResult<u64> {
     let sql = format!("SELECT count(*) FROM {}", quote_ident(table));
     let count: i64 = conn
         .query_row(&sql, [], |row| row.get(0))
-        .map_err(|err| Box::new(RunError(format!("duckdb row count failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("duckdb row count failed: {err}")))?;
     Ok(count.max(0) as u64)
 }
 
@@ -304,7 +304,7 @@ fn create_table_from_source(
         quote_ident(source_table)
     );
     conn.execute(&sql, [])
-        .map_err(|err| Box::new(RunError(format!("duckdb table create failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("duckdb table create failed: {err}")))?;
     Ok(())
 }
 

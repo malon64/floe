@@ -1,8 +1,8 @@
+use crate::errors::FloeError;
 use polars::prelude::{AnyValue, DataFrame, Series};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
-use crate::errors::RunError;
 use crate::{config, FloeResult};
 
 const UNIQUE_SAMPLE_LIMIT: usize = 5;
@@ -283,20 +283,14 @@ pub fn unique_counts(
     let mut counts = Vec::new();
     for column in unique_columns {
         let series = df.column(&column.name).map_err(|err| {
-            Box::new(RunError(format!(
-                "unique column {} not found: {err}",
-                column.name
-            )))
+            FloeError::run(format!("unique column {} not found: {err}", column.name))
         })?;
         let non_null = series.len().saturating_sub(series.null_count());
         if non_null == 0 {
             continue;
         }
         let unique = series.drop_nulls().n_unique().map_err(|err| {
-            Box::new(RunError(format!(
-                "unique column {} read failed: {err}",
-                column.name
-            )))
+            FloeError::run(format!("unique column {} read failed: {err}", column.name))
         })?;
         let violations = non_null.saturating_sub(unique) as u64;
         if violations > 0 {
@@ -364,10 +358,10 @@ fn load_constraint_columns(df: &DataFrame, columns: &[String]) -> FloeResult<Vec
     let mut output = Vec::with_capacity(columns.len());
     for column in columns {
         let series = df.column(column).map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "unique constraint column {} not found: {err}",
                 column
-            )))
+            ))
         })?;
         output.push(series.as_materialized_series().rechunk());
     }
@@ -378,10 +372,10 @@ fn composite_key_from_row(columns: &[Series], row_idx: usize) -> FloeResult<Opti
     let mut key = Vec::with_capacity(columns.len());
     for series in columns {
         let value = series.get(row_idx).map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "unique constraint read failed at row {}: {err}",
                 row_idx
-            )))
+            ))
         })?;
         let Some(value) = unique_key(value) else {
             return Ok(None);

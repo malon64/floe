@@ -712,9 +712,7 @@ fn runtime() -> FloeResult<tokio::runtime::Runtime> {
         .enable_all()
         .build()
         .map_err(|err| {
-            Box::new(floe_core::errors::RunError(format!(
-                "delta test runtime init failed: {err}"
-            )))
+            floe_core::FloeError::run(format!("delta test runtime init failed: {err}"))
         })?;
     Ok(runtime)
 }
@@ -723,18 +721,11 @@ fn open_table(
     runtime: &tokio::runtime::Runtime,
     table_path: &Path,
 ) -> FloeResult<deltalake::DeltaTable> {
-    let table_url = Url::from_directory_path(table_path).map_err(|_| {
-        Box::new(floe_core::errors::RunError(
-            "delta test path is not a valid url".to_string(),
-        ))
-    })?;
+    let table_url = Url::from_directory_path(table_path)
+        .map_err(|_| floe_core::FloeError::run("delta test path is not a valid url".to_string()))?;
     let table = runtime
         .block_on(async { deltalake::open_table(table_url).await })
-        .map_err(|err| {
-            Box::new(floe_core::errors::RunError(format!(
-                "delta test open failed: {err}"
-            )))
-        })?;
+        .map_err(|err| floe_core::FloeError::run(format!("delta test open failed: {err}")))?;
     Ok(table)
 }
 

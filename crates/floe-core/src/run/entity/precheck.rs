@@ -1,8 +1,9 @@
+use crate::errors::FloeError;
 use std::time::Instant;
 
 use crate::checks::normalize::resolve_normalize_strategy;
 use crate::config::PolicySeverity;
-use crate::{check, config, io, report, warnings, ConfigError, FloeResult};
+use crate::{check, config, io, report, warnings, FloeResult};
 
 use super::super::output::{validate_rejected_target, write_rejected_raw_output};
 use super::ResolvedEntityTargets;
@@ -284,10 +285,10 @@ pub(super) fn run_precheck(
 
             validate_rejected_target(entity, if mismatch.aborted { "abort" } else { "reject" })?;
             let rejected_target = resolved_targets.rejected.as_ref().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} sink.rejected.storage is required for rejection",
                     entity.name
-                )))
+                ))
             })?;
             let rejected_path = Some(write_rejected_raw_output(
                 rejected_target,

@@ -1,4 +1,5 @@
-use crate::{config, ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::{config, FloeResult};
 
 pub fn require_field(
     definition: &config::StorageDefinition,
@@ -9,9 +10,10 @@ pub fn require_field(
     value
         .cloned()
         .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "storage {} requires {} for type {}",
                 definition.name, field, kind
-            )))
+            ))
+            .into()
         })
 }

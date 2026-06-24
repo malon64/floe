@@ -1,10 +1,10 @@
+use crate::errors::FloeError;
 use std::path::Path;
 use std::time::Instant;
 
 use polars::prelude::{DataFrame, Series};
 
 use crate::config;
-use crate::errors::RunError;
 use crate::io::format::AcceptedWriteOutput;
 use crate::io::storage::{CloudClient, Target};
 use crate::io::write::sink_format::SinkFormat;
@@ -207,7 +207,7 @@ impl<'a> AcceptedBuffer<'a> {
 
 pub(super) fn concat_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame> {
     if frames.is_empty() {
-        return Err(Box::new(RunError("missing accepted dataframe".to_string())));
+        return Err(FloeError::run("missing accepted dataframe".to_string()).into());
     }
     // Pairwise concatenation bounds repeated growth of a single frame compared
     // to strictly left-associative stacking while preserving row order.
@@ -217,7 +217,7 @@ pub(super) fn concat_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame>
         while let Some(mut left) = iter.next() {
             if let Some(right) = iter.next() {
                 left.vstack_mut(&right).map_err(|err| {
-                    Box::new(RunError(format!("failed to concat accepted rows: {err}")))
+                    FloeError::run(format!("failed to concat accepted rows: {err}"))
                 })?;
             }
             next.push(left);
@@ -226,7 +226,7 @@ pub(super) fn concat_frames(mut frames: Vec<DataFrame>) -> FloeResult<DataFrame>
     }
     frames
         .pop()
-        .ok_or_else(|| Box::new(RunError("missing accepted dataframe".to_string())).into())
+        .ok_or_else(|| FloeError::run("missing accepted dataframe".to_string()).into())
 }
 
 pub(super) fn empty_accepted_frame(entity: &config::EntityConfig) -> FloeResult<DataFrame> {
@@ -243,9 +243,6 @@ pub(super) fn empty_accepted_frame(entity: &config::EntityConfig) -> FloeResult<
         })
         .collect::<FloeResult<Vec<_>>>()?;
     DataFrame::new(series).map_err(|err| {
-        Box::new(RunError(format!(
-            "failed to build empty accepted dataframe: {err}"
-        )))
-        .into()
+        FloeError::run(format!("failed to build empty accepted dataframe: {err}")).into()
     })
 }

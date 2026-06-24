@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -8,7 +9,7 @@ use polars::prelude::{
     CsvEncoding, CsvParseOptions, CsvReadOptions, DataType, NullValues, TimeUnit,
 };
 
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 #[derive(Debug)]
 pub struct RootConfig {
@@ -228,9 +229,9 @@ impl SourceOptions {
 fn parse_separator(value: &str) -> FloeResult<u8> {
     let bytes = value.as_bytes();
     if bytes.len() != 1 {
-        return Err(Box::new(ConfigError(format!(
-            "separator must be a single byte, got {value:?}"
-        ))));
+        return Err(
+            FloeError::config(format!("separator must be a single byte, got {value:?}")).into(),
+        );
     }
     Ok(bytes[0])
 }
@@ -243,10 +244,9 @@ fn parse_encoding(value: Option<&str>) -> FloeResult<CsvEncoding> {
     match normalized.as_str() {
         "utf8" => Ok(CsvEncoding::Utf8),
         "lossyutf8" => Ok(CsvEncoding::LossyUtf8),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported encoding: {}",
-            value.unwrap_or("utf8")
-        )))),
+        _ => Err(
+            FloeError::config(format!("unsupported encoding: {}", value.unwrap_or("utf8"))).into(),
+        ),
     }
 }
 
@@ -617,8 +617,6 @@ pub(crate) fn parse_data_type(value: &str) -> FloeResult<DataType> {
         "date" => Ok(DataType::Date),
         "datetime" | "timestamp" => Ok(DataType::Datetime(TimeUnit::Milliseconds, None)),
         "time" => Ok(DataType::Time),
-        _ => Err(Box::new(ConfigError(format!(
-            "unsupported column type: {value}"
-        )))),
+        _ => Err(FloeError::config(format!("unsupported column type: {value}")).into()),
     }
 }

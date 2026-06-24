@@ -1,5 +1,6 @@
 use crate::config::PolicySeverity;
-use crate::{check, io, report, ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::{check, io, report, FloeResult};
 
 impl From<PolicySeverity> for report::Severity {
     fn from(s: PolicySeverity) -> Self {
@@ -467,10 +468,10 @@ fn resolve_unique_constraints(
                 .iter()
                 .find(|column| column.name == *name)
                 .ok_or_else(|| {
-                    Box::new(ConfigError(format!(
+                    FloeError::config(format!(
                         "entity.name={} schema unique key references unknown column {}",
                         entity.name, name
-                    )))
+                    ))
                 })?;
             runtime_columns.push(runtime_column_name(column, normalize_strategy));
         }
@@ -506,10 +507,10 @@ fn append_primary_key_required_columns(
             .iter()
             .find(|column| column.name == *key_column)
             .ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} schema.primary_key references unknown column {}",
                     entity.name, key_column
-                )))
+                ))
             })?;
         let runtime = runtime_column_name(column, normalize_strategy);
         if seen.insert(runtime.clone()) {

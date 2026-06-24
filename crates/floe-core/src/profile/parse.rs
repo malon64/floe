@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -12,18 +13,19 @@ use crate::profile::types::{
     ProfileRunnerAuth, ProfileRunnerResources, ProfileRunnerSecret, ProfileValidation,
     PROFILE_API_VERSION, PROFILE_KIND,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 /// Parse a profile YAML file from disk.
 pub fn parse_profile(path: &Path) -> FloeResult<ProfileConfig> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
-        return Err(Box::new(ConfigError("profile YAML is empty".to_string())));
+        return Err(FloeError::config("profile YAML is empty".to_string()).into());
     }
     if docs.len() > 1 {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile YAML contains multiple documents; expected one".to_string(),
-        )));
+        )
+        .into());
     }
     parse_profile_doc(&docs[0])
 }
@@ -32,14 +34,15 @@ pub fn parse_profile(path: &Path) -> FloeResult<ProfileConfig> {
 pub fn parse_profile_from_str(contents: &str) -> FloeResult<ProfileConfig> {
     use yaml_rust2::YamlLoader;
     let docs = YamlLoader::load_from_str(contents)
-        .map_err(|e| Box::new(ConfigError(format!("YAML parse error: {e}"))))?;
+        .map_err(|e| FloeError::config(format!("YAML parse error: {e}")))?;
     if docs.is_empty() {
-        return Err(Box::new(ConfigError("profile YAML is empty".to_string())));
+        return Err(FloeError::config("profile YAML is empty".to_string()).into());
     }
     if docs.len() > 1 {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile YAML contains multiple documents; expected one".to_string(),
-        )));
+        )
+        .into());
     }
     parse_profile_doc(&docs[0])
 }
@@ -64,22 +67,22 @@ fn parse_profile_doc(doc: &Yaml) -> FloeResult<ProfileConfig> {
 
     let api_version = get_required_string(root, "apiVersion", "profile")?;
     if api_version != PROFILE_API_VERSION {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "profile.apiVersion: expected \"{PROFILE_API_VERSION}\", got \"{api_version}\""
-        ))));
+        ))
+        .into());
     }
 
     let kind = get_required_string(root, "kind", "profile")?;
     if kind != PROFILE_KIND {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "profile.kind: expected \"{PROFILE_KIND}\", got \"{kind}\""
-        ))));
+        ))
+        .into());
     }
 
-    let metadata_yaml = hash_get(root, "metadata").ok_or_else(|| {
-        Box::new(ConfigError("profile.metadata is required".to_string()))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let metadata_yaml = hash_get(root, "metadata")
+        .ok_or_else(|| FloeError::config("profile.metadata is required".to_string()))?;
     let metadata = parse_metadata(metadata_yaml)?;
 
     let execution = match hash_get(root, "execution") {
@@ -164,11 +167,8 @@ fn parse_execution(value: &Yaml) -> FloeResult<ProfileExecution> {
     let hash = yaml_hash(value, "profile.execution")?;
     validate_known_keys(hash, "profile.execution", &["runner", "orchestration"])?;
 
-    let runner_yaml = hash_get(hash, "runner").ok_or_else(|| {
-        Box::new(ConfigError(
-            "profile.execution.runner is required".to_string(),
-        )) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let runner_yaml = hash_get(hash, "runner")
+        .ok_or_else(|| FloeError::config("profile.execution.runner is required".to_string()))?;
     let runner = parse_runner(runner_yaml)?;
 
     let orchestration = match hash_get(hash, "orchestration") {
@@ -197,18 +197,19 @@ fn parse_orchestration(value: &Yaml) -> FloeResult<ProfileOrchestration> {
     )?;
 
     if let Some(0) = max_concurrent_entities {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "profile.execution.orchestration.max_concurrent_entities: must be >= 1".to_string(),
-        )));
+        )
+        .into());
     }
 
     let strategy = get_optional_string(hash, "strategy", "profile.execution.orchestration")?;
 
     if let Some(ref s) = strategy {
         if s != "sequential" && s != "parallel" {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "profile.execution.orchestration.strategy: expected \"sequential\" or \"parallel\", got \"{s}\""
-            ))));
+            )).into());
         }
     }
 
@@ -383,9 +384,10 @@ fn parse_validation(value: &Yaml) -> FloeResult<ProfileValidation> {
     let strict = match hash_get(hash, "strict") {
         Some(Yaml::Boolean(b)) => Some(*b),
         Some(_) => {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "profile.validation.strict must be a boolean".to_string(),
-            )))
+            )
+            .into())
         }
         None => None,
     };
@@ -394,10 +396,8 @@ fn parse_validation(value: &Yaml) -> FloeResult<ProfileValidation> {
 }
 
 fn get_required_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<String> {
-    let value = hash_get(hash, key).ok_or_else(|| {
-        Box::new(ConfigError(format!("{ctx}.{key} is required")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let value =
+        hash_get(hash, key).ok_or_else(|| FloeError::config(format!("{ctx}.{key} is required")))?;
     yaml_string(value, &format!("{ctx}.{key}"))
 }
 
@@ -426,9 +426,9 @@ fn get_optional_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>
     match hash_get(hash, key) {
         None => Ok(None),
         Some(Yaml::Integer(v)) if *v >= 0 => Ok(Some(*v as u64)),
-        Some(_) => Err(Box::new(ConfigError(format!(
-            "{ctx}.{key} must be a non-negative integer"
-        )))),
+        Some(_) => {
+            Err(FloeError::config(format!("{ctx}.{key} must be a non-negative integer")).into())
+        }
     }
 }
 

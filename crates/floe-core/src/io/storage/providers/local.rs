@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use glob::glob;
 
-use crate::errors::{FloeError, RunError};
-use crate::{config, ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::{config, FloeResult};
 
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 
@@ -325,13 +325,14 @@ pub fn resolve_local_inputs(
         let files = collect_glob_files(&pattern)?;
         if files.is_empty() {
             let (base_path, glob_used) = split_glob_details(&pattern_path, raw_path);
-            return Err(Box::new(RunError(no_match_message(
+            return Err(FloeError::run(no_match_message(
                 entity_name,
                 storage,
                 &base_path,
                 &glob_used,
                 recursive,
-            ))));
+            ))
+            .into());
         }
         return Ok(ResolvedLocalInputs {
             files,
@@ -353,13 +354,14 @@ pub fn resolve_local_inputs(
         default_globs.to_vec()
     };
     if !base_path.is_dir() {
-        return Err(Box::new(RunError(no_match_message(
+        return Err(FloeError::run(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
-        ))));
+        ))
+        .into());
     }
 
     let pattern_paths = if recursive {
@@ -375,13 +377,14 @@ pub fn resolve_local_inputs(
     };
     let files = collect_glob_files_multi(&pattern_paths)?;
     if files.is_empty() {
-        return Err(Box::new(RunError(no_match_message(
+        return Err(FloeError::run(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
-        ))));
+        ))
+        .into());
     }
 
     Ok(ResolvedLocalInputs {
@@ -418,16 +421,11 @@ fn split_glob_details(pattern_path: &Path, raw_pattern: &str) -> (String, String
 
 fn collect_glob_files(pattern: &str) -> FloeResult<Vec<PathBuf>> {
     let mut files = Vec::new();
-    let entries = glob(pattern).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "invalid glob pattern {pattern:?}: {err}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let entries = glob(pattern)
+        .map_err(|err| FloeError::config(format!("invalid glob pattern {pattern:?}: {err}")))?;
     for entry in entries {
         let path = entry.map_err(|err| {
-            Box::new(ConfigError(format!(
-                "glob match failed for {pattern:?}: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::config(format!("glob match failed for {pattern:?}: {err}"))
         })?;
         if path.is_file() {
             files.push(crate::io::storage::paths::normalize_local_path(&path));

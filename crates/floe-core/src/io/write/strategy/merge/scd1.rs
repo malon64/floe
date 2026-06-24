@@ -1,8 +1,8 @@
+use crate::errors::FloeError;
 use polars::prelude::DataFrame;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use crate::errors::RunError;
 use crate::io::format::AcceptedMergeMetrics;
 use crate::io::storage::Target;
 use crate::{config, FloeResult};
@@ -154,12 +154,10 @@ impl MergeBackend for DeltaMergeBackend {
         });
         perf.merge_exec_ms = merge_exec_start.elapsed().as_millis() as u64;
         let (table, merge_metrics) =
-            merge_result.map_err(|err| Box::new(RunError(format!("delta merge failed: {err}"))))?;
-        let version = table.version().ok_or_else(|| {
-            Box::new(RunError(
-                "delta table version missing after merge".to_string(),
-            ))
-        })?;
+            merge_result.map_err(|err| FloeError::run(format!("delta merge failed: {err}")))?;
+        let version = table
+            .version()
+            .ok_or_else(|| FloeError::run("delta table version missing after merge".to_string()))?;
         let accepted_merge_metrics = shared::accepted_merge_metrics_from_delta(
             merge_key,
             &merge_metrics,

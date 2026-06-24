@@ -1,8 +1,8 @@
+use crate::errors::FloeError;
 use std::path::{Path, PathBuf};
 
 use polars::prelude::{CsvWriter, DataFrame, SerWriter};
 
-use crate::errors::IoError;
 use crate::io::format::{RejectedSinkAdapter, RejectedWriteRequest};
 use crate::{io, FloeResult};
 
@@ -23,7 +23,7 @@ pub fn write_rejected_csv(df: &mut DataFrame, output_path: &Path) -> FloeResult<
     let file = std::fs::File::create(output_path)?;
     CsvWriter::new(file)
         .finish(df)
-        .map_err(|err| Box::new(IoError(format!("rejected csv write failed: {err}"))))?;
+        .map_err(|err| FloeError::io(format!("rejected csv write failed: {err}")))?;
     Ok(output_path.to_path_buf())
 }
 

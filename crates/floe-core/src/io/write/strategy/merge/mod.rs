@@ -1,8 +1,8 @@
 #[cfg(feature = "delta")]
+use crate::errors::FloeError;
 use polars::prelude::DataFrame;
 
 #[cfg(feature = "delta")]
-use crate::errors::RunError;
 #[cfg(feature = "delta")]
 use crate::io::format::AcceptedMergeMetrics;
 #[cfg(feature = "delta")]
@@ -58,8 +58,9 @@ pub(crate) trait MergeBackend {
         crate::io::format::AcceptedSchemaEvolution,
         shared::DeltaMergePerfBreakdown,
     )> {
-        Err(Box::new(RunError(
-            "write_mode=merge_scd2 is not implemented for this backend".to_string(),
-        )))
+        Err(
+            FloeError::run("write_mode=merge_scd2 is not implemented for this backend".to_string())
+                .into(),
+        )
     }
 }

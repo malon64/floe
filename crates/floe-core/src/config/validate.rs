@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashSet;
 
 use crate::config::storage::is_remote_uri;
@@ -9,7 +10,7 @@ use crate::io::format;
 use crate::io::read::json_selector::parse_selector;
 use crate::io::read::xml_selector;
 use crate::io::write::sink_format::sink_format;
-use crate::{warnings, ConfigError, FloeResult};
+use crate::{warnings, FloeResult};
 
 const ALLOWED_COLUMN_TYPES: &[&str] = &["string", "number", "boolean", "datetime", "date", "time"];
 const ALLOWED_CAST_MODES: &[&str] = &["strict", "coerce"];
@@ -35,26 +36,27 @@ impl ConfigVersion {
 
     fn parse(raw: &str) -> FloeResult<Self> {
         let (major, minor) = raw.split_once('.').ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "root.version={raw} is invalid; expected numeric major.minor format like \"0.1\""
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         if minor.contains('.') {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "root.version={raw} is invalid; expected numeric major.minor format like \"0.1\""
-            ))));
+            ))
+            .into());
         }
 
         let major = major.parse::<u64>().map_err(|_| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "root.version={raw} is invalid; expected numeric major.minor format like \"0.1\""
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let minor = minor.parse::<u64>().map_err(|_| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "root.version={raw} is invalid; expected numeric major.minor format like \"0.1\""
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         Ok(Self { major, minor })
@@ -65,9 +67,10 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     let config_version = validate_version(config)?;
 
     if config.entities.is_empty() {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "entities list is empty (at least one entity is required)".to_string(),
-        )));
+        )
+        .into());
     }
 
     let storage_registry = StorageRegistry::new(config)?;
@@ -83,10 +86,11 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
     for entity in &config.entities {
         validate_entity(entity, config_version, &storage_registry, &catalog_registry)?;
         if !names.insert(entity.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} is duplicated in config",
                 entity.name
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -95,19 +99,15 @@ pub(crate) fn validate_config(config: &RootConfig) -> FloeResult<()> {
 
 fn validate_lineage(lineage: &crate::config::LineageConfig) -> FloeResult<()> {
     if lineage.url.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "lineage.url must not be empty".to_string(),
-        )));
+        return Err(FloeError::config("lineage.url must not be empty".to_string()).into());
     }
     if lineage.namespace.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "lineage.namespace must not be empty".to_string(),
-        )));
+        return Err(FloeError::config("lineage.namespace must not be empty".to_string()).into());
     }
     if lineage.max_failures == Some(0) {
-        return Err(Box::new(ConfigError(
-            "lineage.max_failures must be at least 1".to_string(),
-        )));
+        return Err(
+            FloeError::config("lineage.max_failures must be at least 1".to_string()).into(),
+        );
     }
     Ok(())
 }
@@ -115,10 +115,11 @@ fn validate_lineage(lineage: &crate::config::LineageConfig) -> FloeResult<()> {
 fn validate_version(config: &RootConfig) -> FloeResult<ConfigVersion> {
     let version = ConfigVersion::parse(&config.version)?;
     if version < MIN_SUPPORTED_CONFIG_VERSION {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "root.version={} is unsupported (minimum supported version: {}.{})",
             config.version, MIN_SUPPORTED_CONFIG_VERSION.major, MIN_SUPPORTED_CONFIG_VERSION.minor
-        ))));
+        ))
+        .into());
     }
     Ok(version)
 }
@@ -130,10 +131,11 @@ fn validate_report(
     let storage_name = storages.resolve_report_name(report.storage.as_deref())?;
     storages.validate_report_reference("report.storage", &storage_name)?;
     if storages.definition_type(&storage_name) == Some("local") && is_remote_uri(&report.path) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "report.path must be a local path (got {})",
             report.path
-        ))));
+        ))
+        .into());
     }
     Ok(())
 }
@@ -159,39 +161,43 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
     // Abort severity writes the raw input file to the rejected sink without
     // loading a DataFrame, bypassing masking entirely.
     if entity.policy.severity == PolicySeverity::Abort {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} pii: masking is not applied when policy.severity=abort \
              because the raw file is written to sink.rejected without DataFrame processing",
             entity.name
-        ))));
+        ))
+        .into());
     }
     // sink.archive copies/moves the original source file after processing.
     // The archive always contains the raw unmasked input regardless of PII config.
     if entity.sink.archive.is_some() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} pii: sink.archive copies the original unmasked source file \
              to the archive sink; remove sink.archive or disable pii masking",
             entity.name
-        ))));
+        ))
+        .into());
     }
     // schema.mismatch reject_file writes the raw unmasked file to sink.rejected
     // in the precheck phase, before any DataFrame processing or PII masking.
     if let Some(mismatch) = &entity.schema.mismatch {
         if mismatch.missing_columns.as_deref() == Some("reject_file") {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii: schema.mismatch.missing_columns=reject_file writes the \
                  raw unmasked file to sink.rejected before PII masking can be applied; \
                  use missing_columns=fill_nulls instead",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         if mismatch.extra_columns.as_deref() == Some("reject_file") {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii: schema.mismatch.extra_columns=reject_file writes the \
                  raw unmasked file to sink.rejected before PII masking can be applied; \
                  use extra_columns=ignore instead",
                 entity.name
-            ))));
+            ))
+            .into());
         }
     }
     let accepted_format = entity.sink.accepted.format.as_str();
@@ -242,22 +248,25 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
     let mut seen = std::collections::HashSet::new();
     for col in &pii.columns {
         if !seen.insert(col.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns: column name {} is duplicated",
                 entity.name, col.name
-            ))));
+            ))
+            .into());
         }
         if !schema_col_map.contains_key(col.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns: {} is not an unknown schema column",
                 entity.name, col.name
-            ))));
+            ))
+            .into());
         }
         if col.strategy == PiiStrategy::Tokenize {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}].strategy=tokenize is not yet supported",
                 entity.name, col.name
-            ))));
+            ))
+            .into());
         }
         // hash, redact, and mask cast the column to String internally; applying
         // them to a non-string column changes the runtime type in the output,
@@ -268,48 +277,49 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         ) {
             if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
                 if canonical_column_type(&col_cfg.column_type) != Some("string") {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} pii.columns[name={}].strategy={:?} can only be applied \
                          to string columns (declared type={}); use strategy=nullify or strategy=drop instead",
                         entity.name, col.name, col.strategy, col_cfg.column_type
-                    ))));
+                    )).into());
                 }
             }
         }
         if col.strategy == PiiStrategy::Nullify {
             if let Some(col_cfg) = schema_col_map.get(col.name.as_str()) {
                 if col_cfg.nullable == Some(false) {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} pii.columns[name={}].strategy=nullify cannot be applied to a nullable=false column",
                         entity.name, col.name
-                    ))));
+                    )).into());
                 }
             }
         }
         if col.strategy == PiiStrategy::Drop && primary_keys.contains(col.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}].strategy=drop cannot be applied to a primary_key column",
                 entity.name, col.name
-            ))));
+            )).into());
         }
         if primary_keys.contains(col.name.as_str()) && is_merge_mode {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}]: PII strategy cannot be applied to a \
                  primary_key column with write_mode={}: masking the merge key corrupts the merge predicate",
                 entity.name, col.name, write_mode.as_str()
-            ))));
+            )).into());
         }
         let collapses_values = matches!(
             col.strategy,
             PiiStrategy::Drop | PiiStrategy::Nullify | PiiStrategy::Redact | PiiStrategy::Mask
         );
         if collapses_values && unique_key_cols.contains(col.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}].strategy={:?} cannot be applied to a \
                  unique-key column: the strategy collapses or removes values, violating \
                  uniqueness constraints",
                 entity.name, col.name, col.strategy
-            ))));
+            ))
+            .into());
         }
         // With write_mode=append, the unique tracker is seeded from previously-written
         // Duplicate checks run before apply_pii_masking and record raw column
@@ -317,12 +327,13 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         // Hashing the column after the fact does not protect raw PII that was
         // already captured in those samples. Reject hash on any unique-key column.
         if col.strategy == PiiStrategy::Hash && unique_key_cols.contains(col.name.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}].strategy=hash cannot be applied to a \
                  unique-key column: uniqueness checks record raw values in the run report \
                  before masking, leaking unmasked PII",
                 entity.name, col.name
-            ))));
+            ))
+            .into());
         }
         if col.strategy == PiiStrategy::Hash && col.key.is_none() {
             eprintln!(
@@ -335,26 +346,27 @@ fn validate_pii(entity: &EntityConfig, pii: &crate::config::PiiConfig) -> FloeRe
         if col.strategy == PiiStrategy::Drop
             && (accepted_format == "iceberg" || accepted_format == "delta")
         {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} pii.columns[name={}].strategy=drop is not supported with \
                  format={accepted_format} because the sink enforces the full declared schema",
                 entity.name, col.name
-            ))));
+            ))
+            .into());
         }
         if col.strategy == PiiStrategy::Mask {
             let pattern = col.mask_pattern.as_deref().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} pii.columns[name={}].strategy=mask requires mask_pattern",
                     entity.name, col.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             let has_last = extract_last_n(pattern).is_some();
             let has_first = extract_first_n(pattern).is_some();
             if !has_last && !has_first {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} pii.columns[name={}].mask_pattern must contain at least one token ({{firstN}} or {{lastN}})",
                     entity.name, col.name
-                ))));
+                )).into());
             }
         }
     }
@@ -383,18 +395,20 @@ fn validate_state(entity: &EntityConfig) -> FloeResult<()> {
         .map(str::trim)
     {
         if path.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} entity.state.path must not be empty",
                 entity.name
-            ))));
+            ))
+            .into());
         }
     }
 
     if entity.incremental_mode == IncrementalMode::Archive && entity.sink.archive.is_none() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} incremental_mode=archive requires sink.archive",
             entity.name
-        ))));
+        ))
+        .into());
     }
 
     if entity.sink.archive.is_some() {
@@ -410,11 +424,11 @@ fn validate_state(entity: &EntityConfig) -> FloeResult<()> {
                 ),
             ),
             IncrementalMode::File | IncrementalMode::Row => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.archive conflicts with incremental_mode={}; use incremental_mode=archive or remove sink.archive",
                     entity.name,
                     entity.incremental_mode.as_str()
-                ))));
+                )).into());
             }
             IncrementalMode::Archive => {}
         }
@@ -428,12 +442,13 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
 
     if let Some(cast_mode) = &entity.source.cast_mode {
         if !ALLOWED_CAST_MODES.contains(&cast_mode.as_str()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} source.cast_mode={} is unsupported (allowed: {})",
                 entity.name,
                 cast_mode,
                 ALLOWED_CAST_MODES.join(", ")
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -448,10 +463,10 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
         match mode {
             "array" | "ndjson" => {}
             _ => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} source.options.json_mode={} is unsupported (allowed: array, ndjson)",
                     entity.name, mode
-                ))));
+                )).into());
             }
         }
     }
@@ -460,25 +475,27 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
         let options = entity.source.options.as_ref().unwrap_or(&default_options);
         if let Some(sheet) = options.sheet.as_ref() {
             if sheet.trim().is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} source.options.sheet must not be empty",
                     entity.name
-                ))));
+                ))
+                .into());
             }
         }
         let header_row = options.header_row.unwrap_or(1);
         if header_row == 0 {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} source.options.header_row must be greater than 0",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         let data_row = options.data_row.unwrap_or(header_row + 1);
         if data_row <= header_row {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} source.options.data_row must be greater than source.options.header_row",
                 entity.name
-            ))));
+            )).into());
         }
     }
     if entity.source.format == "xml" {
@@ -488,20 +505,22 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
             .map(|value| value.trim())
             .filter(|value| !value.is_empty());
         if row_tag.is_none() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} source.options.row_tag is required for xml input",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         if let Some(namespace) = options
             .and_then(|options| options.namespace.as_deref())
             .map(|value| value.trim())
         {
             if namespace.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} source.options.namespace must not be empty",
                     entity.name
-                ))));
+                ))
+                .into());
             }
         }
         if let Some(value_tag) = options
@@ -509,10 +528,11 @@ fn validate_source(entity: &EntityConfig, storages: &StorageRegistry) -> FloeRes
             .map(|value| value.trim())
         {
             if value_tag.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} source.options.value_tag must not be empty",
                     entity.name
-                ))));
+                ))
+                .into());
             }
         }
     }
@@ -535,10 +555,11 @@ fn validate_sink(
     )?;
 
     if entity.policy.severity == PolicySeverity::Reject && entity.sink.rejected.is_none() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.rejected is required when policy.severity=reject",
             entity.name
-        ))));
+        ))
+        .into());
     }
 
     if let Some(rejected) = &entity.sink.rejected {
@@ -565,10 +586,10 @@ fn validate_sink(
             if let Ok(fmt) = sink_format(entity.sink.accepted.format.as_str()) {
                 if !fmt.supported_storages().contains(&storage_type) {
                     let supported = fmt.supported_storages().join(", ");
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} sink.accepted.format={} is not supported on {} storage (supported: {})",
                         entity.name, entity.sink.accepted.format, storage_type, supported
-                    ))));
+                    )).into());
                 }
             }
         }
@@ -591,10 +612,11 @@ fn validate_sink(
         let archive_storage = archive.storage.as_deref().unwrap_or(&source_storage);
         if let Some(storage) = archive.storage.as_deref() {
             if storage != source_storage {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.archive.storage must match source.storage ({})",
                     entity.name, source_storage
-                ))));
+                ))
+                .into());
             }
         }
         storages.validate_reference(entity, "sink.archive.storage", archive_storage)?;
@@ -610,12 +632,13 @@ fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     // while still validating the format-agnostic merge requirements below.
     if let Ok(fmt) = sink_format(entity.sink.accepted.format.as_str()) {
         if !fmt.supported_modes().contains(&write_mode) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.write_mode={} is not supported by sink.accepted.format={}",
                 entity.name,
                 write_mode.as_str(),
                 entity.sink.accepted.format
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -626,16 +649,17 @@ fn validate_sink_write_mode(entity: &EntityConfig) -> FloeResult<()> {
     if is_merge_mode {
         let mode_name = write_mode.as_str();
         let primary_key = entity.schema.primary_key.as_ref().ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.write_mode={} requires schema.primary_key",
                 entity.name, mode_name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         if primary_key.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.write_mode={} requires non-empty schema.primary_key",
                 entity.name, mode_name
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -670,16 +694,17 @@ fn validate_duckdb_sink(
         return Ok(());
     }
     let cfg = entity.sink.accepted.duckdb.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "entity.name={} sink.accepted.format=duckdb requires a sink.accepted.duckdb block",
             entity.name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     if cfg.table.trim().is_empty() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.duckdb.table must not be empty",
             entity.name
-        ))));
+        ))
+        .into());
     }
 
     match cfg.connection.as_deref().map(str::trim) {
@@ -688,27 +713,28 @@ fn validate_duckdb_sink(
         // (and a non-`md:` connection fails at runtime). Reject it explicitly rather
         // than silently falling through to the local-file branch.
         Some("") => {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.duckdb.connection must not be blank; omit it for a \
                  local-file target or set a MotherDuck connection string (md:<database>)",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         Some(connection) => {
             if !connection.starts_with("md:") {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.duckdb.connection={connection:?} is unsupported; \
                      only MotherDuck connection strings (md:<database>) are accepted for remote DuckDB writes",
                     entity.name
-                ))));
+                )).into());
             }
             // MotherDuck lives over the network and must not bind a filesystem storage.
             if entity.sink.accepted.storage.is_some() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.storage must be unset for a MotherDuck DuckDB target \
                      (duckdb.connection={connection:?})",
                     entity.name
-                ))));
+                )).into());
             }
         }
         _ => {
@@ -716,12 +742,12 @@ fn validate_duckdb_sink(
             // storage, so reject non-local storage with a pointer to MotherDuck.
             if let Some(storage_type) = storages.definition_type(accepted_storage) {
                 if storage_type != "local" {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} sink.accepted.format=duckdb cannot write a database file to {storage_type} \
                          object storage; DuckDB only supports read-write on local files. Use a MotherDuck target \
                          (sink.accepted.duckdb.connection: md:<database>) for remote writes",
                         entity.name
-                    ))));
+                    )).into());
                 }
             }
         }
@@ -750,20 +776,20 @@ fn validate_merge_options(
             )
         });
         if !supports_merge {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.merge is only supported when sink.accepted.format supports merge (e.g. delta)",
                 entity.name
-            ))));
+            )).into());
         }
     }
     if !matches!(
         write_mode,
         crate::config::WriteMode::MergeScd1 | crate::config::WriteMode::MergeScd2
     ) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.merge is only supported with sink.write_mode=merge_scd1 or merge_scd2",
             entity.name
-        ))));
+        )).into());
     }
 
     let schema_columns = entity
@@ -818,10 +844,10 @@ fn validate_merge_options(
         for (index, column_name) in ignore_columns.iter().enumerate() {
             let value = column_name.trim();
             if primary_key_columns.contains(value) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.merge.ignore_columns[{}]={} cannot reference schema.primary_key column",
                     entity.name, index, value
-                ))));
+                )).into());
             }
         }
     }
@@ -836,20 +862,20 @@ fn validate_merge_options(
         for (index, column_name) in compare_columns.iter().enumerate() {
             let value = column_name.trim();
             if primary_key_columns.contains(value) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.merge.compare_columns[{}]={} cannot reference schema.primary_key column",
                     entity.name, index, value
-                ))));
+                )).into());
             }
         }
     }
 
     if let Some(scd2) = merge.scd2.as_ref() {
         if write_mode != crate::config::WriteMode::MergeScd2 {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.merge.scd2 is only supported with sink.write_mode=merge_scd2",
                 entity.name
-            ))));
+            )).into());
         }
         let current_flag_column = scd2
             .current_flag_column
@@ -873,16 +899,17 @@ fn validate_merge_options(
         ];
         for (field, value) in resolved_columns {
             if value.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.merge.scd2.{} must not be empty",
                     entity.name, field
-                ))));
+                ))
+                .into());
             }
             if resolved_output_column_names.contains(value) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.merge.scd2.{}={} collides with schema column name",
                     entity.name, field, value
-                ))));
+                )).into());
             }
         }
         let unique_columns = resolved_columns
@@ -890,10 +917,11 @@ fn validate_merge_options(
             .map(|(_, value)| *value)
             .collect::<HashSet<_>>();
         if unique_columns.len() != resolved_columns.len() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.merge.scd2 column names must be unique",
                 entity.name
-            ))));
+            ))
+            .into());
         }
     }
 
@@ -910,22 +938,25 @@ fn validate_merge_column_list(
     for (index, value) in values.iter().enumerate() {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} {}[{}] must not be empty",
                 entity.name, field, index
-            ))));
+            ))
+            .into());
         }
         if !schema_columns.contains(trimmed) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} {}[{}]={} references unknown schema column",
                 entity.name, field, index, trimmed
-            ))));
+            ))
+            .into());
         }
         if !seen.insert(trimmed.to_string()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} {} has duplicate column {}",
                 entity.name, field, trimmed
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -940,10 +971,10 @@ fn validate_iceberg_catalog_binding(
     let accepted = &entity.sink.accepted;
     if accepted.format != "iceberg" {
         if accepted.iceberg.is_some() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.iceberg is only supported for sink.accepted.format=iceberg",
                 entity.name
-            ))));
+            )).into());
         }
         return Ok(());
     }
@@ -957,24 +988,25 @@ fn validate_iceberg_catalog_binding(
     } else if let Some(name) = catalogs.default_name() {
         name.to_string()
     } else {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.iceberg.catalog is required (or set catalogs.default)",
             entity.name
-        ))));
+        ))
+        .into());
     };
 
     let definition = catalogs.definition(&catalog_name).ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "entity.name={} sink.accepted.iceberg.catalog references unknown catalog {}",
             entity.name, catalog_name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     if matches!(&definition.type_config, CatalogTypeConfig::Unity { .. }) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.iceberg.catalog={} has type=unity: unity catalogs only support Delta Lake, not Iceberg",
             entity.name, catalog_name
-        ))));
+        )).into());
     }
 
     // REST catalogs with warehouse_storage use that storage as the actual table root, so
@@ -987,31 +1019,31 @@ fn validate_iceberg_catalog_binding(
             .definition_type(accepted_storage)
             .unwrap_or("local");
         if accepted_storage_type != "s3" && accepted_storage_type != "gcs" {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.iceberg.catalog requires sink.accepted storage type s3 or gcs (got {})",
                 entity.name, accepted_storage_type
-            ))));
+            )).into());
         }
     }
     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
         let storage_type = storages.definition_type(storage_name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "catalogs.definitions name={} warehouse_storage references unknown storage {}",
                 definition.name, storage_name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         match &definition.type_config {
             CatalogTypeConfig::Glue { .. } if storage_type != "s3" => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
                     definition.name, storage_type
-                ))));
+                )).into());
             }
             CatalogTypeConfig::Rest { .. } if storage_type != "s3" && storage_type != "gcs" => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
                     definition.name, storage_type
-                ))));
+                )).into());
             }
             _ => {}
         }
@@ -1029,10 +1061,10 @@ fn validate_delta_catalog_binding(
     let accepted = &entity.sink.accepted;
     if accepted.format != "delta" {
         if accepted.delta.is_some() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.delta is only supported for sink.accepted.format=delta",
                 entity.name
-            ))));
+            )).into());
         }
         return Ok(());
     }
@@ -1046,26 +1078,26 @@ fn validate_delta_catalog_binding(
         None => match catalogs.default_name() {
             Some(name) => name.to_string(),
             None => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.delta.catalog is required when no catalogs.default is set",
                     entity.name
-                ))));
+                )).into());
             }
         },
     };
 
     let definition = catalogs.definition(&catalog_name).ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "entity.name={} sink.accepted.delta.catalog references unknown catalog {}",
             entity.name, catalog_name
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     if !matches!(definition.type_config, CatalogTypeConfig::Unity { .. }) {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.delta.catalog={} has type={}: only unity catalogs support Delta Lake registration",
             entity.name, catalog_name, definition.type_config.catalog_type_str()
-        ))));
+        )).into());
     }
 
     // Unity Catalog registration only makes sense for cloud-backed storage (not local).
@@ -1073,10 +1105,10 @@ fn validate_delta_catalog_binding(
         .definition_type(accepted_storage)
         .unwrap_or("local");
     if storage_type == "local" {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.delta.catalog={} requires cloud storage (s3, gcs, or adls), got local",
             entity.name, catalog_name
-        ))));
+        )).into());
     }
 
     Ok(())
@@ -1092,92 +1124,98 @@ fn validate_sink_partitioning(entity: &EntityConfig) -> FloeResult<()> {
     let accepted = &entity.sink.accepted;
 
     if accepted.partition_by.is_some() && accepted.partition_spec.is_some() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} sink.accepted.partition_by and sink.accepted.partition_spec are mutually exclusive",
             entity.name
-        ))));
+        )).into());
     }
 
     if let Some(partition_by) = &accepted.partition_by {
         if accepted.format != "delta" {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.partition_by is only supported for sink.accepted.format=delta",
                 entity.name
-            ))));
+            )).into());
         }
         if partition_by.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.partition_by must not be empty",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         let mut seen = HashSet::new();
         for (index, column) in partition_by.iter().enumerate() {
             let value = column.trim();
             if value.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_by[{}] must not be empty",
                     entity.name, index
-                ))));
+                ))
+                .into());
             }
             if !seen.insert(value.to_string()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_by has duplicate column {}",
                     entity.name, value
-                ))));
+                ))
+                .into());
             }
             if !schema_columns.contains(value) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_by[{}]={} references unknown schema column",
                     entity.name, index, value
-                ))));
+                )).into());
             }
         }
     }
 
     if let Some(partition_spec) = &accepted.partition_spec {
         if accepted.format != "iceberg" {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.partition_spec is only supported for sink.accepted.format=iceberg",
                 entity.name
-            ))));
+            )).into());
         }
         if partition_spec.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.partition_spec must not be empty",
                 entity.name
-            ))));
+            ))
+            .into());
         }
         let mut seen = HashSet::new();
         for (index, field) in partition_spec.iter().enumerate() {
             let column = field.column.trim();
             if column.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_spec[{}].column must not be empty",
                     entity.name, index
-                ))));
+                ))
+                .into());
             }
             if !schema_columns.contains(column) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_spec[{}].column={} references unknown schema column",
                     entity.name, index, column
-                ))));
+                )).into());
             }
             let transform = field.transform.trim().to_ascii_lowercase();
             if !ALLOWED_ICEBERG_PARTITION_TRANSFORMS.contains(&transform.as_str()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_spec[{}].transform={} is unsupported (allowed: {})",
                     entity.name,
                     index,
                     field.transform,
                     ALLOWED_ICEBERG_PARTITION_TRANSFORMS.join(", ")
-                ))));
+                )).into());
             }
             if !seen.insert((column.to_string(), transform.clone())) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.partition_spec has duplicate entry ({}, {})",
                     entity.name, column, transform
-                ))));
+                ))
+                .into());
             }
         }
     }
@@ -1187,38 +1225,39 @@ fn validate_sink_partitioning(entity: &EntityConfig) -> FloeResult<()> {
 
 fn validate_schema(entity: &EntityConfig, config_version: ConfigVersion) -> FloeResult<()> {
     if entity.source.format == "json" && entity.schema.columns.len() > MAX_JSON_COLUMNS {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} schema.columns has {} entries which exceeds the JSON selector limit of {}",
             entity.name,
             entity.schema.columns.len(),
             MAX_JSON_COLUMNS
-        ))));
+        )).into());
     }
     if entity.source.format == "fixed" {
         for (index, column) in entity.schema.columns.iter().enumerate() {
             let width = column.width.ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} schema.columns[{}].width is required for source.format=fixed",
                     entity.name, index
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             if width == 0 {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.columns[{}].width must be greater than 0",
                     entity.name, index
-                ))));
+                ))
+                .into());
             }
         }
     }
     if let Some(normalize) = &entity.schema.normalize_columns {
         if let Some(strategy) = &normalize.strategy {
             if !is_allowed_normalize_strategy(strategy) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.normalize_columns.strategy={} is unsupported (allowed: {})",
                     entity.name,
                     strategy,
                     ALLOWED_NORMALIZE_STRATEGIES.join(", ")
-                ))));
+                )).into());
             }
         }
     }
@@ -1226,53 +1265,56 @@ fn validate_schema(entity: &EntityConfig, config_version: ConfigVersion) -> Floe
     if let Some(mismatch) = &entity.schema.mismatch {
         if let Some(policy) = &mismatch.missing_columns {
             if !ALLOWED_MISSING_POLICIES.contains(&policy.as_str()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.mismatch.missing_columns={} is unsupported (allowed: {})",
                     entity.name,
                     policy,
                     ALLOWED_MISSING_POLICIES.join(", ")
-                ))));
+                )).into());
             }
         }
         if let Some(policy) = &mismatch.extra_columns {
             if !ALLOWED_EXTRA_POLICIES.contains(&policy.as_str()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.mismatch.extra_columns={} is unsupported (allowed: {})",
                     entity.name,
                     policy,
                     ALLOWED_EXTRA_POLICIES.join(", ")
-                ))));
+                ))
+                .into());
             }
         }
     }
 
     for (index, column) in entity.schema.columns.iter().enumerate() {
         if canonical_column_type(&column.column_type).is_none() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} schema.columns[{}].type={} is unsupported for column {} (allowed: {})",
                 entity.name,
                 index,
                 column.column_type,
                 column.name,
                 ALLOWED_COLUMN_TYPES.join(", ")
-            ))));
+            )).into());
         }
         if entity.source.format == "json" {
             let selector = column.source_or_name();
             if let Err(err) = parse_selector(selector) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.columns[{}].source={} is invalid: {}",
                     entity.name, index, selector, err.message
-                ))));
+                ))
+                .into());
             }
         }
         if entity.source.format == "xml" {
             let selector = column.source_or_name();
             if let Err(err) = xml_selector::parse_selector(selector) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.columns[{}].source={} is invalid: {}",
                     entity.name, index, selector, err.message
-                ))));
+                ))
+                .into());
             }
         }
     }
@@ -1293,20 +1335,21 @@ fn validate_schema_evolution(
     };
 
     if config_version < MIN_SCHEMA_EVOLUTION_CONFIG_VERSION {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} schema.schema_evolution requires root.version >= \"0.2\"",
             entity.name,
-        ))));
+        ))
+        .into());
     }
 
     if entity.sink.accepted.format != "delta"
         && schema_evolution.mode == crate::config::SchemaEvolutionMode::AddColumns
     {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} schema.schema_evolution.mode={} requires sink.accepted.format=delta (Delta-only additive schema evolution in this phase)",
             entity.name,
             schema_evolution.mode.as_str()
-        ))));
+        )).into());
     }
 
     Ok(())
@@ -1317,25 +1360,28 @@ fn validate_schema_primary_key(entity: &EntityConfig) -> FloeResult<()> {
         return Ok(());
     };
     if primary_key.is_empty() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} schema.primary_key must not be empty",
             entity.name
-        ))));
+        ))
+        .into());
     }
     let mut seen = HashSet::new();
     for (index, column_name) in primary_key.iter().enumerate() {
         let value = column_name.trim();
         if value.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} schema.primary_key[{}] must not be empty",
                 entity.name, index
-            ))));
+            ))
+            .into());
         }
         if !seen.insert(value.to_string()) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} schema.primary_key has duplicate column {}",
                 entity.name, value
-            ))));
+            ))
+            .into());
         }
         let column = entity
             .schema
@@ -1343,16 +1389,17 @@ fn validate_schema_primary_key(entity: &EntityConfig) -> FloeResult<()> {
             .iter()
             .find(|column| column.name == value)
             .ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} schema.primary_key[{}]={} references unknown schema column",
                     entity.name, index, value
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
         if column.nullable == Some(true) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} schema.primary_key column {} cannot set nullable=true",
                 entity.name, value
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -1363,10 +1410,11 @@ fn validate_schema_unique_keys(entity: &EntityConfig) -> FloeResult<()> {
         return Ok(());
     };
     if unique_keys.is_empty() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} schema.unique_keys must not be empty",
             entity.name
-        ))));
+        ))
+        .into());
     }
 
     let has_legacy_unique = entity
@@ -1397,32 +1445,36 @@ fn validate_schema_unique_keys(entity: &EntityConfig) -> FloeResult<()> {
     let mut duplicate_constraints = 0_u64;
     for (index, key) in unique_keys.iter().enumerate() {
         if key.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} schema.unique_keys[{}] must not be empty",
                 entity.name, index
-            ))));
+            ))
+            .into());
         }
         let mut seen_columns = HashSet::new();
         let mut signature_parts = Vec::with_capacity(key.len());
         for (column_index, column_name) in key.iter().enumerate() {
             let value = column_name.trim();
             if value.is_empty() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.unique_keys[{}][{}] must not be empty",
                     entity.name, index, column_index
-                ))));
+                ))
+                .into());
             }
             if !schema_columns.contains(value) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.unique_keys[{}][{}]={} references unknown schema column",
                     entity.name, index, column_index, value
-                ))));
+                ))
+                .into());
             }
             if !seen_columns.insert(value.to_string()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} schema.unique_keys[{}] has duplicate column {}",
                     entity.name, index, value
-                ))));
+                ))
+                .into());
             }
             signature_parts.push(value.to_string());
         }
@@ -1497,9 +1549,9 @@ impl CatalogRegistry {
         };
 
         if catalogs.definitions.is_empty() {
-            return Err(Box::new(ConfigError(
-                "catalogs.definitions must not be empty".to_string(),
-            )));
+            return Err(
+                FloeError::config("catalogs.definitions must not be empty".to_string()).into(),
+            );
         }
 
         let mut definitions = std::collections::HashMap::new();
@@ -1510,17 +1562,17 @@ impl CatalogRegistry {
                     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
                         let storage_type =
                             storages.definition_type(storage_name).ok_or_else(|| {
-                                Box::new(ConfigError(format!(
+                                FloeError::config(format!(
                                     "catalogs.definitions name={} warehouse_storage references unknown storage {}",
                                     definition.name, storage_name
-                                )))
-                                    as Box<dyn std::error::Error + Send + Sync>
+                                ))
+
                             })?;
                         if storage_type != "s3" {
-                            return Err(Box::new(ConfigError(format!(
+                            return Err(FloeError::config(format!(
                                 "catalogs.definitions name={} warehouse_storage must reference s3 storage for glue catalog (got {})",
                                 definition.name, storage_type
-                            ))));
+                            )).into());
                         }
                     }
                 }
@@ -1528,17 +1580,17 @@ impl CatalogRegistry {
                     if let Some(storage_name) = definition.warehouse_storage.as_deref() {
                         let storage_type =
                             storages.definition_type(storage_name).ok_or_else(|| {
-                                Box::new(ConfigError(format!(
+                                FloeError::config(format!(
                                     "catalogs.definitions name={} warehouse_storage references unknown storage {}",
                                     definition.name, storage_name
-                                )))
-                                    as Box<dyn std::error::Error + Send + Sync>
+                                ))
+
                             })?;
                         if storage_type != "s3" && storage_type != "gcs" {
-                            return Err(Box::new(ConfigError(format!(
+                            return Err(FloeError::config(format!(
                                 "catalogs.definitions name={} warehouse_storage must reference s3 or gcs storage for rest catalog (got {})",
                                 definition.name, storage_type
-                            ))));
+                            )).into());
                         }
                     }
                 }
@@ -1549,19 +1601,21 @@ impl CatalogRegistry {
                 .insert(definition.name.clone(), definition.clone())
                 .is_some()
             {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "catalogs.definitions name={} is duplicated",
                     definition.name
-                ))));
+                ))
+                .into());
             }
         }
 
         if let Some(default_name) = &catalogs.default {
             if !definitions.contains_key(default_name) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "catalogs.default={} does not match any definition",
                     default_name
-                ))));
+                ))
+                .into());
             }
         }
 
@@ -1595,77 +1649,86 @@ impl StorageRegistry {
         };
 
         if storages.definitions.is_empty() {
-            return Err(Box::new(ConfigError(
-                "storages.definitions must not be empty".to_string(),
-            )));
+            return Err(
+                FloeError::config("storages.definitions must not be empty".to_string()).into(),
+            );
         }
 
         let mut definitions = std::collections::HashMap::new();
         for definition in &storages.definitions {
             if !ALLOWED_STORAGE_TYPES.contains(&definition.fs_type.as_str()) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "storages.definitions name={} type={} is unsupported (allowed: {})",
                     definition.name,
                     definition.fs_type,
                     ALLOWED_STORAGE_TYPES.join(", ")
-                ))));
+                ))
+                .into());
             }
             if definition.fs_type == "s3" {
                 if definition.bucket.is_none() {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "storages.definitions name={} requires bucket for type s3",
                         definition.name
-                    ))));
+                    ))
+                    .into());
                 }
                 if definition.region.is_none() {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "storages.definitions name={} requires region for type s3",
                         definition.name
-                    ))));
+                    ))
+                    .into());
                 }
             }
             if definition.fs_type == "adls" {
                 if definition.account.is_none() {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "storages.definitions name={} requires account for type adls",
                         definition.name
-                    ))));
+                    ))
+                    .into());
                 }
                 if definition.container.is_none() {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "storages.definitions name={} requires container for type adls",
                         definition.name
-                    ))));
+                    ))
+                    .into());
                 }
             }
             if definition.fs_type == "gcs" && definition.bucket.is_none() {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "storages.definitions name={} requires bucket for type gcs",
                     definition.name
-                ))));
+                ))
+                .into());
             }
             if definitions
                 .insert(definition.name.clone(), definition.clone())
                 .is_some()
             {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "storages.definitions name={} is duplicated",
                     definition.name
-                ))));
+                ))
+                .into());
             }
         }
 
         if let Some(default_name) = &storages.default {
             if !definitions.contains_key(default_name) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "storages.default={} does not match any definition",
                     default_name
-                ))));
+                ))
+                .into());
             }
         } else {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "storages.default is required when storages is set".to_string(),
-            )));
+            )
+            .into());
         }
 
         Ok(Self {
@@ -1686,10 +1749,10 @@ impl StorageRegistry {
         }
         if self.has_config {
             let default_name = self.default_name.clone().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} {field} requires storages.default",
                     entity.name
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             return Ok(default_name);
         }
@@ -1699,19 +1762,20 @@ impl StorageRegistry {
     fn validate_reference(&self, entity: &EntityConfig, field: &str, name: &str) -> FloeResult<()> {
         if !self.has_config {
             if name != "local" {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} {field} references unknown storage {} (no storages block)",
                     entity.name, name
-                ))));
+                ))
+                .into());
             }
             return Ok(());
         }
 
         let _definition = self.definitions.get(name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} {field} references unknown storage {}",
                 entity.name, name
-            )))
+            ))
         })?;
 
         Ok(())
@@ -1735,9 +1799,7 @@ impl StorageRegistry {
         }
         if self.has_config {
             let default_name = self.default_name.clone().ok_or_else(|| {
-                Box::new(ConfigError(
-                    "report.storage requires storages.default".to_string(),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::config("report.storage requires storages.default".to_string())
             })?;
             return Ok(default_name);
         }
@@ -1747,19 +1809,17 @@ impl StorageRegistry {
     fn validate_report_reference(&self, field: &str, name: &str) -> FloeResult<()> {
         if !self.has_config {
             if name != "local" {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "{field} references unknown storage {} (no storages block)",
                     name
-                ))));
+                ))
+                .into());
             }
             return Ok(());
         }
 
         let _definition = self.definitions.get(name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "{field} references unknown storage {}",
-                name
-            )))
+            FloeError::config(format!("{field} references unknown storage {}", name))
         })?;
 
         Ok(())

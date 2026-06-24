@@ -1,7 +1,8 @@
+use crate::errors::FloeError;
 use std::path::Path;
 
 use crate::io::storage::Target;
-use crate::{config, io, ConfigError, FloeResult};
+use crate::{config, io, FloeResult};
 
 use super::parts;
 
@@ -160,9 +161,10 @@ pub(crate) fn list_part_objects(
             let objects = client.list(&list_prefix)?;
             Ok((list_prefix, objects))
         }
-        Target::Local { .. } => Err(Box::new(ConfigError(
+        Target::Local { .. } => Err(FloeError::config(
             "cloud part listing requested for local target".to_string(),
-        ))),
+        )
+        .into()),
     }
 }
 
@@ -183,31 +185,31 @@ fn prefix_error(
     entity: &config::EntityConfig,
     provider: &CloudProvider,
     spec: PartSpec,
-) -> ConfigError {
+) -> FloeError {
     match (&spec.scope, provider) {
-        (PartScope::Accepted { format }, CloudProvider::S3) => ConfigError(format!(
+        (PartScope::Accepted { format }, CloudProvider::S3) => FloeError::config(format!(
             "entity.name={} sink.accepted.path must not be bucket root for s3 {format} outputs",
             entity.name
         )),
-        (PartScope::Accepted { format }, CloudProvider::Gcs { bucket }) => ConfigError(format!(
+        (PartScope::Accepted { format }, CloudProvider::Gcs { bucket }) => FloeError::config(format!(
             "entity.name={} sink.accepted.path must not be bucket root for gcs {format} outputs (bucket={})",
             entity.name, bucket
         )),
         (PartScope::Accepted { format }, CloudProvider::Adls { container, account }) => {
-            ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.accepted.path must not be container root for adls {format} outputs (container={}, account={})",
                 entity.name, container, account
             ))
         }
-        (PartScope::Rejected { .. }, CloudProvider::S3) => ConfigError(format!(
+        (PartScope::Rejected { .. }, CloudProvider::S3) => FloeError::config(format!(
             "entity.name={} sink.rejected.path must not be bucket root for s3 outputs",
             entity.name
         )),
-        (PartScope::Rejected { .. }, CloudProvider::Gcs { .. }) => ConfigError(format!(
+        (PartScope::Rejected { .. }, CloudProvider::Gcs { .. }) => FloeError::config(format!(
             "entity.name={} sink.rejected.path must not be bucket root for gcs outputs",
             entity.name
         )),
-        (PartScope::Rejected { .. }, CloudProvider::Adls { .. }) => ConfigError(format!(
+        (PartScope::Rejected { .. }, CloudProvider::Adls { .. }) => FloeError::config(format!(
             "entity.name={} sink.rejected.path must not be container root for adls outputs",
             entity.name
         )),

@@ -1,8 +1,9 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::config::{RootConfig, StorageDefinition};
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 #[derive(Debug, Clone)]
 pub struct ConfigBase {
@@ -86,10 +87,7 @@ impl RemoteConfigBase {
                 prefix,
             });
         }
-        Err(Box::new(ConfigError(format!(
-            "unsupported config uri: {}",
-            uri
-        ))))
+        Err(FloeError::config(format!("unsupported config uri: {}", uri)).into())
     }
 
     fn matches_storage(&self, storage_type: &str) -> bool {
@@ -145,15 +143,17 @@ impl StorageResolver {
 
     pub fn resolve_local_path(&self, raw_path: &str) -> FloeResult<ResolvedPath> {
         if is_remote_uri(raw_path) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.state.path must be a local path (got {})",
                 raw_path
-            ))));
+            ))
+            .into());
         }
         if self.config_base.remote_base().is_some() && Path::new(raw_path).is_relative() {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "entity.state.path must be absolute when config is remote".to_string(),
-            )));
+            )
+            .into());
         }
         let resolved = resolve_local_path(self.config_base.local_dir(), raw_path);
         Ok(ResolvedPath {
@@ -171,21 +171,23 @@ impl StorageResolver {
                     .insert(definition.name.clone(), definition.clone())
                     .is_some()
                 {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "storages.definitions name={} is duplicated",
                         definition.name
-                    ))));
+                    ))
+                    .into());
                 }
             }
             let default_name = storages
                 .default
                 .clone()
-                .ok_or_else(|| Box::new(ConfigError("storages.default is required".to_string())))?;
+                .ok_or_else(|| FloeError::config("storages.default is required".to_string()))?;
             if !definitions.contains_key(&default_name) {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "storages.default={} does not match any definition",
                     default_name
-                ))));
+                ))
+                .into());
             }
             Ok(Self {
                 config_base,
@@ -216,18 +218,19 @@ impl StorageResolver {
     ) -> FloeResult<ResolvedPath> {
         let name = storage_name.unwrap_or(self.default_name.as_str());
         if !self.has_config && name != "local" && !self.definitions.contains_key(name) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} {field} references unknown storage {} (no storages block)",
                 entity_name, name
-            ))));
+            ))
+            .into());
         }
 
         let definition = if self.has_config {
             self.definitions.get(name).cloned().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} {field} references unknown storage {}",
                     entity_name, name
-                )))
+                ))
             })?
         } else {
             StorageDefinition {
@@ -251,16 +254,18 @@ impl StorageResolver {
         match definition.fs_type.as_str() {
             "local" => {
                 if is_remote_uri(raw_path) {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} {field} must be a local path (got {})",
                         entity_name, raw_path
-                    ))));
+                    ))
+                    .into());
                 }
                 if self.config_base.remote_base().is_some() && Path::new(raw_path).is_relative() {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "entity.name={} {field} must be absolute when config is remote",
                         entity_name
-                    ))));
+                    ))
+                    .into());
                 }
                 let resolved = resolve_local_path(self.config_base.local_dir(), raw_path);
                 Ok(ResolvedPath {
@@ -293,10 +298,11 @@ impl StorageResolver {
                     local_path: None,
                 })
             }
-            _ => Err(Box::new(ConfigError(format!(
+            _ => Err(FloeError::config(format!(
                 "storage type {} is unsupported",
                 definition.fs_type
-            )))),
+            ))
+            .into()),
         }
     }
 
@@ -307,18 +313,19 @@ impl StorageResolver {
     ) -> FloeResult<ResolvedPath> {
         let name = storage_name.unwrap_or(self.default_name.as_str());
         if !self.has_config && name != "local" && !self.definitions.contains_key(name) {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "report.storage references unknown storage {} (no storages block)",
                 name
-            ))));
+            ))
+            .into());
         }
 
         let definition = if self.has_config {
             self.definitions.get(name).cloned().ok_or_else(|| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "report.storage references unknown storage {}",
                     name
-                )))
+                ))
             })?
         } else {
             StorageDefinition {
@@ -342,15 +349,17 @@ impl StorageResolver {
         match definition.fs_type.as_str() {
             "local" => {
                 if is_remote_uri(raw_path) {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "report.path must be a local path (got {})",
                         raw_path
-                    ))));
+                    ))
+                    .into());
                 }
                 if self.config_base.remote_base().is_some() && Path::new(raw_path).is_relative() {
-                    return Err(Box::new(ConfigError(
+                    return Err(FloeError::config(
                         "report.path must be absolute when config is remote".to_string(),
-                    )));
+                    )
+                    .into());
                 }
                 let resolved = resolve_local_path(self.config_base.local_dir(), raw_path);
                 Ok(ResolvedPath {
@@ -383,10 +392,11 @@ impl StorageResolver {
                     local_path: None,
                 })
             }
-            _ => Err(Box::new(ConfigError(format!(
+            _ => Err(FloeError::config(format!(
                 "storage type {} is unsupported",
                 definition.fs_type
-            )))),
+            ))
+            .into()),
         }
     }
 
@@ -493,17 +503,18 @@ fn local_uri(path: &Path) -> String {
 
 fn resolve_s3_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
     let bucket = definition.bucket.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "storage {} requires bucket for type s3",
             definition.name
-        )))
+        ))
     })?;
     if let Some((bucket_in_path, key)) = parse_s3_uri(raw_path) {
         if bucket_in_path != *bucket {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "storage {} bucket mismatch: {}",
                 definition.name, bucket_in_path
-            ))));
+            ))
+            .into());
         }
         return Ok(format_s3_uri(bucket, &key));
     }
@@ -514,23 +525,24 @@ fn resolve_s3_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<
 
 fn resolve_adls_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
     let account = definition.account.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "storage {} requires account for type adls",
             definition.name
-        )))
+        ))
     })?;
     let container = definition.container.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "storage {} requires container for type adls",
             definition.name
-        )))
+        ))
     })?;
     if let Some((container_in_path, account_in_path, path)) = parse_adls_uri(raw_path) {
         if container_in_path != *container || account_in_path != *account {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "storage {} adls account/container mismatch",
                 definition.name
-            ))));
+            ))
+            .into());
         }
         return Ok(format_adls_uri(container, account, &path));
     }
@@ -593,17 +605,18 @@ fn format_s3_uri(bucket: &str, key: &str) -> String {
 
 fn resolve_gcs_uri(definition: &StorageDefinition, raw_path: &str) -> FloeResult<String> {
     let bucket = definition.bucket.as_ref().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "storage {} requires bucket for type gcs",
             definition.name
-        )))
+        ))
     })?;
     if let Some((bucket_in_path, key)) = parse_gcs_uri(raw_path) {
         if bucket_in_path != *bucket {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "storage {} bucket mismatch: {}",
                 definition.name, bucket_in_path
-            ))));
+            ))
+            .into());
         }
         return Ok(format_gcs_uri(bucket, &key));
     }

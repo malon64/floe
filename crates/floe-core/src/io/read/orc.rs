@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::fs::File;
 use std::path::Path;
 
@@ -9,7 +10,6 @@ use orc_rust::projection::ProjectionMask;
 use polars::prelude::DataFrame;
 
 use crate::checks::normalize::normalize_name;
-use crate::errors::IoError;
 use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
@@ -23,16 +23,16 @@ pub(crate) fn orc_input_adapter() -> &'static dyn InputAdapter {
 
 pub fn read_orc_schema_names(input_path: &Path) -> FloeResult<Vec<String>> {
     let file = File::open(input_path).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to open orc at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let builder = ArrowReaderBuilder::try_new(file).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to read orc schema at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let schema = builder.schema();
     Ok(schema
@@ -47,16 +47,16 @@ fn read_orc_batches(
     projection: Option<&[String]>,
 ) -> FloeResult<Vec<RecordBatch>> {
     let file = File::open(input_path).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to open orc at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let mut builder = ArrowReaderBuilder::try_new(file).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to build orc reader at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     if let Some(columns) = projection {
         let roots = builder.file_metadata().root_data_type();
@@ -66,20 +66,17 @@ fn read_orc_batches(
     }
     let schema = builder.schema();
     let reader = builder.build();
-    let batches = reader.collect::<Result<Vec<_>, _>>().map_err(|err| {
-        Box::new(IoError(format!("orc read failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let batches = reader
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| FloeError::io(format!("orc read failed: {err}")))?;
     if batches.is_empty() {
         let arrays = schema
             .fields()
             .iter()
             .map(|field| new_empty_array(field.data_type()))
             .collect::<Vec<_>>();
-        let batch = RecordBatch::try_new(schema, arrays).map_err(|err| {
-            Box::new(IoError(format!("orc read failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let batch = RecordBatch::try_new(schema, arrays)
+            .map_err(|err| FloeError::io(format!("orc read failed: {err}")))?;
         return Ok(vec![batch]);
     }
     Ok(batches)
@@ -90,14 +87,11 @@ pub fn read_orc_df(input_path: &Path, projection: Option<&[String]>) -> FloeResu
     if batches.is_empty() {
         return Ok(DataFrame::default());
     }
-    let interchange = Interchange::from_arrow_57(batches).map_err(|err| {
-        Box::new(IoError(format!("orc conversion failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
-    interchange.to_polars_0_52().map_err(|err| {
-        Box::new(IoError(format!("orc conversion failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    let interchange = Interchange::from_arrow_57(batches)
+        .map_err(|err| FloeError::io(format!("orc conversion failed: {err}")))?;
+    interchange
+        .to_polars_0_52()
+        .map_err(|err| FloeError::io(format!("orc conversion failed: {err}")).into())
 }
 
 impl InputAdapter for OrcInputAdapter {

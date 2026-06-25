@@ -13,6 +13,7 @@ pub mod report;
 pub mod run;
 pub mod runner;
 pub mod runtime;
+pub mod secret;
 pub mod state;
 pub mod vars;
 pub mod warnings;
@@ -49,6 +50,7 @@ pub use run::{
 };
 pub use runner::{parse_run_status_from_logs, ConnectorRunStatus};
 pub use runtime::{DefaultRuntime, Runtime};
+pub use secret::Secret;
 pub use vars::{resolve_vars, VarSources};
 
 pub type FloeResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;

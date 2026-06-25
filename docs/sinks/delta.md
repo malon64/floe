@@ -115,10 +115,13 @@ catalogs:
       create_schema_if_missing: false  # create the schema if it does not exist yet
 ```
 
-`token` accepts a literal PAT or a single `${ENV_VAR}` reference (e.g.
-`token: "${DATABRICKS_TOKEN}"`), which is resolved from the OS environment at
-run time. The PAT is sent only as a `Bearer` authorization header and is never
-written to reports or logs.
+**Prefer a `${ENV_VAR}` reference for `token`** (e.g. `token: "${DATABRICKS_TOKEN}"`),
+resolved from the OS environment at run time. A literal PAT is also accepted, but
+embedding secrets directly in YAML is discouraged — they end up in source control
+and shared config files. A `${ENV_VAR}` reference is the only form preserved
+verbatim in the generated manifest; a literal token is dropped during manifest
+sanitization. The resolved PAT is held in a redacting `Secret` wrapper, sent only
+as a `Bearer` authorization header, and is never written to reports or logs.
 
 ### Entity config
 

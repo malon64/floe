@@ -178,10 +178,11 @@ catalogs:
       scope: "PRINCIPAL_ROLE:ALL"
 ```
 
-`${ENV_VAR}` placeholders in `credential` are resolved from the OS environment at
-run time, including during `floe run --manifest`. This lets runner environments
-inject REST catalog secrets without baking raw client IDs or secrets into the
-manifest.
+**Prefer `${ENV_VAR}` placeholders in `credential`** over literal client IDs/secrets
+in YAML. They are resolved from the OS environment at run time, including during
+`floe run --manifest`, so runner environments can inject REST catalog secrets
+without baking raw credentials into config or the manifest. The resolved credential
+is held in a redacting `Secret` wrapper and is never written to reports or logs.
 
 ## Partition spec config
 

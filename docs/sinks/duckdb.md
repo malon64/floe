@@ -63,10 +63,13 @@ entities:
           token: "${MOTHERDUCK_TOKEN}"       # literal or single ${ENV} reference
 ```
 
-`token` accepts a literal value or a single `${ENV_VAR}` reference, resolved from the OS
-environment at connect time. It is passed to DuckDB through the connection configuration (never as
-SQL) and is never written to reports or logs. If `token` is omitted, DuckDB falls back to the
-ambient `motherduck_token` environment variable.
+**Prefer a `${ENV_VAR}` reference for `token`** rather than a literal value in YAML, so the
+secret stays out of source control and shared config. A literal value is also accepted but
+discouraged, and only a `${ENV_VAR}` reference is preserved in the generated manifest (a literal
+token is dropped during manifest sanitization). The resolved token is held in a redacting
+`Secret` wrapper, passed to DuckDB through the connection configuration (never as SQL), and is
+never written to reports or logs. If `token` is omitted, DuckDB falls back to the ambient
+`motherduck_token` environment variable.
 
 ## Write modes
 

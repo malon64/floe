@@ -1,4 +1,5 @@
 use crate::errors::FloeError;
+use crate::secret::Secret;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -707,7 +708,7 @@ fn parse_sink_duckdb_options(value: &Yaml, ctx: &str) -> FloeResult<DuckDbSinkTa
         table: get_string(hash, "table", ctx)?,
         schema: opt_string(hash, "schema", ctx)?,
         connection: blank_to_none(opt_string(hash, "connection", ctx)?),
-        token: blank_to_none(opt_string(hash, "token", ctx)?),
+        token: blank_to_none(opt_string(hash, "token", ctx)?).map(Secret::from),
     })
 }
 
@@ -852,7 +853,7 @@ fn parse_catalog_type_config(
         }),
         "rest" => Ok(CatalogTypeConfig::Rest {
             uri: get_string(hash, "uri", context)?,
-            credential: opt_string(hash, "credential", context)?,
+            credential: opt_string(hash, "credential", context)?.map(Secret::from),
             warehouse: opt_string(hash, "warehouse", context)?,
             oauth2_server_uri: opt_string(hash, "oauth2_server_uri", context)?,
             scope: opt_string(hash, "scope", context)?,
@@ -861,7 +862,7 @@ fn parse_catalog_type_config(
             host: get_string(hash, "host", context)?,
             catalog: get_string(hash, "catalog", context)?,
             schema: get_string(hash, "schema", context)?,
-            token: get_string(hash, "token", context)?,
+            token: Secret::from(get_string(hash, "token", context)?),
             create_schema_if_missing: opt_bool(hash, "create_schema_if_missing", context)?
                 .unwrap_or(false),
         }),

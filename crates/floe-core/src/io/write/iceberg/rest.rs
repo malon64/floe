@@ -1,4 +1,5 @@
 use crate::errors::FloeError;
+use crate::secret::Secret;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -44,7 +45,7 @@ pub(crate) async fn build_rest_catalog(
         // uses its own default warehouse rather than receiving an arbitrary path.
     }
 
-    if let Some(credential) = rest_cfg.credential.as_deref() {
+    if let Some(credential) = rest_cfg.credential.as_ref().map(Secret::expose) {
         let credential = expand_env_refs(credential, &rest_cfg.catalog_name)?;
         if let Some(token_value) = credential.strip_prefix("token:") {
             // Bearer PAT (Unity Catalog / Nessie)
@@ -123,7 +124,7 @@ pub(crate) async fn build_rest_catalog(
 pub(crate) struct RestIcebergCatalogConfig {
     pub(crate) catalog_name: String,
     pub(crate) uri: String,
-    pub(crate) credential: Option<String>,
+    pub(crate) credential: Option<Secret>,
     pub(crate) warehouse: Option<String>,
     pub(crate) oauth2_server_uri: Option<String>,
     pub(crate) scope: Option<String>,

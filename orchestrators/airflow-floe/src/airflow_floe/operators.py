@@ -187,6 +187,11 @@ class FloeRunOperator(BaseOperator):
     def execute(self, context: dict[str, Any] | None = None) -> dict[str, Any]:
         hook = FloeRunHook(floe_cmd=self.floe_cmd)
         execution, runner_definition = self._resolve_execution_contract()
+        # Under Airflow 3.x, BaseOperator.log (LoggingMixin.log) is always a bound
+        # logger, so these resolve to its info/warning methods and the operator
+        # streams floe's stdout/stderr to the task log. The `else None` guard is
+        # only reached by the no-Airflow fallback BaseOperator used in unit tests
+        # (which has no `log` attribute).
         logger = getattr(self, "log", None)
         log_stdout = logger.info if logger is not None else None
         log_stderr = logger.warning if logger is not None else None

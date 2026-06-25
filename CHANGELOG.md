@@ -2,6 +2,23 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.1
+
+- **Structured `FloeError` type (#395).** `floe-core` previously returned
+  `Box<dyn Error>` over four stringly-typed wrappers
+  (`ConfigError`/`RunError`/`StorageError`/`IoError`); failures could only be
+  classified by inspecting message strings. Every failure is now a structured
+  `FloeError` enum variant (`Config`/`Validation`/`Storage`/`Sink`/`State`/`Run`/`Io`)
+  carrying typed context fields (entity, path, rule). Library consumers — including
+  the Python bindings and the CLI log emitter — recover the kind via
+  `err.downcast_ref::<FloeError>()` and `FloeError::kind()`.
+  - No user-visible behaviour change: `Display` output is byte-identical to the
+    old wrappers, the typed Python exceptions (`FloeConfigError`, `FloeRunError`,
+    `FloeStorageError`, `FloeIoError`) and CLI error codes are unchanged.
+  - `FloeResult<T>` remains the boxed alias so foreign errors keep flowing through
+    `?`. See `context/decisions/structured-floe-error.md`.
+- Internal-only release: no config, CLI, or sink behaviour changes.
+
 ## v0.6.0
 
 - **HMAC-SHA256 keyed hashing for `strategy: hash` (`docs/pii.md`, #388).**

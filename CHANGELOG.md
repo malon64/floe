@@ -2,6 +2,29 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.2
+
+- **`manifest generate` resolves profile variables in storage definitions (#424).**
+  `{{VAR}}` placeholders in config-level `storages.definitions` fields
+  (`bucket`/`region`/`account`/`container`/`prefix`/`endpoint`) supplied by a profile
+  `variables:` block are now substituted during manifest generation, not just `prefix`.
+- **Generated manifests are self-contained for `floe run --manifest` (#424, #425).** The
+  manifest now embeds the effective `storages`/`catalogs`/`lineage` (config-level
+  definitions merged with the profile, with profile variables already resolved) instead of
+  only the profile sections, so manifest replay can resolve named storages such as
+  `source.storage` / `sink.*.storage`. A present-but-malformed embedded block now produces a
+  clear `manifest <section> block is malformed` error instead of being silently dropped
+  (which previously resurfaced as the confusing `no storages block` failure). See
+  `docs/manifest.md`.
+- **EKS Pod Identity / container credentials for Glue/S3 Iceberg writes (#426).** The Iceberg
+  S3 write/seed path resolves AWS credentials through the AWS SDK default chain (which honors
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI` + token file, the same chain the Glue client and S3
+  reads already use) and hands them to the opendal-backed writer as static credentials, so
+  writes no longer fall back to EC2 IMDS in EKS Pod Identity pods. Existing static-env / IMDS
+  setups are unaffected. See `docs/sinks/iceberg.md`.
+- Internal hardening: removed a duplicated `#[cfg(feature = "delta")]` attribute flagged by
+  newer clippy.
+
 ## v0.6.1
 
 - **Structured `FloeError` type (#395).** `floe-core` previously returned

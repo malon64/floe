@@ -11,12 +11,16 @@
 //! The full build (`cfg!(feature = "duckdb")`) handles DuckDB directly, so its
 //! delegation hook is a no-op.
 
+// `FloeError` and the path types are only used by the lean build's companion-lookup
+// helpers, which are themselves `#[cfg(not(feature = "duckdb"))]`.
 #[cfg(not(feature = "duckdb"))]
 use floe_core::FloeError;
+#[cfg(not(feature = "duckdb"))]
 use std::path::{Path, PathBuf};
 
 use floe_core::config::RootConfig;
-#[cfg(not(feature = "duckdb"))]
+// Used by `maybe_delegate_duckdb` in both feature configs (the `duckdb` build's no-op
+// variant returns `FloeResult<()>` too), so this import must not be feature-gated.
 use floe_core::FloeResult;
 
 #[cfg(not(feature = "duckdb"))]

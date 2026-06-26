@@ -2,6 +2,19 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.3
+
+- **Fixes the `floe-duckdb` companion build (CLI binaries, Docker images).** Building
+  `floe-cli` with `--features duckdb` failed to compile (`error[E0425]: cannot find type
+  FloeResult`) because the `FloeResult` import in `crates/floe-cli/src/delegate.rs` was gated
+  to the lean build (`#[cfg(not(feature = "duckdb"))]`) yet used by the duckdb build's no-op
+  `maybe_delegate_duckdb`. The import is now unconditional. The lean `floe` binary and PyPI
+  wheels were unaffected; only the DuckDB companion artifacts failed to build for v0.6.2.
+- **CI now compiles `floe-cli --features duckdb`.** The path-gated `duckdb` job previously
+  only linted `floe-core`; it now also builds the CLI binary the release ships as
+  `floe-duckdb` and triggers on `floe-cli` source changes, so feature-gated CLI breakage is
+  caught before a tagged release instead of in the release pipeline.
+
 ## v0.6.2
 
 - **`manifest generate` resolves profile variables in storage definitions (#424).**

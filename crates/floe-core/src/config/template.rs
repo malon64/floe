@@ -41,10 +41,13 @@ pub fn apply_templates_with_vars(
 
     if let Some(storages) = config.storages.as_mut() {
         for definition in storages.definitions.iter_mut() {
-            if let Some(prefix) = definition.prefix.as_mut() {
-                let field = format!("storages.definitions.{}.prefix", definition.name);
-                *prefix = replace_placeholders(prefix, &vars, &field, None)?;
-            }
+            let name = definition.name.clone();
+            replace_storage_definition_field(&mut definition.bucket, &vars, &name, "bucket")?;
+            replace_storage_definition_field(&mut definition.region, &vars, &name, "region")?;
+            replace_storage_definition_field(&mut definition.account, &vars, &name, "account")?;
+            replace_storage_definition_field(&mut definition.container, &vars, &name, "container")?;
+            replace_storage_definition_field(&mut definition.prefix, &vars, &name, "prefix")?;
+            replace_storage_definition_field(&mut definition.endpoint, &vars, &name, "endpoint")?;
         }
     }
 
@@ -90,6 +93,19 @@ pub fn apply_templates_with_vars(
         }
     }
 
+    Ok(())
+}
+
+fn replace_storage_definition_field(
+    value: &mut Option<String>,
+    vars: &HashMap<String, String>,
+    definition_name: &str,
+    field_name: &str,
+) -> FloeResult<()> {
+    if let Some(current) = value.as_mut() {
+        let field = format!("storages.definitions.{definition_name}.{field_name}");
+        *current = replace_placeholders(current, vars, &field, None)?;
+    }
     Ok(())
 }
 

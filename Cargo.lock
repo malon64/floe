@@ -3403,6 +3403,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "aws-config",
+ "aws-credential-types",
  "aws-sdk-glue",
  "aws-sdk-s3",
  "azure_core",

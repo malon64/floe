@@ -80,6 +80,25 @@ entities:
           type: "string"
 ```
 
+## AWS credentials for S3 / Glue writes
+
+Floe resolves AWS credentials for Glue/S3 Iceberg writes through the standard AWS SDK
+credential chain. The supported sources (in the SDK's default priority order) include:
+
+- Static environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
+  `AWS_SESSION_TOKEN`).
+- Web identity / IRSA (`AWS_WEB_IDENTITY_TOKEN_FILE` + `AWS_ROLE_ARN`).
+- **EKS Pod Identity / ECS container credentials**
+  (`AWS_CONTAINER_CREDENTIALS_FULL_URI` + `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`).
+- EC2 instance metadata (IMDS).
+
+The Iceberg writer's underlying object-store layer does not, on its own, understand EKS Pod
+Identity container credentials and would otherwise fall back to EC2 IMDS. Floe resolves the
+credentials up front through the AWS SDK and hands them to the writer, so EKS Pod Identity and
+the other container-credential modes work for both the Glue catalog metadata and the S3 data
+and metadata writes — no extra configuration is required. To use explicit keys instead, set
+the `AWS_*` environment variables.
+
 ## REST catalog credentials
 
 REST catalog definitions accept bearer tokens and OAuth2 client credentials:

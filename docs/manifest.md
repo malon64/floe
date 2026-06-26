@@ -117,6 +117,18 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
     }
   },
 
+  // Storage / catalog / lineage definitions, embedded so the manifest is self-contained.
+  // These mirror the effective config (config-level definitions merged with any profile,
+  // with profile variables already resolved) and are what `floe run --manifest` uses to
+  // resolve named storages such as `source.storage` / `sink.*.storage`. Present whenever the
+  // config (or profile) defines them.
+  "storages": {
+    "default": "lakehouse_bronze",
+    "definitions": [
+      { "name": "lakehouse_bronze", "type": "s3", "bucket": "example-bronze", "region": "eu-west-1" }
+    ]
+  },
+
   // One entry per entity — this is what orchestrators iterate over
   "entities": [
     {

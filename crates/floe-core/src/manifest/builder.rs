@@ -395,15 +395,21 @@ fn build_common_manifest(
         now_ts_ms()
     };
 
-    // Serialize profile sections as opaque JSON values so they can be re-applied at run time.
-    let storages = profile
-        .and_then(|p| p.storages.as_ref())
+    // Serialize the effective config sections (config-level definitions already merged with
+    // the profile via `apply_profile_*`, and `{{VAR}}` placeholders resolved) as opaque JSON
+    // values so the manifest is self-contained and can be replayed by `floe run --manifest`
+    // without re-supplying the config or profile.
+    let storages = config
+        .storages
+        .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
-    let catalogs = profile
-        .and_then(|p| p.catalogs.as_ref())
+    let catalogs = config
+        .catalogs
+        .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
-    let lineage = profile
-        .and_then(|p| p.lineage.as_ref())
+    let lineage = config
+        .lineage
+        .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
 
     CommonManifest {

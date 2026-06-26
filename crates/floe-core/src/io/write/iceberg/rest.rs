@@ -80,6 +80,17 @@ pub(crate) async fn build_rest_catalog(
                 .next()
                 .unwrap_or("s3")
                 .to_string();
+            // Resolve EKS Pod Identity / container credentials so the opendal S3 writer does
+            // not fall back to EC2 IMDS (#426).
+            let region = props
+                .get(iceberg::io::S3_REGION)
+                .or_else(|| props.get(iceberg::io::CLIENT_REGION))
+                .cloned();
+            crate::io::storage::object_store::inject_aws_static_credentials(
+                &mut props,
+                region.as_deref(),
+            )
+            .await;
             Arc::new(OpenDalStorageFactory::S3 {
                 configured_scheme: scheme,
                 customized_credential_load: None,

@@ -3,7 +3,6 @@ use crate::errors::FloeError;
 use polars::prelude::DataFrame;
 
 #[cfg(feature = "delta")]
-#[cfg(feature = "delta")]
 use crate::io::format::AcceptedMergeMetrics;
 #[cfg(feature = "delta")]
 use crate::io::storage::Target;

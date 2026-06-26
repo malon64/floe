@@ -389,6 +389,13 @@ async fn write_iceberg_table_async(
             .next()
             .unwrap_or("s3")
             .to_string();
+        // Resolve EKS Pod Identity / container credentials into static s3.* props so the
+        // opendal writer does not fall back to EC2 IMDS (#426).
+        let region = catalog_props
+            .get(iceberg::io::S3_REGION)
+            .or_else(|| catalog_props.get(iceberg::io::CLIENT_REGION))
+            .cloned();
+        object_store::inject_aws_static_credentials(&mut catalog_props, region.as_deref()).await;
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
                 configured_scheme: scheme,
@@ -731,6 +738,13 @@ async fn collect_iceberg_batches(
             .next()
             .unwrap_or("s3")
             .to_string();
+        // Resolve EKS Pod Identity / container credentials so the opendal S3 reader does not
+        // fall back to EC2 IMDS when seeding from existing Iceberg metadata (#426).
+        let region = props
+            .get(iceberg::io::S3_REGION)
+            .or_else(|| props.get(iceberg::io::CLIENT_REGION))
+            .cloned();
+        object_store::inject_aws_static_credentials(&mut props, region.as_deref()).await;
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
                 configured_scheme: scheme,

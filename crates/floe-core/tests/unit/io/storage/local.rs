@@ -181,6 +181,38 @@ fn local_client_download_copies_file() {
 }
 
 #[test]
+fn local_client_download_failure_is_structured_floe_error() {
+    use floe_core::{FloeError, FloeErrorKind};
+
+    let root = temp_dir("floe-local-download-fail");
+    let missing = root.join("does-not-exist.txt");
+    let dest_dir = root.join("dest");
+    let client = LocalClient::new();
+
+    let err = client
+        .download_to_temp(missing.to_string_lossy().as_ref(), &dest_dir)
+        .expect_err("download of a missing source should fail");
+
+    let floe = err
+        .downcast_ref::<FloeError>()
+        .expect("storage failures should be a structured FloeError");
+    assert_eq!(floe.kind(), FloeErrorKind::Storage);
+    match floe {
+        FloeError::Storage { path, message } => {
+            assert_eq!(
+                path.as_deref(),
+                Some(missing.display().to_string().as_str())
+            );
+            assert!(
+                message.starts_with("local download failed from"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("expected Storage variant, got {other:?}"),
+    }
+}
+
+#[test]
 fn local_client_conditional_state_create_update_and_delete() {
     let root = temp_dir("floe-local-state-conditional");
     let state_path = root.join("state.json");
@@ -225,4 +257,57 @@ fn local_client_conditional_state_create_update_and_delete() {
         .expect("delete");
     assert!(matches!(deleted, ConditionalWrite::Written { .. }));
     assert!(!state_path.exists());
+}
+
+#[test]
+fn stale_lock_is_broken() {
+    let root = temp_dir("floe-local-stale-lock");
+    let state_path = root.join("state.json");
+    let uri = state_path.to_string_lossy();
+    let lock_path = PathBuf::from(format!("{}.lock", state_path.display()));
+    // A lock left behind by a process that died long ago (epoch acquisition time).
+    write_file(&lock_path, "0:12345");
+
+    let client = LocalClient::new();
+    let written = client
+        .write_object_conditional(uri.as_ref(), None, br#"{"a":1}"#)
+        .expect("write should break the stale lock and succeed");
+    assert!(matches!(written, ConditionalWrite::Written { .. }));
+    assert!(!lock_path.exists(), "lock released after write");
+}
+
+#[test]
+fn fresh_lock_blocks_until_released() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let root = temp_dir("floe-local-fresh-lock");
+    let state_path = root.join("state.json");
+    let uri = state_path.to_string_lossy().into_owned();
+    let lock_path = PathBuf::from(format!("{}.lock", state_path.display()));
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    // A lock held by a live process must not be broken.
+    write_file(&lock_path, &format!("{now_ms}:99999"));
+
+    let (tx, rx) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        let client = LocalClient::new();
+        let result = client.write_object_conditional(uri.as_ref(), None, br#"{"a":1}"#);
+        tx.send(()).ok();
+        result
+    });
+
+    assert!(
+        rx.recv_timeout(Duration::from_millis(200)).is_err(),
+        "write must block while a fresh lock is held"
+    );
+
+    fs::remove_file(&lock_path).expect("release lock");
+    rx.recv_timeout(Duration::from_secs(5))
+        .expect("write completes once the lock is released");
+    let written = writer.join().expect("join writer").expect("write");
+    assert!(matches!(written, ConditionalWrite::Written { .. }));
 }

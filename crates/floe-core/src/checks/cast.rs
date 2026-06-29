@@ -1,7 +1,7 @@
+use crate::errors::FloeError;
 use polars::prelude::{col, lit, BooleanChunked, DataFrame, Expr, StringChunked, NULL};
 
 use super::{ColumnIndex, RowError, SparseRowErrors};
-use crate::errors::RunError;
 use crate::{config, FloeResult};
 
 /// Detect cast mismatches by comparing raw (string) values to typed values.
@@ -24,23 +24,20 @@ pub fn cast_mismatch_errors(
         }
         let raw_index = raw_indices
             .get(&column.name)
-            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?;
+            .ok_or_else(|| FloeError::run(format!("raw column {} not found", column.name)))?;
         let typed_index = typed_indices
             .get(&column.name)
-            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?;
+            .ok_or_else(|| FloeError::run(format!("typed column {} not found", column.name)))?;
         let raw = raw_df
             .select_at_idx(*raw_index)
-            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?
+            .ok_or_else(|| FloeError::run(format!("raw column {} not found", column.name)))?
             .str()
             .map_err(|err| {
-                Box::new(RunError(format!(
-                    "raw column {} is not utf8: {err}",
-                    column.name
-                )))
+                FloeError::run(format!("raw column {} is not utf8: {err}", column.name))
             })?;
         let typed_nulls = typed_df
             .select_at_idx(*typed_index)
-            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?
+            .ok_or_else(|| FloeError::run(format!("typed column {} not found", column.name)))?
             .is_null();
 
         append_cast_errors(&mut errors_per_row, &column.name, raw, &typed_nulls)?;
@@ -67,23 +64,20 @@ pub fn cast_mismatch_errors_sparse(
         }
         let raw_index = raw_indices
             .get(&column.name)
-            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?;
+            .ok_or_else(|| FloeError::run(format!("raw column {} not found", column.name)))?;
         let typed_index = typed_indices
             .get(&column.name)
-            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?;
+            .ok_or_else(|| FloeError::run(format!("typed column {} not found", column.name)))?;
         let raw = raw_df
             .select_at_idx(*raw_index)
-            .ok_or_else(|| Box::new(RunError(format!("raw column {} not found", column.name))))?
+            .ok_or_else(|| FloeError::run(format!("raw column {} not found", column.name)))?
             .str()
             .map_err(|err| {
-                Box::new(RunError(format!(
-                    "raw column {} is not utf8: {err}",
-                    column.name
-                )))
+                FloeError::run(format!("raw column {} is not utf8: {err}", column.name))
             })?;
         let typed_nulls = typed_df
             .select_at_idx(*typed_index)
-            .ok_or_else(|| Box::new(RunError(format!("typed column {} not found", column.name))))?
+            .ok_or_else(|| FloeError::run(format!("typed column {} not found", column.name)))?
             .is_null();
 
         let raw_not_null = raw.is_not_null();
@@ -129,26 +123,15 @@ pub fn cast_mismatch_counts(
 
         let raw = raw_df
             .column(&column.name)
-            .map_err(|err| {
-                Box::new(RunError(format!(
-                    "raw column {} not found: {err}",
-                    column.name
-                )))
-            })?
+            .map_err(|err| FloeError::run(format!("raw column {} not found: {err}", column.name)))?
             .str()
             .map_err(|err| {
-                Box::new(RunError(format!(
-                    "raw column {} is not utf8: {err}",
-                    column.name
-                )))
+                FloeError::run(format!("raw column {} is not utf8: {err}", column.name))
             })?;
         let typed_nulls = typed_df
             .column(&column.name)
             .map_err(|err| {
-                Box::new(RunError(format!(
-                    "typed column {} not found: {err}",
-                    column.name
-                )))
+                FloeError::run(format!("typed column {} not found: {err}", column.name))
             })?
             .is_null();
 

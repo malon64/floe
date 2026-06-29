@@ -69,17 +69,18 @@ impl RunObserver for CliObserver {
 }
 
 fn error_code_for(err: &(dyn std::error::Error + 'static)) -> &'static str {
-    if err.is::<floe_core::ConfigError>() {
-        return "config_error";
-    }
-    if err.is::<floe_core::errors::RunError>() {
-        return "run_error";
-    }
-    if err.is::<floe_core::errors::StorageError>() {
-        return "storage_error";
-    }
-    if err.is::<floe_core::errors::IoError>() {
-        return "io_error";
+    // Every floe-core failure is a structured FloeError (#395); classify by kind.
+    if let Some(core) = err.downcast_ref::<floe_core::FloeError>() {
+        return match core.kind() {
+            floe_core::FloeErrorKind::Storage => "storage_error",
+            floe_core::FloeErrorKind::Io => "io_error",
+            floe_core::FloeErrorKind::Config | floe_core::FloeErrorKind::Validation => {
+                "config_error"
+            }
+            floe_core::FloeErrorKind::Run
+            | floe_core::FloeErrorKind::Sink
+            | floe_core::FloeErrorKind::State => "run_error",
+        };
     }
     "error"
 }

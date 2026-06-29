@@ -1,10 +1,10 @@
+use crate::errors::FloeError;
 use std::path::Path;
 
 use deltalake::logstore::read_commit_entry;
 use deltalake::table::builder::DeltaTableBuilder;
 use serde_json::Value;
 
-use crate::errors::RunError;
 use crate::io::storage::{object_store, Target};
 use crate::io::write::metrics;
 use crate::{config, FloeResult};
@@ -57,10 +57,10 @@ fn delta_commit_add_stats(table_root: &Path, version: i64) -> FloeResult<DeltaCo
         .join("_delta_log")
         .join(format!("{version:020}.json"));
     let bytes = std::fs::read(&log_path).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta metrics failed to open commit log {}: {err}",
             log_path.display()
-        )))
+        ))
     })?;
     parse_delta_commit_add_stats_bytes_with_context(&bytes, &log_path.display().to_string())
 }
@@ -74,20 +74,18 @@ fn delta_commit_add_stats_via_object_store(
 ) -> FloeResult<DeltaCommitAddStats> {
     let store = object_store::delta_store_config(target, resolver, entity)?;
     let builder = DeltaTableBuilder::from_url(store.table_url.clone())
-        .map_err(|err| Box::new(RunError(format!("delta metrics builder failed: {err}"))))?
+        .map_err(|err| FloeError::run(format!("delta metrics builder failed: {err}")))?
         .with_storage_options(store.storage_options);
-    let log_store = builder.build_storage().map_err(|err| {
-        Box::new(RunError(format!(
-            "delta metrics log store init failed: {err}"
-        )))
-    })?;
+    let log_store = builder
+        .build_storage()
+        .map_err(|err| FloeError::run(format!("delta metrics log store init failed: {err}")))?;
     let bytes = runtime
         .block_on(async { read_commit_entry(log_store.object_store(None).as_ref(), version).await })
-        .map_err(|err| Box::new(RunError(format!("delta metrics commit read failed: {err}"))))?
+        .map_err(|err| FloeError::run(format!("delta metrics commit read failed: {err}")))?
         .ok_or_else(|| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "delta metrics commit log missing for version {version}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
     parse_delta_commit_add_stats_bytes_with_context(
         bytes.as_ref(),
@@ -105,16 +103,14 @@ fn parse_delta_commit_add_stats_bytes_with_context(
     context: &str,
 ) -> FloeResult<DeltaCommitAddStats> {
     let content = std::str::from_utf8(bytes).map_err(|err| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "delta metrics failed to decode {context} as utf-8: {err}"
-        )))
+        ))
     })?;
     let mut stats = DeltaCommitAddStats::default();
     for line in content.lines() {
         let record: Value = serde_json::from_str(line).map_err(|err| {
-            Box::new(RunError(format!(
-                "delta metrics failed to parse {context}: {err}"
-            )))
+            FloeError::run(format!("delta metrics failed to parse {context}: {err}"))
         })?;
         let Some(add) = record.get("add") else {
             continue;

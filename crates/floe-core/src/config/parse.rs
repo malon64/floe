@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -20,7 +21,7 @@ use crate::config::{
     SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
     StorageDefinition, StoragesConfig, WriteMode,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub(crate) fn parse_config(path: &Path) -> FloeResult<RootConfig> {
     parse_config_with_vars(path, &std::collections::HashMap::new())
@@ -89,12 +90,13 @@ pub(crate) fn parse_config_with_vars(
 ) -> FloeResult<RootConfig> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
-        return Err(Box::new(ConfigError("YAML is empty".to_string())));
+        return Err(FloeError::config("YAML is empty".to_string()).into());
     }
     if docs.len() > 1 {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "YAML contains multiple documents; expected one".to_string(),
-        )));
+        )
+        .into());
     }
     let mut config = parse_root(&docs[0])?;
     let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -129,9 +131,10 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
 
     let storages = match (hash_get(root, "storages"), hash_get(root, "filesystems")) {
         (Some(_), Some(_)) => {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "root.storages and root.filesystems are mutually exclusive".to_string(),
-            )))
+            )
+            .into())
         }
         (Some(value), None) => Some(parse_storages(value)?),
         (None, Some(value)) => Some(parse_storages(value)?),
@@ -169,11 +172,7 @@ fn parse_root(doc: &Yaml) -> FloeResult<RootConfig> {
     for (index, entity_yaml) in entities_yaml.iter().enumerate() {
         let name_hint = entity_name_hint(entity_yaml);
         let entity = parse_entity(entity_yaml).map_err(|err| {
-            Box::new(ConfigError(format_entity_error(
-                index,
-                name_hint,
-                err.as_ref(),
-            )))
+            FloeError::config(format_entity_error(index, name_hint, err.as_ref()))
         })?;
         entities.push(entity);
     }
@@ -338,9 +337,10 @@ fn parse_incremental_mode(value: &str, ctx: &str) -> FloeResult<IncrementalMode>
         "archive" => Ok(IncrementalMode::Archive),
         "file" => Ok(IncrementalMode::File),
         "row" => Ok(IncrementalMode::Row),
-        _ => Err(Box::new(ConfigError(format!(
+        _ => Err(FloeError::config(format!(
             "unsupported value at {ctx}: {value} (allowed: none, archive, file, row)"
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -368,9 +368,10 @@ fn parse_source(value: &Yaml) -> FloeResult<SourceConfig> {
     let storage = opt_string(hash, "storage", "source")?;
     let filesystem = opt_string(hash, "filesystem", "source")?;
     if storage.is_some() && filesystem.is_some() {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "source.storage and source.storage are mutually exclusive".to_string(),
-        )));
+        )
+        .into());
     }
 
     Ok(SourceConfig {
@@ -482,9 +483,10 @@ fn parse_sink_target(
     let storage = opt_string(hash, "storage", ctx)?;
     let filesystem = opt_string(hash, "filesystem", ctx)?;
     if storage.is_some() && filesystem.is_some() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "{ctx}.storage and {ctx}.storage are mutually exclusive"
-        ))));
+        ))
+        .into());
     }
     let options = if allow_options {
         match hash_get(hash, "options") {
@@ -533,9 +535,9 @@ fn parse_sink_target(
                 // A `duckdb:` block only applies to a DuckDB sink. Reject it for any
                 // other format so a misplaced block can't be silently ignored.
                 if format != "duckdb" {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "{ctx}.duckdb is only valid when format is \"duckdb\" (found format={format:?})"
-                    ))));
+                    )).into());
                 }
                 Some(parse_sink_duckdb_options(value, &format!("{ctx}.duckdb"))?)
             }
@@ -590,9 +592,9 @@ fn parse_write_mode(value: &str, ctx: &str) -> FloeResult<WriteMode> {
         "append" => Ok(WriteMode::Append),
         "merge_scd1" => Ok(WriteMode::MergeScd1),
         "merge_scd2" => Ok(WriteMode::MergeScd2),
-        _ => Err(Box::new(ConfigError(format!(
+        _ => Err(FloeError::config(format!(
             "unsupported value at {ctx}: {value} (allowed: overwrite, append, merge_scd1, merge_scd2)"
-        )))),
+        )).into()),
     }
 }
 
@@ -715,16 +717,16 @@ pub(crate) fn parse_storages(value: &Yaml) -> FloeResult<StoragesConfig> {
     let definitions_yaml = match hash_get(hash, "definitions") {
         Some(value) => yaml_array(value, "storages.definitions")?,
         None => {
-            return Err(Box::new(ConfigError(
+            return Err(FloeError::config(
                 "missing required field storages.definitions".to_string(),
-            )))
+            )
+            .into())
         }
     };
     let mut definitions = Vec::with_capacity(definitions_yaml.len());
     for (index, item) in definitions_yaml.iter().enumerate() {
-        let definition = parse_storage_definition(item).map_err(|err| {
-            Box::new(ConfigError(format!("storages.definitions[{index}]: {err}")))
-        })?;
+        let definition = parse_storage_definition(item)
+            .map_err(|err| FloeError::config(format!("storages.definitions[{index}]: {err}")))?;
         definitions.push(definition);
     }
     Ok(StoragesConfig {
@@ -773,18 +775,15 @@ pub(crate) fn parse_catalogs_with_context(
     let definitions_yaml = match hash_get(hash, "definitions") {
         Some(value) => yaml_array(value, &definitions_context)?,
         None => {
-            return Err(Box::new(ConfigError(format!(
-                "missing required field {definitions_context}"
-            ))))
+            return Err(
+                FloeError::config(format!("missing required field {definitions_context}")).into(),
+            )
         }
     };
     let mut definitions = Vec::with_capacity(definitions_yaml.len());
     for (index, item) in definitions_yaml.iter().enumerate() {
-        let definition = parse_catalog_definition(item, &definitions_context).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "{definitions_context}[{index}]: {err}"
-            )))
-        })?;
+        let definition = parse_catalog_definition(item, &definitions_context)
+            .map_err(|err| FloeError::config(format!("{definitions_context}[{index}]: {err}")))?;
         definitions.push(definition);
     }
     Ok(CatalogsConfig {
@@ -866,9 +865,10 @@ fn parse_catalog_type_config(
             create_schema_if_missing: opt_bool(hash, "create_schema_if_missing", context)?
                 .unwrap_or(false),
         }),
-        other => Err(Box::new(crate::errors::ConfigError(format!(
+        other => Err(crate::errors::FloeError::config(format!(
             "{context} name={name} has unsupported type={other} (supported: glue, rest, unity)"
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -891,9 +891,10 @@ fn parse_policy(value: &Yaml) -> FloeResult<PolicyConfig> {
         "reject" => PolicySeverity::Reject,
         "abort" => PolicySeverity::Abort,
         other => {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "policy.severity={other} is unsupported (allowed: warn, reject, abort)"
-            ))))
+            ))
+            .into())
         }
     };
     Ok(PolicyConfig { severity })
@@ -932,7 +933,7 @@ fn parse_schema(value: &Yaml) -> FloeResult<SchemaConfig> {
     let mut columns = Vec::with_capacity(columns_yaml.len());
     for (index, column_yaml) in columns_yaml.iter().enumerate() {
         let column = parse_column(column_yaml)
-            .map_err(|err| Box::new(ConfigError(format!("schema.columns[{index}]: {err}"))))?;
+            .map_err(|err| FloeError::config(format!("schema.columns[{index}]: {err}")))?;
         columns.push(column);
     }
 
@@ -996,9 +997,10 @@ fn parse_schema_evolution_mode(value: &str, ctx: &str) -> FloeResult<SchemaEvolu
     match value.trim().to_ascii_lowercase().as_str() {
         "strict" => Ok(SchemaEvolutionMode::Strict),
         "add_columns" => Ok(SchemaEvolutionMode::AddColumns),
-        _ => Err(Box::new(ConfigError(format!(
+        _ => Err(FloeError::config(format!(
             "unsupported value at {ctx}: {value} (allowed: strict, add_columns)"
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -1008,9 +1010,10 @@ fn parse_schema_evolution_incompatible_action(
 ) -> FloeResult<SchemaEvolutionIncompatibleAction> {
     match value.trim().to_ascii_lowercase().as_str() {
         "fail" => Ok(SchemaEvolutionIncompatibleAction::Fail),
-        _ => Err(Box::new(ConfigError(format!(
+        _ => Err(FloeError::config(format!(
             "unsupported value at {ctx}: {value} (allowed: fail)"
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -1037,10 +1040,8 @@ fn parse_column(value: &Yaml) -> FloeResult<ColumnConfig> {
 }
 
 fn get_value<'a>(hash: &'a Hash, key: &str, ctx: &str) -> FloeResult<&'a Yaml> {
-    hash_get(hash, key).ok_or_else(|| {
-        Box::new(ConfigError(format!("missing required field {ctx}.{key}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    hash_get(hash, key)
+        .ok_or_else(|| FloeError::config(format!("missing required field {ctx}.{key}")).into())
 }
 
 fn get_string(hash: &Hash, key: &str, ctx: &str) -> FloeResult<String> {
@@ -1099,9 +1100,7 @@ fn opt_bool(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<bool>> {
         None | Some(Yaml::Null) | Some(Yaml::BadValue) => Ok(None),
         Some(value) => match value {
             Yaml::Boolean(value) => Ok(Some(*value)),
-            _ => Err(Box::new(ConfigError(format!(
-                "expected boolean at {ctx}.{key}"
-            )))),
+            _ => Err(FloeError::config(format!("expected boolean at {ctx}.{key}")).into()),
         },
     }
 }
@@ -1112,15 +1111,14 @@ fn opt_u64(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u64>> {
         Some(value) => match value {
             Yaml::Integer(raw) => {
                 if *raw < 0 {
-                    return Err(Box::new(ConfigError(format!(
+                    return Err(FloeError::config(format!(
                         "expected positive integer at {ctx}.{key}"
-                    ))));
+                    ))
+                    .into());
                 }
                 Ok(Some(*raw as u64))
             }
-            _ => Err(Box::new(ConfigError(format!(
-                "expected integer at {ctx}.{key}"
-            )))),
+            _ => Err(FloeError::config(format!("expected integer at {ctx}.{key}")).into()),
         },
     }
 }
@@ -1130,9 +1128,10 @@ fn opt_u32(hash: &Hash, key: &str, ctx: &str) -> FloeResult<Option<u32>> {
         None => Ok(None),
         Some(v) => {
             if v > u32::MAX as u64 {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "value at {ctx}.{key} exceeds maximum allowed value"
-                ))));
+                ))
+                .into());
             }
             Ok(Some(v as u32))
         }
@@ -1145,10 +1144,8 @@ fn parse_pii_config(value: &Yaml) -> FloeResult<PiiConfig> {
     let columns_yaml = get_array(hash, "columns", "pii")?;
     let mut columns = Vec::with_capacity(columns_yaml.len());
     for (index, col_yaml) in columns_yaml.iter().enumerate() {
-        let col = parse_pii_column(col_yaml).map_err(|err| {
-            Box::new(ConfigError(format!("pii.columns[{index}]: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let col = parse_pii_column(col_yaml)
+            .map_err(|err| FloeError::config(format!("pii.columns[{index}]: {err}")))?;
         columns.push(col);
     }
     Ok(PiiConfig { columns })
@@ -1171,9 +1168,9 @@ fn parse_pii_column(value: &Yaml) -> FloeResult<PiiColumnConfig> {
         "mask" => PiiStrategy::Mask,
         "tokenize" => PiiStrategy::Tokenize,
         other => {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "pii.columns[name={name}].strategy={other} is unsupported (allowed: hash, drop, nullify, redact, mask)"
-            ))))
+            )).into())
         }
     };
     Ok(PiiColumnConfig {

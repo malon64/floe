@@ -2,6 +2,102 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.3
+
+- **Fixes the `floe-duckdb` companion build (CLI binaries, Docker images).** Building
+  `floe-cli` with `--features duckdb` failed to compile (`error[E0425]: cannot find type
+  FloeResult`) because the `FloeResult` import in `crates/floe-cli/src/delegate.rs` was gated
+  to the lean build (`#[cfg(not(feature = "duckdb"))]`) yet used by the duckdb build's no-op
+  `maybe_delegate_duckdb`. The import is now unconditional. The lean `floe` binary and PyPI
+  wheels were unaffected; only the DuckDB companion artifacts failed to build for v0.6.2.
+- **CI now compiles `floe-cli --features duckdb`.** The path-gated `duckdb` job previously
+  only linted `floe-core`; it now also builds the CLI binary the release ships as
+  `floe-duckdb` and triggers on `floe-cli` source changes, so feature-gated CLI breakage is
+  caught before a tagged release instead of in the release pipeline.
+
+## v0.6.2
+
+- **`manifest generate` resolves profile variables in storage definitions (#424).**
+  `{{VAR}}` placeholders in config-level `storages.definitions` fields
+  (`bucket`/`region`/`account`/`container`/`prefix`/`endpoint`) supplied by a profile
+  `variables:` block are now substituted during manifest generation, not just `prefix`.
+- **Generated manifests are self-contained for `floe run --manifest` (#424, #425).** The
+  manifest now embeds the effective `storages`/`catalogs`/`lineage` (config-level
+  definitions merged with the profile, with profile variables already resolved) instead of
+  only the profile sections, so manifest replay can resolve named storages such as
+  `source.storage` / `sink.*.storage`. A present-but-malformed embedded block now produces a
+  clear `manifest <section> block is malformed` error instead of being silently dropped
+  (which previously resurfaced as the confusing `no storages block` failure). See
+  `docs/manifest.md`.
+- **EKS Pod Identity / container credentials for Glue/S3 Iceberg writes (#426).** The Iceberg
+  S3 write/seed path resolves AWS credentials through the AWS SDK default chain (which honors
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI` + token file, the same chain the Glue client and S3
+  reads already use) and hands them to the opendal-backed writer as static credentials, so
+  writes no longer fall back to EC2 IMDS in EKS Pod Identity pods. Existing static-env / IMDS
+  setups are unaffected. See `docs/sinks/iceberg.md`.
+- Internal hardening: removed a duplicated `#[cfg(feature = "delta")]` attribute flagged by
+  newer clippy.
+
+## v0.6.1
+
+- **Structured `FloeError` type (#395).** `floe-core` previously returned
+  `Box<dyn Error>` over four stringly-typed wrappers
+  (`ConfigError`/`RunError`/`StorageError`/`IoError`); failures could only be
+  classified by inspecting message strings. Every failure is now a structured
+  `FloeError` enum variant (`Config`/`Validation`/`Storage`/`Sink`/`State`/`Run`/`Io`)
+  carrying typed context fields (entity, path, rule). Library consumers — including
+  the Python bindings and the CLI log emitter — recover the kind via
+  `err.downcast_ref::<FloeError>()` and `FloeError::kind()`.
+  - No user-visible behaviour change: `Display` output is byte-identical to the
+    old wrappers, the typed Python exceptions (`FloeConfigError`, `FloeRunError`,
+    `FloeStorageError`, `FloeIoError`) and CLI error codes are unchanged.
+  - `FloeResult<T>` remains the boxed alias so foreign errors keep flowing through
+    `?`. See `context/decisions/structured-floe-error.md`.
+- Internal-only release: no config, CLI, or sink behaviour changes.
+
+## v0.6.0
+
+- **HMAC-SHA256 keyed hashing for `strategy: hash` (`docs/pii.md`, #388).**
+  The optional `key:` field on a `pii.columns[]` entry selects HMAC-SHA256 instead of
+  plain SHA-256, making hash-masked values computationally infeasible to reverse by
+  dictionary attack while preserving referential integrity (same input + same key → same
+  output across runs). The key accepts a plain literal or a `${ENV_VAR}` reference
+  resolved at masking time.
+  - Plain SHA-256 remains the default for backward compatibility.
+  - A configuration warning is emitted when `strategy: hash` is used without `key:`.
+  - Literal keys are redacted from manifest serialization so they never appear in the
+    run manifest JSON.
+- **`abfss://` URIs now accepted everywhere (#393).**
+  The secure `abfss://` spelling (the one Azure surfaces in the portal and Databricks
+  shows in external-location URIs) was previously not recognized and silently fell
+  through to local-path handling. Floe now normalizes `abfss://` to the canonical
+  `abfs://` at config-parse time, so both spellings work end-to-end in source paths,
+  sink paths, state paths, and storage config.
+  - `is_remote_uri` was deduplicated from four copy-pasted sites into a single
+    canonical helper (`io/storage/core/uri.rs`); adding a scheme is now a one-line change.
+- **Run reliability hardening (#389, #390).**
+  - *Unity Catalog HTTP timeout*: the `reqwest` client used for Unity Catalog table
+    registration had no timeout. A hung or unreachable Databricks workspace now times out
+    after 30 seconds instead of blocking forever.
+  - *Stale lock recovery*: a local `.lock` file left behind by a killed or OOM-killed
+    process (previously permanent) is now broken automatically when older than 5 minutes.
+    The lock records its acquisition timestamp + PID; the fallback is file mtime for
+    legacy locks.
+  - *CAS jittered backoff*: conditional-write retries no longer fire in lockstep with no
+    delay. Full-jitter exponential backoff (50 ms base, 2 s cap) is applied between
+    failed attempts, and the retry count is raised from 5 to 8. No external PRNG
+    dependency — entropy is derived from the system clock.
+
+### Internal hardening
+
+- **pyo3 0.22 → 0.29 (#391):** clears two supply-chain advisories
+  (RUSTSEC-2025-0020, RUSTSEC-2026-0177) that were parked under `[advisories].ignore`
+  in `deny.toml`. The `cargo-deny` supply-chain gate is re-armed with both ignore
+  entries removed. No API or behavior change visible to Python callers.
+- **`cargo update`:** ~250 transitive lockfile bumps to latest semver-compatible
+  versions (tokio 1.49→1.52.3, aws-sdk-s3 1.120→1.137, openssl 0.10.75→0.10.81,
+  rustls 0.23.36→0.23.40, arrow 57.2→57.3.1, deltalake 0.30.1→0.30.2, and more).
+
 ## v0.5.6
 
 - **Fixes the `build-duckdb-cli` Windows build failure introduced in v0.5.5.**

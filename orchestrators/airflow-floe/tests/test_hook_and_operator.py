@@ -246,15 +246,26 @@ class HookAndOperatorTests(unittest.TestCase):
         expected = {"schema": "floe.airflow.run.v1", "run_id": "run-1"}
         with patch("airflow_floe.operators.FloeRunHook.run", return_value=expected) as run_mock:
             actual = operator.execute({})
-        run_mock.assert_called_once_with(
-            "/tmp/config.yml",
-            entities=["orders"],
-            execution=None,
-            runner_definition=None,
-            log_stdout=None,
-            log_stderr=None,
-        )
         self.assertEqual(actual, expected)
+
+        run_mock.assert_called_once()
+        args, kwargs = run_mock.call_args
+        self.assertEqual(args, ("/tmp/config.yml",))
+        self.assertEqual(kwargs["entities"], ["orders"])
+        self.assertIsNone(kwargs["execution"])
+        self.assertIsNone(kwargs["runner_definition"])
+        # The operator resolves its log sinks from `self.log`. Under Airflow 3.x
+        # BaseOperator.log is always a bound logger, so the sinks are callables
+        # (logger.info / logger.warning); without Airflow installed the fallback
+        # BaseOperator has no logger and the sinks are None. Assert against
+        # whichever environment the test resolves so it passes in both.
+        logger = getattr(operator, "log", None)
+        if logger is None:
+            self.assertIsNone(kwargs["log_stdout"])
+            self.assertIsNone(kwargs["log_stderr"])
+        else:
+            self.assertTrue(callable(kwargs["log_stdout"]))
+            self.assertTrue(callable(kwargs["log_stderr"]))
 
     def test_run_operator_populates_asset_events_from_manifest_context(self) -> None:
         class OutletEvent:

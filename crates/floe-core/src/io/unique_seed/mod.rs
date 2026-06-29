@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -10,7 +11,6 @@ use df_interchange::Interchange;
 use crate::checks::normalize::rename_output_columns;
 use crate::checks::normalize::{output_column_mapping, resolve_normalize_strategy};
 #[cfg(any(feature = "delta", feature = "duckdb", feature = "iceberg"))]
-use crate::errors::RunError;
 use crate::io::storage::Target;
 use crate::io::write::sink_format::{sink_format, SeedContext};
 use crate::{check, config, io, FloeResult};
@@ -88,9 +88,7 @@ pub(crate) fn seed_from_batches(
         let mut df = Interchange::from_arrow_57(vec![batch])
             .and_then(|ic| ic.to_polars_0_52())
             .map_err(|err| {
-                Box::new(RunError(format!(
-                    "batch to DataFrame conversion failed: {err}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::run(format!("batch to DataFrame conversion failed: {err}"))
             })?;
         rename_output_columns(&mut df, rename_back)?;
         unique_tracker.seed_from_df(&df)?;

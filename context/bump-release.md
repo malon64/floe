@@ -27,7 +27,7 @@ git checkout -b chore/bump-v<NEW_VERSION>
 
 ---
 
-## 3. Bump versions in all three `Cargo.toml` files and `pyproject.toml`
+## 3. Bump versions in all three `Cargo.toml` files and both `pyproject` manifests
 
 Files to update — change `version = "..."` **and** the `floe-core` dependency version in the crates that reference it:
 
@@ -36,9 +36,10 @@ Files to update — change `version = "..."` **and** the `floe-core` dependency 
 | `crates/floe-core/Cargo.toml` | `version` |
 | `crates/floe-cli/Cargo.toml` | `version`, `floe-core` dependency version |
 | `crates/floe-python/Cargo.toml` | `version`, `floe-core` dependency version |
-| `crates/floe-python/pyproject.toml` | `version` (the `[project]` version — controls the PyPI wheel version) |
+| `crates/floe-python/pyproject.toml` | `version` (the `[project]` version — controls the lean PyPI wheel version) |
+| `crates/floe-python/pyproject.duckdb.toml` | `version` **and** the `floe-python==<ver>` pin in `dependencies` (the DuckDB companion wheel — pinned to the exact lean version) |
 
-There is no workspace-level `version` field — each crate is bumped independently but all four files must stay in sync.
+There is no workspace-level `version` field — each crate is bumped independently but all **five** files must stay in sync. The release workflow's "Validate manifest versions match tag" job (`.github/workflows/release.yml`) checks every one of these against the tag and fails the publish on any mismatch — including `pyproject.duckdb.toml`.
 
 ---
 

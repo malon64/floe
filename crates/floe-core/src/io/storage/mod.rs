@@ -1,7 +1,8 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 pub mod core;
 pub mod object_store;
@@ -43,9 +44,10 @@ pub trait StorageClient: Send + Sync {
 
     fn read_object(&self, uri: &str) -> FloeResult<Option<StoredObject>> {
         let _ = uri;
-        Err(Box::new(ConfigError(
+        Err(FloeError::config(
             "storage backend does not support object reads with version tokens".to_string(),
-        )))
+        )
+        .into())
     }
 
     fn write_object_conditional(
@@ -55,9 +57,10 @@ pub trait StorageClient: Send + Sync {
         body: &[u8],
     ) -> FloeResult<ConditionalWrite> {
         let _ = (uri, expected_version, body);
-        Err(Box::new(ConfigError(
+        Err(FloeError::config(
             "storage backend does not support conditional object writes".to_string(),
-        )))
+        )
+        .into())
     }
 
     fn delete_object_conditional(
@@ -66,9 +69,10 @@ pub trait StorageClient: Send + Sync {
         expected_version: Option<&str>,
     ) -> FloeResult<ConditionalWrite> {
         let _ = (uri, expected_version);
-        Err(Box::new(ConfigError(
+        Err(FloeError::config(
             "storage backend does not support conditional object deletes".to_string(),
-        )))
+        )
+        .into())
     }
 }
 
@@ -101,10 +105,7 @@ impl CloudClient {
     ) -> FloeResult<&'a mut dyn StorageClient> {
         if !self.clients.contains_key(storage) {
             let definition = resolver.definition(storage).ok_or_else(|| {
-                Box::new(ConfigError(format!(
-                    "{} storage {} is not defined",
-                    context, storage
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::config(format!("{} storage {} is not defined", context, storage))
             })?;
             let client = build_client(&definition)?;
             self.clients.insert(storage.to_string(), client);
@@ -143,10 +144,7 @@ fn build_client(definition: &config::StorageDefinition) -> FloeResult<Box<dyn St
             Box::new(gcs::GcsClient::new(bucket)?)
         }
         other => {
-            return Err(Box::new(ConfigError(format!(
-                "storage type {} is unsupported",
-                other
-            ))))
+            return Err(FloeError::config(format!("storage type {} is unsupported", other)).into())
         }
     };
     Ok(client)

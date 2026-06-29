@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use floe_core::load_config;
+use floe_core::{load_config, load_config_with_profile_vars};
 
 fn temp_dir(prefix: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -28,6 +28,64 @@ fn write_config(dir: &Path, contents: &str) -> PathBuf {
 fn write_env(dir: &Path, contents: &str) -> PathBuf {
     let path = dir.join("env.yml");
     write_file(&path, contents)
+}
+
+#[test]
+fn profile_vars_apply_to_storage_definition_fields() {
+    let root = temp_dir("floe-storage-vars");
+    let config_yaml = format!(
+        r#"version: "0.1"
+storages:
+  default: "lakehouse_bronze"
+  definitions:
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "{{{{BRONZE_BUCKET}}}}"
+      region: "{{{{STORAGE_REGION}}}}"
+      prefix: "{{{{STORAGE_PREFIX}}}}"
+      endpoint: "https://{{{{STORAGE_ENDPOINT}}}}"
+entities:
+  - name: "orders"
+    source:
+      format: "csv"
+      path: "{root}/in/orders.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        storage: "lakehouse_bronze"
+        path: "sales/orders"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#,
+        root = root.display(),
+    );
+    let config_path = write_config(&root, &config_yaml);
+    let profile_vars = [
+        ("BRONZE_BUCKET".to_string(), "lakehouse-bronze".to_string()),
+        ("STORAGE_REGION".to_string(), "us-east-1".to_string()),
+        ("STORAGE_PREFIX".to_string(), "bronze/root".to_string()),
+        (
+            "STORAGE_ENDPOINT".to_string(),
+            "s3.local.example".to_string(),
+        ),
+    ]
+    .into_iter()
+    .collect();
+
+    let parsed = load_config_with_profile_vars(&config_path, &profile_vars).expect("parse config");
+    let definition = &parsed.storages.as_ref().expect("storages").definitions[0];
+
+    assert_eq!(definition.bucket.as_deref(), Some("lakehouse-bronze"));
+    assert_eq!(definition.region.as_deref(), Some("us-east-1"));
+    assert_eq!(definition.prefix.as_deref(), Some("bronze/root"));
+    assert_eq!(
+        definition.endpoint.as_deref(),
+        Some("https://s3.local.example")
+    );
 }
 
 #[test]

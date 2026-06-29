@@ -1,69 +1,75 @@
-# Floe Documentation Summary
+# Floe Documentation
 
-This page is the entry point to Floe documentation. It groups the most
-important references so you can quickly find the right guide.
+Floe is a Polars-powered data contract runtime for reliable file ingestion. It
+validates raw files or extracted datasets before they enter the trusted layer,
+routing accepted rows to lakehouse sinks and rejected rows to quarantine with
+audit reports.
+
+## When Floe fits
+
+Use Floe when you already have storage, an orchestrator, or a data platform, but
+need a lightweight entry gate for file contracts and quality checks.
+
+- Raw exports, partner feeds, API extracts, or object-storage drops need schema
+  and quality validation before becoming trusted data.
+- Existing platforms such as Databricks, Fabric-style lakehouses,
+  Snowflake/Open Catalog, MotherDuck, Airflow, or Dagster need an embeddable
+  ingestion gate rather than another platform.
+- Extract/load tools such as dlt, ingestr, or Airbyte already move data, and
+  Floe should validate and route the landed files or datasets.
+- Accepted rows should land in Parquet, Delta Lake, Apache Iceberg, or DuckDB,
+  while rejected rows and run evidence remain auditable.
+
+## When Floe is not the right tool
+
+- You need a connector catalog, CDC, or continuous replication engine.
+- You need a transformation framework or dbt-style model layer.
+- You need streaming ingestion from Kafka or another event bus.
+- You need distributed compute across a cluster.
+
+## Feature guide
+
+| Capability | Documentation |
+|---|---|
+| Contracts and full YAML reference | [config.md](config.md) |
+| Pipeline phases and execution details | [how-it-works.md](how-it-works.md) |
+| Checks and policy behavior | [checks.md](checks.md) |
+| Supported inputs, outputs, storage, and catalogs | [support-matrix.md](support-matrix.md) |
+| Write modes and merge semantics | [write_modes.md](write_modes.md) |
+| Parquet sink and sink tuning | [sinks/parquet.md](sinks/parquet.md), [sinks/options.md](sinks/options.md) |
+| Delta sink and Unity Catalog | [sinks/delta.md](sinks/delta.md) |
+| Iceberg sink with Glue or REST catalog | [sinks/iceberg.md](sinks/iceberg.md) |
+| DuckDB and MotherDuck sink | [sinks/duckdb.md](sinks/duckdb.md) |
+| S3, ADLS, and GCS storage | [storages/s3.md](storages/s3.md), [storages/adls.md](storages/adls.md), [storages/gcs.md](storages/gcs.md) |
+| Incremental file state | [incremental.md](incremental.md) |
+| Profiles and variables | [profiles.md](profiles.md), [variables.md](variables.md) |
+| PII masking | [pii.md](pii.md) |
+| Run reports and logging | [report.md](report.md), [logging.md](logging.md) |
+| OpenLineage integration | [lineage.md](lineage.md) |
+| Python and notebooks | [python-bindings.md](python-bindings.md) |
+| CLI usage and installation | [cli.md](cli.md), [installation.md](installation.md) |
+| Manifest generation for orchestrators | [manifest.md](manifest.md) |
+| Dagster and Airflow connectors | [Dagster README](../orchestrators/dagster-floe/README.md), [Airflow README](../orchestrators/airflow-floe/README.md) |
 
 ## Quick start
 
-- Install and run: see the repository README for a minimal example.
-- Guided onboarding and examples: [GitHub Wiki](https://github.com/malon64/floe/wiki).
-- CLI usage: [docs/cli.md](cli.md)
-- Installation options (Homebrew, Cargo, Docker): [docs/installation.md](installation.md)
+```bash
+floe validate -c config.yml
+floe run -c config.yml
+```
 
-## Core concepts
-
-- How a run works (file → row → entity checks): [docs/how-it-works.md](how-it-works.md)
-- Checks and policy behavior: [docs/checks.md](checks.md)
-- Run reports and JSON schema: [docs/report.md](report.md)
-- Logging for orchestrators (`--log-format`): [docs/logging.md](logging.md)
-
-## Python bindings
-
-- Using floe from Python and Jupyter notebooks: [docs/python-bindings.md](python-bindings.md)
-
-## Orchestrators & manifests
-
-- Manifest generation — why, how, and what's inside: [docs/manifest.md](manifest.md)
-- CLI manifest generation (`floe manifest generate`): [docs/cli.md](cli.md)
-- Common orchestrator manifest schema: [orchestrators/schemas/floe.manifest.v1.json](../orchestrators/schemas/floe.manifest.v1.json)
-- Dagster integration package + examples: [orchestrators/dagster-floe/README.md](../orchestrators/dagster-floe/README.md)
-- Airflow integration package + examples: [orchestrators/airflow-floe/README.md](../orchestrators/airflow-floe/README.md)
-- Local integration dev notes: [orchestrators/LOCAL_DEV.md](../orchestrators/LOCAL_DEV.md)
-
-## Configuration
-
-- Full config reference (all keys + defaults): [docs/config.md](config.md)
-- Storage registry and cloud paths:
-  - S3: [docs/storages/s3.md](storages/s3.md)
-  - ADLS: [docs/storages/adls.md](storages/adls.md)
-  - GCS: [docs/storages/gcs.md](storages/gcs.md)
-
-## Formats & sinks
-
-- Supported inputs/outputs across storages: [docs/support-matrix.md](support-matrix.md)
-- Parquet/Delta sink details:
-  - Delta sink: [docs/sinks/delta.md](sinks/delta.md)
-  - Sink options (parquet settings): [docs/sinks/options.md](sinks/options.md)
-  - Iceberg (filesystem catalog on local/S3/GCS, plus AWS Glue catalog on S3): [docs/sinks/iceberg.md](sinks/iceberg.md)
-
-## Bootstrap & CLI productivity
-
-- CLI usage (`validate`, `run`, `manifest generate`, `add-entity`, `state inspect`, `state reset`): [docs/cli.md](cli.md)
-- `floe add-entity` can bootstrap a missing config file and infer entity name/format from input path extensions (CSV/JSON/Parquet).
-- `floe state inspect` / `floe state reset` help manage local or remote per-entity incremental state for `incremental_mode: file`.
-
-## Benchmarking & development
-
-- Bench setup and results: [docs/benchmarking.md](benchmarking.md)
+Installation options are documented in [installation.md](installation.md). The
+CLI reference, including `manifest generate`, `add-entity`, `state inspect`, and
+`state reset`, is in [cli.md](cli.md).
 
 ## Current boundaries
 
-- Floe supports partitioned Delta (`partition_by`) and partitioned Iceberg (`partition_spec`) writes.
-- File-based incremental ingestion is implemented. Row-based incremental mode remains a contract-level value for future work.
-- Floe reports write-time metrics/metadata for accepted outputs (format-dependent), including Delta/Iceberg table versioning metadata and file sizing metrics where available.
-- Floe does not perform table optimization/maintenance (for example Delta optimize/vacuum or Iceberg compaction/maintenance); run those as separate jobs.
-- Iceberg schema evolution and merge/upsert workflows are out of scope in current releases.
-- Target-aware uniqueness checks against existing sink tables in append mode are future work (current uniqueness checks operate within Floe's processed data scope for the run).
-
-If you are missing a document or a section feels out of date, please open an
-issue or PR so we can keep this summary aligned with current behavior.
+- Floe runs as a lightweight single-node runtime using Rust, Polars, and Arrow.
+- File-based incremental ingestion is implemented. Row-based incremental mode
+  remains a contract-level value for future work.
+- Floe reports write-time metrics and metadata for accepted outputs where the
+  sink exposes them cheaply and reliably.
+- Table optimization and maintenance remain external to Floe, for example Delta
+  optimize/vacuum or Iceberg compaction jobs.
+- Iceberg schema evolution and merge/upsert workflows are out of scope in
+  current releases.

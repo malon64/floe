@@ -1,9 +1,9 @@
+use crate::errors::FloeError;
 use std::path::Path;
 
 use polars::prelude::{col, DataFrame, LazyFrame, ParquetReader, PlPath, SerReader};
 
 use crate::checks::normalize::normalize_name;
-use crate::errors::IoError;
 use crate::io::format::{self, FileReadError, InputAdapter, LocalInputFile, ReadInput};
 use crate::{config, FloeResult};
 
@@ -17,17 +17,17 @@ pub(crate) fn parquet_input_adapter() -> &'static dyn InputAdapter {
 
 pub fn read_parquet_schema_names(input_path: &Path) -> FloeResult<Vec<String>> {
     let file = std::fs::File::open(input_path).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to open parquet at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let mut reader = ParquetReader::new(file);
     let schema = reader.schema().map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to read parquet schema at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     Ok(schema.iter().map(|(name, _)| name.to_string()).collect())
 }
@@ -39,19 +39,17 @@ pub fn read_parquet_lazy(
     let path_str = input_path.to_string_lossy();
     let mut lf = LazyFrame::scan_parquet(PlPath::new(path_str.as_ref()), Default::default())
         .map_err(|err| {
-            Box::new(IoError(format!(
+            FloeError::io(format!(
                 "failed to scan parquet at {}: {err}",
                 input_path.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
     if let Some(columns) = projection {
         let exprs = columns.iter().map(col).collect::<Vec<_>>();
         lf = lf.select(exprs);
     }
-    lf.collect().map_err(|err| {
-        Box::new(IoError(format!("parquet read failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })
+    lf.collect()
+        .map_err(|err| FloeError::io(format!("parquet read failed: {err}")).into())
 }
 
 impl InputAdapter for ParquetInputAdapter {

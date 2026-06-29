@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -5,7 +6,7 @@ use polars::chunked_array::cast::CastOptions;
 use polars::prelude::{Column, DataFrame, DataType, NamedFrom, Schema, Series};
 
 use crate::io::storage::Target;
-use crate::{check, config, io, ConfigError, FloeResult};
+use crate::{check, config, io, FloeResult};
 
 #[derive(Debug, Clone)]
 pub struct InputFile {
@@ -409,16 +410,16 @@ fn unsupported_format_error(
     kind: FormatKind,
     format: &str,
     entity_name: Option<&str>,
-) -> ConfigError {
+) -> FloeError {
     if let Some(entity_name) = entity_name {
-        return ConfigError(format!(
+        return FloeError::config(format!(
             "entity.name={} {}={} is unsupported",
             entity_name,
             kind.field_path(),
             format
         ));
     }
-    ConfigError(format!("unsupported {}: {format}", kind.description()))
+    FloeError::config(format!("unsupported {}: {format}", kind.description()))
 }
 
 pub fn ensure_input_format(entity_name: &str, format: &str) -> FloeResult<()> {
@@ -515,27 +516,29 @@ pub fn validate_sink_options(
         match compression.as_str() {
             "snappy" | "gzip" | "zstd" | "uncompressed" => {}
             _ => {
-                return Err(Box::new(ConfigError(format!(
+                return Err(FloeError::config(format!(
                     "entity.name={} sink.accepted.options.compression={} is unsupported (allowed: snappy, gzip, zstd, uncompressed)",
                     entity_name, compression
-                ))))
+                )).into())
             }
         }
     }
     if let Some(row_group_size) = options.row_group_size {
         if row_group_size == 0 {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.options.row_group_size must be greater than 0",
                 entity_name
-            ))));
+            ))
+            .into());
         }
     }
     if let Some(max_size_per_file) = options.max_size_per_file {
         if max_size_per_file == 0 {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "entity.name={} sink.accepted.options.max_size_per_file must be greater than 0",
                 entity_name
-            ))));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -649,10 +652,7 @@ pub(crate) fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<D
     let mut columns = Vec::with_capacity(schema.len());
     for (name, dtype) in schema.iter() {
         let series = df.column(name.as_str()).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "input column {} not found: {err}",
-                name.as_str()
-            )))
+            FloeError::config(format!("input column {} not found: {err}", name.as_str()))
         })?;
         let casted =
             if matches!(dtype, DataType::Boolean) && matches!(series.dtype(), DataType::String) {
@@ -661,27 +661,24 @@ pub(crate) fn cast_df_to_schema(df: &DataFrame, schema: &Schema) -> FloeResult<D
                 series
                     .cast_with_options(dtype, CastOptions::NonStrict)
                     .map_err(|err| {
-                        Box::new(ConfigError(format!(
+                        FloeError::config(format!(
                             "failed to cast input column {}: {err}",
                             name.as_str()
-                        )))
+                        ))
                     })?
             };
         columns.push(casted);
     }
-    DataFrame::new(columns).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "failed to build typed dataframe: {err}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })
+    DataFrame::new(columns)
+        .map_err(|err| FloeError::config(format!("failed to build typed dataframe: {err}")).into())
 }
 
 fn cast_string_to_bool(name: &str, series: &Column) -> FloeResult<Column> {
     let string_values = series.as_materialized_series().str().map_err(|err| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "failed to read boolean column {} as string: {err}",
             name
-        )))
+        ))
     })?;
     let mut values = Vec::with_capacity(series.len());
     for value in string_values {
@@ -703,31 +700,19 @@ fn cast_df_with_type(df: &DataFrame, dtype: &DataType) -> FloeResult<DataFrame> 
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
     for name in names {
-        let series = out.column(&name).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "input column {} not found: {err}",
-                name
-            )))
-        })?;
+        let series = out
+            .column(&name)
+            .map_err(|err| FloeError::config(format!("input column {} not found: {err}", name)))?;
         let casted = series
             .cast_with_options(dtype, CastOptions::NonStrict)
             .map_err(|err| {
-                Box::new(ConfigError(format!(
-                    "failed to cast input column {}: {err}",
-                    name
-                )))
+                FloeError::config(format!("failed to cast input column {}: {err}", name))
             })?;
         let idx = out.get_column_index(&name).ok_or_else(|| {
-            Box::new(ConfigError(format!(
-                "input column {} not found for update",
-                name
-            )))
+            FloeError::config(format!("input column {} not found for update", name))
         })?;
         out.replace_column(idx, casted).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "failed to update input column {}: {err}",
-                name
-            )))
+            FloeError::config(format!("failed to update input column {}: {err}", name))
         })?;
     }
     Ok(out)

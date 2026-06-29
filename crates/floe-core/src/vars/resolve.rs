@@ -1,6 +1,7 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 /// Maximum recursive expansion depth.  Prevents stack exhaustion from
 /// pathologically deep (non-cyclic) variable chains and acts as a second
@@ -94,26 +95,28 @@ fn expand_key(
 
     // Depth guard.
     if depth > MAX_DEPTH {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "variable expansion exceeded maximum depth ({MAX_DEPTH}); \
              check for deeply nested or circular references near \"${{{key}}}\""
-        ))));
+        ))
+        .into());
     }
 
     // Cycle detection.
     if in_progress.iter().any(|k| k == key) {
         let chain: Vec<&str> = in_progress.iter().map(|s| s.as_str()).collect();
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "circular variable reference detected: {} -> {}",
             chain.join(" -> "),
             key
-        ))));
+        ))
+        .into());
     }
 
     let raw_value = raw.get(key).ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "variable \"${{{key}}}\" is referenced but not defined"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     in_progress.push(key.to_string());
@@ -142,16 +145,17 @@ fn expand_value(
         rest = &rest[start + 2..];
 
         let end = rest.find('}').ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "variable \"{owner_key}\": unclosed placeholder in value {value:?}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         let ref_key = rest[..end].trim();
         if ref_key.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "variable \"{owner_key}\": empty placeholder ${{}}"
-            ))));
+            ))
+            .into());
         }
 
         let ref_value = expand_key(ref_key, raw, resolved, in_progress, depth)?;

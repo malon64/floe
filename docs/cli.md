@@ -32,11 +32,13 @@
   - Print the resolved incremental state URI for an entity and the current state JSON when present.
   - Shows processed-file and active-claim counts.
   - Helpful for confirming what Floe has already seen in `incremental_mode: file`.
+  - See [docs/incremental.md](incremental.md) for state file and CAS details.
 
 - `floe state reset -c <config> --entity <name> --yes`
   - Remove the local or remote state object for an entity.
   - Requires `--yes` because the next incremental run may reprocess previously tracked files.
   - Remote resets use the same conditional delete support as remote incremental state.
+  - See [docs/incremental.md](incremental.md) for reset behavior and permissions.
 
 ### Dry-run behavior
 

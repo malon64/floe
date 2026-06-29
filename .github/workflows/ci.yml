@@ -249,6 +249,12 @@ jobs:
               - "crates/floe-core/tests/integration/duckdb_run.rs"
               - "crates/floe-core/tests/unit/config/duckdb_validation.rs"
               - "crates/floe-core/Cargo.toml"
+              # The `floe-duckdb` companion is `floe-cli` built `--features duckdb`,
+              # which only the release pipeline compiles. Feature-gated CLI code
+              # (e.g. delegate.rs) can break that build without tripping the lean
+              # `clippy`/`test` jobs, so guard it here.
+              - "crates/floe-cli/src/**"
+              - "crates/floe-cli/Cargo.toml"
       - uses: dtolnay/rust-toolchain@stable
         if: steps.changes.outputs.io_write_duckdb == 'true'
         with:
@@ -265,6 +271,13 @@ jobs:
       - name: Lint duckdb sink with clippy
         if: steps.changes.outputs.io_write_duckdb == 'true'
         run: cargo clippy -p floe-core --all-targets --features duckdb -- -D warnings
+      # Compile the `floe-cli` binary with the duckdb feature — the exact build the
+      # release pipeline ships as `floe-duckdb`. Catches feature-gated CLI breakage
+      # (e.g. an import gated to the lean build but used by the duckdb variant)
+      # before it reaches a tagged release.
+      - name: Lint floe-cli (duckdb) with clippy
+        if: steps.changes.outputs.io_write_duckdb == 'true'
+        run: cargo clippy -p floe-cli --all-targets --features duckdb -- -D warnings
       - name: Run duckdb sink tests
         if: steps.changes.outputs.io_write_duckdb == 'true'
         env:

@@ -11,12 +11,16 @@
 //! The full build (`cfg!(feature = "duckdb")`) handles DuckDB directly, so its
 //! delegation hook is a no-op.
 
+// `FloeError` and the path types are only used by the lean build's companion-lookup
+// helpers, which are themselves `#[cfg(not(feature = "duckdb"))]`.
+#[cfg(not(feature = "duckdb"))]
+use floe_core::FloeError;
 #[cfg(not(feature = "duckdb"))]
 use std::path::{Path, PathBuf};
 
 use floe_core::config::RootConfig;
-#[cfg(not(feature = "duckdb"))]
-use floe_core::ConfigError;
+// Used by `maybe_delegate_duckdb` in both feature configs (the `duckdb` build's no-op
+// variant returns `FloeResult<()>` too), so this import must not be feature-gated.
 use floe_core::FloeResult;
 
 #[cfg(not(feature = "duckdb"))]
@@ -52,23 +56,23 @@ pub fn maybe_delegate_duckdb(config: &RootConfig) -> FloeResult<()> {
     }
 
     let companion = find_companion().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "this config writes to a DuckDB sink, but this is the lean `floe` build \
              without DuckDB support and no `{COMPANION_STEM}` companion was found on \
              PATH or alongside this executable. Install the DuckDB build via the \
              `ghcr.io/malon64/floe-duckdb` image, the `floe-duckdb` release binary, \
              or `cargo install floe-cli --features duckdb`."
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     let status = std::process::Command::new(&companion)
         .args(std::env::args_os().skip(1))
         .status()
         .map_err(|err| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "failed to launch DuckDB companion at {}: {err}",
                 companion.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
     std::process::exit(status.code().unwrap_or(1));

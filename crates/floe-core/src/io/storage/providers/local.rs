@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use glob::glob;
 
-use crate::errors::{RunError, StorageError};
-use crate::{config, ConfigError, FloeResult};
+use crate::errors::FloeError;
+use crate::{config, FloeResult};
 
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 
@@ -64,10 +65,10 @@ impl StorageClient for LocalClient {
         );
         planner::ensure_parent_dir(&dest)?;
         std::fs::copy(&src, &dest).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local download failed from {}: {err}",
-                src.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                src.display().to_string(),
+                format!("local download failed from {}: {err}", src.display()),
+            )
         })?;
         Ok(dest)
     }
@@ -76,10 +77,10 @@ impl StorageClient for LocalClient {
         let dest = PathBuf::from(uri.trim_start_matches("local://"));
         planner::ensure_parent_dir(&dest)?;
         std::fs::copy(local_path, &dest).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local upload failed to {}: {err}",
-                dest.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                dest.display().to_string(),
+                format!("local upload failed to {}: {err}", dest.display()),
+            )
         })?;
         Ok(())
     }
@@ -100,11 +101,14 @@ impl StorageClient for LocalClient {
         let dst = Path::new(dst_uri.trim_start_matches("local://"));
         planner::ensure_parent_dir(dst)?;
         std::fs::copy(src, dst).map_err(|err| {
-            Box::new(StorageError(format!(
-                "local copy failed from {} to {}: {err}",
-                src.display(),
-                dst.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::storage_at(
+                dst.display().to_string(),
+                format!(
+                    "local copy failed from {} to {}: {err}",
+                    src.display(),
+                    dst.display()
+                ),
+            )
         })?;
         Ok(())
     }
@@ -113,10 +117,10 @@ impl StorageClient for LocalClient {
         let path = Path::new(uri.trim_start_matches("local://"));
         if path.exists() {
             std::fs::remove_file(path).map_err(|err| {
-                Box::new(StorageError(format!(
-                    "local delete failed for {}: {err}",
-                    path.display()
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::storage_at(
+                    path.display().to_string(),
+                    format!("local delete failed for {}: {err}", path.display()),
+                )
             })?;
         }
         Ok(())
@@ -194,18 +198,32 @@ struct FileLock {
     path: PathBuf,
 }
 
+/// A lock left behind by a process that died without releasing it (SIGKILL, OOM,
+/// power loss) would otherwise be permanent. The lock only guards a brief
+/// read-modify-write of a small JSON file, so any lock older than this is treated
+/// as abandoned and broken.
+const LOCK_STALE_TTL: Duration = Duration::from_secs(5 * 60);
+
 impl FileLock {
     fn acquire(base: &Path) -> FloeResult<Self> {
         let lock_path = PathBuf::from(format!("{}.lock", base.display()));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&lock_path)
             {
-                Ok(_) => return Ok(Self { path: lock_path }),
+                Ok(mut file) => {
+                    use std::io::Write;
+                    let _ = file.write_all(lock_contents().as_bytes());
+                    return Ok(Self { path: lock_path });
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if lock_is_stale(&lock_path) {
+                        let _ = std::fs::remove_file(&lock_path);
+                        continue;
+                    }
                     if std::time::Instant::now() >= deadline {
                         return Err(format!(
                             "timed out acquiring local state lock {}",
@@ -213,7 +231,7 @@ impl FileLock {
                         )
                         .into());
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) => return Err(Box::new(e)),
             }
@@ -225,6 +243,45 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+fn lock_contents() -> String {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("{now_ms}:{}", std::process::id())
+}
+
+fn lock_is_stale(lock_path: &Path) -> bool {
+    lock_age(lock_path).is_some_and(|age| age > LOCK_STALE_TTL)
+}
+
+/// Age of an existing lock, from its embedded acquisition timestamp. Falls back to
+/// the file's mtime for empty (create-then-write race) or legacy lock files, and
+/// returns `None` when nothing readable is available so the lock is left intact.
+fn lock_age(lock_path: &Path) -> Option<Duration> {
+    if let Ok(content) = std::fs::read_to_string(lock_path) {
+        if let Some(acquired_ms) = content
+            .split(':')
+            .next()
+            .and_then(|s| s.trim().parse::<u128>().ok())
+        {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis();
+            return Some(Duration::from_millis(
+                now_ms.saturating_sub(acquired_ms) as u64
+            ));
+        }
+    }
+    std::fs::metadata(lock_path)
+        .ok()?
+        .modified()
+        .ok()?
+        .elapsed()
+        .ok()
 }
 
 fn local_version(path: &Path) -> FloeResult<String> {
@@ -268,13 +325,14 @@ pub fn resolve_local_inputs(
         let files = collect_glob_files(&pattern)?;
         if files.is_empty() {
             let (base_path, glob_used) = split_glob_details(&pattern_path, raw_path);
-            return Err(Box::new(RunError(no_match_message(
+            return Err(FloeError::run(no_match_message(
                 entity_name,
                 storage,
                 &base_path,
                 &glob_used,
                 recursive,
-            ))));
+            ))
+            .into());
         }
         return Ok(ResolvedLocalInputs {
             files,
@@ -296,13 +354,14 @@ pub fn resolve_local_inputs(
         default_globs.to_vec()
     };
     if !base_path.is_dir() {
-        return Err(Box::new(RunError(no_match_message(
+        return Err(FloeError::run(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
-        ))));
+        ))
+        .into());
     }
 
     let pattern_paths = if recursive {
@@ -318,13 +377,14 @@ pub fn resolve_local_inputs(
     };
     let files = collect_glob_files_multi(&pattern_paths)?;
     if files.is_empty() {
-        return Err(Box::new(RunError(no_match_message(
+        return Err(FloeError::run(no_match_message(
             entity_name,
             storage,
             &base_path.display().to_string(),
             &glob_used.join(","),
             recursive,
-        ))));
+        ))
+        .into());
     }
 
     Ok(ResolvedLocalInputs {
@@ -361,16 +421,11 @@ fn split_glob_details(pattern_path: &Path, raw_pattern: &str) -> (String, String
 
 fn collect_glob_files(pattern: &str) -> FloeResult<Vec<PathBuf>> {
     let mut files = Vec::new();
-    let entries = glob(pattern).map_err(|err| {
-        Box::new(ConfigError(format!(
-            "invalid glob pattern {pattern:?}: {err}"
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let entries = glob(pattern)
+        .map_err(|err| FloeError::config(format!("invalid glob pattern {pattern:?}: {err}")))?;
     for entry in entries {
         let path = entry.map_err(|err| {
-            Box::new(ConfigError(format!(
-                "glob match failed for {pattern:?}: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::config(format!("glob match failed for {pattern:?}: {err}"))
         })?;
         if path.is_file() {
             files.push(crate::io::storage::paths::normalize_local_path(&path));

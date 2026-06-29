@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
@@ -11,7 +12,6 @@ use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableIdent};
 use iceberg_storage_opendal::OpenDalStorageFactory;
 use polars::prelude::DataFrame;
 
-use crate::errors::RunError;
 use crate::io::format::{
     AcceptedWriteMetrics, AcceptedWriteOutput, AcceptedWritePerfBreakdown, AcceptedWriteRequest,
     CatalogRegistration,
@@ -121,10 +121,11 @@ impl IcebergCatalogConfig {
                 )?))
             }
             // Unity catalogs are Delta-only; validate.rs blocks this path.
-            config::CatalogTypeConfig::Unity { .. } => Err(Box::new(RunError(format!(
+            config::CatalogTypeConfig::Unity { .. } => Err(FloeError::run(format!(
                 "IcebergCatalogConfig::from_resolved called on unity catalog '{}'",
                 resolved.catalog_name
-            )))),
+            ))
+            .into()),
         }
     }
 
@@ -258,9 +259,7 @@ impl SinkFormat for IcebergSinkFormat {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|err| {
-                Box::new(RunError(format!("iceberg seed runtime init failed: {err}")))
-            })?;
+            .map_err(|err| FloeError::run(format!("iceberg seed runtime init failed: {err}")))?;
         let batches = runtime
             .block_on(collect_iceberg_batches(
                 metadata_location,
@@ -269,7 +268,7 @@ impl SinkFormat for IcebergSinkFormat {
                 &ctx.entity.name,
                 ctx.scan_cols,
             ))
-            .map_err(|err| Box::new(RunError(format!("iceberg seed failed: {err}"))))?;
+            .map_err(|err| FloeError::run(format!("iceberg seed failed: {err}")))?;
         seed_from_batches(tracker, batches, ctx.rename_back)
     }
 }
@@ -299,7 +298,7 @@ fn write_iceberg_table_with_remote_context(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|err| Box::new(RunError(format!("iceberg runtime init failed: {err}"))))?;
+        .map_err(|err| FloeError::run(format!("iceberg runtime init failed: {err}")))?;
 
     let mut result = runtime.block_on(write_iceberg_table_async(
         write_ctx,
@@ -390,6 +389,13 @@ async fn write_iceberg_table_async(
             .next()
             .unwrap_or("s3")
             .to_string();
+        // Resolve EKS Pod Identity / container credentials into static s3.* props so the
+        // opendal writer does not fall back to EC2 IMDS (#426).
+        let region = catalog_props
+            .get(iceberg::io::S3_REGION)
+            .or_else(|| catalog_props.get(iceberg::io::CLIENT_REGION))
+            .cloned();
+        object_store::inject_aws_static_credentials(&mut catalog_props, region.as_deref()).await;
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
                 configured_scheme: scheme,
@@ -473,11 +479,12 @@ async fn write_iceberg_table_async(
             .await?
         }
         config::WriteMode::MergeScd1 | config::WriteMode::MergeScd2 => {
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "entity.name={} sink.write_mode={} is only supported for delta accepted sinks",
                 entity.name,
                 mode.as_str()
-            ))));
+            ))
+            .into());
         }
     };
 
@@ -535,9 +542,7 @@ async fn write_iceberg_table_async(
         .metadata_location()
         .map(|value| value.to_string())
         .ok_or_else(|| {
-            Box::new(RunError(
-                "iceberg table metadata location missing after commit".to_string(),
-            )) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::run("iceberg table metadata location missing after commit".to_string())
         })?;
 
     if let Some(IcebergCatalogConfig::Glue(glue_cfg)) = catalog_cfg.as_ref() {
@@ -582,7 +587,7 @@ async fn write_iceberg_table_async(
 pub(crate) fn map_iceberg_err(
     context: &'static str,
 ) -> impl FnOnce(iceberg::Error) -> Box<dyn std::error::Error + Send + Sync> {
-    move |err| Box::new(RunError(format!("{context}: {err}")))
+    move |err| FloeError::run(format!("{context}: {err}")).into()
 }
 
 // ── Seeding helpers ───────────────────────────────────────────────────────────
@@ -602,16 +607,12 @@ fn seed_iceberg_from_catalog(
                 .enable_all()
                 .build()
                 .map_err(|err| {
-                    Box::new(RunError(format!(
-                        "glue iceberg seed runtime init failed: {err}"
-                    )))
+                    FloeError::run(format!("glue iceberg seed runtime init failed: {err}"))
                 })?;
             let glue_state = runtime
                 .block_on(load_glue_table_state(glue_cfg))
                 .map_err(|err| {
-                    Box::new(RunError(format!(
-                        "glue get_table for iceberg seed failed: {err}"
-                    )))
+                    FloeError::run(format!("glue get_table for iceberg seed failed: {err}"))
                 })?;
             let Some(metadata_location) = glue_state.metadata_location else {
                 return Ok(());
@@ -624,7 +625,7 @@ fn seed_iceberg_from_catalog(
                     &entity.name,
                     scan_cols,
                 ))
-                .map_err(|err| Box::new(RunError(format!("glue iceberg seed failed: {err}"))))?;
+                .map_err(|err| FloeError::run(format!("glue iceberg seed failed: {err}")))?;
             seed_from_batches(tracker, batches, rename_back)
         }
         IcebergCatalogConfig::Rest(rest_cfg) => seed_iceberg_from_rest(
@@ -651,11 +652,7 @@ fn seed_iceberg_from_rest(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|err| {
-            Box::new(RunError(format!(
-                "rest iceberg seed runtime init failed: {err}"
-            )))
-        })?;
+        .map_err(|err| FloeError::run(format!("rest iceberg seed runtime init failed: {err}")))?;
 
     let batches = runtime
         .block_on(async {
@@ -699,7 +696,7 @@ fn seed_iceberg_from_rest(
                 .map_err(map_iceberg_err("rest iceberg seed collect failed"))
         })
         .map_err(|err: Box<dyn std::error::Error + Send + Sync>| {
-            Box::new(RunError(format!("rest iceberg seed failed: {err}")))
+            FloeError::run(format!("rest iceberg seed failed: {err}"))
         })?;
 
     seed_from_batches(tracker, batches, rename_back)
@@ -741,6 +738,13 @@ async fn collect_iceberg_batches(
             .next()
             .unwrap_or("s3")
             .to_string();
+        // Resolve EKS Pod Identity / container credentials so the opendal S3 reader does not
+        // fall back to EC2 IMDS when seeding from existing Iceberg metadata (#426).
+        let region = props
+            .get(iceberg::io::S3_REGION)
+            .or_else(|| props.get(iceberg::io::CLIENT_REGION))
+            .cloned();
+        object_store::inject_aws_static_credentials(&mut props, region.as_deref()).await;
         catalog_builder =
             catalog_builder.with_storage_factory(std::sync::Arc::new(OpenDalStorageFactory::S3 {
                 configured_scheme: scheme,

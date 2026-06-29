@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -11,8 +12,7 @@ use yaml_rust2::yaml::Hash as YamlHash;
 use yaml_rust2::{Yaml, YamlEmitter, YamlLoader};
 
 use crate::config;
-use crate::errors::IoError;
-use crate::{ConfigError, FloeResult, ValidateOptions};
+use crate::{FloeResult, ValidateOptions};
 
 const DEFAULT_SAMPLE_ROWS: usize = 200;
 const MINIMAL_CONFIG_YAML: &str = "version: \"0.2\"\nentities: []\n";
@@ -130,10 +130,10 @@ pub fn add_entity_to_config(options: AddEntityOptions) -> FloeResult<AddEntityOu
 
     if !options.dry_run {
         fs::write(&output_path, updated_yaml.as_bytes()).map_err(|err| {
-            Box::new(IoError(format!(
+            FloeError::io(format!(
                 "failed to write config at {}: {err}",
                 output_path.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
     }
 
@@ -159,9 +159,7 @@ fn infer_entity_from_input(
         None => derive_entity_name(input)?,
     };
     if entity_name.trim().is_empty() {
-        return Err(Box::new(ConfigError(
-            "entity name must not be empty".to_string(),
-        )));
+        return Err(FloeError::config("entity name must not be empty".to_string()).into());
     }
 
     let local_input_path = resolve_local_input_path(input)?;
@@ -172,17 +170,19 @@ fn infer_entity_from_input(
         "json" => infer_json_columns(&local_input_path)?,
         "parquet" => infer_parquet_columns(&local_input_path)?,
         other => {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "unsupported add-entity format: {other} (allowed: csv, json, parquet)"
-            ))))
+            ))
+            .into())
         }
     };
 
     if columns.is_empty() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "no columns inferred from {}",
             local_input_path.display()
-        ))));
+        ))
+        .into());
     }
 
     Ok(InferredEntity {
@@ -202,10 +202,11 @@ fn load_or_initialize_config_text(config_path: &Path) -> FloeResult<String> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(MINIMAL_CONFIG_YAML.to_string())
         }
-        Err(err) => Err(Box::new(IoError(format!(
+        Err(err) => Err(FloeError::io(format!(
             "failed to read config at {}: {err}",
             config_path.display()
-        )))),
+        ))
+        .into()),
     }
 }
 
@@ -219,10 +220,10 @@ fn resolve_add_entity_format(
     }
 
     infer_format_from_extension(local_input_path).ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "could not infer add-entity format from input {} (supported extensions: .csv, .json, .parquet); use --format",
             input
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        )).into()
     })
 }
 
@@ -256,15 +257,14 @@ fn infer_csv_columns(
         .with_infer_schema_length(Some(DEFAULT_SAMPLE_ROWS))
         .try_into_reader_with_file_path(None)
         .map_err(|err| {
-            Box::new(IoError(format!(
+            FloeError::io(format!(
                 "failed to open csv at {}: {err}",
                 input_path.display()
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
-    let df = reader.finish().map_err(|err| {
-        Box::new(IoError(format!("csv schema inference failed: {err}")))
-            as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let df = reader
+        .finish()
+        .map_err(|err| FloeError::io(format!("csv schema inference failed: {err}")))?;
 
     let mut columns = Vec::with_capacity(df.width());
     for column in df.get_columns() {
@@ -296,17 +296,17 @@ fn infer_parquet_columns(
     Vec<String>,
 )> {
     let file = std::fs::File::open(input_path).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to open parquet at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let mut reader = polars::prelude::ParquetReader::new(file);
     let schema = reader.schema().map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to read parquet schema at {}: {err}",
             input_path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
 
     let columns = schema
@@ -338,24 +338,19 @@ fn infer_json_columns(
     match json_mode {
         JsonMode::Array => {
             let content = fs::read_to_string(input_path).map_err(|err| {
-                Box::new(IoError(format!(
+                FloeError::io(format!(
                     "failed to read json at {}: {err}",
                     input_path.display()
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
-            let value: JsonValue = serde_json::from_str(&content).map_err(|err| {
-                Box::new(IoError(format!("json parse error: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
-            let rows = value.as_array().ok_or_else(|| {
-                Box::new(ConfigError("expected json array at root".to_string()))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let value: JsonValue = serde_json::from_str(&content)
+                .map_err(|err| FloeError::io(format!("json parse error: {err}")))?;
+            let rows = value
+                .as_array()
+                .ok_or_else(|| FloeError::config("expected json array at root".to_string()))?;
             for row in rows.iter().take(DEFAULT_SAMPLE_ROWS) {
                 let object = row.as_object().ok_or_else(|| {
-                    Box::new(ConfigError(
-                        "expected top-level json objects inside array".to_string(),
-                    )) as Box<dyn std::error::Error + Send + Sync>
+                    FloeError::config("expected top-level json objects inside array".to_string())
                 })?;
                 sampled_rows += 1;
                 update_json_stats(object, &mut stats_by_key, &mut nested_keys);
@@ -363,10 +358,10 @@ fn infer_json_columns(
         }
         JsonMode::Ndjson => {
             let file = std::fs::File::open(input_path).map_err(|err| {
-                Box::new(IoError(format!(
+                FloeError::io(format!(
                     "failed to read json at {}: {err}",
                     input_path.display()
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             let reader = BufReader::new(file);
             for (idx, line) in reader.lines().enumerate() {
@@ -374,26 +369,23 @@ fn infer_json_columns(
                     break;
                 }
                 let line = line.map_err(|err| {
-                    Box::new(IoError(format!(
+                    FloeError::io(format!(
                         "failed to read json at {}: {err}",
                         input_path.display()
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?;
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
                 let value: JsonValue = serde_json::from_str(line).map_err(|err| {
-                    Box::new(IoError(format!(
-                        "json parse error at line {}: {err}",
-                        idx + 1
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    FloeError::io(format!("json parse error at line {}: {err}", idx + 1))
                 })?;
                 let object = value.as_object().ok_or_else(|| {
-                    Box::new(ConfigError(format!(
+                    FloeError::config(format!(
                         "expected top-level json object at line {}",
                         idx + 1
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?;
                 sampled_rows += 1;
                 update_json_stats(object, &mut stats_by_key, &mut nested_keys);
@@ -402,10 +394,11 @@ fn infer_json_columns(
     }
 
     if sampled_rows == 0 {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "no json objects found in {}",
             input_path.display()
-        ))));
+        ))
+        .into());
     }
 
     let mut columns = Vec::with_capacity(stats_by_key.len());
@@ -564,10 +557,7 @@ fn inferred_scalar_type_to_floe_type(kind: InferredScalarType) -> &'static str {
 
 fn detect_json_mode(path: &Path) -> FloeResult<JsonMode> {
     let file = std::fs::File::open(path).map_err(|err| {
-        Box::new(IoError(format!(
-            "failed to read json at {}: {err}",
-            path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        FloeError::io(format!("failed to read json at {}: {err}", path.display()))
     })?;
     let mut reader = BufReader::new(file);
     let mut buf = String::new();
@@ -583,10 +573,7 @@ fn detect_json_mode(path: &Path) -> FloeResult<JsonMode> {
             JsonMode::Ndjson
         });
     }
-    Err(Box::new(ConfigError(format!(
-        "json input {} is empty",
-        path.display()
-    ))))
+    Err(FloeError::config(format!("json input {} is empty", path.display())).into())
 }
 
 fn polars_dtype_to_floe_type(dtype: &DataType) -> String {
@@ -635,9 +622,10 @@ fn arrow_dtype_to_floe_type(dtype: &ArrowDataType) -> String {
 fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResult<String> {
     let mut docs = YamlLoader::load_from_str(config_text)?;
     if docs.len() > 1 {
-        return Err(Box::new(ConfigError(
+        return Err(FloeError::config(
             "YAML contains multiple documents; expected one".to_string(),
-        )));
+        )
+        .into());
     }
     let mut root = if docs.is_empty() {
         Yaml::Null
@@ -645,9 +633,7 @@ fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResul
         docs.swap_remove(0)
     };
     let Yaml::Hash(root_map) = &mut root else {
-        return Err(Box::new(ConfigError(
-            "config root must be a YAML mapping".to_string(),
-        )));
+        return Err(FloeError::config("config root must be a YAML mapping".to_string()).into());
     };
 
     let entities_key = yaml_str("entities");
@@ -656,18 +642,17 @@ fn append_entity_yaml(config_text: &str, inferred: &InferredEntity) -> FloeResul
     match root_map.get_mut(&entities_key) {
         Some(value) => {
             let Yaml::Array(entities) = value else {
-                return Err(Box::new(ConfigError(
-                    "root.entities must be a YAML sequence".to_string(),
-                )));
+                return Err(
+                    FloeError::config("root.entities must be a YAML sequence".to_string()).into(),
+                );
             };
             if entities
                 .iter()
                 .any(|entity| entity_name_matches(entity, &inferred.name))
             {
-                return Err(Box::new(ConfigError(format!(
-                    "entity already exists: {}",
-                    inferred.name
-                ))));
+                return Err(
+                    FloeError::config(format!("entity already exists: {}", inferred.name)).into(),
+                );
             }
             entities.push(new_entity_value);
         }
@@ -779,14 +764,14 @@ fn resolve_local_input_path(input: &str) -> FloeResult<PathBuf> {
         if scheme.eq_ignore_ascii_case("file") {
             let url = Url::parse(input)?;
             return url.to_file_path().map_err(|_| {
-                Box::new(ConfigError(format!(
-                    "invalid file:// URI for add-entity input: {input}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::config(format!("invalid file:// URI for add-entity input: {input}"))
+                    .into()
             });
         }
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "remote URI inference is not supported yet for add-entity input: {input}"
-        ))));
+        ))
+        .into());
     }
 
     let path = PathBuf::from(input);
@@ -796,16 +781,17 @@ fn resolve_local_input_path(input: &str) -> FloeResult<PathBuf> {
         std::env::current_dir()?.join(path)
     };
     let metadata = fs::metadata(&absolute).map_err(|err| {
-        Box::new(IoError(format!(
+        FloeError::io(format!(
             "failed to access input at {}: {err}",
             absolute.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     if metadata.is_dir() {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "add-entity expects a file input for schema inference, got directory: {}",
             absolute.display()
-        ))));
+        ))
+        .into());
     }
     Ok(absolute)
 }
@@ -824,9 +810,7 @@ fn derive_entity_name(input: &str) -> FloeResult<String> {
         if scheme.eq_ignore_ascii_case("file") {
             let url = Url::parse(input)?;
             let path = url.to_file_path().map_err(|_| {
-                Box::new(ConfigError(format!(
-                    "invalid file:// URI for add-entity input: {input}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                FloeError::config(format!("invalid file:// URI for add-entity input: {input}"))
             })?;
             file_name_stem_string(&path)
         } else {
@@ -839,9 +823,9 @@ fn derive_entity_name(input: &str) -> FloeResult<String> {
     };
     let normalized = slugify_entity_name(&raw);
     if normalized.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "failed to derive entity name from input: {input}"
-        ))));
+        return Err(
+            FloeError::config(format!("failed to derive entity name from input: {input}")).into(),
+        );
     }
     Ok(normalized)
 }

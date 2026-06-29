@@ -375,7 +375,7 @@ fn main() -> FloeResult<()> {
                         return Ok(());
                     }
                     None => {
-                        exit_with_error(Box::new(floe_core::ConfigError(
+                        exit_with_error(Box::new(floe_core::FloeError::config(
                             "floe validate requires --config unless --profile is provided"
                                 .to_string(),
                         )));

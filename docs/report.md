@@ -91,7 +91,7 @@ Accepted-output metrics contract:
 This applies to `files_written`, `total_bytes_written`, `avg_file_size_mb`, and
 `small_files_count`. Floe does not use sentinel values such as `-1`.
 
-Merge-specific metrics (optional, Delta `merge_scd1` / `merge_scd2`):
+Merge-specific metrics (optional, Delta or DuckDB `merge_scd1` / `merge_scd2`):
 - `merge_key`: merge key columns (`schema.primary_key`)
 - `inserted_count`
 - `updated_count` (`merge_scd1`: updated rows, `merge_scd2`: closed previous current rows)

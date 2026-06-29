@@ -6,6 +6,21 @@ Floe ships two orchestrator packages: `dagster-floe` and `airflow-floe`. Both fo
 
 Both packages live under `orchestrators/` and are published as independent Python packages.
 
+### Shared modules & drift guard
+
+A few modules are deliberately kept **byte-identical** between the two packages
+(`databricks_client.py`, `k8s_status.py`). Because the packages publish to PyPI
+independently with no shared runtime dependency, these copies can silently
+diverge — and historically did (issue #394). A CI guard,
+`scripts/check_orchestrator_drift.py` (run by `.github/workflows/orchestrator-drift.yml`),
+fails the build if any designated shared module differs between
+`floe_dagster/` and `airflow_floe/`. When changing one of these modules, apply
+the identical change to both copies.
+
+`manifest.py` and the `*_runner.py` modules are **intentionally**
+framework-specific (Dagster `Failure` vs Airflow logging/operators, different
+manifest feature sets) and are not part of the drift guard.
+
 ---
 
 ## The Manifest

@@ -1,8 +1,15 @@
+use crate::errors::FloeError;
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::{CatalogTypeConfig, ResolvedDeltaCatalogTarget};
-use crate::errors::RunError;
 use crate::FloeResult;
+
+/// Registration is a handful of small JSON calls; an unreachable or hung workspace
+/// must fail the run rather than block it forever while the state-claim heartbeat
+/// keeps the entity's inputs locked.
+const UNITY_HTTP_TIMEOUT_SECS: u64 = 30;
 
 /// Runtime config for a single Unity Catalog registration.
 #[derive(Debug, Clone)]
@@ -43,10 +50,11 @@ impl UnityCatalogConfig {
             }),
             // The resolved target is guaranteed to be Unity by validate_delta_catalog_binding.
             // Glue and Rest variants cannot reach this path.
-            other => Err(Box::new(RunError(format!(
+            other => Err(FloeError::run(format!(
                 "UnityCatalogConfig::from_resolved called on non-unity catalog type={}",
                 other.catalog_type_str()
-            )))),
+            ))
+            .into()),
         }
     }
 }
@@ -60,21 +68,24 @@ fn expand_env_token(token: &str, catalog_name: &str) -> FloeResult<String> {
         return Ok(token.to_string());
     }
     let Some(inner) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "unity catalog {catalog_name} token must be a plain value or a single \
              ${{VAR_NAME}} reference; mixing literal text with ${{...}} is not supported \
              (got: {token:?})"
-        ))));
+        ))
+        .into());
     };
     if inner.is_empty() || inner.contains('{') || inner.contains('}') {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "unity catalog {catalog_name} token has invalid placeholder syntax: {token}"
-        ))));
+        ))
+        .into());
     }
     std::env::var(inner).map_err(|_| {
-        Box::new(RunError(format!(
+        FloeError::run(format!(
             "unity catalog {catalog_name} token references env var {inner} which is not set"
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
+        .into()
     })
 }
 
@@ -123,7 +134,10 @@ pub(crate) async fn register_unity_table(
     cfg: &UnityCatalogConfig,
     table_uri: &str,
 ) -> FloeResult<()> {
-    let client = reqwest::Client::new();
+    let client = build_unity_client(
+        Duration::from_secs(UNITY_HTTP_TIMEOUT_SECS),
+        &cfg.catalog_name,
+    )?;
     let catalog_def = &cfg.catalog_name;
     let full_name = format!("{}.{}.{}", cfg.unity_catalog, cfg.schema, cfg.table);
 
@@ -137,9 +151,7 @@ pub(crate) async fn register_unity_table(
         .send()
         .await
         .map_err(|err| {
-            Box::new(RunError(format!(
-                "unity catalog GET table {full_name} failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::run(format!("unity catalog GET table {full_name} failed: {err}"))
         })?;
 
     match get_resp.status().as_u16() {
@@ -151,20 +163,21 @@ pub(crate) async fn register_unity_table(
                 .ok()
                 .and_then(|r| r.storage_location)
                 .ok_or_else(|| {
-                    Box::new(RunError(format!(
+                    FloeError::run(format!(
                         "unity catalog {catalog_def} table {full_name} already exists but its \
                          storage_location could not be read from the GET response (managed table \
                          or view name collision?): rename the entity or choose a different table name"
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?;
             let norm_existing = existing_loc.trim_end_matches('/');
             let norm_new = table_uri.trim_end_matches('/');
             if norm_existing != norm_new {
-                return Err(Box::new(RunError(format!(
+                return Err(FloeError::run(format!(
                     "unity catalog {catalog_def} table {full_name} is already registered \
                      at {existing_loc} but the current write targets {table_uri}: \
                      update sink.accepted.path or choose a different table name"
-                ))));
+                ))
+                .into());
             }
             return Ok(());
         }
@@ -173,9 +186,9 @@ pub(crate) async fn register_unity_table(
         }
         status => {
             let body = get_resp.text().await.unwrap_or_default();
-            return Err(Box::new(RunError(format!(
+            return Err(FloeError::run(format!(
                 "unity catalog {catalog_def} GET table {full_name} returned unexpected status {status}: {body}"
-            ))));
+            )).into());
         }
     }
 
@@ -199,9 +212,9 @@ pub(crate) async fn register_unity_table(
         .send()
         .await
         .map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "unity catalog POST table {full_name} failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
     let status = create_resp.status().as_u16();
@@ -212,9 +225,22 @@ pub(crate) async fn register_unity_table(
     // Schema may not exist even with create_schema_if_missing=false — give a helpful error.
     let body = create_resp.text().await.unwrap_or_default();
     let detail = parse_unity_error(&body);
-    Err(Box::new(RunError(format!(
+    Err(FloeError::run(format!(
         "unity catalog {catalog_def} POST table {full_name} returned status {status}: {detail}"
-    ))))
+    ))
+    .into())
+}
+
+fn build_unity_client(timeout: Duration, catalog_name: &str) -> FloeResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|err| {
+            FloeError::run(format!(
+                "unity catalog {catalog_name}: failed to build HTTP client: {err}"
+            ))
+            .into()
+        })
 }
 
 async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> FloeResult<()> {
@@ -229,9 +255,9 @@ async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> Fl
         .send()
         .await
         .map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "unity catalog GET schema {schema_full} failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
     if get_resp.status().as_u16() == 200 {
@@ -248,9 +274,9 @@ async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> Fl
         .send()
         .await
         .map_err(|err| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "unity catalog POST schema {schema_full} failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
     let status = create_resp.status().as_u16();
@@ -260,9 +286,10 @@ async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> Fl
 
     let body = create_resp.text().await.unwrap_or_default();
     let detail = parse_unity_error(&body);
-    Err(Box::new(RunError(format!(
+    Err(FloeError::run(format!(
         "unity catalog POST schema {schema_full} returned status {status}: {detail}"
-    ))))
+    ))
+    .into())
 }
 
 fn parse_unity_error(body: &str) -> String {

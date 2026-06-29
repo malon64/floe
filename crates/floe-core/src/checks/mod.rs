@@ -4,13 +4,14 @@ pub mod normalize;
 mod not_null;
 mod unique;
 
+use crate::errors::FloeError;
 use polars::prelude::{
     BooleanChunked, ChunkFull, DataFrame, Expr, IntoLazy, IntoSeries, NamedFrom, NewChunkedArray,
     Series,
 };
 use std::collections::{BTreeMap, HashMap};
 
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub use cast::{
     cast_mismatch_counts, cast_mismatch_errors, cast_mismatch_errors_sparse, cast_mismatch_expr,
@@ -247,9 +248,7 @@ pub fn row_error_formatter(
         "text" => Ok(Box::new(TextRowErrorFormatter {
             source_map: source_map.cloned(),
         })),
-        other => Err(Box::new(ConfigError(format!(
-            "unsupported report.formatter: {other}"
-        )))),
+        other => Err(FloeError::config(format!("unsupported report.formatter: {other}")).into()),
     }
 }
 
@@ -313,9 +312,9 @@ pub fn run_expr_checks(
             .with_columns(not_null_exprs)
             .collect()
             .map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "run_expr_checks: not_null evaluation failed: {e}"
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?
     };
 
@@ -329,20 +328,20 @@ pub fn run_expr_checks(
             let raw_not_null = raw_df
                 .column(&c.name)
                 .map_err(|e| {
-                    Box::new(crate::errors::RunError(format!(
+                    crate::errors::FloeError::run(format!(
                         "run_expr_checks: raw column '{}' not found: {e}",
                         c.name
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?
                 .is_not_null();
 
             let typed_null = df
                 .column(&c.name)
                 .map_err(|e| {
-                    Box::new(crate::errors::RunError(format!(
+                    crate::errors::FloeError::run(format!(
                         "run_expr_checks: typed column '{}' not found: {e}",
                         c.name
-                    ))) as Box<dyn std::error::Error + Send + Sync>
+                    ))
                 })?
                 .is_null();
 
@@ -353,10 +352,10 @@ pub fn run_expr_checks(
 
             let cast_err_series = bool_mask_to_error_series(&err_col_name, error_mask, &error_json);
             checked.with_column(cast_err_series).map_err(|e| {
-                Box::new(crate::errors::RunError(format!(
+                crate::errors::FloeError::run(format!(
                     "run_expr_checks: could not attach cast error column '{}': {e}",
                     err_col_name
-                ))) as Box<dyn std::error::Error + Send + Sync>
+                ))
             })?;
             err_col_names.push(err_col_name);
         }
@@ -372,9 +371,9 @@ pub fn run_expr_checks(
 
     for err_col in &err_col_names {
         let col = checked.column(err_col).map_err(|e| {
-            Box::new(crate::errors::RunError(format!(
+            crate::errors::FloeError::run(format!(
                 "run_expr_checks: error column '{err_col}' missing after eval: {e}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let null_mask = col.is_null();
         accept_mask = &accept_mask & &null_mask;
@@ -456,11 +455,9 @@ pub fn accept_mask_from_error_cols(
 ) -> FloeResult<BooleanChunked> {
     let mut accept_mask = BooleanChunked::full("floe_accept".into(), true, df.height());
     for err_col in err_cols {
-        let errors = df.column(err_col).map_err(|err| {
-            Box::new(ConfigError(format!(
-                "error column {err_col} not found: {err}"
-            )))
-        })?;
+        let errors = df
+            .column(err_col)
+            .map_err(|err| FloeError::config(format!("error column {err_col} not found: {err}")))?;
         let no_error = errors.is_null();
         accept_mask = &accept_mask & &no_error;
     }

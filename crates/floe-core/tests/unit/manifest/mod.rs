@@ -1077,6 +1077,116 @@ entities:
 }
 
 #[test]
+fn manifest_embeds_config_level_storages_for_replay() {
+    // Storages defined at config level (not in a profile) must be embedded in the generated
+    // manifest so `floe run --manifest` is self-contained and can resolve named storages.
+    // Regression for #425 ("no storages block").
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let cfg_dir = temp_dir.path().join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+
+    let yaml = r#"version: "0.1"
+storages:
+  default: "local"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "example-bronze"
+      region: "eu-west-1"
+entities:
+  - name: "accounts"
+    source:
+      format: "csv"
+      storage: "local"
+      path: "./in/accounts.csv"
+    sink:
+      accepted:
+        format: "parquet"
+        storage: "lakehouse_bronze"
+        path: "sales/accounts"
+    policy:
+      severity: "warn"
+    schema:
+      columns:
+        - name: "id"
+          type: "string"
+"#;
+    std::fs::write(&config_path, yaml).expect("write config");
+
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let opts = ManifestOptions {
+        path_mode: PathMode::ResolvedUri,
+        ..ManifestOptions::default()
+    };
+
+    let payload =
+        build_common_manifest_json(&config_location, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    // The manifest must carry the config-level storages even without a profile.
+    let definitions = value["storages"]["definitions"]
+        .as_array()
+        .expect("storages.definitions should be present in the manifest");
+    assert!(
+        definitions
+            .iter()
+            .any(|d| d["name"] == "lakehouse_bronze" && d["bucket"] == "example-bronze"),
+        "config-level storage definition must be embedded in the manifest: {value:#}"
+    );
+
+    // ...and survive reconstruction so manifest replay can resolve the named storage.
+    let (reconstructed, _base) =
+        config_from_manifest_json(&payload).expect("reconstruct config from manifest");
+    let storages = reconstructed
+        .storages
+        .expect("storages should be populated after manifest round-trip");
+    let bronze = storages
+        .definitions
+        .iter()
+        .find(|d| d.name == "lakehouse_bronze")
+        .expect("lakehouse_bronze definition should survive round-trip");
+    assert_eq!(bronze.bucket.as_deref(), Some("example-bronze"));
+    assert_eq!(bronze.region.as_deref(), Some("eu-west-1"));
+}
+
+#[test]
+fn manifest_reconstruct_rejects_malformed_storages_block() {
+    // A present-but-malformed storages block must surface a clear error rather than being
+    // silently dropped (which previously resurfaced downstream as the confusing
+    // "no storages block" failure). Regression for #425.
+    let config_path = repo_root().join("example/config.yml");
+    let config_location = resolve_config_location(config_path.to_str().expect("utf8"))
+        .expect("resolve config location");
+    let config = load_config(&config_location.path).expect("load config");
+    let payload = build_common_manifest_json(
+        &config_location,
+        &config,
+        &[],
+        None,
+        &ManifestOptions::default(),
+    )
+    .expect("manifest");
+
+    let mut value: Value = serde_json::from_str(&payload).expect("valid json");
+    // A bare string is not a valid storages object.
+    value["storages"] = Value::String("totally-not-a-storages-block".into());
+    let corrupted = serde_json::to_string(&value).expect("reserialize");
+
+    let err =
+        config_from_manifest_json(&corrupted).expect_err("malformed storages block must error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("storages") && msg.contains("malformed"),
+        "expected a clear 'malformed storages' error, got: {msg}"
+    );
+}
+
+#[test]
 fn manifest_path_mode_resolved_uri_sets_path_from_uri() {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let root = temp_dir.path();

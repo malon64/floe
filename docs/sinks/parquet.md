@@ -20,7 +20,7 @@ Semantics:
 - Write mode comes from `sink.write_mode`:
   - `overwrite`: clear the output directory, then write. The first flush of a run removes existing files; subsequent flushes append.
   - `append`: add new part files alongside existing ones.
-  - `merge_scd1` / `merge_scd2`: not supported for Parquet — use Delta or Iceberg for merge modes.
+  - `merge_scd1` / `merge_scd2`: not supported for Parquet — use Delta or DuckDB for merge modes.
 
 ## File splitting
 

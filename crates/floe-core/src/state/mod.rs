@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,12 +12,14 @@ use crate::config::{
 use crate::io::storage::{
     extensions, local::LocalClient, CloudClient, ConditionalWrite, StorageClient, StoredObject,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub const ENTITY_STATE_SCHEMA_V1: &str = "floe.state.file-ingest.v1";
 pub const ENTITY_STATE_SCHEMA_V2: &str = "floe.state.file-ingest.v2";
 pub const ENTITY_STATE_FILENAME: &str = "state.json";
-const STATE_CAS_RETRIES: usize = 5;
+const STATE_CAS_RETRIES: usize = 8;
+const STATE_CAS_BASE_BACKOFF_MS: u64 = 50;
+const STATE_CAS_MAX_BACKOFF_MS: u64 = 2_000;
 pub const CLAIM_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,7 +173,10 @@ pub fn claim_entity_inputs(
         });
     }
 
-    for _ in 0..STATE_CAS_RETRIES {
+    for attempt in 0..STATE_CAS_RETRIES {
+        if attempt > 0 {
+            cas_backoff(attempt - 1);
+        }
         let mut loaded = load_entity_state(resolver, cloud, entity)?;
         remove_expired_claims(&mut loaded.state);
         let mut pending_inputs = Vec::new();
@@ -235,10 +241,11 @@ pub fn claim_entity_inputs(
         }
     }
 
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
         entity.name
-    ))))
+    ))
+    .into())
 }
 
 /// Full-refresh variant of `claim_entity_inputs`.
@@ -259,7 +266,10 @@ pub fn claim_all_entity_inputs(
     let acquired_at = now_rfc3339();
     let expires_at = rfc3339_after_seconds(CLAIM_TTL_SECONDS);
 
-    for _ in 0..STATE_CAS_RETRIES {
+    for attempt in 0..STATE_CAS_RETRIES {
+        if attempt > 0 {
+            cas_backoff(attempt - 1);
+        }
         // Read only to obtain the current CAS version; content is discarded.
         let loaded = load_entity_state(resolver, cloud, entity)?;
 
@@ -297,10 +307,11 @@ pub fn claim_all_entity_inputs(
         }
     }
 
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} full-refresh state write conflicted after {STATE_CAS_RETRIES} retries",
         entity.name
-    ))))
+    ))
+    .into())
 }
 
 pub fn promote_claimed_entity_state(
@@ -409,6 +420,9 @@ fn mutate_claimed_state(
 ) -> FloeResult<()> {
     let our_uris: HashSet<String> = claimed.state.claims.keys().cloned().collect();
     for attempt in 0..STATE_CAS_RETRIES {
+        if attempt > 0 {
+            cas_backoff(attempt - 1);
+        }
         let mut loaded = if attempt == 0 {
             LoadedEntityState {
                 target: claimed.target.clone(),
@@ -435,10 +449,11 @@ fn mutate_claimed_state(
             return Ok(());
         }
     }
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "entity.name={} incremental state update conflicted after {STATE_CAS_RETRIES} retries",
         entity_name
-    ))))
+    ))
+    .into())
 }
 
 pub fn inspect_entity_state_with_base(
@@ -498,10 +513,11 @@ pub fn reset_entity_state(
             };
             match client.delete_object_conditional(&uri, Some(&object.version))? {
                 ConditionalWrite::Written { .. } => Ok(true),
-                ConditionalWrite::Conflict => Err(Box::new(ConfigError(format!(
+                ConditionalWrite::Conflict => Err(FloeError::config(format!(
                     "entity.name={} remote state changed while resetting: {}",
                     entity.name, uri
-                )))),
+                ))
+                .into()),
             }
         }
     }
@@ -525,10 +541,7 @@ fn resolve_entity_state_target<'a>(
         .entities
         .iter()
         .find(|entity| entity.name == entity_name)
-        .ok_or_else(|| {
-            Box::new(ConfigError(format!("entity not found: {entity_name}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        .ok_or_else(|| FloeError::config(format!("entity not found: {entity_name}")))?;
     let resolver = StorageResolver::new(config, config_base)?;
     let path = resolve_entity_state_path(&resolver, entity)?;
     Ok((entity, path))
@@ -536,10 +549,10 @@ fn resolve_entity_state_target<'a>(
 
 pub fn write_entity_state_atomic(path: &Path, state: &EntityState) -> FloeResult<()> {
     let parent = path.parent().ok_or_else(|| {
-        Box::new(ConfigError(format!(
+        FloeError::config(format!(
             "state path has no parent directory: {}",
             path.display()
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     fs::create_dir_all(parent)?;
 
@@ -683,10 +696,11 @@ fn state_target_from_resolved(resolved: &ResolvedPath) -> FloeResult<EntityState
             uri: resolved.uri.clone(),
         });
     }
-    Err(Box::new(ConfigError(format!(
+    Err(FloeError::config(format!(
         "state path is neither local nor supported remote: {}",
         resolved.uri
-    ))))
+    ))
+    .into())
 }
 
 fn remove_expired_claims(state: &mut EntityState) {
@@ -709,6 +723,38 @@ fn rfc3339_offset(seconds: i64) -> String {
 
 fn now_rfc3339() -> String {
     rfc3339_offset(0)
+}
+
+/// Capped exponential backoff window (in ms) for a zero-based retry attempt.
+fn cas_backoff_window_ms(attempt: usize) -> u64 {
+    let shift = attempt.min(20) as u32;
+    STATE_CAS_BASE_BACKOFF_MS
+        .saturating_mul(1u64 << shift)
+        .min(STATE_CAS_MAX_BACKOFF_MS)
+}
+
+/// Full-jitter delay drawn from `[0, window]`. Jitter is seeded from the clock's
+/// sub-millisecond nanoseconds — adequate for spreading out colliding writers
+/// without pulling in a PRNG dependency.
+fn cas_backoff_jitter_ms(window_ms: u64) -> u64 {
+    if window_ms == 0 {
+        return 0;
+    }
+    let entropy = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    entropy % (window_ms + 1)
+}
+
+/// Sleep before retrying a conflicted CAS write so concurrent writers (e.g. an
+/// orchestrator backfill fanning out parallel entity runs) stop colliding in
+/// lockstep. `attempt` is the zero-based index of the attempt that just failed.
+fn cas_backoff(attempt: usize) {
+    let window = cas_backoff_window_ms(attempt);
+    std::thread::sleep(std::time::Duration::from_millis(cas_backoff_jitter_ms(
+        window,
+    )));
 }
 
 fn rfc3339_after_seconds(seconds: i64) -> String {
@@ -806,7 +852,7 @@ fn is_path_separator(ch: char) -> bool {
 }
 
 fn is_remote_uri(value: &str) -> bool {
-    value.starts_with("s3://") || value.starts_with("gs://") || value.starts_with("abfs://")
+    crate::io::storage::uri::is_remote_uri(value)
 }
 
 pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeResult<EntityState> {
@@ -815,18 +861,43 @@ pub fn validate_entity_state(entity: &EntityConfig, state: EntityState) -> FloeR
 
 fn validate_entity_state_name(entity_name: &str, state: EntityState) -> FloeResult<EntityState> {
     if state.schema != ENTITY_STATE_SCHEMA_V1 && state.schema != ENTITY_STATE_SCHEMA_V2 {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} state schema mismatch: expected {} or {}, got {}",
             entity_name, ENTITY_STATE_SCHEMA_V1, ENTITY_STATE_SCHEMA_V2, state.schema
-        ))));
+        ))
+        .into());
     }
 
     if state.entity != entity_name {
-        return Err(Box::new(ConfigError(format!(
+        return Err(FloeError::config(format!(
             "entity.name={} state entity mismatch: expected {}, got {}",
             entity_name, entity_name, state.entity
-        ))));
+        ))
+        .into());
     }
 
     Ok(state)
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::*;
+
+    #[test]
+    fn window_grows_exponentially_and_caps() {
+        assert_eq!(cas_backoff_window_ms(0), STATE_CAS_BASE_BACKOFF_MS);
+        assert_eq!(cas_backoff_window_ms(1), STATE_CAS_BASE_BACKOFF_MS * 2);
+        assert_eq!(cas_backoff_window_ms(2), STATE_CAS_BASE_BACKOFF_MS * 4);
+        assert_eq!(cas_backoff_window_ms(100), STATE_CAS_MAX_BACKOFF_MS);
+        assert!(cas_backoff_window_ms(usize::MAX) <= STATE_CAS_MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn jitter_stays_within_window() {
+        for _ in 0..1_000 {
+            assert_eq!(cas_backoff_jitter_ms(0), 0);
+            assert!(cas_backoff_jitter_ms(50) <= 50);
+            assert!(cas_backoff_jitter_ms(STATE_CAS_MAX_BACKOFF_MS) <= STATE_CAS_MAX_BACKOFF_MS);
+        }
+    }
 }

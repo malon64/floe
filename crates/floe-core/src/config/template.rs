@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -6,7 +7,7 @@ use yaml_rust2::yaml::Hash;
 use crate::config::storage::resolve_local_path;
 use crate::config::yaml_decode::{load_yaml, yaml_hash, yaml_string};
 use crate::config::{EnvConfig, RootConfig};
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 pub fn apply_templates_with_vars(
     config: &mut RootConfig,
@@ -23,10 +24,7 @@ pub fn apply_templates_with_vars(
             .insert(domain.name.clone(), resolved)
             .is_some()
         {
-            return Err(Box::new(ConfigError(format!(
-                "duplicate domain name {}",
-                domain.name
-            ))));
+            return Err(FloeError::config(format!("duplicate domain name {}", domain.name)).into());
         }
     }
 
@@ -43,10 +41,13 @@ pub fn apply_templates_with_vars(
 
     if let Some(storages) = config.storages.as_mut() {
         for definition in storages.definitions.iter_mut() {
-            if let Some(prefix) = definition.prefix.as_mut() {
-                let field = format!("storages.definitions.{}.prefix", definition.name);
-                *prefix = replace_placeholders(prefix, &vars, &field, None)?;
-            }
+            let name = definition.name.clone();
+            replace_storage_definition_field(&mut definition.bucket, &vars, &name, "bucket")?;
+            replace_storage_definition_field(&mut definition.region, &vars, &name, "region")?;
+            replace_storage_definition_field(&mut definition.account, &vars, &name, "account")?;
+            replace_storage_definition_field(&mut definition.container, &vars, &name, "container")?;
+            replace_storage_definition_field(&mut definition.prefix, &vars, &name, "prefix")?;
+            replace_storage_definition_field(&mut definition.endpoint, &vars, &name, "endpoint")?;
         }
     }
 
@@ -54,7 +55,7 @@ pub fn apply_templates_with_vars(
         let mut context_vars = vars.clone();
         if let Some(domain_name) = entity.domain.as_ref() {
             let incoming_dir = domain_lookup.get(domain_name).ok_or_else(|| {
-                ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} references unknown domain {}",
                     entity.name, domain_name
                 ))
@@ -95,6 +96,19 @@ pub fn apply_templates_with_vars(
     Ok(())
 }
 
+fn replace_storage_definition_field(
+    value: &mut Option<String>,
+    vars: &HashMap<String, String>,
+    definition_name: &str,
+    field_name: &str,
+) -> FloeResult<()> {
+    if let Some(current) = value.as_mut() {
+        let field = format!("storages.definitions.{definition_name}.{field_name}");
+        *current = replace_placeholders(current, vars, &field, None)?;
+    }
+    Ok(())
+}
+
 fn build_env_vars(
     config_dir: &Path,
     env: Option<&EnvConfig>,
@@ -120,10 +134,7 @@ fn build_env_vars(
 fn load_env_file(path: &Path) -> FloeResult<HashMap<String, String>> {
     let docs = load_yaml(path)?;
     if docs.is_empty() {
-        return Err(Box::new(ConfigError(format!(
-            "env file {} is empty",
-            path.display()
-        ))));
+        return Err(FloeError::config(format!("env file {} is empty", path.display())).into());
     }
     let hash = yaml_hash(&docs[0], "env.file")?;
     extract_string_map(hash, "env.file")
@@ -151,27 +162,28 @@ fn replace_placeholders(
         result.push_str(&rest[..start]);
         rest = &rest[start + 2..];
         let end = rest.find("}}").ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "{}{} missing closing '}}'",
                 entity_prefix(entity),
                 field
-            )))
+            ))
         })?;
         let key = rest[..end].trim();
         if key.is_empty() {
-            return Err(Box::new(ConfigError(format!(
+            return Err(FloeError::config(format!(
                 "{}{} empty placeholder",
                 entity_prefix(entity),
                 field
-            ))));
+            ))
+            .into());
         }
         let replacement = vars.get(key).ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "{}{} references unknown variable {}",
                 entity_prefix(entity),
                 field,
                 key
-            )))
+            ))
         })?;
         result.push_str(replacement);
         rest = &rest[end + 2..];

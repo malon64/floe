@@ -1,5 +1,15 @@
 # How Floe Works
 
+Floe is a contract-first ingestion gate. For each entity, it validates raw files
+or extracted datasets before they enter the trusted layer, writes valid rows to
+the accepted sink, routes invalid rows to the rejected sink, and records what
+happened in machine-readable reports.
+
+The runtime is a lightweight single-node engine written in Rust. Floe uses
+Polars for dataframe execution and Apache Arrow RecordBatches at the sink
+boundary, so Delta, Iceberg, and DuckDB writers receive columnar data without an
+extra serialization step.
+
 This document describes the canonical ingestion pipeline Floe uses for each
 entity. The order is deterministic and is reflected in reports.
 
@@ -60,10 +70,12 @@ This is the only entity-level check in v0.1/v0.2.
 
 ### E) Entity-level accepted output (across files)
 
-Accepted rows from all input files are concatenated in file order and written
-once to the accepted sink. For parquet sinks, Floe writes a dataset directory
-containing `part-00000.parquet` (and additional parts when chunking is enabled
-via `sink.accepted.options.max_size_per_file`).
+Accepted rows from input files are written to the accepted sink in file order.
+For parquet sinks, Floe writes a dataset directory containing `part-*.parquet`.
+For table sinks, Floe writes through the format implementation for Delta,
+Iceberg, or DuckDB. Some non-merge sinks can flush accepted rows in bounded
+batches when `sink.accepted.options.max_size_per_file` is configured; see the
+sink docs for the partial-output trade-off.
 
 ### F) Incremental state commit
 

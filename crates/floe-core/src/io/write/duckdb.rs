@@ -15,13 +15,13 @@
 //! so `Overwrite` replaces the target table once and subsequent flushes
 //! accumulate.
 
+use crate::errors::FloeError;
 use arrow::record_batch::RecordBatch;
 
 use ::duckdb::vtab::arrow::arrow_recordbatch_to_query_params;
 use ::duckdb::Connection;
 use uuid::Uuid;
 
-use crate::errors::{ConfigError, RunError};
 use crate::io::format::{
     AcceptedMergeMetrics, AcceptedSchemaEvolution, AcceptedWriteMetrics, AcceptedWriteOutput,
     AcceptedWriteRequest,
@@ -77,10 +77,10 @@ impl SinkFormat for DuckDbSinkFormat {
         } = req;
 
         let cfg = entity.sink.accepted.duckdb.as_ref().ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.accepted.format=duckdb requires a sink.accepted.duckdb block",
                 entity.name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         let duck_target = resolve_target(target, cfg, &entity.name)?;
@@ -99,7 +99,7 @@ impl SinkFormat for DuckDbSinkFormat {
         let handle = conn::acquire(&duck_target)?;
         let conn = handle
             .lock()
-            .map_err(|_| Box::new(RunError("duckdb connection lock poisoned".to_string())))?;
+            .map_err(|_| FloeError::run("duckdb connection lock poisoned".to_string()))?;
 
         let merge = apply_write(&conn, mode, entity, &schema, &table, &source_columns, batch)?;
 
@@ -132,10 +132,10 @@ impl SinkFormat for DuckDbSinkFormat {
             return Ok(());
         }
         let cfg = ctx.entity.sink.accepted.duckdb.as_ref().ok_or_else(|| {
-            Box::new(ConfigError(format!(
+            FloeError::config(format!(
                 "entity.name={} sink.accepted.format=duckdb requires a sink.accepted.duckdb block",
                 ctx.entity.name
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let duck_target = resolve_target(ctx.target, cfg, &ctx.entity.name)?;
         let (schema, table) = resolve_schema_and_table(cfg);
@@ -143,7 +143,7 @@ impl SinkFormat for DuckDbSinkFormat {
         let handle = conn::acquire(&duck_target)?;
         let conn = handle
             .lock()
-            .map_err(|_| Box::new(RunError("duckdb connection lock poisoned".to_string())))?;
+            .map_err(|_| FloeError::run("duckdb connection lock poisoned".to_string()))?;
 
         if !table_exists(&conn, &schema, &table)? {
             return Ok(());
@@ -156,16 +156,12 @@ impl SinkFormat for DuckDbSinkFormat {
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!("SELECT {columns} FROM {}", quoted_table(&schema, &table));
-        let mut stmt = conn.prepare(&sql).map_err(|err| {
-            Box::new(RunError(format!("duckdb seed prepare failed: {err}")))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|err| FloeError::run(format!("duckdb seed prepare failed: {err}")))?;
         let batches: Vec<RecordBatch> = stmt
             .query_arrow([])
-            .map_err(|err| {
-                Box::new(RunError(format!("duckdb seed scan failed: {err}")))
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?
+            .map_err(|err| FloeError::run(format!("duckdb seed scan failed: {err}")))?
             .collect();
 
         seed_from_batches(tracker, batches, ctx.rename_back)
@@ -201,9 +197,7 @@ fn apply_write(
             src = quote_ident(&source_table)
         );
         conn.execute(&create_src, params).map_err(|err| {
-            Box::new(RunError(format!(
-                "duckdb source materialization failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            FloeError::run(format!("duckdb source materialization failed: {err}"))
         })?;
 
         let exists = table_exists(conn, schema, table)?;
@@ -294,9 +288,8 @@ fn with_transaction<T>(
 }
 
 fn exec(conn: &Connection, sql: &str, context: &str) -> FloeResult<()> {
-    conn.execute_batch(sql).map_err(|err| {
-        Box::new(RunError(format!("{context}: {err}"))) as Box<dyn std::error::Error + Send + Sync>
-    })
+    conn.execute_batch(sql)
+        .map_err(|err| FloeError::run(format!("{context}: {err}")).into())
 }
 
 /// True if `schema.table` already exists in the current database.
@@ -308,11 +301,7 @@ fn table_exists(conn: &Connection, schema: &str, table: &str) -> FloeResult<bool
             [schema, table],
             |row| row.get(0),
         )
-        .map_err(|err| {
-            Box::new(RunError(format!(
-                "duckdb table existence check failed: {err}"
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        .map_err(|err| FloeError::run(format!("duckdb table existence check failed: {err}")))?;
     Ok(count > 0)
 }
 

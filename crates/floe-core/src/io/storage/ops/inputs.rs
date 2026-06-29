@@ -1,9 +1,9 @@
+use crate::errors::FloeError;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use glob::{MatchOptions, Pattern};
 
-use crate::errors::RunError;
 use crate::io::storage::{planner, Target};
 use crate::{config, io, report, FloeResult};
 
@@ -34,9 +34,7 @@ pub fn resolve_inputs(
         Target::S3 { storage, .. } => {
             let client = require_storage_client(storage_client, "s3")?;
             let (bucket, key) = target.s3_parts().ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "s3 target missing bucket".to_string(),
-                ))
+                crate::errors::FloeError::run("s3 target missing bucket".to_string())
             })?;
             let location = format!("bucket={}", bucket);
             resolve_cloud_inputs_for_prefix(
@@ -53,9 +51,7 @@ pub fn resolve_inputs(
         Target::Gcs { storage, .. } => {
             let client = require_storage_client(storage_client, "gcs")?;
             let (bucket, key) = target.gcs_parts().ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "gcs target missing bucket".to_string(),
-                ))
+                crate::errors::FloeError::run("gcs target missing bucket".to_string())
             })?;
             let location = format!("bucket={}", bucket);
             resolve_cloud_inputs_for_prefix(
@@ -72,9 +68,7 @@ pub fn resolve_inputs(
         Target::Adls { storage, .. } => {
             let client = require_storage_client(storage_client, "adls")?;
             let (container, account, base_path) = target.adls_parts().ok_or_else(|| {
-                Box::new(crate::errors::RunError(
-                    "adls target missing container".to_string(),
-                ))
+                crate::errors::FloeError::run("adls target missing container".to_string())
             })?;
             let location = format!("container={}, account={}", container, account);
             resolve_cloud_inputs_for_prefix(
@@ -143,10 +137,7 @@ fn require_storage_client<'a>(
     label: &str,
 ) -> FloeResult<&'a dyn crate::io::storage::StorageClient> {
     storage_client.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-        Box::new(crate::errors::RunError(format!(
-            "{} storage client missing",
-            label
-        )))
+        crate::errors::FloeError::run(format!("{} storage client missing", label)).into()
     })
 }
 
@@ -159,17 +150,17 @@ fn list_cloud_objects(
     location: &str,
 ) -> FloeResult<Vec<io::storage::planner::ObjectRef>> {
     let source_match = CloudSourceMatch::new(source_path).map_err(|err| {
-        Box::new(crate::errors::RunError(format!(
+        crate::errors::FloeError::run(format!(
             "entity.name={} source.storage={} invalid cloud source path ({}, path={}): {}",
             entity.name, storage, location, source_path, err
-        ))) as Box<dyn std::error::Error + Send + Sync>
+        ))
     })?;
     let suffixes = adapter.suffixes()?;
     let list_refs = client.list(source_match.list_prefix())?;
     let filtered = filter_cloud_list_refs(list_refs, &source_match, &suffixes);
     if filtered.is_empty() {
         let match_desc = source_match.match_description();
-        return Err(Box::new(crate::errors::RunError(format!(
+        return Err(crate::errors::FloeError::run(format!(
             "entity.name={} source.storage={} no input objects matched ({}, prefix={}, {}, suffixes={})",
             entity.name,
             storage,
@@ -177,7 +168,7 @@ fn list_cloud_objects(
             source_match.list_prefix(),
             match_desc,
             suffixes.join(",")
-        ))));
+        )).into());
     }
     Ok(filtered)
 }
@@ -259,16 +250,16 @@ pub fn localize_input(
 ) -> FloeResult<io::format::LocalInputFile> {
     if is_cloud_uri(&input_file.source_uri) {
         let client = storage_client.ok_or_else(|| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "storage client required to download {}",
                 input_file.source_uri
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let temp = temp_dir.ok_or_else(|| {
-            Box::new(RunError(format!(
+            FloeError::run(format!(
                 "temp_dir required to download {}",
                 input_file.source_uri
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
         let local_path = client.download_to_temp(&input_file.source_uri, temp)?;
         Ok(io::format::LocalInputFile {
@@ -288,11 +279,7 @@ pub fn localize_input(
 }
 
 fn is_cloud_uri(uri: &str) -> bool {
-    uri.starts_with("s3://")
-        || uri.starts_with("gs://")
-        || uri.starts_with("abfs://")
-        || uri.starts_with("az://")
-        || uri.starts_with("gcs://")
+    crate::io::storage::uri::is_remote_uri(uri)
 }
 
 fn system_time_to_rfc3339(value: SystemTime) -> Option<String> {
@@ -339,17 +326,17 @@ impl CloudSourceMatch {
 
         let list_prefix = prefix_before_first_glob(source_path);
         if list_prefix.trim_matches('/').is_empty() {
-            return Err(Box::new(crate::errors::RunError(
+            return Err(crate::errors::FloeError::run(
                 "glob patterns for cloud sources must include a non-empty literal prefix before the first wildcard"
                     .to_string(),
-            )));
+            ).into());
         }
 
         let matcher = Pattern::new(source_path).map_err(|err| {
-            Box::new(crate::errors::RunError(format!(
+            crate::errors::FloeError::run(format!(
                 "invalid cloud glob pattern {:?}: {err}",
                 source_path
-            ))) as Box<dyn std::error::Error + Send + Sync>
+            ))
         })?;
 
         Ok(Self {

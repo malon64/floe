@@ -1,3 +1,4 @@
+use crate::errors::FloeError;
 use serde::Deserialize;
 
 use crate::config::{
@@ -6,7 +7,7 @@ use crate::config::{
     SchemaMismatchConfig, SinkConfig, SinkOptions, SinkTarget, SourceConfig, SourceOptions,
     StoragesConfig, WriteMode,
 };
-use crate::{ConfigError, FloeResult};
+use crate::FloeResult;
 
 // Minimal deserializable mirror of CommonManifest — only the fields needed to reconstruct
 // a RootConfig and run an entity.
@@ -92,26 +93,41 @@ pub struct ManifestColumnDefForRun {
     pub trim: Option<bool>,
 }
 
+/// Deserialize an optional embedded manifest section (storages/catalogs/lineage),
+/// returning a clear error if the block is present but malformed rather than silently
+/// discarding it.
+fn deserialize_manifest_section<T: serde::de::DeserializeOwned>(
+    value: Option<&serde_json::Value>,
+    section: &str,
+) -> FloeResult<Option<T>> {
+    match value {
+        Some(v) => serde_json::from_value::<T>(v.clone()).map(Some).map_err(
+            |err| -> Box<dyn std::error::Error + Send + Sync> {
+                FloeError::config(format!("manifest {section} block is malformed: {err}")).into()
+            },
+        ),
+        None => Ok(None),
+    }
+}
+
 /// Parse a manifest JSON string and reconstruct a minimal RootConfig.
 /// Returns (config, report_base_uri).
 pub fn config_from_manifest_json(json: &str) -> FloeResult<(crate::config::RootConfig, String)> {
     let manifest: ManifestForRun =
         serde_json::from_str(json).map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
-            Box::new(ConfigError(format!("manifest parse error: {err}")))
+            FloeError::config(format!("manifest parse error: {err}")).into()
         })?;
 
-    let storages = manifest
-        .storages
-        .as_ref()
-        .and_then(|v| serde_json::from_value::<StoragesConfig>(v.clone()).ok());
-    let catalogs = manifest
-        .catalogs
-        .as_ref()
-        .and_then(|v| serde_json::from_value::<CatalogsConfig>(v.clone()).ok());
-    let lineage = manifest
-        .lineage
-        .as_ref()
-        .and_then(|v| serde_json::from_value::<LineageConfig>(v.clone()).ok());
+    // Deserialize the embedded sections, surfacing malformed blocks as a clear error instead
+    // of silently dropping them (a swallowed error here previously surfaced downstream as the
+    // confusing "no storages block" failure when a hand-edited manifest had a slightly-off
+    // storages shape).
+    let storages =
+        deserialize_manifest_section::<StoragesConfig>(manifest.storages.as_ref(), "storages")?;
+    let catalogs =
+        deserialize_manifest_section::<CatalogsConfig>(manifest.catalogs.as_ref(), "catalogs")?;
+    let lineage =
+        deserialize_manifest_section::<LineageConfig>(manifest.lineage.as_ref(), "lineage")?;
 
     let entities = manifest
         .entities

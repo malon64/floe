@@ -1,4 +1,4 @@
-use crate::errors::RunError;
+use crate::errors::FloeError;
 use crate::{config, io, FloeResult};
 
 use crate::io::storage::{paths, CloudClient, Target};
@@ -25,10 +25,11 @@ pub fn archive_input_file(
     let client = cloud.client_for(resolver, target.storage(), entity)?;
     client.copy_object(&input_file.source_uri, &dest_uri)?;
     if let Err(err) = client.delete_object(&input_file.source_uri) {
-        return Err(Box::new(RunError(format!(
+        return Err(FloeError::run(format!(
             "entity.name={} archive delete failed for {}: {err}",
             entity.name, input_file.source_uri
-        ))));
+        ))
+        .into());
     }
     Ok(Some(dest_uri))
 }

@@ -2,6 +2,11 @@
 
 ## Why manifests?
 
+Manifests are how Floe plugs its ingestion gate into platforms that already
+orchestrate work. They let Airflow, Dagster, Kubernetes, Databricks jobs, or
+similar runners execute Floe contracts without learning Floe's YAML model at
+parse time.
+
 Orchestrators like Dagster and Airflow build their job/DAG graphs *before* any data runs — at parse time. If they read your Floe YAML directly at that moment, they'd have to understand Floe's config format, resolve `{{variables}}`, infer entity names, and guess output paths — all before a single row moves. That's a lot of coupling for a scheduling layer.
 
 **Manifests decouple "what will run" from "when it runs."** You generate a manifest once (after editing your config), commit it alongside your code, and the orchestrator reads the static JSON at parse time. At run time it just calls `floe run --manifest` — no YAML parsing, no variable resolution, no guesswork.
@@ -110,6 +115,18 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
     "definitions": {
       "local": { "type": "local_process" }
     }
+  },
+
+  // Storage / catalog / lineage definitions, embedded so the manifest is self-contained.
+  // These mirror the effective config (config-level definitions merged with any profile,
+  // with profile variables already resolved) and are what `floe run --manifest` uses to
+  // resolve named storages such as `source.storage` / `sink.*.storage`. Present whenever the
+  // config (or profile) defines them.
+  "storages": {
+    "default": "lakehouse_bronze",
+    "definitions": [
+      { "name": "lakehouse_bronze", "type": "s3", "bucket": "example-bronze", "region": "eu-west-1" }
+    ]
   },
 
   // One entry per entity — this is what orchestrators iterate over

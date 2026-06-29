@@ -2,16 +2,20 @@
 
 ## What it is
 
-Floe is a single-node, YAML-driven data ingestion framework written in Rust. You describe a data contract in a config file; Floe reads raw files, enforces schema and quality rules, and writes clean rows to a sink — routing invalid rows to a separate rejected output.
+Floe is a Polars-powered data contract runtime for reliable file ingestion. You
+describe a data contract in a YAML config file; Floe reads raw files or extracted
+datasets, enforces schema and quality rules, and writes clean rows to a sink —
+routing invalid rows to a separate rejected output.
 
 It is designed for data platform teams who need reliable, auditable file ingestion without running a Spark or Flink cluster.
 
 ## Core value proposition
 
-- **No JVM, no cluster.** A single static binary. Runs on a laptop, a Lambda function, or a Kubernetes job.
+- **No JVM, no cluster.** A lightweight runtime. Runs on a laptop, a Lambda function, or a Kubernetes job.
 - **Declarative contracts.** Schema, quality rules, and routing are expressed in YAML — not code.
 - **Audit trail by default.** Every run produces a JSON report with row counts, rejected file paths, schema evolution info, and timing.
 - **Cloud-native storage.** S3, GCS, ADLS, and local — all treated uniformly.
+- **Open table targets.** Accepted rows can land in Parquet, Delta Lake, Apache Iceberg, or DuckDB/MotherDuck.
 
 ## What it is NOT
 
@@ -30,7 +34,7 @@ It is designed for data platform teams who need reliable, auditable file ingesti
 | Direction | Formats |
 |---|---|
 | Input | CSV · TSV · JSON · Parquet · ORC · Avro · XLSX · XML · Fixed-width |
-| Accepted output | Parquet · Delta Lake · Apache Iceberg |
+| Accepted output | Parquet · Delta Lake · Apache Iceberg · DuckDB / MotherDuck |
 | Rejected output | CSV · Parquet |
 
 ## Supported storage

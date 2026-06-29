@@ -326,6 +326,152 @@ variables:
 }
 
 #[test]
+fn manifest_generate_applies_profile_variables_to_storage_definitions() {
+    let tmp = tempdir().expect("create temp dir");
+    let config_path = tmp.path().join("config.yml");
+    let profile_path = tmp.path().join("profile.yml");
+
+    fs::write(
+        &config_path,
+        r#"version: "0.2"
+storages:
+  default: "lakehouse_bronze"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+entities:
+  - name: orders
+    source:
+      format: csv
+      storage: local
+      path: ./in/orders.csv
+    sink:
+      accepted:
+        format: parquet
+        storage: lakehouse_bronze
+        path: sales/order_revenue/orders
+    policy:
+      severity: warn
+    schema:
+      columns:
+        - name: order_id
+          type: string
+          nullable: false
+"#,
+    )
+    .expect("write config");
+    fs::write(
+        &profile_path,
+        r#"apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: local-k8s
+variables:
+  OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-bronze"
+  OPENLAKEFORGE_STORAGE_REGION: "us-east-1"
+"#,
+    )
+    .expect("write profile");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .arg("--profile")
+        .arg(&profile_path)
+        .args(["--manifest-path-mode", "resolved-uri"])
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        !stdout.contains("{{"),
+        "manifest should not contain unresolved placeholders: {stdout}"
+    );
+
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+    let accepted = &value["entities"][0]["sinks"]["accepted"];
+    assert_eq!(
+        accepted["uri"],
+        "s3://lakehouse-bronze/sales/order_revenue/orders"
+    );
+    assert_eq!(
+        accepted["path"],
+        "s3://lakehouse-bronze/sales/order_revenue/orders"
+    );
+}
+
+#[test]
+fn manifest_generate_embeds_config_storages_block() {
+    // The generated manifest must be self-contained: config-level storages (with profile
+    // variables already resolved) are embedded so `floe run --manifest` can resolve named
+    // storages instead of failing with "no storages block" (#425).
+    let tmp = tempdir().expect("create temp dir");
+    let config_path = tmp.path().join("config.yml");
+
+    fs::write(
+        &config_path,
+        r#"version: "0.2"
+storages:
+  default: "lakehouse_bronze"
+  definitions:
+    - name: "local"
+      type: "local"
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "example-bronze"
+      region: "eu-west-1"
+entities:
+  - name: accounts
+    source:
+      format: csv
+      storage: local
+      path: ./in/accounts.csv
+    sink:
+      accepted:
+        format: parquet
+        storage: lakehouse_bronze
+        path: sales/accounts
+    policy:
+      severity: warn
+    schema:
+      columns:
+        - name: account_id
+          type: string
+          nullable: false
+"#,
+    )
+    .expect("write config");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("floe"));
+    let assert = cmd
+        .args(["manifest", "generate", "-c"])
+        .arg(&config_path)
+        .args(["--manifest-path-mode", "resolved-uri"])
+        .args(["--output", "-"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: Value = serde_json::from_str(stdout.trim()).expect("stdout should be json");
+
+    let definitions = value["storages"]["definitions"]
+        .as_array()
+        .expect("manifest should embed a storages.definitions block");
+    assert!(
+        definitions
+            .iter()
+            .any(|d| d["name"] == "lakehouse_bronze" && d["bucket"] == "example-bronze"),
+        "generated manifest should embed config-level S3 storage definitions: {value:#}"
+    );
+}
+
+#[test]
 fn manifest_entity_includes_policy_severity_and_write_mode() {
     let tmp = tempdir().expect("create temp dir");
     let config_path = write_minimal_config(tmp.path(), "reject");

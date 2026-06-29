@@ -1,13 +1,16 @@
 #[cfg(any(feature = "delta", feature = "iceberg"))]
+use crate::errors::FloeError;
 use std::collections::HashMap;
 
 #[cfg(feature = "iceberg")]
-use iceberg::io::{CLIENT_REGION, S3_REGION};
+use iceberg::io::{
+    CLIENT_REGION, S3_ACCESS_KEY_ID, S3_REGION, S3_SECRET_ACCESS_KEY, S3_SESSION_TOKEN,
+};
 #[cfg(feature = "delta")]
 use url::Url;
 
 #[cfg(any(feature = "delta", feature = "iceberg"))]
-use crate::{config, ConfigError, FloeResult};
+use crate::{config, FloeResult};
 
 #[cfg(any(feature = "delta", feature = "iceberg"))]
 use super::Target;
@@ -34,10 +37,10 @@ pub fn delta_store_config(
     match target {
         Target::Local { base_path, .. } => {
             let url = Url::from_directory_path(base_path).map_err(|_| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta table path is not a valid url: {}",
                     entity.name, base_path
-                )))
+                ))
             })?;
             Ok(DeltaStoreConfig {
                 table_url: url,
@@ -51,10 +54,10 @@ pub fn delta_store_config(
             ..
         } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta s3 path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             let mut storage_options = HashMap::new();
             if let Some(definition) = resolver.definition(storage) {
@@ -75,10 +78,10 @@ pub fn delta_store_config(
             ..
         } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta adls path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             let mut storage_options = HashMap::new();
             storage_options.insert(
@@ -93,10 +96,10 @@ pub fn delta_store_config(
         }
         Target::Gcs { uri, .. } => {
             let url = Url::parse(uri).map_err(|err| {
-                Box::new(ConfigError(format!(
+                FloeError::config(format!(
                     "entity.name={} delta gcs path is invalid: {} ({err})",
                     entity.name, uri
-                )))
+                ))
             })?;
             Ok(DeltaStoreConfig {
                 table_url: url,
@@ -141,9 +144,134 @@ pub fn iceberg_store_config(
             warehouse_location: uri.to_string(),
             file_io_props: HashMap::new(),
         }),
-        Target::Adls { .. } => Err(Box::new(ConfigError(format!(
+        Target::Adls { .. } => Err(FloeError::config(format!(
             "entity.name={} iceberg sink is only supported on local, s3, or gcs storage for now",
             entity.name
-        )))),
+        ))
+        .into()),
+    }
+}
+
+/// Resolve AWS credentials through the AWS SDK default provider chain and inject them as
+/// static `s3.*` properties for the opendal-backed Iceberg S3 writer.
+///
+/// The Iceberg write path builds its S3 operator through opendal + reqsign, whose default
+/// credential chain does **not** understand EKS Pod Identity / ECS container credentials
+/// (`AWS_CONTAINER_CREDENTIALS_FULL_URI` + token file) and falls back to EC2 IMDS — which
+/// fails inside EKS Pod Identity pods (#426). The AWS SDK chain (`aws-config`, the same one
+/// the Glue catalog and S3 reads already use successfully) does resolve those credentials, so
+/// we resolve them here and hand opendal explicit static credentials.
+///
+/// Best-effort and non-regressive: if no provider is configured or resolution fails, the props
+/// are left untouched so existing static-env / IMDS setups keep working. Caller-supplied
+/// credential props are never overwritten.
+#[cfg(feature = "iceberg")]
+pub async fn inject_aws_static_credentials(
+    props: &mut HashMap<String, String>,
+    region: Option<&str>,
+) {
+    use aws_credential_types::provider::ProvideCredentials;
+    use aws_sdk_s3::config::Region as S3Region;
+
+    // Respect explicitly-configured credentials; skip the resolver entirely.
+    if props.contains_key(S3_ACCESS_KEY_ID) {
+        return;
+    }
+
+    let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+    if let Some(region) = region {
+        loader = loader.region(S3Region::new(region.to_string()));
+    }
+    let sdk_config = loader.load().await;
+
+    let Some(provider) = sdk_config.credentials_provider() else {
+        return;
+    };
+    let Ok(creds) = provider.provide_credentials().await else {
+        return;
+    };
+
+    apply_aws_credentials_to_props(props, &creds);
+}
+
+/// Map resolved AWS credentials onto the `s3.*` properties consumed by the opendal-backed
+/// Iceberg S3 writer. Existing credential props are left untouched.
+#[cfg(feature = "iceberg")]
+fn apply_aws_credentials_to_props(
+    props: &mut HashMap<String, String>,
+    creds: &aws_credential_types::Credentials,
+) {
+    if props.contains_key(S3_ACCESS_KEY_ID) {
+        return;
+    }
+    props.insert(
+        S3_ACCESS_KEY_ID.to_string(),
+        creds.access_key_id().to_string(),
+    );
+    props.insert(
+        S3_SECRET_ACCESS_KEY.to_string(),
+        creds.secret_access_key().to_string(),
+    );
+    if let Some(token) = creds.session_token() {
+        props.insert(S3_SESSION_TOKEN.to_string(), token.to_string());
+    }
+}
+
+#[cfg(all(test, feature = "iceberg"))]
+mod credential_tests {
+    use super::*;
+    use aws_credential_types::Credentials;
+
+    #[test]
+    fn maps_temporary_credentials_to_s3_props() {
+        let creds = Credentials::new(
+            "AKIDEXAMPLE",
+            "SECRET",
+            Some("SESSION".into()),
+            None,
+            "test",
+        );
+        let mut props = HashMap::new();
+        apply_aws_credentials_to_props(&mut props, &creds);
+
+        assert_eq!(
+            props.get(S3_ACCESS_KEY_ID).map(String::as_str),
+            Some("AKIDEXAMPLE")
+        );
+        assert_eq!(
+            props.get(S3_SECRET_ACCESS_KEY).map(String::as_str),
+            Some("SECRET")
+        );
+        assert_eq!(
+            props.get(S3_SESSION_TOKEN).map(String::as_str),
+            Some("SESSION")
+        );
+    }
+
+    #[test]
+    fn omits_session_token_for_long_lived_credentials() {
+        let creds = Credentials::new("AKIDEXAMPLE", "SECRET", None, None, "test");
+        let mut props = HashMap::new();
+        apply_aws_credentials_to_props(&mut props, &creds);
+
+        assert_eq!(
+            props.get(S3_ACCESS_KEY_ID).map(String::as_str),
+            Some("AKIDEXAMPLE")
+        );
+        assert!(!props.contains_key(S3_SESSION_TOKEN));
+    }
+
+    #[test]
+    fn does_not_overwrite_caller_supplied_credentials() {
+        let creds = Credentials::new("RESOLVED", "RESOLVED_SECRET", None, None, "test");
+        let mut props = HashMap::new();
+        props.insert(S3_ACCESS_KEY_ID.to_string(), "USER_KEY".to_string());
+        apply_aws_credentials_to_props(&mut props, &creds);
+
+        assert_eq!(
+            props.get(S3_ACCESS_KEY_ID).map(String::as_str),
+            Some("USER_KEY")
+        );
+        assert!(!props.contains_key(S3_SECRET_ACCESS_KEY));
     }
 }

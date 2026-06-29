@@ -483,7 +483,7 @@ fn iceberg_store_config_builds_gcs_warehouse_without_props() -> FloeResult<()> {
 }
 
 #[test]
-fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
+fn iceberg_store_config_builds_adls_target() -> FloeResult<()> {
     let config = config::RootConfig {
         version: "0.1".to_string(),
         metadata: None,
@@ -557,8 +557,28 @@ fn iceberg_store_config_rejects_adls_target() -> FloeResult<()> {
         pii: None,
     };
 
-    let err = iceberg_store_config(&target, &resolver, &entity).expect_err("adls unsupported");
-    assert!(err.to_string().contains("local, s3, or gcs"));
+    // Clear credential env vars so the test is deterministic regardless of the
+    // runner environment; we only assert the account-name key here.
+    std::env::remove_var("AZURE_STORAGE_ACCOUNT_KEY");
+    std::env::remove_var("AZURE_STORAGE_SAS_TOKEN");
+
+    let store = iceberg_store_config(&target, &resolver, &entity)?;
+    assert!(
+        store
+            .warehouse_location
+            .starts_with("abfss://container@account.dfs.core.windows.net/data/iceberg/orders"),
+        "warehouse_location should be the abfss URI: {}",
+        store.warehouse_location
+    );
+    assert_eq!(
+        store
+            .file_io_props
+            .get("adls.account-name")
+            .map(String::as_str),
+        Some("account")
+    );
+    // filesystem is derived from the URI path by iceberg-storage-opendal, not passed as a prop
+    assert!(!store.file_io_props.contains_key("filesystem"));
     Ok(())
 }
 

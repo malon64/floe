@@ -2013,7 +2013,7 @@ fn iceberg_accepted_sink_is_valid_on_gcs_storage() {
 }
 
 #[test]
-fn iceberg_accepted_sink_rejects_adls_storage() {
+fn iceberg_accepted_sink_accepts_adls_storage() {
     let storages = r#"  default: "local_fs"
   definitions:
     - name: "local_fs"
@@ -2041,15 +2041,7 @@ fn iceberg_accepted_sink_rejects_adls_storage() {
           type: "string"
 "#;
     let yaml = config_with_storages(storages, entity);
-    assert_validation_error(
-        &yaml,
-        &[
-            "entity.name=customer",
-            "sink.accepted.format=iceberg",
-            "local, s3, gcs",
-            "adls",
-        ],
-    );
+    assert_validation_ok(&yaml);
 }
 
 #[test]

@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 #[cfg(feature = "iceberg")]
 use iceberg::io::{
-    CLIENT_REGION, S3_ACCESS_KEY_ID, S3_REGION, S3_SECRET_ACCESS_KEY, S3_SESSION_TOKEN,
+    ADLS_ACCOUNT_KEY, ADLS_ACCOUNT_NAME, ADLS_SAS_TOKEN, CLIENT_REGION, S3_ACCESS_KEY_ID,
+    S3_REGION, S3_SECRET_ACCESS_KEY, S3_SESSION_TOKEN,
 };
 #[cfg(feature = "delta")]
 use url::Url;
@@ -113,7 +114,7 @@ pub fn delta_store_config(
 pub fn iceberg_store_config(
     target: &Target,
     resolver: &config::StorageResolver,
-    entity: &config::EntityConfig,
+    _entity: &config::EntityConfig,
 ) -> FloeResult<IcebergStoreConfig> {
     match target {
         Target::Local { base_path, .. } => Ok(IcebergStoreConfig {
@@ -144,11 +145,24 @@ pub fn iceberg_store_config(
             warehouse_location: uri.to_string(),
             file_io_props: HashMap::new(),
         }),
-        Target::Adls { .. } => Err(FloeError::config(format!(
-            "entity.name={} iceberg sink is only supported on local, s3, or gcs storage for now",
-            entity.name
-        ))
-        .into()),
+        Target::Adls { uri, account, .. } => {
+            let mut file_io_props = HashMap::new();
+            let warehouse_location = uri
+                .strip_prefix("abfs://")
+                .map(|rest| format!("abfss://{rest}"))
+                .unwrap_or_else(|| uri.to_string());
+            file_io_props.insert(ADLS_ACCOUNT_NAME.to_string(), account.to_string());
+            if let Ok(key) = std::env::var("AZURE_STORAGE_ACCOUNT_KEY") {
+                file_io_props.insert(ADLS_ACCOUNT_KEY.to_string(), key);
+            }
+            if let Ok(sas) = std::env::var("AZURE_STORAGE_SAS_TOKEN") {
+                file_io_props.insert(ADLS_SAS_TOKEN.to_string(), sas);
+            }
+            Ok(IcebergStoreConfig {
+                warehouse_location,
+                file_io_props,
+            })
+        }
     }
 }
 

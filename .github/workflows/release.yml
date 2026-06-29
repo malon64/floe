@@ -430,24 +430,52 @@ jobs:
           python - <<'PY'
           import json, os, time, urllib.request
           version = os.environ["VERSION"]
-          url = f"https://crates.io/api/v1/crates/floe-core/{version}"
-          for attempt in range(30):          # up to 5 minutes (30 × 10 s)
+          # Poll the SPARSE INDEX that `cargo publish` actually resolves against
+          # (index.crates.io), NOT the crates.io web API. The two propagate on
+          # different schedules, and resolving floe-cli's `floe-core` dependency
+          # below reads the sparse index — so the web API going green did not stop
+          # `cargo publish -p floe-cli` from failing on v0.6.1/v0.6.3. Index path
+          # layout: crates with >= 4 char names live at <ab>/<cd>/<name>.
+          url = "https://index.crates.io/fl/oe/floe-core"
+          attempts = 60                       # up to ~20 minutes (60 × 20 s)
+          for attempt in range(attempts):
               try:
-                  with urllib.request.urlopen(url, timeout=10) as resp:
-                      data = json.load(resp)
-                  if data.get("version", {}).get("num") == version:
-                      print(f"floe-core {version} is available in the crates.io index")
+                  req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      body = resp.read().decode("utf-8")
+                  versions = {
+                      json.loads(line)["vers"]
+                      for line in body.splitlines() if line.strip()
+                  }
+                  if version in versions:
+                      print(f"floe-core {version} is available in the sparse index")
                       break
               except Exception as exc:
                   print(f"  (probe failed: {exc})")
-              print(f"[{attempt + 1}/30] floe-core {version} not yet in index, waiting 10 s...")
-              time.sleep(10)
+              print(f"[{attempt + 1}/{attempts}] floe-core {version} not yet in sparse index, waiting 20 s...")
+              time.sleep(20)
           else:
-              print(f"WARNING: floe-core {version} still not visible after 5 min; proceeding anyway")
+              print(f"WARNING: floe-core {version} still not visible after ~20 min; "
+                    "the publish step below will retry")
           PY
       - name: Publish floe-cli
         if: ${{ steps.check.outputs.cli_exists != 'true' }}
-        run: cargo publish -p floe-cli
+        run: |
+          # Retry to absorb residual crates.io sparse-index lag: floe-cli's
+          # `floe-core` dependency can be briefly unresolvable even after the wait
+          # step above (the v0.6.1/v0.6.3 release failure). The "failed to select a
+          # version for floe-core" error happens during packaging, before any
+          # upload, so a failed attempt publishes nothing and retrying is safe.
+          for attempt in $(seq 1 5); do
+            if cargo publish -p floe-cli; then
+              echo "floe-cli published on attempt ${attempt}"
+              exit 0
+            fi
+            echo "cargo publish -p floe-cli failed (attempt ${attempt}/5); retrying in 60 s..."
+            sleep 60
+          done
+          echo "ERROR: cargo publish -p floe-cli failed after 5 attempts"
+          exit 1
 
   build:
     runs-on: ${{ matrix.os }}
@@ -457,25 +485,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # All targets build on NATIVE runners — no `cross`/QEMU. cross silently
+          # fell back to a broken host build on the aarch64 lean binary in the
+          # v0.6.3 release (ring could not find aarch64-linux-gnu-gcc). This mirrors
+          # the native-runner approach already used by build-duckdb-cli (same crate,
+          # +duckdb) and build-python.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            use_cross: true
             archive_ext: tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            use_cross: true
             archive_ext: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
-            use_cross: false
             archive_ext: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            use_cross: false
             archive_ext: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            use_cross: false
             archive_ext: zip
     env:
       VERSION: ${{ needs.meta.outputs.version }}
@@ -484,27 +512,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install cross
-        if: ${{ matrix.use_cross }}
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
       - name: Build floe
         shell: bash
         run: |
           # Ship the lean sink set (parquet + delta + iceberg). The duckdb sink is
           # intentionally excluded from released binaries: its bundled native (C++)
-          # build does not cross-compile under `cross` and bloats artifacts. Users
-          # who need it build from source with `--features duckdb`.
+          # build does not cross-compile and bloats artifacts. Users who need it
+          # build from source with `--features duckdb`.
+          #
+          # Built on a native runner per target (no `cross`) — the target always
+          # equals the host arch, so a plain `cargo build` needs no cross toolchain.
           features="--no-default-features --features delta,iceberg"
           if [[ "${{ matrix.target }}" == *unknown-linux* ]]; then
             features="--no-default-features --features delta,iceberg,vendored-openssl"
           fi
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build -p floe-cli ${features} --release --target ${{ matrix.target }}
-          else
-            cargo build -p floe-cli ${features} --release --target ${{ matrix.target }}
-          fi
+          cargo build -p floe-cli ${features} --release --target ${{ matrix.target }}
       - name: Package binary (Unix)
         if: matrix.archive_ext == 'tar.gz'
         shell: bash

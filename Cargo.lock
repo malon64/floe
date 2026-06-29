@@ -3378,6 +3378,7 @@ dependencies = [
  "iceberg-catalog-rest",
  "iceberg-storage-opendal",
  "mockito",
+ "opendal",
  "orc-rust",
  "polars",
  "rayon",

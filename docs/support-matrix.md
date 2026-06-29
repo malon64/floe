@@ -38,7 +38,7 @@ Notes:
 |---|---|---|---|---|---|
 | Accepted: Parquet | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Writes `part-*.parquet` (overwrite: sequential parts, append: UUID parts) |
 | Accepted: Delta | ✅ | ✅ (object_store) | ✅ (object_store) | ✅ (object_store) | Transactional `_delta_log`; additive schema evolution for Delta only |
-| Accepted: Iceberg | ✅ | ✅ (filesystem catalog or Glue catalog over object_store) | ❌ | ✅ (filesystem catalog over object_store) | `metadata/` + `data/`; append/overwrite; partition spec runtime supported; no schema evolution/GC |
+| Accepted: Iceberg | ✅ | ✅ (filesystem catalog or Glue catalog over object_store) | ✅ (filesystem catalog over object_store) | ✅ (filesystem catalog over object_store) | `metadata/` + `data/`; append/overwrite; partition spec runtime supported; no schema evolution/GC |
 | Accepted: DuckDB | ✅ (`.duckdb` file) | ➡️ MotherDuck | ➡️ MotherDuck | ➡️ MotherDuck | overwrite/append/merge_scd1/merge_scd2 via native `MERGE INTO`; remote via MotherDuck (`md:`) only — object-store `.duckdb` files are rejected |
 | Rejected: CSV | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Dataset parts `part-*.csv` |
 | Reports: JSON | ✅ | ✅ (temp) | ✅ (temp) | ✅ (temp) | Uploaded via temp file |
@@ -55,7 +55,7 @@ Notes:
 - Iceberg `partition_spec` is runtime-supported (validated subset: `identity`, `year`, `month`, `day`, `hour`).
 - Iceberg accepted-output reports include snapshot/version metadata and file sizing metrics for data files.
 - Iceberg on GCS uses filesystem-catalog semantics (no external catalog yet).
-- Iceberg cloud support is currently S3 and GCS only (ADLS is follow-up work).
+- Iceberg on ADLS uses filesystem-catalog semantics (no external catalog beyond REST).
 - `sink.write_mode` applies to accepted and rejected outputs (`overwrite`, `append`, `merge_scd1`, `merge_scd2`).
 - `merge_scd1` and `merge_scd2` are supported on accepted Delta and DuckDB sinks; other accepted sinks (Parquet, Iceberg) fail validation for merge modes.
 - DuckDB accepted sinks write a local `.duckdb` file or a MotherDuck (`md:`) database; object-store `.duckdb` file paths are rejected at validation (DuckDB cannot read-write database files over object storage). See [DuckDB sink](sinks/duckdb.md).

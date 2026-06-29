@@ -10,7 +10,8 @@ use crate::io::storage::{object_store::iceberg_store_config, Target};
 use crate::{config, io, FloeResult};
 
 use super::metadata::{
-    latest_gcs_metadata_location, latest_local_metadata_location, latest_s3_metadata_location,
+    latest_adls_metadata_location_via_opendal, latest_gcs_metadata_location,
+    latest_local_metadata_location, latest_s3_metadata_location,
 };
 use super::{map_iceberg_err, IcebergCatalogConfig, IcebergRemoteContext, IcebergWriteContext};
 
@@ -162,11 +163,52 @@ pub(super) fn build_iceberg_write_context(
                 }),
             }
         }
-        Target::Adls { .. } => Err(FloeError::run(format!(
-            "iceberg sink currently supports local, s3, or gcs storage only for entity {}",
-            entity.name
-        ))
-        .into()),
+        Target::Adls { .. } => {
+            if let Some(ctx) = remote.as_mut() {
+                let ctx = &mut **ctx;
+                if let Some(resolved) = ctx.catalogs.resolve_iceberg_target(
+                    ctx.resolver,
+                    entity,
+                    &entity.sink.accepted,
+                )? {
+                    let catalog_cfg = build_catalog_config(ctx, entity, &resolved)?;
+                    return Ok(catalog_cfg);
+                }
+            }
+
+            // Compute the store config up-front: the metadata listing and the write
+            // both need it, and the listing uses the same credentials via OpenDAL.
+            let store = match remote.as_mut() {
+                Some(ctx) => {
+                    let ctx = &mut **ctx;
+                    iceberg_store_config(target, ctx.resolver, entity)?
+                }
+                None => {
+                    return Err(FloeError::run(format!(
+                        "entity.name={} iceberg sink on adls requires runtime cloud context",
+                        entity.name
+                    ))
+                    .into())
+                }
+            };
+
+            let metadata_location = if matches!(mode, config::WriteMode::Append) {
+                latest_adls_metadata_location_via_opendal(
+                    &store.file_io_props,
+                    &store.warehouse_location,
+                )?
+            } else {
+                None
+            };
+
+            Ok(IcebergWriteContext {
+                table_root_uri: store.warehouse_location,
+                catalog_name: "floe_iceberg",
+                catalog_props: store.file_io_props,
+                metadata_location,
+                catalog: None,
+            })
+        }
     }
 }
 

@@ -495,7 +495,7 @@ fn redact_duckdb_for_manifest(
     let cfg = duckdb?;
     let mut sanitized = cfg.clone();
     sanitized.token = match sanitized.token {
-        Some(token) if is_exact_env_placeholder(&token) => Some(token),
+        Some(token) if is_exact_env_placeholder(token.expose()) => Some(token),
         _ => None,
     };
     serde_json::to_value(&sanitized).ok()

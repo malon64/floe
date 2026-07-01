@@ -79,7 +79,7 @@ fn test_cfg(server_url: &str) -> UnityCatalogConfig {
         unity_catalog: "main".to_string(),
         schema: "bronze".to_string(),
         table: "orders".to_string(),
-        token: "test-token".to_string(),
+        token: crate::secret::Secret::from("test-token"),
         create_schema_if_missing: false,
     }
 }

@@ -140,7 +140,7 @@ fn catalog_resolver_rest_derives_namespace_and_location() {
             type_config: config::CatalogTypeConfig::Rest {
                 uri: "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
                     .to_string(),
-                credential: Some("token:my_token".to_string()),
+                credential: Some(floe_core::Secret::from("token:my_token")),
                 warehouse: Some("my_catalog.my_schema".to_string()),
                 oauth2_server_uri: None,
                 scope: None,
@@ -277,7 +277,7 @@ fn unity_root() -> config::RootConfig {
                     host: "https://my-workspace.azuredatabricks.net".to_string(),
                     catalog: "my_catalog".to_string(),
                     schema: "my_schema".to_string(),
-                    token: "dapi-token".to_string(),
+                    token: floe_core::Secret::from("dapi-token"),
                     create_schema_if_missing: false,
                 },
                 warehouse_storage: None,

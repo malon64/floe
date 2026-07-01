@@ -1,4 +1,5 @@
 use crate::errors::FloeError;
+use crate::secret::Secret;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -375,8 +376,9 @@ pub struct DuckDbSinkTargetConfig {
     /// MotherDuck instead of a local file and `SinkTarget.path` is ignored.
     pub connection: Option<String>,
     /// MotherDuck access token. Supports `${ENV}` substitution. Required for MotherDuck unless
-    /// the `motherduck_token` environment variable is set in the process.
-    pub token: Option<String>,
+    /// the `motherduck_token` environment variable is set in the process. Redacted in
+    /// `Debug`/`Display`; the manifest builder additionally drops literal tokens.
+    pub token: Option<Secret>,
 }
 
 /// True if `connection` is a MotherDuck connection string (`md:` scheme).
@@ -431,7 +433,8 @@ pub enum CatalogTypeConfig {
         /// REST catalog endpoint URI (e.g. `https://<host>/api/catalog`).
         uri: String,
         /// Credential string: `"token:<token>"` or `"client_credentials:<id>:<secret>"`.
-        credential: Option<String>,
+        /// Redacted in `Debug`/`Display`.
+        credential: Option<Secret>,
         /// Warehouse / catalog identifier (e.g. `"my_catalog"` or `"my_catalog.my_schema"`).
         warehouse: Option<String>,
         /// OAuth2 token endpoint URI (required for Snowflake Polaris).
@@ -448,8 +451,9 @@ pub enum CatalogTypeConfig {
         catalog: String,
         /// Unity schema (database) name (e.g. "my_schema").
         schema: String,
-        /// Personal Access Token or value from env-var substitution.
-        token: String,
+        /// Personal Access Token or value from env-var substitution. Redacted in
+        /// `Debug`/`Display`.
+        token: Secret,
         /// Create the Unity schema if it does not already exist (default: false).
         create_schema_if_missing: bool,
     },

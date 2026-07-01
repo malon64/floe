@@ -15,6 +15,7 @@ use ::duckdb::{Config, Connection};
 
 use crate::config::DuckDbSinkTargetConfig;
 use crate::io::storage::Target;
+use crate::secret::Secret;
 use crate::FloeResult;
 
 /// MotherDuck connection strings are identified by the `md:` scheme prefix.
@@ -35,9 +36,10 @@ pub(crate) enum DuckDbTarget {
     MotherDuck {
         /// The full `md:<db>` connection string.
         connection: String,
-        /// Already `${ENV}`-expanded token (never logged), or `None` to rely on
-        /// the ambient `motherduck_token` environment variable.
-        token: Option<String>,
+        /// Already `${ENV}`-expanded token (redacted in `Debug`/`Display`, never
+        /// logged), or `None` to rely on the ambient `motherduck_token`
+        /// environment variable.
+        token: Option<Secret>,
         cache_key: String,
     },
 }
@@ -91,8 +93,8 @@ pub(crate) fn resolve_target(
     if let Some(connection) = cfg.connection.as_deref() {
         let connection = connection.trim();
         if is_motherduck_connection(connection) {
-            let token = match cfg.token.as_deref() {
-                Some(raw) => Some(expand_env_token(raw, entity_name)?),
+            let token = match cfg.token.as_ref() {
+                Some(raw) => Some(expand_env_token(raw.expose(), entity_name)?),
                 None => None,
             };
             // The cache key must distinguish the same `md:` database opened with
@@ -113,7 +115,7 @@ pub(crate) fn resolve_target(
             let cache_key = motherduck_cache_key(connection, fingerprint_token.as_deref());
             return Ok(DuckDbTarget::MotherDuck {
                 connection: connection.to_string(),
-                token,
+                token: token.map(Secret::new),
                 cache_key,
             });
         }
@@ -263,7 +265,7 @@ fn open_connection(target: &DuckDbTarget) -> FloeResult<Connection> {
                 // Pass the token via the connection Config rather than a `SET`
                 // statement so it never appears in any SQL string we build.
                 let config = Config::default()
-                    .with("motherduck_token", token)
+                    .with("motherduck_token", token.expose())
                     .map_err(|err| {
                         FloeError::run(format!(
                             "duckdb motherduck token configuration failed: {err}"
@@ -471,7 +473,7 @@ mod tests {
             table: "t".to_string(),
             schema: None,
             connection: Some(connection.to_string()),
-            token: token.map(str::to_string),
+            token: token.map(Secret::from),
         }
     }
 

@@ -1,4 +1,5 @@
 use crate::errors::FloeError;
+use crate::secret::Secret;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -24,8 +25,8 @@ pub(crate) struct UnityCatalogConfig {
     pub(crate) schema: String,
     /// Table name.
     pub(crate) table: String,
-    /// Personal Access Token.
-    pub(crate) token: String,
+    /// Personal Access Token (redacted in `Debug`/`Display`).
+    pub(crate) token: Secret,
     /// Create the schema if it does not exist.
     pub(crate) create_schema_if_missing: bool,
 }
@@ -45,7 +46,7 @@ impl UnityCatalogConfig {
                 unity_catalog: catalog.clone(),
                 schema: resolved.schema.clone(),
                 table: resolved.table.clone(),
-                token: expand_env_token(token, &resolved.catalog_name)?,
+                token: Secret::new(expand_env_token(token.expose(), &resolved.catalog_name)?),
                 create_schema_if_missing: *create_schema_if_missing,
             }),
             // The resolved target is guaranteed to be Unity by validate_delta_catalog_binding.
@@ -147,7 +148,7 @@ pub(crate) async fn register_unity_table(
             "{}/api/2.1/unity-catalog/tables/{}",
             cfg.host, full_name
         ))
-        .bearer_auth(&cfg.token)
+        .bearer_auth(cfg.token.expose())
         .send()
         .await
         .map_err(|err| {
@@ -200,7 +201,7 @@ pub(crate) async fn register_unity_table(
     // 3. Create the table.
     let create_resp = client
         .post(format!("{}/api/2.1/unity-catalog/tables", cfg.host))
-        .bearer_auth(&cfg.token)
+        .bearer_auth(cfg.token.expose())
         .json(&CreateTableRequest {
             name: &cfg.table,
             catalog_name: &cfg.unity_catalog,
@@ -251,7 +252,7 @@ async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> Fl
             "{}/api/2.1/unity-catalog/schemas/{}",
             cfg.host, schema_full
         ))
-        .bearer_auth(&cfg.token)
+        .bearer_auth(cfg.token.expose())
         .send()
         .await
         .map_err(|err| {
@@ -266,7 +267,7 @@ async fn ensure_schema(cfg: &UnityCatalogConfig, client: &reqwest::Client) -> Fl
 
     let create_resp = client
         .post(format!("{}/api/2.1/unity-catalog/schemas", cfg.host))
-        .bearer_auth(&cfg.token)
+        .bearer_auth(cfg.token.expose())
         .json(&CreateSchemaRequest {
             name: &cfg.schema,
             catalog_name: &cfg.unity_catalog,

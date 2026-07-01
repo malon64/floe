@@ -855,7 +855,7 @@ entities:
         &unity.type_config,
         floe_core::config::CatalogTypeConfig::Rest { uri, credential, warehouse, oauth2_server_uri, scope }
         if uri == "https://adb-123.azuredatabricks.net/api/2.1/unity-catalog/iceberg"
-            && credential.as_deref() == Some("token:my_token")
+            && credential.as_ref().map(floe_core::Secret::expose) == Some("token:my_token")
             && warehouse.as_deref() == Some("my_catalog.my_schema")
             && oauth2_server_uri.is_none()
             && scope.is_none()

@@ -572,6 +572,7 @@ async fn write_iceberg_table_async(
             glue_state
                 .as_ref()
                 .and_then(|state| state.version_id.as_deref()),
+            &prepared.iceberg_schema,
         )
         .await?;
     }

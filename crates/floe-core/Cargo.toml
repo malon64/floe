@@ -31,7 +31,7 @@ aws-sdk-s3 = "1"
 aws-credential-types = "1"
 # Only used by the Iceberg Glue catalog path; gated under the `iceberg` feature.
 aws-sdk-glue = { version = "1", optional = true }
-apache-avro = "0.16"
+apache-avro = "0.21"
 google-cloud-storage = { package = "gcloud-storage", version = "1.2.0" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "fs", "io-util"] }

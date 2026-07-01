@@ -2,6 +2,23 @@
 
 All notable changes to Floe are documented in this file.
 
+
+## v0.6.5
+
+- **Glue Iceberg tables now expose their schema to Iceberg REST clients (#433).** Floe previously
+  registered Glue tables with `StorageDescriptor.Columns` empty, leaving only a `metadata_location`
+  pointer. The Glue Iceberg REST endpoint reconstructs table metadata from its own catalog state,
+  so `loadTable` returned no `schemas` array — causing DuckDB's `ENDPOINT_TYPE GLUE` integration
+  to report the table as non-existent even though the data was intact on S3. Floe now mirrors the
+  full Iceberg schema into Glue's native column list (with correct Hive type mappings) on every
+  create and overwrite commit.
+- Internal hardening:
+  - **CI: parallelize DuckDB job and centralize change detection (#435).** The DuckDB CI job
+    previously ran clippy → tests sequentially on one runner. It is now split into two parallel
+    jobs (`duckdb-clippy` / `duckdb-test`) sharing a cached bundled native build, and a single
+    upfront `changes` job gates all downstream jobs at the job level so runners do not boot when
+    relevant paths are untouched.
+
 ## v0.6.4
 
 - **Iceberg sink on Azure Data Lake Storage Gen2 (#411).** Iceberg tables can now be

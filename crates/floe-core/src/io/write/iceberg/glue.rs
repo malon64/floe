@@ -2,10 +2,11 @@ use crate::errors::FloeError;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_glue::config::Region as GlueRegion;
 use aws_sdk_glue::types::{
-    DatabaseInput as GlueDatabaseInput, StorageDescriptor as GlueStorageDescriptor,
-    TableInput as GlueTableInput,
+    Column as GlueColumn, DatabaseInput as GlueDatabaseInput,
+    StorageDescriptor as GlueStorageDescriptor, TableInput as GlueTableInput,
 };
 use aws_sdk_glue::Client as GlueClient;
+use iceberg::spec::{PrimitiveType, Schema, Type};
 
 use crate::{warnings, FloeResult};
 
@@ -127,6 +128,7 @@ pub(super) async fn upsert_glue_table(
     table_root_uri: &str,
     metadata_location: &str,
     version_id: Option<&str>,
+    schema: &Schema,
 ) -> FloeResult<()> {
     let client = build_glue_client(&glue_cfg.region).await?;
     ensure_glue_database(
@@ -136,7 +138,7 @@ pub(super) async fn upsert_glue_table(
     )
     .await?;
 
-    let table_input = build_glue_table_input(glue_cfg, table_root_uri, metadata_location);
+    let table_input = build_glue_table_input(glue_cfg, table_root_uri, metadata_location, schema);
 
     let create_result = client
         .create_table()
@@ -259,13 +261,54 @@ async fn ensure_glue_database(
     }
 }
 
+fn iceberg_type_to_glue_type(t: &Type) -> String {
+    match t {
+        Type::Primitive(p) => match p {
+            PrimitiveType::Boolean => "boolean".into(),
+            PrimitiveType::Int => "int".into(),
+            PrimitiveType::Long => "bigint".into(),
+            PrimitiveType::Float => "float".into(),
+            PrimitiveType::Double => "double".into(),
+            PrimitiveType::Decimal { precision, scale } => {
+                format!("decimal({precision},{scale})")
+            }
+            PrimitiveType::Date => "date".into(),
+            PrimitiveType::Time => "string".into(),
+            PrimitiveType::Timestamp
+            | PrimitiveType::Timestamptz
+            | PrimitiveType::TimestampNs
+            | PrimitiveType::TimestamptzNs => "timestamp".into(),
+            PrimitiveType::String | PrimitiveType::Uuid => "string".into(),
+            PrimitiveType::Fixed(_) | PrimitiveType::Binary => "binary".into(),
+        },
+        Type::Struct(_) => "struct<>".into(),
+        Type::List(_) => "array<string>".into(),
+        Type::Map(_) => "map<string,string>".into(),
+    }
+}
+
 fn build_glue_table_input(
     glue_cfg: &GlueIcebergCatalogConfig,
     table_root_uri: &str,
     metadata_location: &str,
+    schema: &Schema,
 ) -> GlueTableInput {
+    let columns: Vec<GlueColumn> = schema
+        .as_struct()
+        .fields()
+        .iter()
+        .map(|f| {
+            GlueColumn::builder()
+                .name(f.name.as_str())
+                .r#type(iceberg_type_to_glue_type(&f.field_type))
+                .build()
+                .expect("glue column builder validated")
+        })
+        .collect();
+
     let storage_descriptor = GlueStorageDescriptor::builder()
         .location(table_root_uri)
+        .set_columns(Some(columns))
         .build();
 
     GlueTableInput::builder()

@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "apache-avro",
  "arrow",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "floe-python"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "floe-core",
  "pyo3",
@@ -7501,7 +7501,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 2.0.117",

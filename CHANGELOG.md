@@ -2,6 +2,25 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.4
+
+- **Iceberg sink on Azure Data Lake Storage Gen2 (#411).** Iceberg tables can now be
+  written to ADLS Gen2 using filesystem catalog semantics, with account-key, SAS-token, or
+  service-principal credentials resolved from the environment. See `docs/sinks/iceberg.md`.
+- **Resolved credentials are wrapped in a redacting `Secret` newtype (#392).** Unity / REST
+  catalog tokens and the MotherDuck token now live in a `Secret` type whose `Debug`/`Display`
+  render `[REDACTED]`, so an accidental `{:?}` in a log line or error can no longer leak a
+  PAT. The raw value is reachable only through an explicit accessor at the trust boundaries
+  that need it (HTTP bearer header, DuckDB connection config). Serde stays transparent, so
+  YAML config parsing and manifest round-trips are unchanged, and existing manifest token
+  redaction is unaffected. Docs recommend `${ENV_VAR}` references over literal secrets in YAML.
+- Internal hardening:
+  - Bumped `apache-avro` from 0.16 to 0.21 (#401).
+  - Repaired the release CD: the `publish` job now polls the crates.io sparse index (not the
+    web API) before publishing `floe-cli` and retries the resolve-sensitive publish, and the
+    lean `aarch64-unknown-linux-gnu` binary builds on a native runner instead of `cross`
+    (#431). Bumped `actions/checkout` from 6 to 7 (#414).
+
 ## v0.6.3
 
 - **Fixes the `floe-duckdb` companion build (CLI binaries, Docker images).** Building

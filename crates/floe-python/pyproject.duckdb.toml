@@ -22,7 +22,7 @@ build-backend = "maturin"
 
 [project]
 name = "floe-duckdb"
-version = "0.6.4"
+version = "0.6.5"
 description = "DuckDB companion extension for floe — adds the native DuckDB sink to the floe Python package"
 readme = "README.md"
 requires-python = ">=3.10"

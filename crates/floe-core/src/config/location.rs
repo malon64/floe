@@ -10,10 +10,10 @@ pub struct ConfigLocation {
     pub path: PathBuf,
     pub base: ConfigBase,
     pub display: String,
-    /// Environment-independent URI recorded as `config_uri` / `profile_uri` in the
-    /// manifest: `local://<path-as-typed>` for local configs (normalized, not
-    /// canonicalized, so a relative `-c` stays relative — issue #438), or the
-    /// scheme-normalized remote URI otherwise.
+    /// URI recorded as `config_uri` / `profile_uri` in the manifest:
+    /// `local://<path-as-typed>` for local configs (normalized, not canonicalized,
+    /// so a relative `-c` stays relative and the manifest does not depend on where
+    /// the file physically lives), or the scheme-normalized remote URI otherwise.
     pub uri: String,
     _temp_dir: Option<TempDir>,
 }
@@ -52,8 +52,8 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
 }
 
 /// Lexically normalize a local path for `config_uri` / `profile_uri` without
-/// touching the filesystem, so a relative `-c` stays relative and the manifest is
-/// reproducible across machines (issue #438). Uses `/` as the separator.
+/// touching the filesystem, so a relative `-c` stays relative and the same path is
+/// produced on any machine. Uses `/` as the separator.
 fn normalize_input_path(input: &str) -> String {
     use std::path::Component;
 

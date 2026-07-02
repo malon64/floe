@@ -378,8 +378,9 @@ fn build_common_manifest(
         });
     }
 
-    // Use the environment-independent `uri`, not the host-absolute `display`, so
-    // config_uri (and manifest_id) are reproducible across environments (issue #438).
+    // Use `uri` (the path as typed / resolved remote URI), not the host-absolute
+    // `display`, so config_uri and the manifest_id derived from it do not depend on
+    // where the config file physically lives.
     let config_uri = config_location.uri.clone();
     let config_checksum = std::fs::read(&config_location.path)
         .ok()

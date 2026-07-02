@@ -15,9 +15,8 @@ fn local_config_uri_uses_local_scheme() {
     assert!(loc.uri.ends_with("/config.yml"), "uri: {}", loc.uri);
 }
 
-// issue #438: the path is preserved lexically, not canonicalized. A `.` is dropped
-// and a `..` bounce survives (canonicalize would collapse it), and separators are
-// normalized to `/`.
+// The path is preserved lexically, not canonicalized: a `.` is dropped and a `..`
+// bounce survives (canonicalize would collapse it), and separators become `/`.
 #[test]
 fn local_config_uri_is_lexically_normalized() {
     let tmp = tempfile::TempDir::new().expect("temp dir");

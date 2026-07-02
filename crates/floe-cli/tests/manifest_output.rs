@@ -48,9 +48,9 @@ fn repo_root() -> PathBuf {
 
 #[test]
 fn manifest_generate_common_to_file() {
-    // config_uri echoes the path as passed (only the `local://` scheme is added);
-    // it is NOT canonicalized (issue #438). Pass a canonical path so the expected
-    // value is stable regardless of the test's working directory.
+    // config_uri echoes the path as passed (only the `local://` scheme is added),
+    // it is not canonicalized. Pass a canonical path so the expected value is stable
+    // regardless of the test's working directory.
     let config_path = std::fs::canonicalize(repo_root().join("example/config.yml"))
         .expect("canonicalize config path");
     let expected_config_uri = format!("local://{}", config_path.display());
@@ -627,9 +627,9 @@ fn run_with_manifest_file_executes_entity() {
         .success();
 }
 
-/// issue #438: the same config referenced by the same relative path from two
-/// different project roots (Docker `/work` vs a native checkout) must produce an
-/// identical `manifest_id` and `config_uri`. Each subprocess has its own cwd.
+/// The same config referenced by the same relative path from two different project
+/// roots (Docker `/work` vs a native checkout) must produce an identical
+/// `manifest_id` and `config_uri`. Each subprocess has its own cwd.
 #[test]
 fn manifest_generate_is_reproducible_across_roots() {
     fn generate(root: &std::path::Path) -> (String, String) {

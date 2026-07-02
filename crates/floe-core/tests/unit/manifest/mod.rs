@@ -45,9 +45,9 @@ fn manifest_uses_local_uri_for_local_config() {
 
 #[test]
 fn manifest_config_uri_is_not_canonicalized() {
-    // issue #438: config_uri reflects the path as typed, not the canonical path. A
-    // lexical `..` bounce (which canonicalize() would collapse) surviving in the
-    // output proves the path was preserved as-typed.
+    // config_uri reflects the path as typed, not the canonical path: a lexical `..`
+    // bounce (which canonicalize() would collapse) surviving in the output proves
+    // the path was preserved as-typed.
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let cfg_dir = temp_dir.path().join("cfg");
     std::fs::create_dir_all(&cfg_dir).expect("cfg dir");

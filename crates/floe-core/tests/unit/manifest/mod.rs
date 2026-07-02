@@ -70,9 +70,8 @@ fn manifest_config_uri_is_not_canonicalized() {
     let bouncy = format!("{}/../cfg/config.yml", cfg_dir.display());
     let loc = resolve_config_location(&bouncy).expect("resolve config location");
     let config = load_config(&loc.path).expect("load config");
-    let payload =
-        build_common_manifest_json(&loc, &config, &[], None, &ManifestOptions::default())
-            .expect("manifest");
+    let payload = build_common_manifest_json(&loc, &config, &[], None, &ManifestOptions::default())
+        .expect("manifest");
     let value: Value = serde_json::from_str(&payload).expect("valid json");
 
     let uri = value["config_uri"].as_str().expect("config_uri string");

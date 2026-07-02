@@ -894,16 +894,11 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
-                // Build profile_uri from `uri_path` (as-typed, non-canonicalized)
-                // rather than `display` (host-absolute) so the manifest stays
+                // `loc.uri` is the fully-formed, environment-independent URI
+                // (`local://<as-typed>` for local, the resolved remote URI otherwise)
+                // resolved at config resolution time, so the manifest stays
                 // reproducible across environments (issue #438).
-                let profile_uri = profile_location.as_ref().map(|loc| {
-                    if loc.uri_path.contains("://") {
-                        loc.uri_path.clone()
-                    } else {
-                        format!("local://{}", loc.uri_path)
-                    }
-                });
+                let profile_uri = profile_location.as_ref().map(|loc| loc.uri.clone());
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
 
                 // When --output is a remote URI it is also the manifest's deployed location,

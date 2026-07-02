@@ -378,11 +378,12 @@ fn build_common_manifest(
         });
     }
 
-    // Use `uri_path` (the as-typed, non-canonicalized path), NOT `display` (the
-    // host-absolute canonical path), so `config_uri` — and the `manifest_id` /
-    // `manifest_revision` derived from it — are reproducible across environments
-    // (issue #438).
-    let config_uri = canonical_config_uri(&config_location.uri_path);
+    // `uri` is the fully-formed, environment-independent URI resolved at config
+    // resolution time (`local://<as-typed>` for local, the scheme-normalized remote
+    // URI otherwise), NOT the host-absolute canonical `display`. This keeps
+    // `config_uri` — and the `manifest_id` / `manifest_revision` derived from it —
+    // reproducible across environments (issue #438).
+    let config_uri = config_location.uri.clone();
     let config_checksum = std::fs::read(&config_location.path)
         .ok()
         .map(|b| sha256_hex(&b));
@@ -537,14 +538,6 @@ fn resolved_uri_to_path(uri: &str) -> String {
         path.to_string()
     } else {
         uri.to_string()
-    }
-}
-
-fn canonical_config_uri(display: &str) -> String {
-    if display.contains("://") {
-        display.to_string()
-    } else {
-        format!("local://{}", display)
     }
 }
 

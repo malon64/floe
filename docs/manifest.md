@@ -69,12 +69,21 @@ In deterministic mode:
 
 `config_uri` and `profile_uri` record the config/profile paths **exactly as you pass
 them on the command line** — a relative `-c domains/orders.yml` is stored as
-`local://domains/orders.yml`, not as a canonicalized host-absolute path. This is what
-makes `manifest_id` and `manifest_revision` reproducible across machines and
-containers: the same config referenced by the same relative path from a Docker mount
-(`/work/...`) and a native checkout (`/Users/you/...`) yields identical values.
-Reference configs by a stable relative path for portable manifests; passing an
+`local://domains/orders.yml`, not as a canonicalized host-absolute path. This makes
+`manifest_id` (a hash of `config_uri` + `config_checksum`) reproducible across machines
+and containers: the same config referenced by the same relative path from a Docker
+mount (`/work/...`) and a native checkout (`/Users/you/...`) yields the same
+`manifest_id`. Reference configs by a stable relative path for portable ids; passing an
 absolute path bakes that absolute path in.
+
+> **`manifest_revision` and local storage.** `manifest_revision` is a SHA-256 over the
+> whole manifest body, which includes the **resolved** `source.uri` / `sink.*` /
+> `report_base_uri` fields. For **remote** storage (s3://, gs://, abfs://) those
+> resolve to environment-independent URIs, so `manifest_revision` is reproducible too.
+> For **local** storage with relative paths, Floe still resolves those fields to
+> absolute `local://<checkout>/...` URIs, so `manifest_revision` (unlike `manifest_id`)
+> can differ between a Docker mount and a native checkout. Commit and diff manifests on
+> a single machine/root, or use remote storage, for a stable revision.
 
 To verify a committed manifest has not drifted from the source config:
 

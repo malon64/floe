@@ -10,17 +10,10 @@ pub struct ConfigLocation {
     pub path: PathBuf,
     pub base: ConfigBase,
     pub display: String,
-    /// Fully-formed, environment-independent URI recorded as `config_uri` /
-    /// `profile_uri` in the manifest. The scheme is decided here — where we
-    /// authoritatively know local vs remote — rather than re-derived later from a
-    /// string check, so a downstream consumer never has to guess (issue #438).
-    ///
-    /// - Local configs: `local://<path-as-typed>`, lexically normalized but NOT
-    ///   canonicalized, so a relative `-c domains/x.yml` stays relative and the same
-    ///   config hashes identically under Docker (`/work/...`) and a native checkout.
-    /// - Remote configs (s3://, gs://, abfs://, ...): the full, scheme-normalized
-    ///   URI (e.g. `abfss://` folds to the canonical `abfs://`) — already
-    ///   environment-independent, so kept absolute and never relativized.
+    /// Environment-independent URI recorded as `config_uri` / `profile_uri` in the
+    /// manifest: `local://<path-as-typed>` for local configs (normalized, not
+    /// canonicalized, so a relative `-c` stays relative — issue #438), or the
+    /// scheme-normalized remote URI otherwise.
     pub uri: String,
     _temp_dir: Option<TempDir>,
 }
@@ -30,10 +23,7 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
         let temp_dir = TempDir::new()?;
         let local_path = download_remote_config(input, temp_dir.path())?;
         let base = ConfigBase::remote_from_uri(temp_dir.path().to_path_buf(), input)?;
-        // Remote configs keep the full, absolute URI (scheme-normalized so e.g.
-        // `abfss://` folds to the canonical `abfs://` Floe stores internally). Only
-        // local filesystem paths are relativized for reproducibility (issue #438);
-        // a remote URI is the same across every environment, so it stays as-is.
+        // Remote URIs are already environment-independent; keep them absolute.
         let uri = storage::uri::normalize_remote_uri(input).into_owned();
         Ok(ConfigLocation {
             path: local_path,
@@ -61,18 +51,9 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
     }
 }
 
-/// Lexically normalize a user-provided local config/profile path for use in the
-/// manifest's `config_uri` / `profile_uri`, WITHOUT touching the filesystem.
-///
-/// Canonicalizing here (as `path`/`display` do, for IO and hints) would bake the
-/// host-absolute path into the manifest and make `manifest_id` / `manifest_revision`
-/// depend on where the file physically lives — so the same config/profile produced
-/// different IDs under Docker (`/work/...`) and a native checkout (`/home/...`),
-/// issue #438. Preserving the path as typed keeps a relative `-c domains/x.yml`
-/// relative, so both environments hash the same URI. `/` is used as the separator
-/// for cross-platform stability (a Windows `\` path would otherwise differ from the
-/// same POSIX path). Absolute inputs stay absolute — reproducible only when the
-/// caller passes the same absolute path, which is the documented expectation.
+/// Lexically normalize a local path for `config_uri` / `profile_uri` without
+/// touching the filesystem, so a relative `-c` stays relative and the manifest is
+/// reproducible across machines (issue #438). Uses `/` as the separator.
 fn normalize_input_path(input: &str) -> String {
     use std::path::Component;
 
@@ -80,33 +61,24 @@ fn normalize_input_path(input: &str) -> String {
     let mut has_prefix = false;
     for comp in Path::new(input).components() {
         match comp {
-            // Drop redundant "." segments; "//" collapses naturally since the
-            // components iterator yields no empty segments.
             Component::CurDir => {}
-            // A Windows path prefix (e.g. `C:`, or a UNC/verbatim prefix) already
-            // carries the root, so record it and let the following `RootDir` be a
-            // no-op; otherwise `C:` + a leading empty part joins to `C://...`, which
-            // would collide with the URI scheme separator.
             Component::Prefix(prefix) => {
                 has_prefix = true;
                 parts.push(prefix.as_os_str().to_string_lossy().into_owned());
             }
-            // A POSIX leading root ("/") becomes an empty leading part so the join
-            // below re-emits the leading slash. After a Windows drive prefix it must
-            // NOT add that empty part (see above).
+            // A Windows drive/UNC prefix already carries the root; skip the trailing
+            // RootDir so we emit `C:/...`, not `C://...` (which looks like a scheme).
             Component::RootDir => {
                 if !has_prefix {
                     parts.push(String::new());
                 }
             }
-            // Keep everything else verbatim (normal segments and "..").
             other => parts.push(other.as_os_str().to_string_lossy().into_owned()),
         }
     }
 
     let joined = parts.join("/");
     if joined.is_empty() {
-        // Input was "." or empty — keep an explicit relative marker.
         ".".to_string()
     } else {
         joined
@@ -187,39 +159,4 @@ pub fn upload_to_remote_uri(local_path: &Path, uri: &str) -> FloeResult<()> {
 
 pub(crate) fn is_remote_uri(value: &str) -> bool {
     crate::io::storage::uri::is_remote_uri(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_input_path;
-
-    #[test]
-    fn relative_paths_are_preserved_and_slash_separated() {
-        assert_eq!(normalize_input_path("domains/x.yml"), "domains/x.yml");
-        // "./" and redundant separators collapse; ".." is kept (lexical, not resolved).
-        assert_eq!(normalize_input_path("./a/../b/x.yml"), "a/../b/x.yml");
-        assert_eq!(normalize_input_path("."), ".");
-    }
-
-    #[test]
-    fn posix_absolute_paths_keep_their_leading_slash() {
-        assert_eq!(
-            normalize_input_path("/work/domains/x.yml"),
-            "/work/domains/x.yml"
-        );
-    }
-
-    // Windows path parsing (drive prefixes) only happens on Windows targets, so this
-    // regression for the `C://...` scheme collision (PR #440 review) runs there.
-    #[cfg(windows)]
-    #[test]
-    fn windows_drive_paths_do_not_produce_a_double_slash() {
-        // No `C://` (which `format!("local://{}")` would turn into an invalid,
-        // scheme-colliding URI); a single slash after the drive.
-        assert_eq!(
-            normalize_input_path(r"C:\repo\config.yml"),
-            "C:/repo/config.yml"
-        );
-        assert_eq!(normalize_input_path(r"repo\config.yml"), "repo/config.yml");
-    }
 }

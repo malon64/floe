@@ -627,18 +627,14 @@ fn run_with_manifest_file_executes_entity() {
         .success();
 }
 
-/// Regression for issue #438: the same config, referenced by the same relative
-/// path from two different absolute project roots (as happens with a Docker mount
-/// at `/work` vs a native checkout under `/Users/...`), must produce an identical
-/// `manifest_id` and `config_uri`. Each `Command` runs in its own subprocess with
-/// an isolated `current_dir`, so this models the reported Docker-vs-CLI mismatch
-/// without touching the test process's working directory.
+/// issue #438: the same config referenced by the same relative path from two
+/// different project roots (Docker `/work` vs a native checkout) must produce an
+/// identical `manifest_id` and `config_uri`. Each subprocess has its own cwd.
 #[test]
 fn manifest_generate_is_reproducible_across_roots() {
     fn generate(root: &std::path::Path) -> (String, String) {
         let cfg_dir = root.join("cfg");
         fs::create_dir_all(&cfg_dir).expect("create cfg dir");
-        // write_minimal_config writes <cfg_dir>/config.yml with identical bytes.
         write_minimal_config(&cfg_dir, "warn");
 
         Command::new(assert_cmd::cargo::cargo_bin!("floe"))

@@ -378,11 +378,8 @@ fn build_common_manifest(
         });
     }
 
-    // `uri` is the fully-formed, environment-independent URI resolved at config
-    // resolution time (`local://<as-typed>` for local, the scheme-normalized remote
-    // URI otherwise), NOT the host-absolute canonical `display`. This keeps
-    // `config_uri` — and the `manifest_id` / `manifest_revision` derived from it —
-    // reproducible across environments (issue #438).
+    // Use the environment-independent `uri`, not the host-absolute `display`, so
+    // config_uri (and manifest_id) are reproducible across environments (issue #438).
     let config_uri = config_location.uri.clone();
     let config_checksum = std::fs::read(&config_location.path)
         .ok()

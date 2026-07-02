@@ -16,10 +16,7 @@ fn repo_root() -> PathBuf {
 
 #[test]
 fn manifest_uses_local_uri_for_local_config() {
-    // config_uri echoes the path as passed (only the `local://` scheme is added),
-    // NOT the canonicalized absolute path — see manifest_config_uri_is_not_canonicalized
-    // for the reproducibility guarantee. Pass a canonical path here so the expected
-    // value is stable regardless of the test's working directory.
+    // Pass a canonical path so the expected value is independent of the test's cwd.
     let config_path = std::fs::canonicalize(repo_root().join("example/config.yml"))
         .expect("canonicalize config path");
     let expected_config_uri = format!("local://{}", config_path.display());
@@ -48,13 +45,9 @@ fn manifest_uses_local_uri_for_local_config() {
 
 #[test]
 fn manifest_config_uri_is_not_canonicalized() {
-    // Regression for issue #438: config_uri must reflect the path as typed, not the
-    // host-absolute canonical path. The manifest is what makes Docker (`/work/...`)
-    // and a native checkout produce identical manifest_ids; canonicalizing the path
-    // into config_uri broke that. Prove it here by passing a path with a lexical
-    // `..` bounce: canonicalization would collapse it, so if the segment survives in
-    // config_uri, the path was preserved as-typed. (True cross-root reproducibility
-    // is covered end-to-end in the CLI test manifest_generate_is_reproducible.)
+    // issue #438: config_uri reflects the path as typed, not the canonical path. A
+    // lexical `..` bounce (which canonicalize() would collapse) surviving in the
+    // output proves the path was preserved as-typed.
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let cfg_dir = temp_dir.path().join("cfg");
     std::fs::create_dir_all(&cfg_dir).expect("cfg dir");

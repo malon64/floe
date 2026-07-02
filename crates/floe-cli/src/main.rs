@@ -894,10 +894,6 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
-                // `loc.uri` is the fully-formed, environment-independent URI
-                // (`local://<as-typed>` for local, the resolved remote URI otherwise)
-                // resolved at config resolution time, so the manifest stays
-                // reproducible across environments (issue #438).
                 let profile_uri = profile_location.as_ref().map(|loc| loc.uri.clone());
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
 

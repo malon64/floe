@@ -12,6 +12,7 @@ pub mod gcs_storage;
 pub mod gcs_validation;
 pub mod lineage_validation;
 pub mod local_storage;
+pub mod location;
 pub mod parse;
 pub mod pii_validation;
 pub mod remote_base;

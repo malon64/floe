@@ -894,11 +894,14 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
+                // Build profile_uri from `uri_path` (as-typed, non-canonicalized)
+                // rather than `display` (host-absolute) so the manifest stays
+                // reproducible across environments (issue #438).
                 let profile_uri = profile_location.as_ref().map(|loc| {
-                    if loc.display.contains("://") {
-                        loc.display.clone()
+                    if loc.uri_path.contains("://") {
+                        loc.uri_path.clone()
                     } else {
-                        format!("local://{}", loc.display)
+                        format!("local://{}", loc.uri_path)
                     }
                 });
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());

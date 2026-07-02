@@ -378,7 +378,11 @@ fn build_common_manifest(
         });
     }
 
-    let config_uri = canonical_config_uri(&config_location.display);
+    // Use `uri_path` (the as-typed, non-canonicalized path), NOT `display` (the
+    // host-absolute canonical path), so `config_uri` — and the `manifest_id` /
+    // `manifest_revision` derived from it — are reproducible across environments
+    // (issue #438).
+    let config_uri = canonical_config_uri(&config_location.uri_path);
     let config_checksum = std::fs::read(&config_location.path)
         .ok()
         .map(|b| sha256_hex(&b));

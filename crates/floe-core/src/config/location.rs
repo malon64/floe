@@ -10,6 +10,14 @@ pub struct ConfigLocation {
     pub path: PathBuf,
     pub base: ConfigBase,
     pub display: String,
+    /// Environment-independent path used to build `config_uri` / `profile_uri`
+    /// in the manifest. For local configs this is the user-provided path,
+    /// lexically normalized but NOT canonicalized — so a relative `-c` argument
+    /// stays relative and the manifest is reproducible across machines and
+    /// containers (issue #438). For remote configs (s3://, gs://, abfs://, ...) it
+    /// is the full, resolved (scheme-normalized) URI — remote locations are already
+    /// environment-independent, so they are kept absolute, never relativized.
+    pub uri_path: String,
     _temp_dir: Option<TempDir>,
 }
 
@@ -18,10 +26,16 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
         let temp_dir = TempDir::new()?;
         let local_path = download_remote_config(input, temp_dir.path())?;
         let base = ConfigBase::remote_from_uri(temp_dir.path().to_path_buf(), input)?;
+        // Remote configs keep the full, absolute URI (scheme-normalized so e.g.
+        // `abfss://` folds to the canonical `abfs://` Floe stores internally). Only
+        // local filesystem paths are relativized for reproducibility (issue #438);
+        // a remote URI is the same across every environment, so it stays as-is.
+        let uri_path = storage::uri::normalize_remote_uri(input).into_owned();
         Ok(ConfigLocation {
             path: local_path,
             base,
             display: input.to_string(),
+            uri_path,
             _temp_dir: Some(temp_dir),
         })
     } else {
@@ -37,8 +51,48 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
             path: canonical.clone(),
             base,
             display: canonical.display().to_string(),
+            uri_path: normalize_input_path(input),
             _temp_dir: None,
         })
+    }
+}
+
+/// Lexically normalize a user-provided local config/profile path for use in the
+/// manifest's `config_uri` / `profile_uri`, WITHOUT touching the filesystem.
+///
+/// Canonicalizing here (as `path`/`display` do, for IO and hints) would bake the
+/// host-absolute path into the manifest and make `manifest_id` / `manifest_revision`
+/// depend on where the file physically lives — so the same config/profile produced
+/// different IDs under Docker (`/work/...`) and a native checkout (`/home/...`),
+/// issue #438. Preserving the path as typed keeps a relative `-c domains/x.yml`
+/// relative, so both environments hash the same URI. `/` is used as the separator
+/// for cross-platform stability (a Windows `\` path would otherwise differ from the
+/// same POSIX path). Absolute inputs stay absolute — reproducible only when the
+/// caller passes the same absolute path, which is the documented expectation.
+fn normalize_input_path(input: &str) -> String {
+    use std::path::Component;
+
+    let mut parts: Vec<String> = Vec::new();
+    for comp in Path::new(input).components() {
+        match comp {
+            // Drop redundant "." segments; "//" collapses naturally since the
+            // components iterator yields no empty segments.
+            Component::CurDir => {}
+            // Leading root ("/") becomes an empty leading part so the join below
+            // re-emits the leading slash.
+            Component::RootDir => parts.push(String::new()),
+            // Keep everything else verbatim (normal segments, ".." and any
+            // Windows path prefix such as "C:").
+            other => parts.push(other.as_os_str().to_string_lossy().into_owned()),
+        }
+    }
+
+    let joined = parts.join("/");
+    if joined.is_empty() {
+        // Input was "." or empty — keep an explicit relative marker.
+        ".".to_string()
+    } else {
+        joined
     }
 }
 

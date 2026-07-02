@@ -48,13 +48,12 @@ fn repo_root() -> PathBuf {
 
 #[test]
 fn manifest_generate_common_to_file() {
-    let config_path = repo_root().join("example/config.yml");
-    let expected_config_uri = format!(
-        "local://{}",
-        std::fs::canonicalize(&config_path)
-            .expect("canonicalize config path")
-            .display()
-    );
+    // config_uri echoes the path as passed (only the `local://` scheme is added);
+    // it is NOT canonicalized (issue #438). Pass a canonical path so the expected
+    // value is stable regardless of the test's working directory.
+    let config_path = std::fs::canonicalize(repo_root().join("example/config.yml"))
+        .expect("canonicalize config path");
+    let expected_config_uri = format!("local://{}", config_path.display());
     let tmp = tempdir().expect("create temp dir");
     let output_path = tmp.path().join("manifest.airflow.json");
 
@@ -626,4 +625,50 @@ fn run_with_manifest_file_executes_entity() {
         .args(["--entities", "orders"])
         .assert()
         .success();
+}
+
+/// Regression for issue #438: the same config, referenced by the same relative
+/// path from two different absolute project roots (as happens with a Docker mount
+/// at `/work` vs a native checkout under `/Users/...`), must produce an identical
+/// `manifest_id` and `config_uri`. Each `Command` runs in its own subprocess with
+/// an isolated `current_dir`, so this models the reported Docker-vs-CLI mismatch
+/// without touching the test process's working directory.
+#[test]
+fn manifest_generate_is_reproducible_across_roots() {
+    fn generate(root: &std::path::Path) -> (String, String) {
+        let cfg_dir = root.join("cfg");
+        fs::create_dir_all(&cfg_dir).expect("create cfg dir");
+        // write_minimal_config writes <cfg_dir>/config.yml with identical bytes.
+        write_minimal_config(&cfg_dir, "warn");
+
+        Command::new(assert_cmd::cargo::cargo_bin!("floe"))
+            .current_dir(root)
+            .args([
+                "manifest",
+                "generate",
+                "-c",
+                "cfg/config.yml",
+                "--deterministic",
+                "--output",
+                "manifest.json",
+            ])
+            .assert()
+            .success();
+
+        let payload = fs::read_to_string(root.join("manifest.json")).expect("manifest file");
+        let value: Value = serde_json::from_str(&payload).expect("valid json");
+        (
+            value["manifest_id"].as_str().expect("manifest_id").to_string(),
+            value["config_uri"].as_str().expect("config_uri").to_string(),
+        )
+    }
+
+    let root_a = tempdir().expect("temp root a");
+    let root_b = tempdir().expect("temp root b");
+    let (id_a, uri_a) = generate(root_a.path());
+    let (id_b, uri_b) = generate(root_b.path());
+
+    assert_eq!(uri_a, "local://cfg/config.yml", "config_uri must stay relative");
+    assert_eq!(uri_a, uri_b, "config_uri differs across project roots");
+    assert_eq!(id_a, id_b, "manifest_id differs across project roots");
 }

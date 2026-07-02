@@ -67,6 +67,15 @@ In deterministic mode:
 - `manifest_revision` (SHA-256 of canonical content) provides a stable content fingerprint.
 - Map fields (`exit_codes`, `env`, `definitions`, `tags`) use stable alphabetical key ordering.
 
+`config_uri` and `profile_uri` record the config/profile paths **exactly as you pass
+them on the command line** — a relative `-c domains/orders.yml` is stored as
+`local://domains/orders.yml`, not as a canonicalized host-absolute path. This is what
+makes `manifest_id` and `manifest_revision` reproducible across machines and
+containers: the same config referenced by the same relative path from a Docker mount
+(`/work/...`) and a native checkout (`/Users/you/...`) yields identical values.
+Reference configs by a stable relative path for portable manifests; passing an
+absolute path bakes that absolute path in.
+
 To verify a committed manifest has not drifted from the source config:
 
 ```bash
@@ -88,7 +97,7 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
   "manifest_name": "sales.prod",         // optional stable logical name (--manifest-name)
   "manifest_id": "mfv1-a1b2c3d4...",    // FNV-1a hash of config URI + content
   "manifest_revision": "sha256:...",     // SHA-256 of canonical manifest content
-  "config_uri": "./orders.yml",          // where the source YAML lives
+  "config_uri": "local://orders.yml",    // config path as passed (not canonicalized)
   "config_checksum": "sha256:...",       // SHA-256 of the config file
   "profile_uri": "local:///prod.yml",   // profile used at generation time (if any)
   "profile_checksum": "sha256:...",      // SHA-256 of the profile file (if any)

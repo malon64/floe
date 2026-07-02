@@ -67,6 +67,24 @@ In deterministic mode:
 - `manifest_revision` (SHA-256 of canonical content) provides a stable content fingerprint.
 - Map fields (`exit_codes`, `env`, `definitions`, `tags`) use stable alphabetical key ordering.
 
+`config_uri` and `profile_uri` record the config/profile paths **exactly as you pass
+them on the command line** — a relative `-c domains/orders.yml` is stored as
+`local://domains/orders.yml`, not as a canonicalized host-absolute path. This makes
+`manifest_id` (a hash of `config_uri` + `config_checksum`) reproducible across machines
+and containers: the same config referenced by the same relative path from a Docker
+mount (`/work/...`) and a native checkout (`/Users/you/...`) yields the same
+`manifest_id`. Reference configs by a stable relative path for portable ids; passing an
+absolute path bakes that absolute path in.
+
+> **`manifest_revision` and local storage.** `manifest_revision` is a SHA-256 over the
+> whole manifest body, which includes the **resolved** `source.uri` / `sink.*` /
+> `report_base_uri` fields. For **remote** storage (s3://, gs://, abfs://) those
+> resolve to environment-independent URIs, so `manifest_revision` is reproducible too.
+> For **local** storage with relative paths, Floe still resolves those fields to
+> absolute `local://<checkout>/...` URIs, so `manifest_revision` (unlike `manifest_id`)
+> can differ between a Docker mount and a native checkout. Commit and diff manifests on
+> a single machine/root, or use remote storage, for a stable revision.
+
 To verify a committed manifest has not drifted from the source config:
 
 ```bash
@@ -88,7 +106,7 @@ A manifest is a self-contained JSON document. Here's an annotated excerpt:
   "manifest_name": "sales.prod",         // optional stable logical name (--manifest-name)
   "manifest_id": "mfv1-a1b2c3d4...",    // FNV-1a hash of config URI + content
   "manifest_revision": "sha256:...",     // SHA-256 of canonical manifest content
-  "config_uri": "./orders.yml",          // where the source YAML lives
+  "config_uri": "local://orders.yml",    // config path as passed (not canonicalized)
   "config_checksum": "sha256:...",       // SHA-256 of the config file
   "profile_uri": "local:///prod.yml",   // profile used at generation time (if any)
   "profile_checksum": "sha256:...",      // SHA-256 of the profile file (if any)

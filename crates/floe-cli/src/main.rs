@@ -894,13 +894,7 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
-                let profile_uri = profile_location.as_ref().map(|loc| {
-                    if loc.display.contains("://") {
-                        loc.display.clone()
-                    } else {
-                        format!("local://{}", loc.display)
-                    }
-                });
+                let profile_uri = profile_location.as_ref().map(|loc| loc.uri.clone());
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
 
                 // When --output is a remote URI it is also the manifest's deployed location,

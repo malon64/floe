@@ -378,7 +378,10 @@ fn build_common_manifest(
         });
     }
 
-    let config_uri = canonical_config_uri(&config_location.display);
+    // Use `uri` (the path as typed / resolved remote URI), not the host-absolute
+    // `display`, so config_uri and the manifest_id derived from it do not depend on
+    // where the config file physically lives.
+    let config_uri = config_location.uri.clone();
     let config_checksum = std::fs::read(&config_location.path)
         .ok()
         .map(|b| sha256_hex(&b));
@@ -533,14 +536,6 @@ fn resolved_uri_to_path(uri: &str) -> String {
         path.to_string()
     } else {
         uri.to_string()
-    }
-}
-
-fn canonical_config_uri(display: &str) -> String {
-    if display.contains("://") {
-        display.to_string()
-    } else {
-        format!("local://{}", display)
     }
 }
 

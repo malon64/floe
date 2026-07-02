@@ -10,6 +10,11 @@ pub struct ConfigLocation {
     pub path: PathBuf,
     pub base: ConfigBase,
     pub display: String,
+    /// URI recorded as `config_uri` / `profile_uri` in the manifest:
+    /// `local://<path-as-typed>` for local configs (normalized, not canonicalized,
+    /// so a relative `-c` stays relative and the manifest does not depend on where
+    /// the file physically lives), or the scheme-normalized remote URI otherwise.
+    pub uri: String,
     _temp_dir: Option<TempDir>,
 }
 
@@ -18,10 +23,13 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
         let temp_dir = TempDir::new()?;
         let local_path = download_remote_config(input, temp_dir.path())?;
         let base = ConfigBase::remote_from_uri(temp_dir.path().to_path_buf(), input)?;
+        // Remote URIs are already environment-independent; keep them absolute.
+        let uri = storage::uri::normalize_remote_uri(input).into_owned();
         Ok(ConfigLocation {
             path: local_path,
             base,
             display: input.to_string(),
+            uri,
             _temp_dir: Some(temp_dir),
         })
     } else {
@@ -37,8 +45,43 @@ pub fn resolve_config_location(input: &str) -> FloeResult<ConfigLocation> {
             path: canonical.clone(),
             base,
             display: canonical.display().to_string(),
+            uri: format!("local://{}", normalize_input_path(input)),
             _temp_dir: None,
         })
+    }
+}
+
+/// Lexically normalize a local path for `config_uri` / `profile_uri` without
+/// touching the filesystem, so a relative `-c` stays relative and the same path is
+/// produced on any machine. Uses `/` as the separator.
+fn normalize_input_path(input: &str) -> String {
+    use std::path::Component;
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut has_prefix = false;
+    for comp in Path::new(input).components() {
+        match comp {
+            Component::CurDir => {}
+            Component::Prefix(prefix) => {
+                has_prefix = true;
+                parts.push(prefix.as_os_str().to_string_lossy().into_owned());
+            }
+            // A Windows drive/UNC prefix already carries the root; skip the trailing
+            // RootDir so we emit `C:/...`, not `C://...` (which looks like a scheme).
+            Component::RootDir => {
+                if !has_prefix {
+                    parts.push(String::new());
+                }
+            }
+            other => parts.push(other.as_os_str().to_string_lossy().into_owned()),
+        }
+    }
+
+    let joined = parts.join("/");
+    if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
     }
 }
 

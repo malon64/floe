@@ -16,13 +16,10 @@ fn repo_root() -> PathBuf {
 
 #[test]
 fn manifest_uses_local_uri_for_local_config() {
-    let config_path = repo_root().join("example/config.yml");
-    let expected_config_uri = format!(
-        "local://{}",
-        std::fs::canonicalize(&config_path)
-            .expect("canonicalize config path")
-            .display()
-    );
+    // Pass a canonical path so the expected value is independent of the test's cwd.
+    let config_path = std::fs::canonicalize(repo_root().join("example/config.yml"))
+        .expect("canonicalize config path");
+    let expected_config_uri = format!("local://{}", config_path.display());
 
     let config_location = resolve_config_location(
         config_path
@@ -44,6 +41,38 @@ fn manifest_uses_local_uri_for_local_config() {
 
     assert_eq!(value["schema"], "floe.manifest.v1");
     assert_eq!(value["config_uri"], expected_config_uri);
+}
+
+#[test]
+fn manifest_config_uri_is_not_canonicalized() {
+    // config_uri reflects the path as typed, not the canonical path: a lexical `..`
+    // bounce (which canonicalize() would collapse) surviving in the output proves
+    // the path was preserved as-typed.
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let cfg_dir = temp_dir.path().join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+    std::fs::write(
+        &config_path,
+        "version: \"0.1\"\nentities:\n  - name: orders\n    source:\n      format: csv\n      path: ./in/orders\n    sink:\n      write_mode: overwrite\n      accepted:\n        format: parquet\n        path: ./out/orders\n    policy:\n      severity: warn\n    schema:\n      columns:\n        - name: id\n          type: string\n",
+    )
+    .expect("write config");
+
+    // <cfg_dir>/../cfg/config.yml — canonicalize() would resolve this to
+    // <cfg_dir>/config.yml, dropping the "/../".
+    let bouncy = format!("{}/../cfg/config.yml", cfg_dir.display());
+    let loc = resolve_config_location(&bouncy).expect("resolve config location");
+    let config = load_config(&loc.path).expect("load config");
+    let payload = build_common_manifest_json(&loc, &config, &[], None, &ManifestOptions::default())
+        .expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    let uri = value["config_uri"].as_str().expect("config_uri string");
+    assert!(
+        uri.contains("/../cfg/config.yml"),
+        "config_uri was canonicalized (lost the as-typed form): {uri}"
+    );
+    assert!(value["manifest_id"].as_str().unwrap().starts_with("mfv1-"));
 }
 
 #[test]

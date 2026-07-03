@@ -28,6 +28,14 @@ ignore = [
   # core2 0.4.0 was yanked with no in-range replacement; it is pinned by
   # libflate <- apache-avro 0.16. Remove when apache-avro is bumped past 0.16.
   { crate = "core2@0.4.0", reason = "yanked with no ^0.4 replacement; pinned by apache-avro 0.16's libflate" },
+  # quick-xml DoS advisories, fixed only in >= 0.41.0. All four affected copies are
+  # transitive and hard-pinned below 0.41 by third-party crates we cannot bump
+  # downstream: 0.31 (calamine), 0.37 (iceberg-storage-opendal), 0.38 (object_store
+  # <- deltalake), 0.39 (azure SDK). These are XML-parsing DoS issues, not memory
+  # safety; floe only parses XML from cloud-storage API responses and operator data
+  # files. Remove once those upstreams adopt quick-xml >= 0.41.
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml < 0.41 DoS; all copies transitive-pinned by calamine/iceberg/object_store/azure, unbumpable downstream" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml < 0.41 DoS; all copies transitive-pinned by calamine/iceberg/object_store/azure, unbumpable downstream" },
 ]
 
 [licenses]

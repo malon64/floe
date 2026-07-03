@@ -3,6 +3,28 @@
 All notable changes to Floe are documented in this file.
 
 
+## v0.6.6
+
+- **Reproducible manifest IDs across environments (#438).** `manifest generate` baked the
+  host-absolute, canonicalized config/profile path into `config_uri` / `profile_uri`, so
+  the same config referenced by the same relative path produced different `manifest_id`
+  and `manifest_revision` under Docker (`/work/...`) versus a native checkout
+  (`/Users/...`). These URIs now record the path exactly as passed — a relative `-c`
+  stays relative — restoring the documented `--deterministic` byte-identical guarantee
+  across machines and containers. Remote config URIs (`s3://`, `gs://`, `abfs://`) stay
+  absolute and scheme-normalized. See `docs/manifest.md`.
+  - Behaviour change: `manifest_id` / `manifest_revision` values change for manifests
+    generated from local-file configs — regenerate any committed manifests.
+- **Fix broken arm64 container image (#437).** The `aarch64-unknown-linux-gnu` release
+  binary was built on `ubuntu-24.04-arm` (glibc 2.39) and packaged into
+  `debian:bookworm-slim` (glibc 2.36), so `ghcr.io/malon64/floe:0.6.5` failed on ARM64
+  with `GLIBC_2.38/2.39 not found`. The lean `floe` and companion `floe-duckdb` aarch64
+  binaries now build on `ubuntu-22.04-arm` (glibc 2.35), which runs on bookworm and older
+  distros.
+- Internal hardening:
+  - **CD: drop the redundant `docker-duckdb` dry-run job.** It was the last consumer of a
+    workflow_dispatch dry-run path that no longer adds coverage.
+
 ## v0.6.5
 
 - **Glue Iceberg tables now expose their schema to Iceberg REST clients (#433).** Floe previously

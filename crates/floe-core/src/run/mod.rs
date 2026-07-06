@@ -107,7 +107,7 @@ pub(crate) fn run_with_manifest_runtime(
     let location = config::resolve_config_location(&manifest_str)?;
     let json = std::fs::read_to_string(&location.path)?;
     let (config, report_base_uri) = crate::manifest::config_from_manifest_json(&json)?;
-    let config_base = location.base.clone();
+    let config_base = manifest_replay_config_base(&location.base, &json);
     if !options.entities.is_empty() {
         validate_entities(&config, &options.entities)?;
     }
@@ -119,6 +119,40 @@ pub(crate) fn run_with_manifest_runtime(
         &options,
     )?;
     run_from_context(context, options, runtime)
+}
+
+/// Choose the path-resolution base for manifest replay.
+///
+/// A manifest is self-contained: its source/sink URIs are already resolved and it embeds a
+/// `storages` block. When it is loaded from a **remote** URI, the manifest's own bucket/prefix
+/// must NOT become the resolution base — otherwise a relative path in the manifest (e.g. an
+/// Iceberg sink that did not resolve to an absolute URI) is re-based onto the manifest bucket
+/// and trips the `storage <name> bucket mismatch` guard (issue #443). Instead, resolve local
+/// paths under the target runtime's work-root (manifest `work_root` → `FLOE_WORK_ROOT` →
+/// `RuntimeEnv::detect()` default) and leave `remote_base` unset so remote paths resolve purely
+/// from their storage definitions.
+///
+/// For a **local** manifest file, behavior is unchanged: relative paths resolve against the
+/// manifest file's directory, exactly as before.
+pub(crate) fn manifest_replay_config_base(
+    manifest_base: &config::ConfigBase,
+    json: &str,
+) -> config::ConfigBase {
+    if manifest_base.remote_base().is_none() {
+        return manifest_base.clone();
+    }
+    let (runtime_env, manifest_work_root) = crate::manifest::manifest_runtime(json);
+    let work_root = manifest_work_root
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var("FLOE_WORK_ROOT")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(std::path::PathBuf::from)
+        })
+        .unwrap_or_else(|| runtime_env.work_root());
+    // `local_from_path` uses the parent as the local base dir, so join a sentinel file name.
+    config::ConfigBase::local_from_path(&work_root.join("manifest.json"))
 }
 
 pub fn run_with_runtime(

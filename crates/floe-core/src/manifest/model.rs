@@ -12,6 +12,14 @@ pub struct CommonManifest {
     pub manifest_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_revision: Option<String>,
+    /// Runtime the manifest targets: `"image"` (local URIs absolute under the container
+    /// work-root) or `"cli"` (local URIs relative / as-typed). Drives how a replaying
+    /// runner resolves local paths. See `RuntimeEnv`.
+    pub runtime_env: &'static str,
+    /// Work-root local paths are resolved under at replay time (e.g. `/work`). `Some` only
+    /// for `runtime_env == "image"`; `None` for `"cli"` (paths are relative, no fixed root).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_root: Option<String>,
     pub config_uri: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_checksum: Option<String>,

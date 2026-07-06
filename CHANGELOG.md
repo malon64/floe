@@ -3,6 +3,31 @@
 All notable changes to Floe are documented in this file.
 
 
+## Unreleased
+
+- **Manifest local paths are always absolute, targeted at the replay runner (#443).**
+  v0.6.6 (#438) made `manifest generate` record local `config_uri` / `profile_uri` relative
+  (`local://domains/...`) for cross-checkout reproducible ids. That broke manifests generated
+  inside the container image, which downstream orchestrators deploy to object storage and
+  replay remotely: the portable `local:///work/...` form was lost, and a manifest loaded from a
+  remote URI resolved its relative paths against the *manifest's own bucket*, failing an
+  Iceberg write with `storage <name> bucket mismatch`. The definitive rule is now: because the
+  runner that generates a manifest is not the one that replays it, every local path is recorded
+  **absolute**, resolved against the target runner's work-root.
+  - New `manifest generate --runtime image|cli` (manifest field `runtime_env`). `image` records
+    local URIs absolute under the container work-root (`/work`) — portable for remote replay
+    *and* reproducible across containers; `cli` records them host-absolute (canonicalized) for
+    same-host execution. Omitted → auto-detect (container ⇒ image, else cli; override with
+    `FLOE_RUNTIME`; work-root override `FLOE_WORK_ROOT`). Cross-environment reproducible
+    `manifest_id` now comes from `--runtime image`, not from relative paths.
+  - `floe run --manifest` loaded from a **remote** URI no longer treats the manifest's own
+    location as the path-resolution base; local paths resolve under the recorded `work_root`
+    and remote paths resolve purely from their storage definitions. Local manifest files are
+    unchanged. See `docs/manifest.md`.
+  - Behaviour change: local-config `config_uri` / `manifest_id` change again (now absolute) —
+    regenerate committed manifests, preferring `--runtime image` for CI-stable ids.
+
+
 ## v0.6.6
 
 - **Reproducible manifest IDs across environments (#438).** `manifest generate` baked the

@@ -312,7 +312,34 @@ enum ManifestCommand {
                     self-contained for remote replay."
         )]
         manifest_path_mode: String,
+        #[arg(
+            long,
+            value_enum,
+            help = "Runtime this manifest targets. \
+                    'image': record local config/profile URIs absolute under the container \
+                    work-root (local:///work/...), portable for remote replay and reproducible \
+                    across containers. \
+                    'cli': keep them relative/as-typed for cross-checkout reproducible ids. \
+                    Omitted: auto-detect (container -> image, else cli; override with FLOE_RUNTIME)."
+        )]
+        runtime: Option<RuntimeArg>,
     },
+}
+
+/// CLI surface for `floe_core::RuntimeEnv`; `None` means auto-detect.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum RuntimeArg {
+    Image,
+    Cli,
+}
+
+impl RuntimeArg {
+    fn into_runtime_env(self) -> floe_core::RuntimeEnv {
+        match self {
+            RuntimeArg::Image => floe_core::RuntimeEnv::Image,
+            RuntimeArg::Cli => floe_core::RuntimeEnv::Cli,
+        }
+    }
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -812,7 +839,12 @@ fn main() -> FloeResult<()> {
                 manifest_name,
                 default_domain,
                 manifest_path_mode,
+                runtime,
             } => {
+                // Explicit --runtime wins; otherwise auto-detect from the environment.
+                let runtime_env = runtime
+                    .map(RuntimeArg::into_runtime_env)
+                    .unwrap_or_else(floe_core::RuntimeEnv::detect);
                 let config_location = match resolve_config_location(&config) {
                     Ok(location) => location,
                     Err(err) => {
@@ -894,7 +926,12 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
-                let profile_uri = profile_location.as_ref().map(|loc| loc.uri.clone());
+                // Match config_uri: absolutize the local profile path against the target
+                // runtime's work-root (`image` → `/work`, `cli` → host-canonical); remote
+                // URIs are recorded as-is.
+                let profile_uri = profile_location
+                    .as_ref()
+                    .map(|loc| floe_core::local_uri_for_env(&loc.uri, &loc.path, runtime_env));
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
 
                 // When --output is a remote URI it is also the manifest's deployed location,
@@ -922,6 +959,7 @@ fn main() -> FloeResult<()> {
                     manifest_uri,
                     default_domain,
                     path_mode,
+                    runtime_env,
                 };
                 let manifest_json = build_common_manifest_json(
                     &config_location,

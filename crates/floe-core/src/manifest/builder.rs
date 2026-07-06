@@ -51,6 +51,10 @@ pub struct ManifestOptions {
     pub default_domain: Option<String>,
     /// Controls how the `path` field is set in source and sink entries.
     pub path_mode: PathMode,
+    /// Runtime the manifest targets. `Image` records local `config_uri` / `profile_uri`
+    /// absolute under the container work-root (`/work`), restoring the portable pre-0.6.6
+    /// form; `Cli` keeps them relative / as-typed for cross-checkout reproducibility.
+    pub runtime_env: crate::manifest::RuntimeEnv,
 }
 
 #[derive(Debug)]
@@ -378,10 +382,16 @@ fn build_common_manifest(
         });
     }
 
-    // Use `uri` (the path as typed / resolved remote URI), not the host-absolute
-    // `display`, so config_uri and the manifest_id derived from it do not depend on
-    // where the config file physically lives.
-    let config_uri = config_location.uri.clone();
+    // A manifest is replayed by a different runner than the one that generated it, so
+    // `config_uri` must be absolute. `local_uri_for_env` absolutizes the local path against
+    // the target runtime's work-root: `Image` rebases the relative path under the container
+    // work-root (`local:///work/...`, portable + reproducible across containers), `Cli`
+    // records the host-canonical path. Remote config URIs pass through unchanged.
+    let config_uri = crate::manifest::local_uri_for_env(
+        &config_location.uri,
+        &config_location.path,
+        options.runtime_env,
+    );
     let config_checksum = std::fs::read(&config_location.path)
         .ok()
         .map(|b| sha256_hex(&b));
@@ -423,6 +433,8 @@ fn build_common_manifest(
         manifest_name: options.manifest_name.clone(),
         manifest_id: build_manifest_id(&config_uri, config_checksum.as_deref()),
         manifest_revision: None,
+        runtime_env: options.runtime_env.as_str(),
+        work_root: options.runtime_env.manifest_work_root(),
         config_uri,
         config_checksum,
         profile_uri: options.profile_uri.clone(),

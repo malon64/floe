@@ -38,7 +38,8 @@ pub use config::{
 };
 pub use errors::{FloeError, FloeErrorKind};
 pub use manifest::{
-    build_common_manifest_json, config_from_manifest_json, ManifestOptions, PathMode,
+    build_common_manifest_json, config_from_manifest_json, local_uri_for_env, manifest_runtime,
+    ManifestOptions, PathMode, RuntimeEnv, DEFAULT_WORK_ROOT,
 };
 pub use profile::{
     detect_malformed_placeholder, detect_unresolved_placeholders, parse_profile,
@@ -171,4 +172,14 @@ pub fn extract_config_env_vars(
 
 pub fn validate_config_for_tests(config: &config::RootConfig) -> FloeResult<()> {
     config::validate_config(config)
+}
+
+/// Test-only accessor for the private manifest-replay path-resolution base (issue #443):
+/// a manifest loaded from a remote URI must resolve local paths under its recorded
+/// `work_root`, never against the manifest's own remote location.
+pub fn manifest_replay_config_base_for_tests(
+    manifest_base: &config::ConfigBase,
+    json: &str,
+) -> config::ConfigBase {
+    run::manifest_replay_config_base(manifest_base, json)
 }

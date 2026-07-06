@@ -19,6 +19,7 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+.omc
 
 # Example run artefacts (generated on every floe run)
 example/out/

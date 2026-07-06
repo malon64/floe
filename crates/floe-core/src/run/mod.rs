@@ -134,7 +134,7 @@ pub(crate) fn run_with_manifest_runtime(
 ///
 /// For a **local** manifest file, behavior is unchanged: relative paths resolve against the
 /// manifest file's directory, exactly as before.
-fn manifest_replay_config_base(
+pub(crate) fn manifest_replay_config_base(
     manifest_base: &config::ConfigBase,
     json: &str,
 ) -> config::ConfigBase {
@@ -674,49 +674,5 @@ fn run_status_str(status: report::RunStatus) -> &'static str {
         report::RunStatus::Rejected => "rejected",
         report::RunStatus::Aborted => "aborted",
         report::RunStatus::Failed => "failed",
-    }
-}
-
-#[cfg(test)]
-mod manifest_replay_base_tests {
-    use super::*;
-    use std::path::{Path, PathBuf};
-
-    #[test]
-    fn remote_manifest_replay_uses_recorded_work_root_not_manifest_bucket() {
-        // A manifest loaded from a remote URI must NOT resolve its paths against its own
-        // bucket (issue #443). With runtime_env=image/work_root=/work, the replay base is a
-        // local root at /work with no remote_base.
-        let remote = config::ConfigBase::remote_from_uri(
-            PathBuf::from("/tmp/manifest"),
-            "s3://openlakeforge-ops/floe/manifests/x.manifest.json",
-        )
-        .expect("remote base");
-        let json = r#"{"runtime_env":"image","work_root":"/work"}"#;
-        let base = manifest_replay_config_base(&remote, json);
-        assert!(
-            base.remote_base().is_none(),
-            "remote manifest bucket must not become the resolution base"
-        );
-        assert_eq!(base.local_dir(), Path::new("/work"));
-    }
-
-    #[test]
-    fn remote_manifest_replay_never_keeps_remote_base_even_without_hints() {
-        let remote = config::ConfigBase::remote_from_uri(
-            PathBuf::from("/tmp/manifest"),
-            "s3://bucket/x.manifest.json",
-        )
-        .expect("remote base");
-        let base = manifest_replay_config_base(&remote, "{}");
-        assert!(base.remote_base().is_none());
-    }
-
-    #[test]
-    fn local_manifest_replay_base_is_unchanged() {
-        let local = config::ConfigBase::local_from_path(Path::new("/data/manifests/x.json"));
-        let base = manifest_replay_config_base(&local, "{}");
-        assert!(base.remote_base().is_none());
-        assert_eq!(base.local_dir(), Path::new("/data/manifests"));
     }
 }

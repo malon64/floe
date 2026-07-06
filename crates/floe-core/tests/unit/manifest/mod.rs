@@ -1,3 +1,5 @@
+pub mod runtime;
+
 use floe_core::{
     build_common_manifest_json, config_from_manifest_json, load_config, parse_profile_from_str,
     resolve_config_location, ManifestOptions, PathMode, RuntimeEnv,

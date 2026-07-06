@@ -44,10 +44,10 @@ fn manifest_uses_local_uri_for_local_config() {
 }
 
 #[test]
-fn manifest_config_uri_is_not_canonicalized() {
-    // config_uri reflects the path as typed, not the canonical path: a lexical `..`
-    // bounce (which canonicalize() would collapse) surviving in the output proves
-    // the path was preserved as-typed.
+fn manifest_cli_config_uri_is_host_absolute_canonical() {
+    // Under `cli` runtime every local path is recorded host-absolute and canonicalized: a
+    // lexical `..` bounce in the typed path is collapsed, so config_uri is a clean absolute
+    // URI that resolves on the generating host (the definitive "all paths absolute" rule).
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let cfg_dir = temp_dir.path().join("cfg");
     std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
@@ -58,7 +58,7 @@ fn manifest_config_uri_is_not_canonicalized() {
     )
     .expect("write config");
 
-    // <cfg_dir>/../cfg/config.yml — canonicalize() would resolve this to
+    // <cfg_dir>/../cfg/config.yml — cli canonicalization resolves this to
     // <cfg_dir>/config.yml, dropping the "/../".
     let bouncy = format!("{}/../cfg/config.yml", cfg_dir.display());
     let loc = resolve_config_location(&bouncy).expect("resolve config location");
@@ -69,8 +69,12 @@ fn manifest_config_uri_is_not_canonicalized() {
 
     let uri = value["config_uri"].as_str().expect("config_uri string");
     assert!(
-        uri.contains("/../cfg/config.yml"),
-        "config_uri was canonicalized (lost the as-typed form): {uri}"
+        uri.starts_with("local:///"),
+        "cli config_uri must be host-absolute: {uri}"
+    );
+    assert!(
+        !uri.contains("/../"),
+        "cli config_uri must be canonicalized (no `..`): {uri}"
     );
     assert!(value["manifest_id"].as_str().unwrap().starts_with("mfv1-"));
     // Default (no runtime override) auto-detects; in the test env that is `cli`.

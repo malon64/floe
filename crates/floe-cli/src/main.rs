@@ -926,11 +926,12 @@ fn main() -> FloeResult<()> {
                         .and_then(|profile| profile.lineage.as_ref()),
                 )?;
 
-                // Match config_uri: `image` re-absolutizes a relative local profile path under
-                // the container work-root; `cli` and remote URIs are recorded as-is.
+                // Match config_uri: absolutize the local profile path against the target
+                // runtime's work-root (`image` → `/work`, `cli` → host-canonical); remote
+                // URIs are recorded as-is.
                 let profile_uri = profile_location
                     .as_ref()
-                    .map(|loc| floe_core::local_uri_for_env(&loc.uri, runtime_env));
+                    .map(|loc| floe_core::local_uri_for_env(&loc.uri, &loc.path, runtime_env));
                 let profile_path = profile_location.as_ref().map(|loc| loc.path.clone());
 
                 // When --output is a remote URI it is also the manifest's deployed location,

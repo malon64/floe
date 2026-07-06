@@ -382,12 +382,16 @@ fn build_common_manifest(
         });
     }
 
-    // Start from `uri` (the path as typed / resolved remote URI), not the host-absolute
-    // `display`, so config_uri and the manifest_id derived from it do not depend on where
-    // the config file physically lives. For `Image` runtime, `local_uri_for_env` re-absolutizes
-    // a relative local path under the container work-root (`local:///work/...`), which is both
-    // portable for remote replay and reproducible across container runs.
-    let config_uri = crate::manifest::local_uri_for_env(&config_location.uri, options.runtime_env);
+    // A manifest is replayed by a different runner than the one that generated it, so
+    // `config_uri` must be absolute. `local_uri_for_env` absolutizes the local path against
+    // the target runtime's work-root: `Image` rebases the relative path under the container
+    // work-root (`local:///work/...`, portable + reproducible across containers), `Cli`
+    // records the host-canonical path. Remote config URIs pass through unchanged.
+    let config_uri = crate::manifest::local_uri_for_env(
+        &config_location.uri,
+        &config_location.path,
+        options.runtime_env,
+    );
     let config_checksum = std::fs::read(&config_location.path)
         .ok()
         .map(|b| sha256_hex(&b));

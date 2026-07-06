@@ -37,6 +37,21 @@
       "type": "string",
       "minLength": 1
     },
+    "runtime_env": {
+      "description": "Runtime this manifest targets. 'image' records local config/profile URIs absolute under the container work-root (local:///work/...); 'cli' records them host-absolute. Absent on manifests generated before v0.6.7 (treated as 'cli').",
+      "type": "string",
+      "enum": [
+        "image",
+        "cli"
+      ]
+    },
+    "work_root": {
+      "description": "Absolute work-root that local paths are resolved under at replay time. Recorded for 'image' runtime (e.g. /work); absent for 'cli'.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "config_uri": {
       "type": "string",
       "minLength": 1

@@ -627,11 +627,12 @@ fn run_with_manifest_file_executes_entity() {
         .success();
 }
 
-/// The same config referenced by the same relative path from two different project
-/// roots (Docker `/work` vs a native checkout) must produce an identical
-/// `manifest_id` and `config_uri`. Each subprocess has its own cwd.
+/// `--runtime cli` records local paths host-absolute (canonicalized): a relative `-c` is
+/// resolved against the generating host's cwd. This is resolvable on that host but, unlike
+/// `--runtime image`, intentionally NOT reproducible across roots — the reproducible-CI case
+/// is served by `image` (see the test below). Each subprocess has its own cwd.
 #[test]
-fn manifest_generate_is_reproducible_across_roots() {
+fn manifest_generate_cli_runtime_is_host_absolute() {
     fn generate(root: &std::path::Path) -> (String, String) {
         let cfg_dir = root.join("cfg");
         fs::create_dir_all(&cfg_dir).expect("create cfg dir");
@@ -657,6 +658,11 @@ fn manifest_generate_is_reproducible_across_roots() {
 
         let payload = fs::read_to_string(root.join("manifest.json")).expect("manifest file");
         let value: Value = serde_json::from_str(&payload).expect("valid json");
+        assert_eq!(value["runtime_env"], "cli");
+        assert!(
+            value.get("work_root").is_none(),
+            "cli must not record work_root"
+        );
         (
             value["manifest_id"]
                 .as_str()
@@ -674,12 +680,19 @@ fn manifest_generate_is_reproducible_across_roots() {
     let (id_a, uri_a) = generate(root_a.path());
     let (id_b, uri_b) = generate(root_b.path());
 
-    assert_eq!(
-        uri_a, "local://cfg/config.yml",
-        "config_uri must stay relative"
+    assert!(
+        uri_a.starts_with("local:///") && uri_a.ends_with("/cfg/config.yml"),
+        "cli config_uri must be host-absolute: {uri_a}"
     );
-    assert_eq!(uri_a, uri_b, "config_uri differs across project roots");
-    assert_eq!(id_a, id_b, "manifest_id differs across project roots");
+    assert!(
+        !uri_a.contains("/../"),
+        "cli config_uri must be canonicalized: {uri_a}"
+    );
+    assert_ne!(
+        uri_a, uri_b,
+        "cli config_uri is host-absolute, so it must differ across roots"
+    );
+    assert_ne!(id_a, id_b, "cli manifest_id must differ across roots");
 }
 
 /// `--runtime image` records a relative `-c` absolute under the container work-root

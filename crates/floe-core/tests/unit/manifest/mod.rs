@@ -1,6 +1,6 @@
 use floe_core::{
     build_common_manifest_json, config_from_manifest_json, load_config, parse_profile_from_str,
-    resolve_config_location, ManifestOptions, PathMode,
+    resolve_config_location, ManifestOptions, PathMode, RuntimeEnv,
 };
 // `validate_config_for_tests` is only exercised by the duckdb-gated MotherDuck
 // round-trip assertion below; importing it unconditionally would warn (and fail the
@@ -73,6 +73,43 @@ fn manifest_config_uri_is_not_canonicalized() {
         "config_uri was canonicalized (lost the as-typed form): {uri}"
     );
     assert!(value["manifest_id"].as_str().unwrap().starts_with("mfv1-"));
+    // Default (no runtime override) auto-detects; in the test env that is `cli`.
+    assert_eq!(value["runtime_env"], "cli");
+    assert!(
+        value.get("work_root").is_none(),
+        "cli must not record work_root"
+    );
+}
+
+#[test]
+fn manifest_image_runtime_records_runtime_env_and_work_root() {
+    // `image` runtime records runtime_env/work_root so a remote runner knows how to resolve
+    // local paths. An absolute config path is already portable, so it is preserved unchanged
+    // (the relative -> /work re-rooting is covered by the runtime module's unit tests and the
+    // CLI `--runtime image` reproducibility test).
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let cfg_dir = temp_dir.path().join("cfg");
+    std::fs::create_dir_all(&cfg_dir).expect("cfg dir");
+    let config_path = cfg_dir.join("config.yml");
+    std::fs::write(
+        &config_path,
+        "version: \"0.1\"\nentities:\n  - name: orders\n    source:\n      format: csv\n      path: ./in/orders\n    sink:\n      write_mode: overwrite\n      accepted:\n        format: parquet\n        path: ./out/orders\n    policy:\n      severity: warn\n    schema:\n      columns:\n        - name: id\n          type: string\n",
+    )
+    .expect("write config");
+
+    let loc = resolve_config_location(config_path.to_str().expect("utf8")).expect("resolve");
+    let config = load_config(&loc.path).expect("load config");
+    let opts = ManifestOptions {
+        runtime_env: RuntimeEnv::Image,
+        ..ManifestOptions::default()
+    };
+    let payload = build_common_manifest_json(&loc, &config, &[], None, &opts).expect("manifest");
+    let value: Value = serde_json::from_str(&payload).expect("valid json");
+
+    assert_eq!(value["runtime_env"], "image");
+    assert_eq!(value["work_root"], "/work");
+    let uri = value["config_uri"].as_str().expect("config_uri string");
+    assert!(uri.starts_with("local://"), "config_uri: {uri}");
 }
 
 #[test]

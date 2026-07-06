@@ -110,6 +110,28 @@ fn deserialize_manifest_section<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// The replay runtime hints recorded by the generator. Deserialized on their own (serde
+/// ignores the rest of the manifest) so a runner can read them without depending on the full
+/// `ManifestForRun` shape parsing cleanly.
+#[derive(Debug, Default, Deserialize)]
+struct ManifestRuntimeHints {
+    #[serde(default)]
+    runtime_env: Option<String>,
+    #[serde(default)]
+    work_root: Option<String>,
+}
+
+/// Parse the replay runtime hints (`runtime_env` / `work_root`) from a manifest JSON string.
+/// Missing or malformed hints map to `(RuntimeEnv::Cli, None)`, so pre-0.6.7 manifests keep
+/// their previous resolution behavior.
+pub fn manifest_runtime(json: &str) -> (crate::manifest::RuntimeEnv, Option<String>) {
+    let hints: ManifestRuntimeHints = serde_json::from_str(json).unwrap_or_default();
+    (
+        crate::manifest::RuntimeEnv::from_manifest_str(hints.runtime_env.as_deref()),
+        hints.work_root,
+    )
+}
+
 /// Parse a manifest JSON string and reconstruct a minimal RootConfig.
 /// Returns (config, report_base_uri).
 pub fn config_from_manifest_json(json: &str) -> FloeResult<(crate::config::RootConfig, String)> {

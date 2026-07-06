@@ -3,6 +3,26 @@
 All notable changes to Floe are documented in this file.
 
 
+## Unreleased
+
+- **Restore portable container manifests + fix remote-replay bucket mismatch (#443).**
+  v0.6.6 (#438) made `manifest generate` record local `config_uri` / `profile_uri` relative
+  (`local://domains/...`). That is correct for cross-checkout reproducible ids but broke
+  manifests generated inside the container image, which downstream orchestrators deploy to
+  object storage and replay remotely: the previous portable `local:///work/...` form was lost,
+  and a manifest loaded from a remote URI resolved its relative paths against the *manifest's
+  own bucket*, failing an Iceberg write with `storage <name> bucket mismatch`.
+  - New `manifest generate --runtime image|cli` (manifest field `runtime_env`). `image` records
+    local URIs absolute under the container work-root (`/work`) — portable for remote replay
+    *and* reproducible across containers; `cli` keeps them relative for cross-checkout
+    reproducible ids. Omitted → auto-detect (container ⇒ image, else cli; override with
+    `FLOE_RUNTIME`; work-root override `FLOE_WORK_ROOT`).
+  - `floe run --manifest` loaded from a **remote** URI no longer treats the manifest's own
+    location as the path-resolution base; local paths resolve under the recorded `work_root`
+    and remote paths resolve purely from their storage definitions. Local manifest files are
+    unchanged. See `docs/manifest.md`.
+
+
 ## v0.6.6
 
 - **Reproducible manifest IDs across environments (#438).** `manifest generate` baked the

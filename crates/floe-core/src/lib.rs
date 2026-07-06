@@ -38,7 +38,8 @@ pub use config::{
 };
 pub use errors::{FloeError, FloeErrorKind};
 pub use manifest::{
-    build_common_manifest_json, config_from_manifest_json, ManifestOptions, PathMode,
+    build_common_manifest_json, config_from_manifest_json, local_uri_for_env, manifest_runtime,
+    ManifestOptions, PathMode, RuntimeEnv, DEFAULT_WORK_ROOT,
 };
 pub use profile::{
     detect_malformed_placeholder, detect_unresolved_placeholders, parse_profile,

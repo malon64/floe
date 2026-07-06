@@ -639,11 +639,15 @@ fn manifest_generate_is_reproducible_across_roots() {
 
         Command::new(assert_cmd::cargo::cargo_bin!("floe"))
             .current_dir(root)
+            // Force `cli` so the assertion is hermetic regardless of the test host's
+            // runtime auto-detection.
             .args([
                 "manifest",
                 "generate",
                 "-c",
                 "cfg/config.yml",
+                "--runtime",
+                "cli",
                 "--deterministic",
                 "--output",
                 "manifest.json",
@@ -673,6 +677,62 @@ fn manifest_generate_is_reproducible_across_roots() {
     assert_eq!(
         uri_a, "local://cfg/config.yml",
         "config_uri must stay relative"
+    );
+    assert_eq!(uri_a, uri_b, "config_uri differs across project roots");
+    assert_eq!(id_a, id_b, "manifest_id differs across project roots");
+}
+
+/// `--runtime image` records a relative `-c` absolute under the container work-root
+/// (`local:///work/...`), restoring the portable pre-0.6.6 form (issue #443) while staying
+/// reproducible: the same relative path from two different host roots yields the same
+/// `config_uri` and `manifest_id`.
+#[test]
+fn manifest_generate_image_runtime_is_absolute_and_reproducible() {
+    fn generate(root: &std::path::Path) -> (String, String) {
+        let cfg_dir = root.join("cfg");
+        fs::create_dir_all(&cfg_dir).expect("create cfg dir");
+        write_minimal_config(&cfg_dir, "warn");
+
+        Command::new(assert_cmd::cargo::cargo_bin!("floe"))
+            .current_dir(root)
+            .args([
+                "manifest",
+                "generate",
+                "-c",
+                "cfg/config.yml",
+                "--runtime",
+                "image",
+                "--deterministic",
+                "--output",
+                "manifest.json",
+            ])
+            .assert()
+            .success();
+
+        let payload = fs::read_to_string(root.join("manifest.json")).expect("manifest file");
+        let value: Value = serde_json::from_str(&payload).expect("valid json");
+        assert_eq!(value["runtime_env"], "image");
+        assert_eq!(value["work_root"], "/work");
+        (
+            value["manifest_id"]
+                .as_str()
+                .expect("manifest_id")
+                .to_string(),
+            value["config_uri"]
+                .as_str()
+                .expect("config_uri")
+                .to_string(),
+        )
+    }
+
+    let root_a = tempdir().expect("temp root a");
+    let root_b = tempdir().expect("temp root b");
+    let (id_a, uri_a) = generate(root_a.path());
+    let (id_b, uri_b) = generate(root_b.path());
+
+    assert_eq!(
+        uri_a, "local:///work/cfg/config.yml",
+        "image config_uri must be absolute under /work"
     );
     assert_eq!(uri_a, uri_b, "config_uri differs across project roots");
     assert_eq!(id_a, id_b, "manifest_id differs across project roots");

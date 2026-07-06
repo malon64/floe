@@ -496,7 +496,11 @@
           "source_format",
           "accepted_sink_uri",
           "source",
-          "sinks"
+          "sinks",
+          "policy_severity",
+          "write_mode",
+          "incremental_mode",
+          "schema"
         ],
         "properties": {
           "name": {
@@ -625,6 +629,142 @@
                 ]
               }
             }
+          },
+          "policy_severity": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "reject",
+              "abort"
+            ]
+          },
+          "write_mode": {
+            "type": "string",
+            "enum": [
+              "overwrite",
+              "append",
+              "merge_scd1",
+              "merge_scd2"
+            ]
+          },
+          "incremental_mode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "archive",
+              "file",
+              "row"
+            ]
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "columns",
+              "primary_key",
+              "unique_keys"
+            ],
+            "properties": {
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "column_type"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "column_type": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "nullable": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "unique": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "width": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "trim": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "primary_key": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "unique_keys": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "normalize_columns": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "mismatch": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "schema_evolution": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          },
+          "pii": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "state_path": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }
@@ -660,6 +800,46 @@
         },
         "resolved": {
           "type": "boolean"
+        },
+        "options": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "partition_by": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "merge": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "iceberg": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "delta": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "duckdb": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       }
     },

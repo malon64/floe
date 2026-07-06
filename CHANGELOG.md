@@ -3,7 +3,7 @@
 All notable changes to Floe are documented in this file.
 
 
-## Unreleased
+## v0.6.7
 
 - **Manifest local paths are always absolute, targeted at the replay runner (#443).**
   v0.6.6 (#438) made `manifest generate` record local `config_uri` / `profile_uri` relative

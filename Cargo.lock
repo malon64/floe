@@ -1847,9 +1847,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.6.7"
+version = "0.6.8"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.6.7"
+version = "0.6.8"
 dependencies = [
  "apache-avro",
  "arrow",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "floe-python"
-version = "0.6.7"
+version = "0.6.8"
 dependencies = [
  "floe-core",
  "pyo3",

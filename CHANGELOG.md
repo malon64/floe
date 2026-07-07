@@ -2,6 +2,12 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.8
+
+- **Fix image runner using custom S3 URL**
+  The published Floe image can hit S3-compatible endpoints through a hostname such as host.lima.internal, while the host CLI repro uses an IP literal such as 127.0.0.1. Floe already lets aws-config pick up AWS_ENDPOINT_URL / AWS_ENDPOINT_URL_S3, but the plain Rust S3Client only enabled path-style addressing from the YAML path_style_access field.
+
+  That left image runs using virtual-hosted-style requests against SeaweedFS/MinIO-style endpoints even when users set AWS_S3_FORCE_PATH_STYLE=true, which matches the failing direct-config and remote-manifest cases in the issue.
 
 ## v0.6.7
 

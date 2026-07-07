@@ -12,6 +12,8 @@ use crate::io::storage::uri::{format_bucket_uri, parse_bucket_uri, BucketLocatio
 use crate::io::storage::{planner, ConditionalWrite, ObjectRef, StorageClient, StoredObject};
 use crate::FloeResult;
 
+const AWS_S3_FORCE_PATH_STYLE: &str = "AWS_S3_FORCE_PATH_STYLE";
+
 pub struct S3Client {
     bucket: String,
     client: Client,
@@ -44,7 +46,7 @@ impl S3Client {
             builder.load().await
         });
         let mut s3_builder = aws_sdk_s3::config::Builder::from(&config);
-        if path_style_access.unwrap_or(false) {
+        if resolve_path_style_access(path_style_access) {
             s3_builder = s3_builder.force_path_style(true);
         }
         let client = Client::from_conf(s3_builder.build());
@@ -288,6 +290,25 @@ impl StorageClient for S3Client {
             }
         })
     }
+}
+
+#[doc(hidden)]
+pub fn resolve_path_style_access(configured: Option<bool>) -> bool {
+    let env_value = std::env::var(AWS_S3_FORCE_PATH_STYLE).ok();
+    resolve_path_style_access_from_env(configured, env_value.as_deref())
+}
+
+#[doc(hidden)]
+pub fn resolve_path_style_access_from_env(
+    configured: Option<bool>,
+    env_value: Option<&str>,
+) -> bool {
+    configured.unwrap_or_else(|| {
+        env_value.is_some_and(|value| {
+            let value = value.trim();
+            value == "1" || value.eq_ignore_ascii_case("true")
+        })
+    })
 }
 
 fn is_not_found<E: std::fmt::Display>(err: &E) -> bool {

@@ -48,6 +48,13 @@
       "write_mode": "append",
       "incremental_mode": "file",
       "runner": null,
+      "schema": {
+        "columns": [
+          {"name": "id", "column_type": "string"}
+        ],
+        "primary_key": ["id"],
+        "unique_keys": []
+      },
       "source": {
         "format": "csv",
         "storage": "local",

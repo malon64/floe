@@ -15,6 +15,14 @@ Run locally with::
 Only modules that are intended to be identical belong here. ``manifest.py`` and
 the ``*_runner.py`` modules are intentionally framework-specific and are NOT
 guarded.
+
+``dagster-floe``'s vendored manifest schema (see ``CANONICAL_COPIES`` below) has
+a second line of defense: ``orchestrators/dagster-floe/setup.py`` copies it
+fresh from the canonical source on every build (`pip install -e .`, `python -m
+build`), so a stale copy can no longer reach a release even if this check is
+skipped. This script still matters because tests and local dev commonly run
+against ``src/`` directly (e.g. ``PYTHONPATH=src pytest``), which never
+triggers that build step.
 """
 
 from __future__ import annotations

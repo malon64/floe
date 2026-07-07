@@ -81,6 +81,18 @@ def test_manifest_schema_rejects_unknown_top_level_key(tmp_path: Path):
         load_manifest(manifest_path)
 
 
+def test_manifest_schema_accepts_runtime_env_and_work_root(tmp_path: Path):
+    fixture = Path(__file__).parent / "fixtures" / "manifest.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload["runtime_env"] = "image"
+    payload["work_root"] = "/work"
+    manifest_path = tmp_path / "manifest.runtime_env.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    manifest = load_manifest(manifest_path)
+    assert manifest.manifest_id == payload["manifest_id"]
+
+
 def test_manifest_schema_rejects_missing_entity_source(tmp_path: Path):
     fixture = Path(__file__).parent / "fixtures" / "manifest.json"
     payload = json.loads(fixture.read_text(encoding="utf-8"))
@@ -132,15 +144,16 @@ def test_entity_policy_severity_parsed():
     assert manifest.entities[1].policy_severity == "warn"
 
 
-def test_entity_policy_severity_defaults_to_none_when_absent(tmp_path: Path):
+def test_entity_policy_severity_defaults_to_none_when_absent():
+    # policy_severity is required and non-nullable in the manifest schema (Rust
+    # ManifestEntity.policy_severity is a plain String, never absent or null for a
+    # real manifest) - but the dataclass layer still tolerates an absent/null value
+    # on its own, so exercise it directly via from_dict, bypassing schema validation.
     fixture = Path(__file__).parent / "fixtures" / "manifest.json"
     payload = json.loads(fixture.read_text(encoding="utf-8"))
-    # Remove policy_severity from first entity
     del payload["entities"][0]["policy_severity"]
-    manifest_path = tmp_path / "manifest.no_policy.json"
-    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    manifest = load_manifest(manifest_path)
+    manifest = DagsterManifest.from_dict(payload)
     assert manifest.entities[0].policy_severity is None
 
 

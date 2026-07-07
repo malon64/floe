@@ -5,6 +5,8 @@ __pycache__/
 .dg/
 .tmp_*/
 *.egg-info/
+build/
+dist/
 
 # example outputs
 example/out/

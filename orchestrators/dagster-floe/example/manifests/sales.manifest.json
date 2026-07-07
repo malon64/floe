@@ -97,7 +97,32 @@
         },
         "archive": null
       },
-      "runner": null
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "order_id",
+            "column_type": "string",
+            "nullable": false,
+            "unique": true
+          },
+          {
+            "name": "created_at",
+            "column_type": "datetime",
+            "nullable": false
+          },
+          {
+            "name": "amount",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [],
+        "unique_keys": []
+      }
     },
     {
       "name": "invoices",
@@ -140,7 +165,32 @@
         },
         "archive": null
       },
-      "runner": null
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "invoice_id",
+            "column_type": "string",
+            "nullable": false,
+            "unique": true
+          },
+          {
+            "name": "order_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "paid",
+            "column_type": "boolean",
+            "nullable": false
+          }
+        ],
+        "primary_key": [],
+        "unique_keys": []
+      }
     }
   ]
 }

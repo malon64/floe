@@ -110,7 +110,32 @@
         },
         "archive": null
       },
-      "runner": null
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "employee_id",
+            "column_type": "string",
+            "nullable": false,
+            "unique": true
+          },
+          {
+            "name": "start_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "salary",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [],
+        "unique_keys": []
+      }
     }
   ]
 }

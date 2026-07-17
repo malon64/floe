@@ -11,7 +11,9 @@ Add a `lineage` block at the root of your config file:
 ```yaml
 lineage:
   url: "http://marquez:5000"
+  endpoint: "api/v1/lineage"         # optional, default shown
   namespace: "my-floe-namespace"
+  dataset_namespace: "my-floe-namespace"  # optional, defaults to namespace
   api_key: "{{OPENLINEAGE_API_KEY}}"   # optional — Bearer token
   timeout_secs: 5                       # optional, default 5
   producer: "https://github.com/myorg/floe"  # optional
@@ -21,7 +23,9 @@ lineage:
 | Field          | Required | Description |
 |----------------|----------|-------------|
 | `url`          | yes      | Base URL of the OpenLineage-compatible endpoint |
-| `namespace`    | yes      | OpenLineage namespace used for all jobs and datasets in this run |
+| `endpoint`     | no       | Path joined to `url` for POST requests (default: `api/v1/lineage`) |
+| `namespace`    | yes      | OpenLineage namespace used for job identity |
+| `dataset_namespace` | no   | Namespace for accepted Iceberg output datasets; defaults to `namespace` |
 | `api_key`      | no       | Bearer token sent in the `Authorization` header |
 | `timeout_secs` | no       | HTTP request timeout in seconds (default: `5`) |
 | `producer`     | no       | URI identifying this producer. Defaults to the versioned release URL for the current build (e.g. `https://github.com/malon64/floe/releases/tag/v0.4.2`). |
@@ -34,7 +38,20 @@ env-vars mechanism used for the rest of the config.
 ## Events emitted
 
 For each Floe run, Floe posts OpenLineage `RunEvent` objects to
-`POST <url>/api/v1/lineage`:
+`POST <url>/<endpoint>`, where `endpoint` defaults to `api/v1/lineage`:
+
+For OpenMetadata's native OpenLineage endpoint:
+
+```yaml
+lineage:
+  url: http://openmetadata:8585
+  endpoint: api/v1/openlineage/lineage
+  namespace: dagster            # stable job identity
+  dataset_namespace: iceberg    # catalog-service dataset namespace
+```
+
+`dataset_namespace` governs the accepted Iceberg output dataset; source and
+non-Iceberg sink datasets retain their physical storage namespaces.
 
 | Floe lifecycle        | OpenLineage event type | Notes                                                                  |
 |-----------------------|------------------------|------------------------------------------------------------------------|

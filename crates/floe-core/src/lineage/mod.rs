@@ -32,6 +32,18 @@ struct EntityUris {
     rejected: Option<OlDataset>,
 }
 
+fn resolve_lineage_url(base: &str, endpoint: Option<&str>) -> String {
+    let path = endpoint
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("api/v1/lineage");
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
+}
+
 pub struct OpenLineageObserver {
     client: reqwest::blocking::Client,
     config: LineageConfig,
@@ -91,6 +103,12 @@ impl OpenLineageObserver {
             })
             .collect();
 
+        let dataset_namespace = config
+            .dataset_namespace
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| config.namespace.clone());
+
         let entity_uris = entities
             .iter()
             .map(|e| {
@@ -105,7 +123,7 @@ impl OpenLineageObserver {
                         let ns = iceberg.namespace.as_deref().unwrap_or(e.name.as_str());
                         let tbl = iceberg.table.as_deref().unwrap_or(e.name.as_str());
                         OlDataset {
-                            namespace: config.namespace.clone(),
+                            namespace: dataset_namespace.clone(),
                             name: format!("{ns}.{tbl}"),
                         }
                     }
@@ -177,7 +195,7 @@ impl OpenLineageObserver {
             return;
         }
 
-        let url = format!("{}/api/v1/lineage", self.config.url.trim_end_matches('/'));
+        let url = resolve_lineage_url(&self.config.url, self.config.endpoint.as_deref());
         let max_failures = self.config.max_failures.unwrap_or(3) as usize;
         let retry_delays_ms: &[u64] = &[0, 100, 500];
 

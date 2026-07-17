@@ -9,13 +9,32 @@ use serde_json::json;
 fn make_config(server_url: &str, max_failures: Option<u32>) -> LineageConfig {
     LineageConfig {
         url: server_url.to_string(),
+        endpoint: None,
         api_key: None,
         timeout_secs: Some(2),
         namespace: "test-ns".to_string(),
+        dataset_namespace: None,
         producer: None,
         max_failures,
         job_name: None,
     }
+}
+
+#[test]
+fn custom_endpoint_is_used_for_posts() {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/api/v1/openlineage/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut config = make_config(&format!("{}/", server.url()), None);
+    config.endpoint = Some("/api/v1/openlineage/lineage".to_string());
+    let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
+
+    obs.on_event(run_started_event());
+    mock.assert();
 }
 
 fn run_started_event() -> RunEvent {
@@ -987,7 +1006,8 @@ fn iceberg_accepted_uses_catalog_namespace_and_table_name() {
         .match_body(mockito::Matcher::PartialJson(json!({
             "eventType": "COMPLETE",
             "inputs": [{ "namespace": "s3://iceberg-data", "name": "bronze/sales/customers" }],
-            "outputs": [{ "namespace": "test-ns", "name": "sales_dev.customers" }]
+            "job": { "namespace": "test-ns" },
+            "outputs": [{ "namespace": "iceberg.prod", "name": "sales_dev.customers" }]
         })))
         .with_status(200)
         .expect(1)
@@ -1006,7 +1026,8 @@ fn iceberg_accepted_uses_catalog_namespace_and_table_name() {
         location: None,
     });
 
-    let config = make_config(&server.url(), None);
+    let mut config = make_config(&server.url(), None);
+    config.dataset_namespace = Some("iceberg.prod".to_string());
     let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
 
     obs.on_event(RunEvent::EntityStarted {
@@ -1028,6 +1049,46 @@ fn iceberg_accepted_uses_catalog_namespace_and_table_name() {
         ts_ms: 1_002_000,
     });
 
+    _start_mock.assert();
+    _complete_mock.assert();
+}
+
+#[test]
+fn iceberg_accepted_dataset_namespace_defaults_to_job_namespace() {
+    let mut server = mockito::Server::new();
+    let _start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .with_status(200)
+        .expect(1)
+        .create();
+    let _complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "job": { "namespace": "test-ns" },
+            "outputs": [{ "namespace": "test-ns", "name": "sales_dev.customers" }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut entity = make_entity(
+        "customers",
+        "s3://iceberg-data/bronze/sales/customers",
+        "s3://warehouse/silver/customers",
+        None,
+    );
+    entity.sink.accepted.iceberg = Some(IcebergSinkTargetConfig {
+        catalog: None,
+        namespace: Some("sales_dev".to_string()),
+        table: Some("customers".to_string()),
+        location: None,
+    });
+
+    let config = make_config(&server.url(), None);
+    let obs = OpenLineageObserver::new(&config, &[entity], "config.yml").unwrap();
+    obs.on_event(entity_started_event());
+    obs.on_event(entity_finished_event("customers", "success"));
     _start_mock.assert();
     _complete_mock.assert();
 }

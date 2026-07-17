@@ -1805,7 +1805,7 @@ dependencies = [
  "crc",
  "digest",
  "rustversion",
- "spin 0.10.0",
+ "spin 0.10.1",
 ]
 
 [[package]]
@@ -3205,9 +3205,9 @@ dependencies = [
 
 [[package]]
 name = "ethnum"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca81e6b4777c89fd810c25a4be2b1bd93ea034fbe58e6a75216a34c6b82c539b"
+checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
 
 [[package]]
 name = "event-listener"
@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "floe-cli"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "floe-core"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "apache-avro",
  "arrow",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "floe-python"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "floe-core",
  "pyo3",
@@ -4535,7 +4535,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin 0.9.8",
+ "spin 0.9.9",
 ]
 
 [[package]]
@@ -7535,15 +7535,15 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.8"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "spin"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 
 [[package]]
 name = "spki"

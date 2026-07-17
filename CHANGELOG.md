@@ -2,6 +2,16 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.9
+
+- **Configurable OpenLineage endpoint and Iceberg dataset namespace (#450).**
+  - `lineage.endpoint` configures the request path, defaulting to
+    `api/v1/lineage`; this supports OpenMetadata's native
+    `api/v1/openlineage/lineage` route without a proxy.
+  - `lineage.dataset_namespace` separates accepted Iceberg output dataset
+    identity from the stable OpenLineage job namespace, defaulting to
+    `lineage.namespace` for backward compatibility. See `docs/lineage.md`.
+
 ## v0.6.8
 
 - **Fix image runner using custom S3 URL**

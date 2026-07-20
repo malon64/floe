@@ -1092,3 +1092,68 @@ fn iceberg_accepted_dataset_namespace_defaults_to_job_namespace() {
     _start_mock.assert();
     _complete_mock.assert();
 }
+
+// Sole owner of the process-wide OPENLINEAGE_API_KEY variable. The crate has no
+// serial-test harness, so all three auth paths are asserted inside one test that
+// controls the variable's lifecycle; no other test reads it, and every other lineage
+// test either sets an explicit api_key (which wins over the env regardless) or does not
+// match on request headers, so this cannot race them.
+#[test]
+fn api_key_resolution_over_the_wire() {
+    std::env::remove_var("OPENLINEAGE_API_KEY");
+
+    // No config api_key and no env var => request carries no Authorization header.
+    {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/api/v1/lineage")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(200)
+            .expect(1)
+            .create();
+        let config = make_config(&server.url(), None);
+        let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
+        obs.on_event(run_started_event());
+        mock.assert();
+    }
+
+    // Manifest replay with api_key omitted + env var set => Bearer token from the env.
+    {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/api/v1/lineage")
+            .match_header("authorization", "Bearer env-replay-token")
+            .with_status(200)
+            .expect(1)
+            .create();
+        let manifest = format!(
+            r#"{{"spec_version":"0.3","report_base_uri":"file:///tmp","entities":[],"lineage":{{"url":"{}","namespace":"test-ns"}}}}"#,
+            server.url()
+        );
+        std::env::set_var("OPENLINEAGE_API_KEY", "env-replay-token");
+        let (config, _) =
+            floe_core::config_from_manifest_json(&manifest).expect("reconstruct manifest config");
+        let lineage = config.lineage.expect("manifest lineage block");
+        let obs = OpenLineageObserver::new(&lineage, &[], "").unwrap();
+        obs.on_event(run_started_event());
+        mock.assert();
+    }
+
+    // Explicit config api_key wins even when the env var is present (backward compatible).
+    {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/api/v1/lineage")
+            .match_header("authorization", "Bearer cfg-token")
+            .with_status(200)
+            .expect(1)
+            .create();
+        let mut config = make_config(&server.url(), None);
+        config.api_key = Some("cfg-token".to_string());
+        let obs = OpenLineageObserver::new(&config, &[], "config.yml").unwrap();
+        obs.on_event(run_started_event());
+        mock.assert();
+    }
+
+    std::env::remove_var("OPENLINEAGE_API_KEY");
+}

@@ -2,6 +2,23 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.10
+
+- **Runtime `OPENLINEAGE_API_KEY` resolution for lineage auth (#452).**
+  - When `lineage.api_key` is unset, Floe now resolves the Bearer token from the
+    `OPENLINEAGE_API_KEY` environment variable when the lineage observer is
+    constructed, matching the OpenLineage Python client and `dbt-ol`. This lets
+    orchestrated runners and manifest replays authenticate from a mounted
+    Kubernetes Secret without persisting the credential in the generated
+    manifest, Git, or object storage.
+  - Precedence: an explicit `lineage.api_key` still wins (backward compatible);
+    otherwise the environment variable is used; if neither is present, events are
+    sent unauthenticated as before.
+  - An unresolved `{{VAR}}` placeholder that survives into a manifest (e.g. a
+    profile-only `api_key` merged after config templating) is treated as absent,
+    so replay falls back to `OPENLINEAGE_API_KEY` instead of sending the literal
+    placeholder as the token. See `docs/lineage.md`.
+
 ## v0.6.9
 
 - **Configurable OpenLineage endpoint and Iceberg dataset namespace (#450).**

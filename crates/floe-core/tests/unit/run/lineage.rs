@@ -1158,22 +1158,21 @@ fn api_key_resolution_over_the_wire() {
     std::env::remove_var("OPENLINEAGE_API_KEY");
 }
 
-// ---- Manifest-replay dataset lineage (issue #455) -------------------------
-//
-// `floe run --manifest` previously built the observer with an empty entity
-// slice, so entity COMPLETE events carried empty `inputs`/`outputs` and no
-// upstream lineage edge was created. These tests exercise the real replay
-// wiring: a manifest JSON is reconstructed by `config_from_manifest_json` and
-// handed to `build_observer_from_manifest_json`, exactly as the CLI does. S3
-// URIs are copied verbatim by reconstruction and split deterministically by the
-// observer, so the asserted namespace/name are machine-independent.
+// ---- Manifest-replay dataset lineage (issue #455) ----
+// build_observer_from_manifest_json must feed the manifest's entities and their
+// resolved cloud URIs to the observer so replay emits non-empty inputs/outputs.
 
 fn replay_entity(name: &str, source_uri: &str, accepted_uri: &str) -> serde_json::Value {
     json!({
         "name": name,
         "source": { "format": "csv", "storage": "bronze", "uri": source_uri, "path": source_uri },
         "sinks": {
-            "accepted": { "format": "parquet", "storage": "warehouse", "path": accepted_uri }
+            "accepted": {
+                "format": "parquet",
+                "storage": "warehouse",
+                "uri": accepted_uri,
+                "path": accepted_uri
+            }
         },
         "schema": { "columns": [], "primary_key": [], "unique_keys": [] }
     })
@@ -1246,6 +1245,65 @@ fn manifest_replay_passes_entities_to_observer() {
 
     obs.on_event(entity_started("support_tickets"));
     obs.on_event(entity_finished_event("support_tickets", "success"));
+
+    start_mock.assert();
+    complete_mock.assert();
+}
+
+// Default manifest path mode records raw config paths in `path` and the resolved
+// cloud identity in `uri`. Lineage must report the cloud dataset from `uri`, not
+// a `file` namespace derived from the raw path (PR #456 review).
+#[test]
+fn manifest_replay_default_path_mode_uses_resolved_cloud_uri() {
+    let mut server = mockito::Server::new();
+
+    let start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({ "eventType": "START" }),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{ "namespace": "s3://lakehouse-bronze", "name": "sales/orders" }],
+            "outputs": [{ "namespace": "s3://lakehouse-warehouse", "name": "silver/orders" }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    // path = raw config paths (default mode); uri = resolved cloud identities.
+    let entity = json!({
+        "name": "orders",
+        "source": {
+            "format": "csv",
+            "storage": "bronze",
+            "uri": "s3://lakehouse-bronze/sales/orders",
+            "path": "sales/orders"
+        },
+        "sinks": {
+            "accepted": {
+                "format": "parquet",
+                "storage": "warehouse",
+                "uri": "s3://lakehouse-warehouse/silver/orders",
+                "path": "silver/orders"
+            }
+        },
+        "schema": { "columns": [], "primary_key": [], "unique_keys": [] }
+    });
+    let manifest = replay_manifest(&server.url(), json!([entity]));
+
+    let obs = floe_core::lineage::build_observer_from_manifest_json(&manifest, "")
+        .expect("observer builds from manifest")
+        .expect("manifest has a lineage block => Some observer");
+
+    obs.on_event(entity_started("orders"));
+    obs.on_event(entity_finished_event("orders", "success"));
 
     start_mock.assert();
     complete_mock.assert();

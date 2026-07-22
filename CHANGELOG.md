@@ -2,6 +2,18 @@
 
 All notable changes to Floe are documented in this file.
 
+## v0.6.11
+
+- **Manifest replay now emits dataset lineage (#455).** `floe run --manifest`
+  built the OpenLineage observer with an empty entity set, so entity `COMPLETE`
+  events were posted with empty `inputs`/`outputs` and no upstream lineage edge
+  was created (OpenMetadata accepted the events with HTTP 200 but produced no
+  Bronze-to-Silver edge). Replay now passes the manifest's reconstructed
+  entities to the observer, so source and sink datasets are emitted exactly as
+  in a direct config run. A resolved `s3://` source is reported with an
+  `s3://<bucket>` namespace and its bucket-relative key as the dataset name.
+  Direct config execution is unchanged. See `docs/lineage.md`.
+
 ## v0.6.10
 
 - **Runtime `OPENLINEAGE_API_KEY` resolution for lineage auth (#452).**

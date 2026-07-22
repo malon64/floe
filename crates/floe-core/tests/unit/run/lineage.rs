@@ -1157,3 +1157,229 @@ fn api_key_resolution_over_the_wire() {
 
     std::env::remove_var("OPENLINEAGE_API_KEY");
 }
+
+// ---- Manifest-replay dataset lineage (issue #455) ----
+// build_observer_from_manifest_json must feed the manifest's entities and their
+// resolved cloud URIs to the observer so replay emits non-empty inputs/outputs.
+
+fn replay_entity(name: &str, source_uri: &str, accepted_uri: &str) -> serde_json::Value {
+    json!({
+        "name": name,
+        "source": { "format": "csv", "storage": "bronze", "uri": source_uri, "path": source_uri },
+        "sinks": {
+            "accepted": {
+                "format": "parquet",
+                "storage": "warehouse",
+                "uri": accepted_uri,
+                "path": accepted_uri
+            }
+        },
+        "schema": { "columns": [], "primary_key": [], "unique_keys": [] }
+    })
+}
+
+fn replay_manifest(server_url: &str, entities: serde_json::Value) -> String {
+    json!({
+        "spec_version": "0.3",
+        "report_base_uri": "file:///tmp",
+        "entities": entities,
+        "lineage": { "url": server_url, "namespace": "test-ns" }
+    })
+    .to_string()
+}
+
+fn entity_started(name: &str) -> RunEvent {
+    RunEvent::EntityStarted {
+        run_id: "test-run-1".to_string(),
+        name: name.to_string(),
+        ts_ms: 1_001_000,
+    }
+}
+
+// Replaying a manifest with an entity emits the entity's source input and
+// accepted output — the regression from issue #455. With entities dropped
+// (the previous `&[]`), inputs/outputs would be empty and the subset match on
+// inputs[0]/outputs[0] would fail.
+#[test]
+fn manifest_replay_passes_entities_to_observer() {
+    let mut server = mockito::Server::new();
+
+    let start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({ "eventType": "START" }),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{
+                "namespace": "s3://lakehouse-bronze",
+                "name": "sales/customer_health/support_tickets"
+            }],
+            "outputs": [{
+                "namespace": "s3://lakehouse-warehouse",
+                "name": "silver/support_tickets"
+            }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let manifest = replay_manifest(
+        &server.url(),
+        json!([replay_entity(
+            "support_tickets",
+            "s3://lakehouse-bronze/sales/customer_health/support_tickets",
+            "s3://lakehouse-warehouse/silver/support_tickets",
+        )]),
+    );
+
+    let obs = floe_core::lineage::build_observer_from_manifest_json(&manifest, "")
+        .expect("observer builds from manifest")
+        .expect("manifest has a lineage block => Some observer");
+
+    obs.on_event(entity_started("support_tickets"));
+    obs.on_event(entity_finished_event("support_tickets", "success"));
+
+    start_mock.assert();
+    complete_mock.assert();
+}
+
+// Default manifest path mode records raw config paths in `path` and the resolved
+// cloud identity in `uri`. Lineage must report the cloud dataset from `uri`, not
+// a `file` namespace derived from the raw path (PR #456 review).
+#[test]
+fn manifest_replay_default_path_mode_uses_resolved_cloud_uri() {
+    let mut server = mockito::Server::new();
+
+    let start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({ "eventType": "START" }),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{ "namespace": "s3://lakehouse-bronze", "name": "sales/orders" }],
+            "outputs": [{ "namespace": "s3://lakehouse-warehouse", "name": "silver/orders" }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    // path = raw config paths (default mode); uri = resolved cloud identities.
+    let entity = json!({
+        "name": "orders",
+        "source": {
+            "format": "csv",
+            "storage": "bronze",
+            "uri": "s3://lakehouse-bronze/sales/orders",
+            "path": "sales/orders"
+        },
+        "sinks": {
+            "accepted": {
+                "format": "parquet",
+                "storage": "warehouse",
+                "uri": "s3://lakehouse-warehouse/silver/orders",
+                "path": "silver/orders"
+            }
+        },
+        "schema": { "columns": [], "primary_key": [], "unique_keys": [] }
+    });
+    let manifest = replay_manifest(&server.url(), json!([entity]));
+
+    let obs = floe_core::lineage::build_observer_from_manifest_json(&manifest, "")
+        .expect("observer builds from manifest")
+        .expect("manifest has a lineage block => Some observer");
+
+    obs.on_event(entity_started("orders"));
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    start_mock.assert();
+    complete_mock.assert();
+}
+
+// Firing events for only the selected entity (as `--entities orders` does)
+// still carries that entity's dataset context, because the observer holds all
+// manifest entities keyed by name.
+#[test]
+fn manifest_replay_entity_selection_keeps_dataset_context() {
+    let mut server = mockito::Server::new();
+
+    let start_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({ "eventType": "START" }),
+        ))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let complete_mock = server
+        .mock("POST", "/api/v1/lineage")
+        .match_body(mockito::Matcher::PartialJson(json!({
+            "eventType": "COMPLETE",
+            "inputs": [{ "namespace": "s3://lakehouse-bronze", "name": "sales/orders" }],
+            "outputs": [{ "namespace": "s3://lakehouse-warehouse", "name": "silver/orders" }]
+        })))
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let manifest = replay_manifest(
+        &server.url(),
+        json!([
+            replay_entity(
+                "orders",
+                "s3://lakehouse-bronze/sales/orders",
+                "s3://lakehouse-warehouse/silver/orders",
+            ),
+            replay_entity(
+                "customers",
+                "s3://lakehouse-bronze/sales/customers",
+                "s3://lakehouse-warehouse/silver/customers",
+            )
+        ]),
+    );
+
+    let obs = floe_core::lineage::build_observer_from_manifest_json(&manifest, "")
+        .expect("observer builds from manifest")
+        .expect("manifest has a lineage block => Some observer");
+
+    // Only "orders" runs; "customers" is not selected.
+    obs.on_event(entity_started("orders"));
+    obs.on_event(entity_finished_event("orders", "success"));
+
+    start_mock.assert();
+    complete_mock.assert();
+}
+
+// A manifest without a lineage block yields no observer (lineage disabled),
+// rather than erroring.
+#[test]
+fn manifest_replay_without_lineage_block_yields_no_observer() {
+    let manifest = json!({
+        "spec_version": "0.3",
+        "report_base_uri": "file:///tmp",
+        "entities": []
+    })
+    .to_string();
+
+    let obs = floe_core::lineage::build_observer_from_manifest_json(&manifest, "")
+        .expect("no error when lineage block is absent");
+
+    assert!(
+        obs.is_none(),
+        "manifest without lineage block => no observer"
+    );
+}

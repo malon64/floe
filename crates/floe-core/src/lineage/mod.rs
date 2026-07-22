@@ -635,6 +635,23 @@ pub fn build_observer(
     Ok(Arc::new(obs))
 }
 
+/// Build a lineage observer for a `--manifest` replay from the manifest's
+/// embedded lineage block and its entities' resolved cloud datasets, so replay
+/// emits the same input/output lineage as a direct config run. `Ok(None)` when
+/// the manifest has no `lineage` block. See
+/// [`crate::manifest::reconstruct::lineage_inputs_from_manifest_json`].
+pub fn build_observer_from_manifest_json(
+    manifest_json: &str,
+    config_path: &str,
+) -> crate::FloeResult<Option<Arc<dyn RunObserver>>> {
+    match crate::manifest::reconstruct::lineage_inputs_from_manifest_json(manifest_json)? {
+        Some((lineage_cfg, entities)) => {
+            build_observer(&lineage_cfg, &entities, config_path).map(Some)
+        }
+        None => Ok(None),
+    }
+}
+
 impl OpenLineageObserver {
     pub fn is_circuit_open(&self) -> bool {
         self.circuit_open.load(Ordering::Relaxed)

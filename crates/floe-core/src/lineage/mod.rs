@@ -635,6 +635,33 @@ pub fn build_observer(
     Ok(Arc::new(obs))
 }
 
+/// Build a lineage observer from a manifest JSON, wiring the manifest's
+/// reconstructed entities into the observer so a `--manifest` replay emits the
+/// same input/output dataset lineage as a direct config run.
+///
+/// The manifest carries the fully reconstructed entities (resolved source and
+/// sink identities); passing them to [`build_observer`] is what populates the
+/// per-entity dataset maps. Replaying with an empty entity slice — as the CLI
+/// previously did — leaves those maps empty, so every entity COMPLETE event is
+/// posted with empty `inputs`/`outputs` and no lineage edge is created.
+///
+/// Returns `Ok(None)` when the manifest has no `lineage` block (lineage
+/// disabled). Parse or observer-construction errors are surfaced to the caller,
+/// which logs a warning and runs without lineage — mirroring the direct-config
+/// path.
+pub fn build_observer_from_manifest_json(
+    manifest_json: &str,
+    config_path: &str,
+) -> crate::FloeResult<Option<Arc<dyn RunObserver>>> {
+    let (cfg, _) = crate::config_from_manifest_json(manifest_json)?;
+    match cfg.lineage.as_ref() {
+        Some(lineage_cfg) => {
+            build_observer(lineage_cfg, cfg.entities.as_slice(), config_path).map(Some)
+        }
+        None => Ok(None),
+    }
+}
+
 impl OpenLineageObserver {
     pub fn is_circuit_open(&self) -> bool {
         self.circuit_open.load(Ordering::Relaxed)

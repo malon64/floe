@@ -101,6 +101,10 @@ source path  →  <namespace>.<entity> job  →  accepted sink path
                                           →  rejected sink path (when present)
 ```
 
+Manifest replay (`floe run --manifest`) emits the same `inputs`/`outputs`
+datasets as a direct config run — the entities embedded in the manifest carry
+the resolved source and sink identities used to build them.
+
 ### Facets on entity COMPLETE/FAIL events
 
 Attached to the **accepted output dataset**:
